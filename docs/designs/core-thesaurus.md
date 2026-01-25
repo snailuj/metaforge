@@ -37,7 +37,7 @@ The Core Thesaurus provides the foundational search and word lookup functionalit
 - Ensures context-appropriate word selection
 
 ### Strategy C - Categorical Tabs
-- Separate tabs for Synonyms, Antonyms, Metonyms
+- Separate tabs for Synonyms, Antonyms (Metonyms tab added Phase 2+ pending research)
 - Internal sense-grouping when expanded
 - Clean visual separation
 
@@ -48,9 +48,10 @@ The Core Thesaurus provides the foundational search and word lookup functionalit
 
 **Word Entry Display:**
 - Word itself
-- Rarity/register badges (TBD for MVP)
+- Rarity badges (MVP — Common/Uncommon/Rare/Archaic via frequency corpus)
+- Register badges (Phase 2 — piggybacks on frequency infrastructure)
 - Part of speech
-- Connotation indicators (subtle colour coding)
+- Connotation indicators (Phase 2 — pending research spike)
 
 **Progressive Disclosure:** Essential info by default, expandable sections for etymology and word family details
 
@@ -58,13 +59,31 @@ The Core Thesaurus provides the foundational search and word lookup functionalit
 
 ## Interaction Model
 
+### Mouse Interaction (A/B Testable)
+
 **Database Words** (russet colour + slight underline):
-- **Left-click:** Navigate to word (updates 3D visualization)
-- **Right-click:** Copy word to clipboard
+
+| Action | Option A (Traditional) | Option B (Thesaurus-First) |
+|--------|------------------------|---------------------------|
+| Left-click | Navigate to word | Copy to clipboard |
+| Right-click | Context menu (copy, navigate) | Navigate to word |
+
+Feature-flagged for A/B testing. Option A shown as default pending user research.
 
 **UI Elements** (tabs, buttons, etc.):
 - **Left-click:** Standard UI interactions
-- **Right-click:** No special behavior
+- **Right-click:** No special behaviour
+
+### Keyboard Navigation
+
+| Key | Action |
+|-----|--------|
+| `/` | Focus search bar |
+| `Enter` | Navigate to selected word |
+| `Spacebar` | Copy selected word to clipboard |
+| `Tab` / `Shift+Tab` | Move through results |
+| `Arrow keys` | Navigate results list |
+| `Escape` | Close panels, cancel actions |
 
 ---
 
@@ -73,13 +92,15 @@ The Core Thesaurus provides the foundational search and word lookup functionalit
 **Essential Layer (always visible):**
 - Definition
 - Part of speech with inflections
-- 1-2 usage examples
-- Connotation indicators (positive/neutral/negative colour coding)
+- 1-2 usage examples (from WordNet where available, gracefully omit when not)
+- Connotation indicators (Phase 2 — pending research spike)
+
+**Results Ordering:** Semantic similarity only for MVP. Configurable sort options (alphabetical, frequency, register) in Phase 2.
 
 **Expandable Sections:**
-- **Etymology:** Word origin and root connections (TBD for MVP)
-- **Word Family:** Related words sharing etymological roots
-- **Usage Context:** Register and rarity details with corpus frequency
+- **Etymology:** Word origin and root connections (Phase 2 — pending research spike)
+- **Word Family:** Related words sharing etymological roots (Phase 2)
+- **Usage Context:** Rarity details with corpus frequency (MVP), register (Phase 2)
 - **Related Forms:** Inflections, derivatives, compounds
 
 **Visual Design:** Clean typography with word prominently displayed, russet colour/underline for database words throughout
@@ -90,9 +111,9 @@ The Core Thesaurus provides the foundational search and word lookup functionalit
 
 **Primary Sources:**
 - **WordNet:** Definitions, synonyms, antonyms, hypernyms, hyponyms, part of speech, usage examples
-- **ConceptNet:** Broader relations (HasProperty, UsedFor, PartOf, metonyms)
-- **Corpus Frequency:** Custom analysis for rarity classification (Common/Uncommon/Rare/Archaic)
-- **Etymology Database:** External integration (TBD for MVP - research needed)
+- **ConceptNet:** Broader relations (HasProperty, UsedFor, PartOf) — metonyms via SymbolOf pending research
+- **Frequency Corpus:** SUBTLEX-UK or similar for rarity classification (Common/Uncommon/Rare/Archaic) — MVP
+- **Etymology Database:** Etymological WordNet (2013) — research spike only, not wired into MVP
 
 **Derived Data:**
 - **Word Embeddings:** Semantic similarity for search and matching
@@ -110,9 +131,41 @@ Evaluated local SQLite + social API hybrid approach vs server-side queries. Loca
 Server-side queries chosen for simplicity, performance consistency, and proven reliability. Future Julian can revisit if use cases change.
 
 **Data Acquisition Tasks (Post-Design):**
-- Research and select etymology database source
-- Choose and process corpus for frequency analysis
+- Process SUBTLEX-UK or similar frequency corpus for rarity badges
 - Implement random sampling for data quality investigation
+
+---
+
+## Research Spikes (MVP)
+
+Investigate data sources without committing to wire them into the UI. Compare existing databases against Gemini enrichment.
+
+| Spike | Source | Purpose | MVP Outcome |
+|-------|--------|---------|-------------|
+| Etymology | Etymological WordNet (2013) | Assess coverage, patchiness | Report on usability |
+| Metonyms | ConceptNet `SymbolOf` + related edges | Assess what's actually there | Report on usability |
+| Connotation | ConceptNet sentiment edges | Assess reliability | Report on usability |
+| Gemini Enrichment | Gemini Flash extraction | Compare to DB sources | Quality comparison |
+
+---
+
+## Gemini Enrichment (Parallel Research Path)
+
+Extend Metaphor Forge property extraction to also capture enrichment data in a single LLM call.
+
+**Additional fields to extract:**
+- Metonyms (2-3 per word)
+- Connotation (positive/neutral/negative)
+- Register (formal/neutral/informal/slang)
+- Usage example (1-2 sentences)
+
+**Cost estimates:**
+- Pilot (1k synsets): ~$5
+- Full corpus (~120k synsets): ~$50-75 one-time
+
+**Approach:** Run pilot alongside existing DB research. Compare quality. If Gemini wins, process full corpus. One-time batch enrichment, results stored permanently.
+
+**Potential outcome:** If LLM enrichment proves reliable, create a modern open dataset filling gaps in frozen NLP databases (Etymological WordNet 2013, ConceptNet 2019)
 
 ---
 
@@ -178,11 +231,24 @@ Server-side queries chosen for simplicity, performance consistency, and proven r
 
 ---
 
+## Phase 2 Features (Post-MVP)
+
+- Recent searches (quick access to previous lookups)
+- Register badges
+- Connotation indicators
+- Etymology display (pending research spike)
+- Metonyms tab in Strategy C (pending research spike)
+- Configurable results ordering (alphabetical, frequency, register)
+
+---
+
 ## Next Steps
 
-1. **Data Acquisition:** Research etymology database and corpus sources
-2. **Implementation Planning:** Create detailed technical roadmap
-3. **TDD Setup:** Establish test framework and write failing tests
-4. **Core Implementation:** Build search system and results panel
-5. **Integration:** Connect with 3D visualization system
-6. **Testing:** Comprehensive test coverage and performance optimization
+1. **Frequency Data:** Process SUBTLEX-UK or similar for rarity badges
+2. **Research Spikes:** Pull etymology, metonym, connotation sources for investigation
+3. **Gemini Pilot:** Extend property extraction to include enrichment fields
+4. **Implementation Planning:** Create detailed technical roadmap
+5. **TDD Setup:** Establish test framework and write failing tests
+6. **Core Implementation:** Build search system and results panel
+7. **Integration:** Connect with 3D visualisation system
+8. **Testing:** Comprehensive test coverage and performance optimisation
