@@ -100,6 +100,15 @@ The Core Thesaurus provides the foundational search and word lookup functionalit
 
 **Storage:** Server-side SQLite database accessed via Go API, thin client makes HTTP requests
 
+**Architectural Decision Note (2026-01-25):** 
+Evaluated local SQLite + social API hybrid approach vs server-side queries. Local-first considered for offline performance, privacy, and scalability. However, rejected due to:
+- 50-100MB database download size (too large for initial load)
+- Complex search performance requirements on edge devices
+- DevOps complexity of database updates and versioning
+- Writers primarily use laptops with good internet connectivity
+
+Server-side queries chosen for simplicity, performance consistency, and proven reliability. Future Julian can revisit if use cases change.
+
 **Data Acquisition Tasks (Post-Design):**
 - Research and select etymology database source
 - Choose and process corpus for frequency analysis
