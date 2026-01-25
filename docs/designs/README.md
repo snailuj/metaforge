@@ -5,6 +5,7 @@ Feature-level brainstorms and design documents. These accumulate during design p
 ## Completed Designs
 
 - [metaphor-forge.md](./metaphor-forge.md) - Sprint Zero: property extraction, matching algorithm, tiers, Grimoire
+- [string-handling.md](./string-handling.md) - Cross-cutting: Fluent-based UI strings, versioned caching, locale stubs
 
 ## Pending Designs
 
