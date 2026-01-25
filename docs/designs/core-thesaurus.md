@@ -98,7 +98,7 @@ The Core Thesaurus provides the foundational search and word lookup functionalit
 - **Word Embeddings:** Semantic similarity for search and matching
 - **Pre-computed Indexes:** Fast debounced search results
 
-**Storage:** Static SQLite bundled with app, no external API calls at runtime
+**Storage:** Server-side SQLite database accessed via Go API, thin client makes HTTP requests
 
 **Data Acquisition Tasks (Post-Design):**
 - Research and select etymology database source
@@ -117,7 +117,7 @@ The Core Thesaurus provides the foundational search and word lookup functionalit
 
 **Performance:** "Searching..." indicator if debounce delay exceeded
 
-**Loading:** Brief spinner during initial database load (bundled SQLite = minimal loading)
+**Loading:** Brief spinner during initial API calls, client remains lightweight
 
 ---
 
@@ -158,9 +158,9 @@ The Core Thesaurus provides the foundational search and word lookup functionalit
 - Testable components with dependency injection
 
 **Performance Considerations:**
-- Aggressive caching for common search queries
-- Efficient database indexing for fast lookups
-- Minimal memory footprint for bundled SQLite
+- Server-side caching for common search queries
+- Efficient database indexing on Go backend
+- Minimal client memory footprint (thin client architecture)
 
 **Accessibility:**
 - Full keyboard navigation support
