@@ -6,13 +6,13 @@ Feature-level brainstorms and design documents. These accumulate during design p
 
 - [metaphor-forge.md](./metaphor-forge.md) - Sprint Zero: property extraction, matching algorithm, tiers, Grimoire
 - [string-handling.md](./string-handling.md) - Cross-cutting: Fluent-based UI strings, versioned caching, locale stubs
+- [core-thesaurus.md](./core-thesaurus.md) - Search, results panel, copy-to-clipboard, strategy pattern rendering
 
 ## Pending Designs
 
 - `3d-visualization.md` - Semantic solar system, antique theme, planet rendering
 - `word-hunt.md` - Daily quest, clue system, scoring, streaks
 - `constellation.md` - Personal journey map, minimap, navigation
-- `core-thesaurus.md` - Search, results panel, copy-to-clipboard
 
 ## Design Process
 
