@@ -1,0 +1,23 @@
+# Worktrees
+.worktrees/
+
+# Data pipeline outputs (generated, large)
+data-pipeline/output/
+data-pipeline/raw/
+data-pipeline/.venv/
+
+# Go
+api/metaforge
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
