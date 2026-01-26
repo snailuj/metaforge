@@ -43,33 +43,45 @@ RATE_LIMIT_DELAY = 1.0  # Seconds between calls
 # Options: "gemini-2.5-flash-lite", "gemini-2.5-flash"
 MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
 
-EXTRACTION_PROMPT = """You are extracting enriched linguistic data from word senses.
+EXTRACTION_PROMPT = """System Role: You are an expert Linguistic Data Scientist specializing in semantic analysis and figurative language.
 
-For each word sense, extract:
-1. **properties**: 5-10 abstract/structural properties describing what it DOES, how it BEHAVES, or what ROLE it plays. Focus on properties that could apply to things in OTHER domains.
-2. **metonyms**: 2-3 words commonly used as metonyms for this concept (e.g., "crown" for "monarchy"). Return empty array if none.
-3. **connotation**: "positive", "neutral", or "negative"
-4. **register**: "formal", "neutral", "informal", or "slang"
-5. **usage_example**: One natural sentence using this word sense.
+Task Guidelines: Analyze the provided word_sense | definition pairs and generate a JSONL response for each.
 
-Return JSONL (one JSON object per line).
+1. Properties (CRITICAL: Minimum 5 required): Extract 5-10 abstract, structural, or functional properties.
 
----
+Constraint: Decompose simple objects. Describe what it does, how it moves, or what it is made of.
 
-Input:
-anchor.n.01 | a mechanical device that prevents a vessel from moving
-river.n.01 | a large natural stream of water
-grief.n.01 | intense sorrow caused by loss
+2. Metonyms (The "Creative Writer" Check): List 2-3 words used metonymically or symbolically to stand in for this concept. Strictly NO synonyms.
 
-Output:
-{"id": "anchor.n.01", "properties": ["holds_in_place", "prevents_drift", "provides_stability", "heavy", "deployed_deliberately"], "metonyms": [], "connotation": "neutral", "register": "neutral", "usage_example": "The captain ordered the crew to drop anchor in the sheltered bay."}
-{"id": "river.n.01", "properties": ["flows", "carries_things", "has_source_and_destination", "shaped_by_terrain", "can_overflow", "erodes_over_time"], "metonyms": [], "connotation": "neutral", "register": "neutral", "usage_example": "The river wound through the valley, carving its path over centuries."}
-{"id": "grief.n.01", "properties": ["heavy", "comes_in_waves", "holds_in_place", "isolating", "gradually_subsides", "requires_processing"], "metonyms": ["tears", "mourning"], "connotation": "negative", "register": "neutral", "usage_example": "Her grief was overwhelming in the weeks after the funeral."}
+You MUST check for these specific Metonymy Types:
 
----
+Place for Industry: (e.g., "Wall Street" -> Finance, "Hollywood" -> Film).
 
-Input:
-{batch}
+Body Part for Function: (e.g., "Stomach" -> Appetite, "Brain" -> Intellect).
+
+Object/Clothing for Role: (e.g., "Crown" -> Monarchy, "Badge" -> Police, "Suits" -> Executives).
+
+Tool for Activity: (e.g., "Pen" -> Writing, "Sword" -> Warfare).
+
+Effect for Cause: (e.g., "Tears" -> Grief).
+
+If the word has no common creative metonym (like "sand" or "proton"), return [].
+
+3. Connotation: Assess the emotional weight: "positive", "neutral", or "negative". Lean away from "neutral" if any bias exists.
+
+4. Register: "formal", "neutral", "informal", or "slang".
+
+5. Usage Example: A natural sentence demonstrating the sense.
+
+Few-Shot Examples (Pattern Matching):
+
+Input: judiciary.n.01 | the system of law courts that administer justice Output: {"id": "judiciary.n.01", "properties": ["interprets_law", "resolves_disputes", "hierarchical_structure", "impartial", "government_branch", "checks_power"], "metonyms": ["the_bench", "the_gavel"], "connotation": "neutral", "register": "formal", "usage_example": "The judiciary must remain independent of political pressure."}
+
+Input: business.n.01 | the activity of providing goods and services Output: {"id": "business.n.01", "properties": ["generates_profit", "requires_capital", "involves_risk", "commercial_exchange", "competitive"], "metonyms": ["suits", "corporate_ladder"], "connotation": "neutral", "register": "neutral", "usage_example": "They are in the business of selling used cars."}
+
+Input: intellect.n.01 | the capacity for rational thought or inference Output: {"id": "intellect.n.01", "properties": ["processes_information", "solves_problems", "abstract_reasoning", "distinguishes_truth", "can_be_developed"], "metonyms": ["brain", "grey_matter"], "connotation": "positive", "register": "neutral", "usage_example": "Her keen intellect allowed her to solve the puzzle quickly."}
+
+Input Batch: {batch}
 
 Output:
 """
