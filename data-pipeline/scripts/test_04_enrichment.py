@@ -38,10 +38,11 @@ def test_enrichment_has_all_fields():
     for row in cursor:
         synset_id, props, metonyms, connotation, register, example = row
 
-        # Properties required
+        # Properties required (5-10 as per plan)
         props_list = json.loads(props)
         assert isinstance(props_list, list), f"{synset_id}: properties should be list"
-        assert len(props_list) >= 3, f"{synset_id}: expected 3+ properties"
+        assert 5 <= len(props_list) <= 10, \
+            f"{synset_id}: expected 5-10 properties, got {len(props_list)}"
 
         # Connotation should be valid value
         assert connotation in ('positive', 'neutral', 'negative', None), \
@@ -52,3 +53,31 @@ def test_enrichment_has_all_fields():
             f"{synset_id}: invalid register {register}"
 
     conn.close()
+
+def test_pilot_query_selects_high_frequency_words():
+    """Pilot synsets should prioritize high-frequency words."""
+    db_path = Path(__file__).parent.parent / "output" / "lexicon.db"
+    conn = sqlite3.connect(db_path)
+
+    # Get enriched synsets
+    cursor = conn.execute("""
+        SELECT e.synset_id, MAX(f.zipf) as max_zipf
+        FROM enrichment e
+        JOIN lemmas l ON e.synset_id = l.synset_id
+        JOIN frequencies f ON l.lemma = f.lemma
+        GROUP BY e.synset_id
+        ORDER BY max_zipf DESC
+        LIMIT 10
+    """)
+
+    results = cursor.fetchall()
+    conn.close()
+
+    # Verify we have results
+    assert len(results) > 0, "No enriched synsets with frequency data found"
+
+    # Top enriched synsets should have high Zipf scores (>= 5.0 is common)
+    for synset_id, zipf in results[:5]:
+        assert zipf >= 5.0, \
+            f"Expected high-frequency words in pilot, but {synset_id} has Zipf {zipf}"
+

@@ -15,14 +15,23 @@ import sqlite3
 import json
 import os
 import time
+import logging
 from pathlib import Path
 from typing import List, Dict, Optional
 from tqdm import tqdm
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 try:
     import google.generativeai as genai
 except ImportError:
     raise ImportError("Run: pip install google-generativeai")
+
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+except ImportError:
+    raise ImportError("Run: pip install tenacity")
 
 RAW_DIR = Path(__file__).parent.parent / "raw"
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
@@ -80,8 +89,14 @@ def get_synsets_for_pilot(conn: sqlite3.Connection, limit: int = 1000) -> List[D
 
     return [{"id": row[0], "definition": row[1]} for row in cursor.fetchall()]
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    reraise=True
+)
 def extract_batch(model, synsets: List[Dict]) -> List[Dict]:
-    """Extract enrichment for a batch of synsets."""
+    """Extract enrichment for a batch of synsets with retry logic."""
     batch_input = "\n".join(
         f"{s['id']} | {s['definition']}" for s in synsets
     )
@@ -92,14 +107,15 @@ def extract_batch(model, synsets: List[Dict]) -> List[Dict]:
 
     # Parse JSONL output
     results = []
-    for line in response.text.strip().split('\n'):
+    for line_num, line in enumerate(response.text.strip().split('\n'), 1):
         line = line.strip()
         if line.startswith('{'):
             try:
                 obj = json.loads(line)
                 if 'id' in obj and 'properties' in obj:
                     results.append(obj)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                logging.warning(f"Failed to parse JSON on line {line_num}: {line[:50]}... Error: {e}")
                 continue
 
     return results
@@ -165,9 +181,10 @@ def extract_enrichment():
 
             conn.commit()
 
-        except Exception as e:
-            print(f"\nError on batch {i}: {e}")
+        except (ConnectionError, TimeoutError, ValueError, KeyError) as e:
+            logging.error(f"Error on batch {i}: {type(e).__name__}: {e}")
             error_count += len(batch)
+            conn.rollback()
             continue
 
         # Rate limiting
