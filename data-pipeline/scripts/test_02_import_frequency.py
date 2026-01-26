@@ -25,45 +25,45 @@ def test_frequency_data_imported():
     assert count > 150000, f"Expected >150k frequency entries, got {count}"
 
 def test_frequency_has_required_fields():
-    """Each frequency entry should have word, frequency_count, zipf, and rarity_tier."""
+    """Each frequency entry should have lemma, frequency, zipf, and rarity."""
     db_path = Path(__file__).parent.parent / "output" / "lexicon.db"
     conn = sqlite3.connect(db_path)
     cursor = conn.execute(
-        "SELECT word, frequency_count, zipf, rarity_tier FROM frequencies LIMIT 1"
+        "SELECT lemma, frequency, zipf, rarity FROM frequencies LIMIT 1"
     )
     row = cursor.fetchone()
     conn.close()
 
     assert row is not None, "No frequency data found"
-    word, frequency_count, zipf, rarity_tier = row
-    assert isinstance(word, str) and len(word) > 0
-    assert isinstance(frequency_count, int) and frequency_count >= 0
+    lemma, frequency, zipf, rarity = row
+    assert isinstance(lemma, str) and len(lemma) > 0
+    assert isinstance(frequency, int) and frequency >= 0
     assert isinstance(zipf, float) and zipf >= 0
-    assert rarity_tier in ('common', 'uncommon', 'rare', 'archaic')
+    assert rarity in ('common', 'uncommon', 'rare', 'archaic')
 
 def test_rarity_tier_classification():
     """Rarity tiers should be correctly classified based on Zipf frequency."""
     db_path = Path(__file__).parent.parent / "output" / "lexicon.db"
     conn = sqlite3.connect(db_path)
-    
+
     # Test common words (Zipf >= 5)
-    cursor = conn.execute("SELECT COUNT(*) FROM frequencies WHERE zipf >= 5 AND rarity_tier = 'common'")
+    cursor = conn.execute("SELECT COUNT(*) FROM frequencies WHERE zipf >= 5 AND rarity = 'common'")
     common_count = cursor.fetchone()[0]
-    
+
     # Test uncommon words (4 <= Zipf < 5)
-    cursor = conn.execute("SELECT COUNT(*) FROM frequencies WHERE zipf >= 4 AND zipf < 5 AND rarity_tier = 'uncommon'")
+    cursor = conn.execute("SELECT COUNT(*) FROM frequencies WHERE zipf >= 4 AND zipf < 5 AND rarity = 'uncommon'")
     uncommon_count = cursor.fetchone()[0]
-    
+
     # Test rare words (3 <= Zipf < 4)
-    cursor = conn.execute("SELECT COUNT(*) FROM frequencies WHERE zipf >= 3 AND zipf < 4 AND rarity_tier = 'rare'")
+    cursor = conn.execute("SELECT COUNT(*) FROM frequencies WHERE zipf >= 3 AND zipf < 4 AND rarity = 'rare'")
     rare_count = cursor.fetchone()[0]
-    
+
     # Test archaic words (Zipf < 3)
-    cursor = conn.execute("SELECT COUNT(*) FROM frequencies WHERE zipf < 3 AND rarity_tier = 'archaic'")
+    cursor = conn.execute("SELECT COUNT(*) FROM frequencies WHERE zipf < 3 AND rarity = 'archaic'")
     archaic_count = cursor.fetchone()[0]
-    
+
     conn.close()
-    
+
     assert common_count > 0, "No common words found"
     assert uncommon_count > 0, "No uncommon words found"
     assert rare_count > 0, "No rare words found"
@@ -73,19 +73,30 @@ def test_known_words_have_expected_frequencies():
     """Common words should have expected frequency ranges."""
     db_path = Path(__file__).parent.parent / "output" / "lexicon.db"
     conn = sqlite3.connect(db_path)
-    
+
     # Test some common words that should be in SUBTLEX-UK
     test_words = ['the', 'and', 'house', 'computer']
-    
+
     for word in test_words:
         cursor = conn.execute(
-            "SELECT zipf, rarity_tier FROM frequencies WHERE word = ?", 
+            "SELECT zipf, rarity FROM frequencies WHERE lemma = ?",
             (word,)
         )
         row = cursor.fetchone()
         if row:  # Word might not exist in SUBTLEX-UK
-            zipf, rarity_tier = row
+            zipf, rarity = row
             assert isinstance(zipf, float) and zipf > 0
-            assert rarity_tier in ('common', 'uncommon', 'rare', 'archaic')
-    
+            assert rarity in ('common', 'uncommon', 'rare', 'archaic')
+
     conn.close()
+
+def test_zipf_values_in_valid_range():
+    """Zipf frequency scores should be in typical range (1.0 - 8.0)."""
+    db_path = Path(__file__).parent.parent / "output" / "lexicon.db"
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("SELECT MIN(zipf), MAX(zipf) FROM frequencies")
+    min_zipf, max_zipf = cursor.fetchone()
+    conn.close()
+
+    assert min_zipf >= 1.0, f"Min Zipf {min_zipf} below expected range (should be >= 1.0)"
+    assert max_zipf <= 8.0, f"Max Zipf {max_zipf} above expected range (should be <= 8.0)"

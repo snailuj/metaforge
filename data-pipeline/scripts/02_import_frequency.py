@@ -47,17 +47,17 @@ def import_frequency_data(db_path: Path, subtlex_path: Path) -> None:
     print("Creating frequencies table...")
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS frequencies (
-            word TEXT PRIMARY KEY,
-            frequency_count INTEGER NOT NULL,
+            lemma TEXT PRIMARY KEY,
+            frequency INTEGER NOT NULL,
             zipf REAL NOT NULL,
-            rarity_tier TEXT NOT NULL CHECK (rarity_tier IN ('common', 'uncommon', 'rare', 'archaic'))
+            rarity TEXT NOT NULL CHECK (rarity IN ('common', 'uncommon', 'rare', 'archaic'))
         )
     ''')
-    
+
     # Create index for faster lookups
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_frequencies_word ON frequencies(word)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_frequencies_lemma ON frequencies(lemma)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_frequencies_zipf ON frequencies(zipf)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_frequencies_rarity ON frequencies(rarity_tier)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_frequencies_rarity ON frequencies(rarity)')
     
     # Read and import SUBTLEX-UK data
     print(f"Reading SUBTLEX-UK data from: {subtlex_path}")
@@ -66,34 +66,31 @@ def import_frequency_data(db_path: Path, subtlex_path: Path) -> None:
     skipped_count = 0
     
     with open(subtlex_path, 'r', encoding='utf-8') as f:
-        # Skip header line if present
-        header = f.readline().strip()
-        print(f"Header: {header}")
-        
-        reader = csv.reader(f, delimiter='\t')
-        
-        for row_num, row in enumerate(reader, start=2):  # Start at 2 since we already read header
-            if len(row) < 3:
-                print(f"Skipping malformed row {row_num}: {row}")
-                skipped_count += 1
-                continue
-            
+        reader = csv.DictReader(f, delimiter='\t')
+
+        for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is line 1)
             try:
-                spelling = row[0].strip().lower()
-                freq_count = int(row[1].strip())
-                zipf = float(row[4].strip())  # LogFreq(Zipf) is at index 4
+                spelling = row['Spelling'].strip().lower()
+                freq_count = int(row['FreqCount'].strip())
+                # Try LogFreq(Zipf) column, fall back to alternative column names if present
+                zipf_raw = row.get('LogFreq(Zipf)') or row.get('SUBTLWF') or row.get('Lg10WF')
+                if not zipf_raw:
+                    print(f"Skipping row {row_num}: no Zipf frequency column found")
+                    skipped_count += 1
+                    continue
+                zipf = float(zipf_raw.strip())
                 
                 # Skip empty or invalid entries
                 if not spelling or freq_count < 0 or zipf < 0:
                     skipped_count += 1
                     continue
                 
-                rarity_tier = get_rarity_tier(zipf)
-                
+                rarity = get_rarity_tier(zipf)
+
                 cursor.execute('''
-                    INSERT OR REPLACE INTO frequencies (word, frequency_count, zipf, rarity_tier)
+                    INSERT OR REPLACE INTO frequencies (lemma, frequency, zipf, rarity)
                     VALUES (?, ?, ?, ?)
-                ''', (spelling, freq_count, zipf, rarity_tier))
+                ''', (spelling, freq_count, zipf, rarity))
                 
                 imported_count += 1
                 
@@ -113,13 +110,13 @@ def import_frequency_data(db_path: Path, subtlex_path: Path) -> None:
     total_count = cursor.fetchone()[0]
     
     cursor.execute('''
-        SELECT rarity_tier, COUNT(*) 
-        FROM frequencies 
-        GROUP BY rarity_tier 
+        SELECT rarity, COUNT(*)
+        FROM frequencies
+        GROUP BY rarity
         ORDER BY COUNT(*) DESC
     ''')
     rarity_stats = cursor.fetchall()
-    
+
     print(f"\nImport complete!")
     print(f"  Total words imported: {total_count:,}")
     print(f"  Words processed this run: {imported_count:,}")
@@ -127,12 +124,12 @@ def import_frequency_data(db_path: Path, subtlex_path: Path) -> None:
     print(f"\nRarity distribution:")
     for tier, count in rarity_stats:
         print(f"  {tier}: {count:,}")
-    
+
     # Sample some words to verify
     cursor.execute('''
-        SELECT word, zipf, rarity_tier 
-        FROM frequencies 
-        ORDER BY zipf DESC 
+        SELECT lemma, zipf, rarity
+        FROM frequencies
+        ORDER BY zipf DESC
         LIMIT 5
     ''')
     top_words = cursor.fetchall()
@@ -152,10 +149,10 @@ def main():
     
     try:
         import_frequency_data(db_path, subtlex_path)
-        print(f"\n✅ Frequency data successfully imported to {db_path}")
-        
+        print(f"\nFrequency data successfully imported to {db_path}")
+
     except Exception as e:
-        print(f"\n❌ Error importing frequency data: {e}")
+        print(f"\nError importing frequency data: {e}")
         raise
 
 if __name__ == "__main__":
