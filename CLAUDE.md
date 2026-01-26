@@ -27,6 +27,15 @@ Design complete. Ready for implementation planning.
 
 ---
 
+## Superpowers Skills
+
+The superpowers skills are bundled in this repo for portability (CCotW, remote sessions):
+- Location: `.claude-skills/claude-plugins-official/superpowers/4.1.1/skills/`
+- Mirrors global structure: `~/.claude/plugins/cache/claude-plugins-official/superpowers/4.1.1/`
+- Use with Skill tool as normal
+
+---
+
 ## ⚠️ DEVELOPMENT STANDARDS - NON-NEGOTIABLE ⚠️
 
 | Standard | Meaning |
