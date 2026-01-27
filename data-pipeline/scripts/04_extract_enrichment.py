@@ -24,9 +24,9 @@ from tqdm import tqdm
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 try:
-    import google.generativeai as genai
+    from google import genai
 except ImportError:
-    raise ImportError("Run: pip install google-generativeai")
+    raise ImportError("Run: pip install google-genai")
 
 try:
     from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -107,7 +107,7 @@ def get_synsets_for_pilot(conn: sqlite3.Connection, limit: int = 1000) -> List[D
     retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     reraise=True
 )
-def extract_batch(model, synsets: List[Dict]) -> List[Dict]:
+def extract_batch(client, model_name: str, synsets: List[Dict]) -> List[Dict]:
     """Extract enrichment for a batch of synsets with retry logic."""
     batch_input = "\n".join(
         f"{s['id']} | {s['definition']}" for s in synsets
@@ -115,7 +115,10 @@ def extract_batch(model, synsets: List[Dict]) -> List[Dict]:
 
     prompt = EXTRACTION_PROMPT.replace("{batch}", batch_input)
 
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model=model_name,
+        contents=prompt
+    )
 
     # Parse JSONL output
     results = []
@@ -138,8 +141,7 @@ def extract_enrichment():
     if not api_key:
         raise ValueError("Set GEMINI_API_KEY environment variable")
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(MODEL_NAME)
+    client = genai.Client(api_key=api_key)
 
     print(f"Using model: {MODEL_NAME}")
 
@@ -172,7 +174,7 @@ def extract_enrichment():
         batch = synsets[i:i + BATCH_SIZE]
 
         try:
-            results = extract_batch(model, batch)
+            results = extract_batch(client, MODEL_NAME, batch)
 
             # Store results
             for r in results:
