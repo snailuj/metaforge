@@ -8,6 +8,8 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 |----------|---------|
 | `Metaforge-PRD.md` | Full product requirements |
 | `IMPLEMENTATION-PLAN.md` | Technical architecture and phases |
+| `docs/plans/2026-01-26-sprint-zero.md` | Sprint Zero implementation plan (executing) |
+| `docs/plans/2026-01-28-performance-tuning.md` | Performance optimisation notes and scaling strategies |
 | `docs/designs/` | Feature brainstorms (start here for design context) |
 | `docs/designs/metaphor-forge.md` | ✓ Complete - Sprint Zero feature |
 | `MetaforgeConcept.png` | Visual reference (antique + cosmic themes) |

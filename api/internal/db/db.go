@@ -65,6 +65,58 @@ func GetSynset(db *sql.DB, synsetID string) (*Synset, error) {
 
 // GetSynsetsWithSharedProperties finds all synsets that share at least
 // one property with the source synset. Returns matches with shared properties.
+//
+// PERFORMANCE NOTE (Sprint Zero - Pilot Scale):
+// Current implementation loads all enriched synsets into memory and performs
+// in-memory property matching. This is acceptable for pilot (1k synsets) but
+// will require optimization for full corpus (120k synsets).
+//
+// SCALING CONSIDERATIONS FOR FULL CORPUS:
+//
+// Memory usage at full scale (120k synsets):
+// - ~120k rows × ~200 bytes/row (ID + JSON properties) = ~24 MB base memory
+// - Peak memory during processing could reach 50-100 MB with Go slice growth
+// - This is manageable, but response time will degrade (estimated 200-500ms per query)
+//
+// Required improvements for production:
+//
+// 1. STREAMING ARCHITECTURE:
+//    - Keep current row-by-row processing (already streaming from SQLite)
+//    - Add result limit/pagination (e.g., top 50 matches by overlap)
+//    - Consider early termination once N high-quality matches found
+//
+// 2. DATABASE OPTIMIZATIONS:
+//    - Add SQLite FTS5 (Full-Text Search) virtual table for property matching:
+//        CREATE VIRTUAL TABLE properties_fts USING fts5(synset_id, properties);
+//    - This enables SQL-side property intersection, offloading work from Go
+//    - Query becomes: SELECT * FROM properties_fts WHERE properties MATCH 'prop1 OR prop2 OR prop3'
+//    - Expected speedup: 10-50x for property lookups
+//
+// 3. CACHING STRATEGY:
+//    - Cache frequent queries (e.g., top 100 most-queried words)
+//    - Use LRU cache with 5-minute TTL
+//    - Reduces repeated full-table scans
+//
+// 4. INDEX ADDITIONS:
+//    - enrichment(synset_id) - already planned in pipeline Task 5
+//    - Consider JSON1 extension for property array indexing if FTS5 not used
+//
+// ALTERNATIVE: PostgreSQL with GIN indexes
+// - If SQLite FTS5 proves insufficient, migrate to PostgreSQL
+// - Use GIN (Generalized Inverted Index) on jsonb properties column
+// - Supports fast array overlap queries: properties ?| array['prop1','prop2']
+// - Trade-off: Adds operational complexity (PostgreSQL server management)
+// - SQLite remains preferable for MVP due to zero-ops deployment
+//
+// RECOMMENDATION FOR FULL CORPUS:
+// 1. Implement result limiting (top 50 matches) immediately
+// 2. Add SQLite FTS5 virtual table for property matching
+// 3. Test with full corpus - if query time < 100ms, ship it
+// 4. If inadequate, migrate to PostgreSQL with GIN indexes
+// 5. SQLite is likely sufficient for read-heavy workload with proper indexing
+//
+// The current implementation prioritizes correctness and simplicity for MVP.
+// Performance optimization should be data-driven after full corpus extraction.
 func GetSynsetsWithSharedProperties(db *sql.DB, sourceID string) ([]SynsetMatch, error) {
 	source, err := GetSynset(db, sourceID)
 	if err != nil {
