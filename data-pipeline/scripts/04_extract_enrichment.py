@@ -36,7 +36,7 @@ except ImportError:
 RAW_DIR = Path(__file__).parent.parent / "raw"
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
-BATCH_SIZE = 30  # Synsets per API call
+BATCH_SIZE = 20  # Synsets per API call
 RATE_LIMIT_DELAY = 1.0  # Seconds between calls
 
 # Model selection - start with cheapest, escalate if quality poor
