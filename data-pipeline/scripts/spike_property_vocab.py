@@ -164,7 +164,7 @@ def extract_properties_batch(client, synsets: List[Dict]) -> List[Dict]:
                 for s in synsets]
 
 
-def run_spike(batch_size: int = 20, pilot_size: int = 100):
+def run_spike(batch_size: int = 20, pilot_size: int = 100, output_file: Path = None):
     """Run property vocabulary spike."""
     api_key = os.environ.get('GEMINI_API_KEY')
     if not api_key:
@@ -225,14 +225,18 @@ def run_spike(batch_size: int = 20, pilot_size: int = 100):
         }
     }
 
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    with open(OUTPUT_FILE, 'w') as f:
+    # Use provided output_file or default based on pilot_size
+    if output_file is None:
+        output_file = OUTPUT_DIR / f"property_pilot_{pilot_size}.json"
+
+    output_file.parent.mkdir(exist_ok=True)
+    with open(output_file, 'w') as f:
         json.dump(output, f, indent=2)
 
     print(f"\nSpike complete!")
     print(f"  Unique properties: {output['stats']['unique_properties']}")
     print(f"  Avg properties/synset: {output['stats']['avg_properties_per_synset']}")
-    print(f"  Output: {OUTPUT_FILE}")
+    print(f"  Output: {output_file}")
 
     conn.close()
 
@@ -253,9 +257,16 @@ def main():
         default=100,
         help="Total number of synsets to process (default: 100)"
     )
+    parser.add_argument(
+        "--output", "-o",
+        type=str,
+        default=None,
+        help="Output file path (default: property_pilot_<size>.json)"
+    )
     args = parser.parse_args()
 
-    run_spike(batch_size=args.batch_size, pilot_size=args.pilot_size)
+    output_file = Path(args.output) if args.output else None
+    run_spike(batch_size=args.batch_size, pilot_size=args.pilot_size, output_file=output_file)
 
 
 if __name__ == "__main__":
