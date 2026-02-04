@@ -1,3 +1,5 @@
+The following prompt is your future assignment. Please ask me questions one by one that arise from this assignment until we are ready to go.
+
 # Metaforge Data Pipeline Rebuild - Detailed Code Generation Prompt
 
 ## Table of Contents
@@ -12,16 +14,30 @@
 9.  Deliverables and File Structure
 
 ## 1. Project Overview
-You will rebuild the data pipeline for **Metaforge**, an educational app (MIT licensed) that gamifies discovery of figurative language (metaphors, word hunt games, metonyms) for Middle Grades students (Grades 4-8). The current pipeline (sch.v1) combines OEWN, GloVe embeddings, and SUBTLEX-UK. The new pipeline (sch.v2) will use `sqlunet` as a foundation, GloVe embeddings (optional), SUBTLEX-UK (optional) plus additional dependencies recommended in the course of this rebuild (optional). This prompt provides detailed instructions for each phase of the rebuild, emphasizing thorough assessment, thoughtful design, and robust implementation. Remember that human-in-the-loop checkpoints are mandatory after each phase.
+You will rebuild the data pipeline for **Metaforge**, which is design-only at this stage (no prototype of the full system exists). Metaforge is envisioned as an educational app (MIT licensed) that gamifies discovery of figurative language (metaphors, word hunt games, metonyms) for Middle Grades students (Grades 4-8). We are working on curating our data-set first. Our first attempted data pipeline (sch.v1) combines OEWN, GloVe embeddings, and SUBTLEX-UK. The new pipeline (sch.v2) will use `sqlunet` as a foundation, GloVe embeddings (optional), SUBTLEX-UK (optional) plus additional dependencies recommended in the course of this rebuild (optional). This prompt provides detailed instructions for each phase of the rebuild, emphasizing thorough assessment, thoughtful design, and robust implementation. Remember that human-in-the-loop checkpoints are mandatory after each phase.
 
 ## 2. Development Environment
 
 *   **Language**: Python 3.9+
 *   **Database**: SQLite
 *   **LLM**: Gemini Flash 2.5 Lite
-*   **Environment**: Production
-*   **Dependencies**: Use `pip` to manage dependencies. Specify required packages in a `requirements.txt` file. Use a dedicated `venv` for environment isolation.
-*   **Existing Codebase**: Check the existing codebase for patterns, established libraries (e.g., for database interaction, data transformation, logging), and coding conventions. Follow these conventions.
+*   **Environment**: Dev
+*   **Dependencies**: Use `pip` to manage dependencies. Specify required packages in a `requirements.txt` file. Use a dedicated `venv` for environment isolation, without exception.
+*   **Existing Codebase**
+    * `project_root`: `/home/msi/projects/metaforge/`
+    * Two branches:
+        *   `main`: checked out to `project_root`
+            *   Look for: this Code Generation Prompt and the `sqlunet_master.db`
+            *   Contains the latest documentation
+        *   `sprint-zero`: checked out to `<project_root>/.worktrees/sprint-zero/`
+            *   Look for: `api/` and `data-pipeline/` directories
+            *   Contains the first attempted data-pipeline and some initial work on a Golang API
+    * Check documentation to understand the current design and future direction.
+        *   `Metaforge-PRD.md`: the biggest picture overview of the system as currently imagined. It is also the earliest of the design artifacts; some aspects may be superseded by subsequent designs.
+        *   `IMPLEMENTATION_PLAN.md`: the first high-level implementation brainstorm. Contains application decomposition, MVP definition, required coding standards, decisions about the technology stack, order of implementation. Some aspects may be superseded by subsequent designs.
+        *   **Sprint Zero**:
+            *   **Canonical** technical design brainstorms exist for Core Thesaurus, the Metaphor Forge, and String Handling. These are the source of truth for the current data pipeline. Check `docs/designs/README.md` for details about what to find and where.
+            *   **Low-level** technical implementation plan for Sprint Zero: `docs/plans/2026-01-26-sprint-zero.md`. This is very specific, and may not reflect the state of the code as implemented.
 *   **Error Handling**: Implement robust error handling using `try...except` blocks. Log all errors with detailed information, including timestamps and traceback.
 *   **Logging**: Use a logging library to record all significant events during data processing, including data validation results, transformation steps, and API calls.
 *   **Configuration**: Use environment variables for sensitive information like API keys and database paths. [Illustrative]
@@ -30,29 +46,53 @@ You will rebuild the data pipeline for **Metaforge**, an educational app (MIT li
 
 **Objective**: Understand the existing data pipeline.
 
-**Output**: `docs/archaeology-report.md` (Markdown format).
+**Output**: `docs/review/sprint-zero/data-pipeline-review.md` (Markdown format).
 
 **Tasks**:
 
+0.  **Archaeology Report**:
+    *   Create the document `docs/review/sprint-zero/data-pipeline-review.md`
+    *   Populate with
+
 1.  **Locate Existing Pipeline Work**:
+    *   Ensure you are in the **Sprint Zero** worktree (see `## 2. Development Environment > Existing Codebase`)
     *   Search for SQL schemas, Python scripts, data processing code.
     *   Identify any documentation about data model decisions.
     *   Find the current enrichment prompt(s) used for LLM calls.
     *   Locate any test data or validation scripts.
-2.  **Document the Current State**:
+    *   In a "References" section within the Archaeology Report, note down all locations (file, line-number ranges if applicable) that seem relevant
+    *   This list of locations is expected to grow throughout Phase 0, format accordingly.
+2.  **Prepare the Codebase**:
+    *   Create a new worktree based on `sprint-zero` for the `sqlunet` rebuild and switch to it
+    *   All future work in this prompt should be carried out on the new worktree unless another worktree or branch is explicitly mentioned
+    *   Ensure the `sqlunet_master` database is available
+3.  **Document the Current State**:
     *   What data sources are currently integrated?
     *   What is the schema structure (sch.v1)? Include a diagram, if available.
     *   How are "surprise" calculations currently performed (semantic distance, ratio of frequencies, etc)
     *   What enrichment fields exist? Provide a detailed description of each field.
     *   What gaps or pain points have been noted? List any known issues or TODOs.
-    *   Read git history for information about what was implemented, changed, or dropped. List any significant deviations from plan and outstanding issues.
+    *   How accurate and effective is the translation from high-level design (`Metaforge-PRD.md` -> `IMPLEMENTATION_PLAN.md` -> `docs/designs/[Core Thesaurus, Metaphor Forge, etc]`) -> subsequent low-level design and code. List any deviations from high-level design to code, and any possible repercussions.
+    *   Read git history for information about what was implemented, changed, or dropped. List any significant deviations from plan, outstanding issues and any repercussions.
+    *   Inclue references for all claims by referring to the locations you identified in Step 1. This is non-negotiable. You are free to add to the locations in Step 1 as you find more information.
+    *   Where a claim is based upon commit history, you must reference commit SHAs and again refer to specific locations within the list from Step 1 to show evidence of the deviation.
 
-**`docs/archaeology-report.md` Content Requirements**:
+**Archaeology Report: Content Requirements**:
 
 *   Inventory of existing pipeline components with descriptions and file paths.
 *   Current schema diagram or detailed description, including table names, column names, data types, and relationships.
 *   List of known issues or TODOs extracted from code comments and documentation.
 *   Any design rationale found in documentation.
+
+**Self-Verification Loop**:
+
+1.  Read through the list of Tasks above, and the Content Requirements
+2.  Compare against the contents of `docs/review/sprint-zero/data-pipeline-review.md` for evidence of gaps, inconsistencies, or missing references
+3.  For each issue uncovered:
+    *   Carry out the required archaeology and fill in the missing information.
+    *   Document why it was initially missed.
+4.  Repeat until: no problems are identified in Step 2.
+5.  **Escape hatch**: If iteration exceeds 3 cycles, flag remaining gaps for human review rather than continuing indefinitely.
 
 ## 4. Phase 1: Assess - Detailed Instructions
 
@@ -60,8 +100,7 @@ You will rebuild the data pipeline for **Metaforge**, an educational app (MIT li
 
 **Data Access**:
 
-*   **Primary**: Query the pre-loaded SQLite database (`sqlunet_master`) at `[PATH_TO_SQLUNET_DB]` [Illustrative].
-*   **Reference**: Consult SQL DDL files at `[PATH_TO_SQL_DUMPS]` [Illustrative] for design intent and comments.
+*   **Primary**: Query `sqlunet_master`
 
 **Research Questions for Each Dataset (OEWN, VerbNet, PropBank, FrameNet, SUMO, BNC, ILFwn, GlossLF, XWordNet)**:
 
@@ -318,12 +357,12 @@ Each example should show:
 - Document your reasoning, not just conclusions
 - If you hit a blocker, describe it clearly rather than guessing
 
-## 9. Deliverables and File Structure
-
+## 9. Deliverables and File Structure [Illustrative]
+The following is a suggested file structure, changes are likely as the research proceeds.
 ```
-metaforge-pipeline/
-├── docs/
-│   ├── archaeology-report.md
+metaforge/<worktree>
+├── docs/review/sprint-zero/
+│   ├── data-pipeline-review.md
 │   └── remix-discussion.md
 ├── scripts/
 │   ├── create_schema.sql
@@ -332,8 +371,9 @@ metaforge-pipeline/
 │   └── run_enrichment.py
 ├── prompts/
 │   └── enrichment_prompt.md
-├── data/
-│   └── (working data files - e.g., sampled lemmas)
+├── data-pipeline/
+│   ├── raw/sqlunet_master.db
+│   └── output/(working data files - e.g., sampled lemmas)
 ├── requirements.txt
 └── README.md (with instructions on how to set up and run the pipeline)
 ```
