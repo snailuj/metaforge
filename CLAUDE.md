@@ -51,6 +51,21 @@ The superpowers skills are bundled in this repo for portability (CCotW, remote s
 
 ---
 
+## Database Policy
+
+- **Never commit `.db` binaries** — they are gitignored.
+- **Commit SQL text dumps** (`sqlite3 <db> .dump > <file>.sql`) containing schema + data.
+- **Dumps must be idempotent:** restore into a fresh SQLite database via `restore_db.sh`.
+- Current dump: `data-pipeline/output/lexicon_v2.sql`
+- Restore script: `data-pipeline/scripts/restore_db.sh`
+
+## Secrets Policy
+
+- **NEVER commit API keys, tokens, passwords, or other secrets** to the repo or database — not in code, config, SQL dumps, comments, or test fixtures.
+- Secrets must be loaded from environment variables or external files that are gitignored (e.g. `~/.gemini_api_key`).
+- **Encrypted secrets require human approval** before being added to the repo. A human must be in the loop for any encryption/decryption workflow to ensure accountability.
+- If you encounter a secret in staged changes, **stop and alert the user** before committing.
+
 ## Coding Style
 
 - **Paradigm:** FP over OOP, but pragmatic
