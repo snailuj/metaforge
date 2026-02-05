@@ -3,6 +3,8 @@ package db
 
 import (
 	"testing"
+
+	"github.com/snailuj/metaforge/internal/embeddings"
 )
 
 func TestOpenDatabase(t *testing.T) {
@@ -230,5 +232,162 @@ func TestGetSynsetsResultsAreSortedByScore(t *testing.T) {
 			t.Errorf("Results not sorted: match[%d].TotalScore (%f) > match[%d].TotalScore (%f)",
 				i, matches[i].TotalScore, i-1, matches[i-1].TotalScore)
 		}
+	}
+}
+
+func TestGetForgeMatchesReturnsResults(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Find a synset with 5+ properties and a centroid
+	var synsetID string
+	err = db.QueryRow(`
+		SELECT sp.synset_id
+		FROM synset_properties sp
+		JOIN synset_centroids sc ON sc.synset_id = sp.synset_id
+		GROUP BY sp.synset_id
+		HAVING COUNT(*) >= 5
+		LIMIT 1
+	`).Scan(&synsetID)
+	if err != nil {
+		t.Skipf("No synset with 5+ properties and centroid: %v", err)
+	}
+
+	matches, err := GetForgeMatches(db, synsetID, 0.7, 50)
+	if err != nil {
+		t.Fatalf("GetForgeMatches failed: %v", err)
+	}
+
+	if len(matches) == 0 {
+		t.Skip("No matches found")
+	}
+
+	for _, m := range matches {
+		if m.SynsetID == "" {
+			t.Error("Match has empty synset ID")
+		}
+		if m.Word == "" {
+			t.Errorf("Match %s has empty Word", m.SynsetID)
+		}
+		if m.Definition == "" {
+			t.Errorf("Match %s has empty Definition", m.SynsetID)
+		}
+		if m.TotalScore <= 0 {
+			t.Errorf("Match %s has invalid TotalScore: %f", m.SynsetID, m.TotalScore)
+		}
+	}
+}
+
+func TestGetForgeMatchesExactOverlap(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	var synsetID string
+	err = db.QueryRow(`
+		SELECT sp.synset_id
+		FROM synset_properties sp
+		JOIN synset_centroids sc ON sc.synset_id = sp.synset_id
+		GROUP BY sp.synset_id
+		HAVING COUNT(*) >= 5
+		LIMIT 1
+	`).Scan(&synsetID)
+	if err != nil {
+		t.Skipf("No synset with 5+ properties and centroid: %v", err)
+	}
+
+	matches, err := GetForgeMatches(db, synsetID, 0.7, 50)
+	if err != nil {
+		t.Fatalf("GetForgeMatches failed: %v", err)
+	}
+
+	for _, m := range matches {
+		// ExactOverlap should be consistent with SharedProperties length
+		if m.ExactOverlap != len(m.SharedProperties) {
+			t.Errorf("Match %s: ExactOverlap=%d but len(SharedProperties)=%d",
+				m.SynsetID, m.ExactOverlap, len(m.SharedProperties))
+		}
+	}
+}
+
+func TestGetForgeMatchesCentroidsReturned(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	var synsetID string
+	err = db.QueryRow(`
+		SELECT sp.synset_id
+		FROM synset_properties sp
+		JOIN synset_centroids sc ON sc.synset_id = sp.synset_id
+		GROUP BY sp.synset_id
+		HAVING COUNT(*) >= 5
+		LIMIT 1
+	`).Scan(&synsetID)
+	if err != nil {
+		t.Skipf("No synset with 5+ properties and centroid: %v", err)
+	}
+
+	matches, err := GetForgeMatches(db, synsetID, 0.7, 50)
+	if err != nil {
+		t.Fatalf("GetForgeMatches failed: %v", err)
+	}
+
+	if len(matches) == 0 {
+		t.Skip("No matches found")
+	}
+
+	for _, m := range matches {
+		if len(m.SourceCentroid) != embeddings.EmbeddingDim {
+			t.Errorf("Match %s: SourceCentroid has %d dims, expected %d",
+				m.SynsetID, len(m.SourceCentroid), embeddings.EmbeddingDim)
+		}
+		if len(m.TargetCentroid) != embeddings.EmbeddingDim {
+			t.Errorf("Match %s: TargetCentroid has %d dims, expected %d",
+				m.SynsetID, len(m.TargetCentroid), embeddings.EmbeddingDim)
+		}
+
+		// Distance computed from centroids should be valid
+		dist := embeddings.CosineDistance(m.SourceCentroid, m.TargetCentroid)
+		if dist < 0 || dist > 2 {
+			t.Errorf("Match %s: invalid distance %f from centroids", m.SynsetID, dist)
+		}
+	}
+}
+
+func TestGetForgeMatchesLimitRespected(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	var synsetID string
+	err = db.QueryRow(`
+		SELECT sp.synset_id
+		FROM synset_properties sp
+		JOIN synset_centroids sc ON sc.synset_id = sp.synset_id
+		GROUP BY sp.synset_id
+		HAVING COUNT(*) >= 5
+		LIMIT 1
+	`).Scan(&synsetID)
+	if err != nil {
+		t.Skipf("No synset with 5+ properties and centroid: %v", err)
+	}
+
+	matches, err := GetForgeMatches(db, synsetID, 0.5, 5)
+	if err != nil {
+		t.Fatalf("GetForgeMatches failed: %v", err)
+	}
+
+	if len(matches) > 5 {
+		t.Errorf("Expected at most 5 results, got %d", len(matches))
 	}
 }
