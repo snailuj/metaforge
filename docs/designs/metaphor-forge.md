@@ -231,5 +231,5 @@ IndexedDB (local, no account needed for MVP).
 ## Related Documents
 
 - `Metaforge-PRD.md` - Full product requirements (needs 5-tier update)
-- `IMPLEMENTATION-PLAN.md` - Technical implementation phases
+- `Metaforge-Build-Map.md` - Technical implementation phases
 - `MetaforgeConcept.png` - Visual concept art (antique + cosmic themes)

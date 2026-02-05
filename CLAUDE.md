@@ -7,9 +7,10 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 | Document | Purpose |
 |----------|---------|
 | `Metaforge-PRD.md` | Full product requirements |
-| `IMPLEMENTATION-PLAN.md` | Technical architecture and phases |
+| `Metaforge-Build-Map.md` | Technical architecture and phases |
 | `docs/designs/` | Feature brainstorms (start here for design context) |
-| `docs/designs/metaphor-forge.md` | ✓ Complete - Sprint Zero feature |
+| `docs/plans/` | Detailed implementation plans |
+| `docs/designs/metaphor-forge.md` | Sprint Zero feature |
 | `MetaforgeConcept.png` | Visual reference (antique + cosmic themes) |
 
 ## Architecture
@@ -51,8 +52,8 @@ Design complete. Ready for implementation planning.
 
 | Feature | Status |
 |---------|--------|
-| Metaphor Forge | ✓ Design complete |
-| Core Thesaurus | ◐ Started |
-| 3D Visualization | ○ Not started |
-| Word Hunt | ○ Not started |
-| Constellation | ○ Not started |
+| Metaphor Forge | ✓ Tech Design complete | ◐ Implementation started in `sprint-zero` branch / worktree |
+| Core Thesaurus | ◐ Tech Design Started | ◐ Implementation started in `sprint-zero |
+| 3D Visualization | ○ Tech Design Not started | ○ Impl not started |
+| Word Hunt | ○ Tech Design Not started | ○ Impl not started |
+| Constellation | ○ Tech Design Not started | ○ Impl not started |

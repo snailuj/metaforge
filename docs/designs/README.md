@@ -1,6 +1,6 @@
 # Metaforge Feature Designs
 
-Feature-level brainstorms and design documents. These accumulate during design phase, then synthesize into `IMPLEMENTATION-PLAN.md` once all major features are designed.
+Feature-level brainstorms and design documents. These accumulate during design phase, then synthesize into `Metaforge-Build-Map.md` once all major features are designed.
 
 ## Completed Designs
 
@@ -18,5 +18,5 @@ Feature-level brainstorms and design documents. These accumulate during design p
 
 1. Brainstorm feature in conversation
 2. Save to `docs/designs/{feature-name}.md`
-3. Once all major features designed, update `IMPLEMENTATION-PLAN.md`
+3. Once all major features designed, update `Metaforge-Build-Map.md`
 4. Then move to implementation with TDD
