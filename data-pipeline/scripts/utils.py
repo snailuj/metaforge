@@ -7,10 +7,10 @@ OUTPUT_DIR = SCRIPTS_DIR.parent / "output"
 LEXICON_V2 = OUTPUT_DIR / "lexicon_v2.db"
 PILOT_FILE = OUTPUT_DIR / "property_pilot_2k.json"
 
-# External data (in main project, not worktree)
-PROJECT_ROOT = SCRIPTS_DIR.parent.parent.parent.parent
+# External data
+PROJECT_ROOT = SCRIPTS_DIR.parent.parent.parent.parent  # /home/msi/projects/metaforge
 SQLUNET_DB = PROJECT_ROOT / "sqlunet_master.db"
-FASTTEXT_VEC = PROJECT_ROOT / "sprint-zero" / "data-pipeline" / "output" / "wiki-news-300d-1M.vec"
+FASTTEXT_VEC = OUTPUT_DIR / "wiki-news-300d-1M.vec"  # Local to this worktree
 
 # Embedding configuration
 EMBEDDING_DIM = 300  # FastText 300d
