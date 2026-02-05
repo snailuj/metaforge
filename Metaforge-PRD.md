@@ -10,13 +10,18 @@
 
 ## Executive Summary
 
-Metaforge is a browser-based visual thesaurus that transforms vocabulary exploration into a spatial adventure. It combines the utility of a fully-featured thesaurus with the wonder of navigating a semantic universe.
+Metaforge is a blazing 🔥 fast browser-based visual dictionary / thesaurus designed to introduce Middle Grades students and adult writers to the full power of the English language. With seamless age-appropriate word-level filtering, children gain knowledge in a curated environment. Adults and children alike appreciate our warp-speed word search. Definitions, synonyms, etymology, collocations / metonyms, a metaphor generator that actually works, and a 3D starfield to transform vocabulary into a spatial exploration. Metaforge combines the utility of a fully-featured dictionary and thesaurus with the excitement and wonder of navigating a semantic universe, with word hunts, generic-language gravity-wells, personal constellations and collections, and hidden surprises.
 
 **Primary constraint:** Metaforge must function as a feature-complete, easy-to-use thesaurus first. All game mechanics and exploration features enhance but never obstruct core utility.
 
 **Target audience:** Young adults, students, and creative writers -- anyone from a 12-year-old writing their first story to an adult novelist seeking the perfect word.
 
 **Platform:** Desktop-first (writers use laptops), browser-based, fully self-hosted, open-source, no paid API dependencies.
+
+### Outstanding Design Questions
+The following have not been scoped and require brainstorming
+- [ ] Product Market Fit: the big one -- do people WANT this? Not "will they pay?", not "is it fun?" -- do they WANT it.
+- [ ] Monetisation: sell to schools? End-consumers? Central Government education agencies?
 
 ---
 

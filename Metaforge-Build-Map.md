@@ -1,4 +1,4 @@
-# Metaforge Implementation Plan
+# Metaforge Implementation Map
 
 ---
 
@@ -82,8 +82,9 @@
 | Layer | Technology | Rationale |
 |-------|------------|-----------|
 | Backend API | Go + Chi router | Efficient, user preference |
-| Database | SQLite (embedded) | Self-contained, no external DB needed |
-| Embeddings | Binary file + kd-tree | Fast similarity lookups |
+| Database | SQLite (lexicon_v2.db) | Self-contained, no external DB needed |
+| Embeddings | FastText 300d (in-db BLOB) | Property similarity via cosine distance |
+| LLM Enrichment | Gemini Flash 2.5 | Property extraction from synset definitions |
 | Frontend | TypeScript + Vite | Modern tooling, fast HMR |
 | 3D Rendering | Three.js + WebGPU | Browser-first, upgrade path to native |
 | State | Zustand | Minimal, FP-friendly |
@@ -93,10 +94,11 @@
 
 ## Data Sources
 
-1. **Open English WordNet** - definitions, synonyms, antonyms
-2. **ConceptNet 5.7** (filtered to English) - HasProperty, UsedFor, PartOf relations
-3. **GloVe embeddings** (100d) - similarity calculations
-4. **Word frequency corpus** - rarity classification
+1. **Open English WordNet** (via sqlunet_master.db) - 107k synsets, 200k+ lemmas, definitions, synonyms, antonyms
+2. **VerbNet** (selective) - 600+ verb classes, thematic roles, usage examples
+3. **SyntagNet** - 87k collocation pairs for contiguity-based metonyms
+4. **FastText embeddings** (300d) - similarity calculations, property vocabulary matching
+5. **Property vocabulary** - 5k+ curated properties with embeddings from 2k pilot enrichment
 
 ---
 
@@ -125,17 +127,24 @@
 
 **Goal:** Prove out the data infrastructure with a tangible demo
 
-| Task | Description |
-|------|-------------|
-| 0.1 | Set up Go project structure |
-| 0.2 | Import WordNet SQLite, design schema |
-| 0.3 | Filter and import ConceptNet relations |
-| 0.4 | Load GloVe embeddings, build kd-tree index |
-| 0.5 | Implement `/forge/suggest` endpoint |
-| 0.6 | Implement `/forge` endpoint (generate metaphor) |
-| 0.7 | Simple CLI or curl-based testing |
+**Status:** Data pipeline COMPLETE (sch.v2). Go API adaptation in progress.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| 0.1 | Set up Go project structure | ✓ Done |
+| 0.2 | Import OEWN from sqlunet_master.db | ✓ Done |
+| 0.3 | Import VerbNet (classes, roles, examples) | ✓ Done |
+| 0.4 | Import SyntagNet collocation pairs | ✓ Done |
+| 0.5 | Build property vocabulary with FastText 300d embeddings | ✓ Done |
+| 0.6 | Run 2k pilot enrichment via Gemini Flash | ✓ Done |
+| 0.7 | Populate synset_properties junction table | ✓ Done |
+| 0.8 | Adapt Go API to lexicon_v2.db schema | In progress |
+| 0.9 | Implement `/forge/suggest` endpoint | Pending |
+| 0.10 | Implement `/forge` endpoint (generate metaphor) | Pending |
 
 **Deliverable:** `curl localhost:8080/forge/suggest?source=grief` returns catalyst suggestions
+
+**Database:** `lexicon_v2.db` contains 107k synsets, 200k+ lemmas, 17k+ synset-property links
 
 **Why first:**
 - Forces embedding + similarity infrastructure
