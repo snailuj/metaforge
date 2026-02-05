@@ -23,9 +23,8 @@ try:
 except ImportError:
     raise ImportError("Run: pip install google-genai")
 
-# Database is in main project root (parent of .worktrees)
-SQLUNET_DB = Path(__file__).parent.parent.parent.parent.parent / "sqlunet_master.db"
-OUTPUT_DIR = Path(__file__).parent.parent / "output"
+from utils import SQLUNET_DB, OUTPUT_DIR
+
 OUTPUT_FILE = OUTPUT_DIR / "property_spike.json"
 
 MODEL_NAME = "gemini-2.5-flash"  # Upgraded from Lite for better sense disambiguation
