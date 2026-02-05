@@ -1,7 +1,7 @@
 # Metaforge Brainstorm: Metaphor Forge Design
 
 **Date:** 2026-01-25
-**Status:** Design complete - ready for implementation planning
+**Status:** Backend implemented (Sprint Zero) — API serving suggestions, frontend not started
 
 ---
 
@@ -32,16 +32,16 @@ Use Gemini Flash API to pre-compute abstract/structural properties for word sens
 
 - ConceptNet alone has spotty coverage of abstract properties
 - LLM extracts properties humans would recognise
-- One-time build cost (~$1 for 1k synsets), no runtime LLM dependency
+- One-time build cost (~$1.50 for 2k synsets via Gemini 2.5 Flash), no runtime LLM dependency
 - Properties are inspectable/editable if results are odd
 
 ### Pilot Scope
 
-- 1,000 synsets for initial quality evaluation
-- 500 most frequent words (broad coverage)
-- 500 hand-curated metaphor-worthy words (known-good candidates)
-- Batch ~30 synsets per API call
-- JSONL output for reliable parsing
+- 2,000 synsets for initial quality evaluation (stratified: 40% nouns, 40% verbs, 20% adjectives)
+- Batch 20 synsets per API call (configurable via `--batch-size`)
+- JSON array output (single object with synsets, property frequency, stats)
+
+> **Sprint Zero Decision:** Replaced hand-curated seed list with algorithmic stratified sampling by POS. More systematic and reproducible than manual curation. Next run targets ~20K synsets prioritised by lemma reachability (synsets reachable by 3+ lemmas).
 
 ---
 
@@ -91,8 +91,12 @@ Output:
 
 - **Sense disambiguation:** Use WordNet synset definitions to disambiguate polysemous words (bank the landform vs bank the institution)
 - **Minimal response:** Only return `id` and `properties` - we rehydrate other fields from local data
-- **JSONL format:** One JSON object per line for resilient parsing (if one fails, others survive)
+- **JSON array format:** Single response with all results (changed from JSONL for simpler parsing)
 - **Diverse few-shots:** Examples cover nouns, verbs, adjectives; concrete and abstract; multiple domains
+
+> **⚠️ Drift Check — Prompt Focus Shift:** The design prompt above emphasises **abstract structural properties** — what things DO, how they BEHAVE, what ROLE they play (e.g. "holds_in_place", "prevents_drift", "connects_separated_things"). The implemented prompt (`spike_property_vocab.py`) emphasises **sensory and behavioural properties** — physical qualities, texture, weight, temperature, luminosity (e.g. "warm", "flickering", "luminous", "fragile").
+>
+> These produce different kinds of metaphors. Structural properties enable the design's "grief ↔ anchor" insight (both "hold something in place"). Sensory properties produce experiential connections. **The next enrichment run (20K synsets) is the opportunity to decide: should the prompt return to the original structural focus, blend both, or stay sensory?** See `spike_property_vocab.py:BATCH_PROMPT` for the current prompt.
 
 ---
 
@@ -105,18 +109,25 @@ We calculate matches across all candidates, categorize into tiers, and display a
 ### Algorithm
 
 ```
-1. Get all words with shared_properties > 0
-2. For each, calculate: distance, overlap_count
-3. Assign tier:
-   - Legendary: distance > HIGH_THRESHOLD && overlap >= STRONG_OVERLAP
-   - Interesting: distance > HIGH_THRESHOLD && overlap < MIN_OVERLAP (wild cards)
-   - Strong: distance > HIGH_THRESHOLD && overlap >= MIN_OVERLAP
-   - Obvious: distance <= HIGH_THRESHOLD && overlap >= MIN_OVERLAP
-   - Unlikely: distance <= HIGH_THRESHOLD && overlap < MIN_OVERLAP
-4. Sort by tier (Legendary → Interesting → Strong → Obvious → Unlikely)
-5. Within tier, sort by overlap_count (descending), then distance (descending)
-6. Return all with tier labels
+1. Single mega-query (GetForgeMatches): find candidates via property_similarity
+   matrix (IDF-weighted), fetch synset details + pre-computed centroids in one CTE
+2. For each candidate, compute cosine distance from pre-computed synset centroids
+3. Count exact property overlap (shared property text matches)
+4. Assign tier using distance + exact overlap:
+   - Legendary: distance > 0.6 && overlap >= 4 (strong overlap)
+   - Interesting: distance > 0.6 && overlap < 2 (wild cards)
+   - Strong: distance > 0.6 && overlap >= 2 (moderate overlap)
+   - Obvious: distance <= 0.6 && overlap >= 2
+   - Unlikely: distance <= 0.6 && overlap < 2
+5. Sort by tier (Legendary → Interesting → Strong → Obvious → Unlikely)
+6. Within tier, sort by overlap_count (descending), then distance (descending)
+7. Return all with tier labels
 ```
+
+> **Sprint Zero Implementation Note:** The original design described exact property matching. The implementation adds two layers of sophistication:
+> - **Fuzzy candidate discovery:** Uses a pre-computed property_similarity matrix (cosine similarity on FastText 300d embeddings, threshold ≥ 0.5) so that semantically similar properties (not just identical strings) surface candidates. IDF weighting ensures distinctive properties count more.
+> - **Pre-computed synset centroids:** Average of property embeddings stored in `synset_centroids` table, eliminating N+1 queries. Cosine distance computed in-memory from centroids.
+> - **Tier classification still uses exact overlap** — only identical property text counts toward tier thresholds. This is deliberate: fuzzy matching broadens the candidate pool, but tier quality is based on precise structural overlap.
 
 ### Display Order and Visual Treatment
 
@@ -132,15 +143,21 @@ We calculate matches across all candidates, categorize into tiers, and display a
 
 **Note:** This 5-tier system supersedes the PRD's original 3-tier (Common/Rare/Legendary). Update PRD accordingly.
 
-### Thresholds (configurable)
+### Thresholds (configurable — see `forge.go`)
 
-- `HIGH_THRESHOLD` - embedding distance cutoff (tune after seeing data)
-- `MIN_OVERLAP` - minimum shared properties for "solid" match
-- `STRONG_OVERLAP` - shared properties for "legendary" status
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `HighDistanceThreshold` | 0.6 | Cosine distance above which concepts are "far" |
+| `MinOverlap` | 2 | Minimum shared properties for "moderate" overlap |
+| `StrongOverlap` | 4 | Shared properties for "strong" / legendary overlap |
+
+API defaults: `threshold=0.7` (property similarity), `limit=50` (max results)
 
 ---
 
 ## Decided: Bridge Explanations
+
+> **Sprint Zero Status:** Not yet implemented. The API returns `shared_properties` in the response, providing the raw data for hints, but there is no hint reveal mechanism or progressive disclosure. This is a frontend concern.
 
 ### No Automatic Explanations - Progressive Hints Instead
 
@@ -180,6 +197,8 @@ Users scroll through the spectrum and decide what's useful. The slate grey "Unli
 
 ## Decided: Grimoire Data Model
 
+> **Sprint Zero Status:** Not yet implemented. Entirely a frontend concern (IndexedDB). Backend provides all required data in the `/forge/suggest` response.
+
 ### MVP Schema
 
 ```typescript
@@ -217,14 +236,21 @@ IndexedDB (local, no account needed for MVP).
 
 ## Next Steps
 
-1. **Update PRD:** Replace 3-tier quality system with 5-tier
-2. **Curate seed list:** Pick 500 metaphor-worthy words for the pilot
-3. **Set up data pipeline:** Python scripts to extract WordNet synsets
-4. **Run pilot extraction:** Process 1k synsets through Gemini Flash
-5. **Evaluate quality:** Review properties, identify gaps or biases
-6. **Implement matching algorithm:** TDD - test each tier classification
-7. **Build Forge API endpoint:** Go backend serving suggestions
-8. **Build Forge UI:** Results with tier colors, hint system, Grimoire save
+1. ~~**Update PRD:** Replace 3-tier quality system with 5-tier~~ — **Not done, still needed**
+2. ~~**Curate seed list:** Pick 500 metaphor-worthy words for the pilot~~ — **Done** (replaced with stratified sampling)
+3. ~~**Set up data pipeline:** Python scripts to extract WordNet synsets~~ — **Done** (`run_pipeline.sh`)
+4. ~~**Run pilot extraction:** Process 1k synsets through Gemini Flash~~ — **Done** (2K synsets, `property_pilot_2k.json`)
+5. ~~**Evaluate quality:** Review properties, identify gaps or biases~~ — **Done** (IDF, similarity matrix, centroids computed)
+6. ~~**Implement matching algorithm:** TDD - test each tier classification~~ — **Done** (`forge.go`, `forge_test.go`)
+7. ~~**Build Forge API endpoint:** Go backend serving suggestions~~ — **Done** (`GET /forge/suggest`)
+8. **Build Forge UI:** Results with tier colours, hint system, Grimoire save — **Not started**
+
+### New Next Steps (from Sprint Zero)
+
+9. **Resolve prompt drift:** Decide structural vs sensory property focus before 20K enrichment run
+10. **Scale enrichment:** Run ~20K synsets (prioritised by lemma reachability, ~$15)
+11. **Integrate Fluent:** String handling for all UI chrome (see `string-handling.md`)
+12. **Build frontend:** Forge UI with tier visuals, hint system, Grimoire
 
 ---
 
