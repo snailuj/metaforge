@@ -6,6 +6,9 @@ data-pipeline/output/*.db
 data-pipeline/raw/
 data-pipeline/.venv/
 
+# Syncing config, machine dependent
+.syncignore
+
 # SQLite databases
 *.db
 
