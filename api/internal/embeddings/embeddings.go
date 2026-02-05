@@ -29,11 +29,12 @@ func GetPropertyEmbedding(db *sql.DB, property string) ([]float32, error) {
 		return nil, fmt.Errorf("property has no embedding (OOV): %s", property)
 	}
 
-	return blobToFloats(blob), nil
+	return BlobToFloats(blob), nil
 }
 
-// blobToFloats converts a byte slice to float32 slice (little-endian).
-func blobToFloats(blob []byte) []float32 {
+// BlobToFloats converts a byte slice to float32 slice (little-endian).
+// Returns nil if the blob is not exactly EmbeddingDim * 4 bytes.
+func BlobToFloats(blob []byte) []float32 {
 	if len(blob) != EmbeddingDim*4 {
 		return nil
 	}
@@ -111,7 +112,7 @@ func getSynsetPropertyEmbeddings(db *sql.DB, synsetID string) ([][]float32, erro
 		if err := rows.Scan(&blob); err != nil {
 			continue
 		}
-		if vec := blobToFloats(blob); vec != nil {
+		if vec := BlobToFloats(blob); vec != nil {
 			embeddings = append(embeddings, vec)
 		}
 	}

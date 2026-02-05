@@ -6,8 +6,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
+
+	"github.com/snailuj/metaforge/internal/embeddings"
 )
 
 // Synset represents a WordNet synset with enrichment
@@ -247,6 +250,125 @@ type SynsetMatch struct {
 	TotalScore       float64  `json:"total_score"`
 	Distance         float64  `json:"distance,omitempty"`
 	Tier             string   `json:"tier,omitempty"`
+}
+
+// SynsetMatchFull contains all data needed to classify and display a match,
+// retrieved in a single query. Replaces the N+1 pattern of GetSynset +
+// GetLemmaForSynset + ComputeSynsetDistance per candidate.
+type SynsetMatchFull struct {
+	SynsetID         string    `json:"synset_id"`
+	Word             string    `json:"word"`
+	Definition       string    `json:"definition"`
+	SharedProperties []string  `json:"shared_properties,omitempty"`
+	ExactOverlap     int       `json:"exact_overlap"`
+	TotalScore       float64   `json:"total_score"`
+	SourceCentroid   []float32 `json:"-"`
+	TargetCentroid   []float32 `json:"-"`
+}
+
+// GetForgeMatches retrieves forge candidates in a single mega-query.
+//
+// Combines candidate discovery (similarity-based), exact property overlap,
+// synset details (word, definition), and pre-computed centroids into one
+// database round-trip. The caller computes cosine distance in-memory from
+// the returned centroids.
+//
+// Parameters:
+//   - sourceID: the synset to find matches for
+//   - threshold: minimum similarity score (0.0-1.0) for property matches
+//   - limit: maximum number of candidate results
+func GetForgeMatches(db *sql.DB, sourceID string, threshold float64, limit int) ([]SynsetMatchFull, error) {
+	rows, err := db.Query(`
+		WITH source_props AS (
+			SELECT sp.property_id
+			FROM synset_properties sp
+			WHERE sp.synset_id = ?
+		),
+		candidates AS (
+			SELECT sp.synset_id,
+			       SUM(ps.similarity * pv.idf) as total_score
+			FROM source_props src
+			JOIN property_similarity ps ON ps.property_id_a = src.property_id
+			JOIN synset_properties sp ON sp.property_id = ps.property_id_b
+			JOIN property_vocabulary pv ON pv.property_id = ps.property_id_b
+			WHERE ps.similarity >= ?
+			  AND sp.synset_id != ?
+			GROUP BY sp.synset_id
+			ORDER BY total_score DESC
+			LIMIT ?
+		),
+		exact_overlap AS (
+			SELECT c.synset_id,
+			       COUNT(*) as exact_count,
+			       GROUP_CONCAT(pv.text) as shared_props
+			FROM candidates c
+			JOIN synset_properties sp ON sp.synset_id = c.synset_id
+			JOIN source_props src ON src.property_id = sp.property_id
+			JOIN property_vocabulary pv ON pv.property_id = sp.property_id
+			GROUP BY c.synset_id
+		)
+		SELECT c.synset_id,
+		       s.definition,
+		       l.lemma,
+		       COALESCE(eo.exact_count, 0) as exact_count,
+		       COALESCE(eo.shared_props, '') as shared_props,
+		       c.total_score,
+		       src_c.centroid as source_centroid,
+		       tgt_c.centroid as target_centroid
+		FROM candidates c
+		JOIN synsets s ON s.synset_id = c.synset_id
+		JOIN lemmas l ON l.synset_id = c.synset_id
+		LEFT JOIN exact_overlap eo ON eo.synset_id = c.synset_id
+		JOIN synset_centroids src_c ON src_c.synset_id = ?
+		JOIN synset_centroids tgt_c ON tgt_c.synset_id = c.synset_id
+		ORDER BY c.total_score DESC
+	`, sourceID, threshold, sourceID, limit, sourceID)
+
+	if err != nil {
+		return nil, fmt.Errorf("GetForgeMatches query failed: %w", err)
+	}
+	defer rows.Close()
+
+	// Track seen synset IDs to deduplicate (a synset may have multiple lemmas)
+	seen := make(map[string]bool)
+	var matches []SynsetMatchFull
+
+	for rows.Next() {
+		var m SynsetMatchFull
+		var sharedProps string
+		var srcBlob, tgtBlob []byte
+
+		if err := rows.Scan(
+			&m.SynsetID, &m.Definition, &m.Word,
+			&m.ExactOverlap, &sharedProps, &m.TotalScore,
+			&srcBlob, &tgtBlob,
+		); err != nil {
+			continue
+		}
+
+		// Deduplicate: a synset with multiple lemmas produces multiple rows
+		if seen[m.SynsetID] {
+			continue
+		}
+		seen[m.SynsetID] = true
+
+		// Parse shared properties from GROUP_CONCAT result
+		if sharedProps != "" {
+			m.SharedProperties = strings.Split(sharedProps, ",")
+		}
+
+		// Decode centroid BLOBs
+		m.SourceCentroid = embeddings.BlobToFloats(srcBlob)
+		m.TargetCentroid = embeddings.BlobToFloats(tgtBlob)
+
+		matches = append(matches, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("GetForgeMatches iteration error: %w", err)
+	}
+
+	return matches, nil
 }
 
 // GetSynsetIDForLemma finds the first synset ID for a given word.
