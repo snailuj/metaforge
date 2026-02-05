@@ -63,6 +63,40 @@ func ClassifyTier(distance float64, overlap int) Tier {
 	}
 }
 
+// NormaliseDistances rescales distances to [0, 1] based on the min/max
+// within the result set. This ensures tier classification works relative
+// to each word's candidate pool, not on absolute centroid distances
+// (which cluster narrowly due to shared-property discovery bias).
+func NormaliseDistances(distances []float64) []float64 {
+	if len(distances) == 0 {
+		return distances
+	}
+
+	min, max := distances[0], distances[0]
+	for _, d := range distances[1:] {
+		if d < min {
+			min = d
+		}
+		if d > max {
+			max = d
+		}
+	}
+
+	span := max - min
+	if span == 0 {
+		// All distances identical — return as-is
+		result := make([]float64, len(distances))
+		copy(result, distances)
+		return result
+	}
+
+	result := make([]float64, len(distances))
+	for i, d := range distances {
+		result[i] = (d - min) / span
+	}
+	return result
+}
+
 // SortByTier sorts matches by tier (best first), then by overlap count.
 func SortByTier(matches []Match) []Match {
 	sorted := make([]Match, len(matches))

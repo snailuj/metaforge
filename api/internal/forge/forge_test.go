@@ -49,6 +49,57 @@ func TestTierString(t *testing.T) {
 	}
 }
 
+func TestNormaliseDistances(t *testing.T) {
+	// Simulates real data: distances clustered 0.06-0.30
+	distances := []float64{0.06, 0.10, 0.15, 0.20, 0.30}
+
+	normalised := NormaliseDistances(distances)
+
+	// Min should map to 0, max to 1
+	if normalised[0] != 0 {
+		t.Errorf("Min distance should normalise to 0, got %f", normalised[0])
+	}
+	if normalised[4] != 1 {
+		t.Errorf("Max distance should normalise to 1, got %f", normalised[4])
+	}
+
+	// Middle values should be proportional
+	// 0.15 is (0.15-0.06)/(0.30-0.06) = 0.09/0.24 = 0.375
+	expected := 0.375
+	if diff := normalised[2] - expected; diff > 0.001 || diff < -0.001 {
+		t.Errorf("Mid distance should be ~%f, got %f", expected, normalised[2])
+	}
+
+	// Should be monotonically increasing
+	for i := 1; i < len(normalised); i++ {
+		if normalised[i] < normalised[i-1] {
+			t.Errorf("Not monotonic: [%d]=%f < [%d]=%f", i, normalised[i], i-1, normalised[i-1])
+		}
+	}
+}
+
+func TestNormaliseDistancesEdgeCases(t *testing.T) {
+	// Single element
+	single := NormaliseDistances([]float64{0.5})
+	if single[0] != 0.5 {
+		t.Errorf("Single element should be unchanged, got %f", single[0])
+	}
+
+	// All same distance
+	same := NormaliseDistances([]float64{0.2, 0.2, 0.2})
+	for i, d := range same {
+		if d != 0.2 {
+			t.Errorf("Uniform distances should be unchanged, [%d]=%f", i, d)
+		}
+	}
+
+	// Empty
+	empty := NormaliseDistances([]float64{})
+	if len(empty) != 0 {
+		t.Errorf("Empty input should return empty, got %d", len(empty))
+	}
+}
+
 func TestSortByTier(t *testing.T) {
 	matches := []Match{
 		{SynsetID: "a", Tier: TierUnlikely, OverlapCount: 1},

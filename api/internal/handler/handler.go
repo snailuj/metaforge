@@ -101,11 +101,22 @@ func (h *ForgeHandler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Classify tiers in-memory using pre-computed centroids (no further DB calls)
+	// Compute raw distances from pre-computed centroids
+	rawDistances := make([]float64, len(candidates))
+	for i, c := range candidates {
+		rawDistances[i] = embeddings.CosineDistance(c.SourceCentroid, c.TargetCentroid)
+	}
+
+	// Normalise distances to [0, 1] within this result set.
+	// Shared-property discovery biases candidates toward similar centroids,
+	// so absolute distances cluster narrowly. Normalising ensures tier
+	// classification reflects relative distance within the candidate pool.
+	normDistances := forge.NormaliseDistances(rawDistances)
+
+	// Classify tiers using normalised distances
 	var matches []forge.Match
-	for _, c := range candidates {
-		dist := embeddings.CosineDistance(c.SourceCentroid, c.TargetCentroid)
-		tier := forge.ClassifyTier(dist, c.ExactOverlap)
+	for i, c := range candidates {
+		tier := forge.ClassifyTier(normDistances[i], c.ExactOverlap)
 
 		matches = append(matches, forge.Match{
 			SynsetID:         c.SynsetID,
@@ -113,7 +124,7 @@ func (h *ForgeHandler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 			Definition:       c.Definition,
 			SharedProperties: c.SharedProperties,
 			OverlapCount:     c.ExactOverlap,
-			Distance:         dist,
+			Distance:         rawDistances[i],
 			Tier:             tier,
 			TierName:         tier.String(),
 		})
