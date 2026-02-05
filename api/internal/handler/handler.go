@@ -94,42 +94,25 @@ func (h *ForgeHandler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find synsets with similar properties (using similarity-based matching)
-	candidates, err := db.GetSynsetsWithSharedProperties(h.database, synsetID, threshold, limit)
+	// Single mega-query: candidates + details + exact overlap + centroids
+	candidates, err := db.GetForgeMatches(h.database, synsetID, threshold, limit)
 	if err != nil {
 		http.Error(w, `{"error": "matching failed"}`, http.StatusInternalServerError)
 		return
 	}
 
-	// Build matches with tier classification
+	// Classify tiers in-memory using pre-computed centroids (no further DB calls)
 	var matches []forge.Match
 	for _, c := range candidates {
-		// Get target synset details
-		target, err := db.GetSynset(h.database, c.SynsetID)
-		if err != nil {
-			continue
-		}
-
-		// Get word for target synset
-		targetWord, err := db.GetLemmaForSynset(h.database, c.SynsetID)
-		if err != nil {
-			targetWord = c.SynsetID // Fallback to ID
-		}
-
-		// Compute semantic distance via embeddings (for tier classification)
-		dist, err := embeddings.ComputeSynsetDistance(h.database, synsetID, c.SynsetID)
-		if err != nil {
-			dist = 0.5 // Default for errors
-		}
-
-		tier := forge.ClassifyTier(dist, c.OverlapCount)
+		dist := embeddings.CosineDistance(c.SourceCentroid, c.TargetCentroid)
+		tier := forge.ClassifyTier(dist, c.ExactOverlap)
 
 		matches = append(matches, forge.Match{
 			SynsetID:         c.SynsetID,
-			Word:             targetWord,
-			Definition:       target.Definition,
+			Word:             c.Word,
+			Definition:       c.Definition,
 			SharedProperties: c.SharedProperties,
-			OverlapCount:     c.OverlapCount,
+			OverlapCount:     c.ExactOverlap,
 			Distance:         dist,
 			Tier:             tier,
 			TierName:         tier.String(),
