@@ -1,10 +1,8 @@
 """Populate synset_properties junction table from pilot data."""
 import json
 import sqlite3
-from pathlib import Path
 
-PILOT_FILE = Path(__file__).parent.parent / "output" / "property_pilot_2k.json"
-LEXICON_V2 = Path(__file__).parent.parent / "output" / "lexicon_v2.db"
+from utils import PILOT_FILE, LEXICON_V2, normalise
 
 
 def main():
@@ -16,6 +14,10 @@ def main():
     print("Loading pilot data...")
     with open(PILOT_FILE) as f:
         pilot = json.load(f)
+
+    # Get model from pilot config
+    model_used = pilot.get("config", {}).get("model", "unknown")
+    print(f"  Model used: {model_used}")
 
     conn = sqlite3.connect(LEXICON_V2)
 
@@ -36,12 +38,12 @@ def main():
         # Insert enrichment record
         conn.execute("""
             INSERT OR IGNORE INTO enrichment (synset_id, model_used)
-            VALUES (?, 'gemini-2.0-flash')
-        """, (synset_id,))
+            VALUES (?, ?)
+        """, (synset_id, model_used))
 
         # Link properties
         for prop in synset.get("properties", []):
-            prop_norm = prop.lower().strip()
+            prop_norm = normalise(prop)
             if prop_norm in prop_ids:
                 conn.execute("""
                     INSERT OR IGNORE INTO synset_properties (synset_id, property_id)

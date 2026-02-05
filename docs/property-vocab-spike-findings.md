@@ -1,10 +1,53 @@
-# Post-MVP Notes
+# Property Vocabulary Spike Findings
 
-Design decisions, spike results, and future considerations.
+Design decisions, spike results, and implementation outcomes.
 
 ---
 
-## Property Vocabulary Spike Results (2026-02-03)
+## 2k Pilot Results (2026-02-04) - FINAL
+
+**Status:** SUCCESS - Solution 5 validated at scale
+
+### Results
+
+| Metric | 100 Pilot | 2k Pilot |
+|--------|-----------|----------|
+| Synsets processed | 100 | 2,000 |
+| Total properties | 757 | 17,123 |
+| Unique properties | 605 | 5,069 |
+| Avg properties/synset | 7.6 | 8.56 |
+
+### FastText Embedding Coverage
+
+| Metric | Value |
+|--------|-------|
+| Properties with embeddings | 5,024 |
+| OOV properties | 42 |
+| Coverage rate | 99.2% |
+
+### Top Recurring Properties (2k Pilot)
+
+| Property | Count | Property | Count |
+|----------|-------|----------|-------|
+| functional | 66 | physical | 38 |
+| active | 52 | natural | 36 |
+| practical | 49 | emotional | 35 |
+| dynamic | 42 | complex | 34 |
+| intentional | 41 | variable | 33 |
+
+### Key Decision: FrameNet Integration Obviated
+
+The 2k pilot demonstrates that FastText embeddings provide sufficient semantic consistency without FrameNet frame constraints:
+
+1. **99.2% embedding coverage** - Only 42 OOV properties out of 5,069
+2. **Semantic similarity works** - Validation tests confirm warm/hot, quiet/silent, fast/rapid cluster correctly (cosine similarity > 0.5)
+3. **Property diversity excellent** - Behavioural properties like "flickering", "ephemeral", "cascading" captured
+
+**Decision:** FrameNet integration (Task 3 in original plan) is DEFERRED to post-MVP. The fn_frames, fn_frame_synsets, property_dimensions, and frame_dimensions tables remain empty by design.
+
+---
+
+## Initial Spike Results (2026-02-03)
 
 **Approach tested:** Solution 5 (Two-Pass Enrichment)
 

@@ -1,10 +1,7 @@
 """Import VerbNet selective data (classes, roles, examples - skip syntactic frames)."""
 import sqlite3
-from pathlib import Path
 
-# Database is in main project root (parent of .worktrees)
-SQLUNET_DB = Path(__file__).parent.parent.parent.parent.parent / "sqlunet_master.db"
-LEXICON_V2 = Path(__file__).parent.parent / "output" / "lexicon_v2.db"
+from utils import SQLUNET_DB, LEXICON_V2
 
 
 def import_classes(src: sqlite3.Connection, dst: sqlite3.Connection):

@@ -2,21 +2,10 @@
 import json
 import sqlite3
 import struct
-from pathlib import Path
 from typing import Optional
 import re
 
-PILOT_FILE = Path(__file__).parent.parent / "output" / "property_pilot_2k.json"
-LEXICON_V2 = Path(__file__).parent.parent / "output" / "lexicon_v2.db"
-FASTTEXT_VEC = (
-    Path(__file__).parent.parent.parent.parent
-    / "sprint-zero"
-    / "data-pipeline"
-    / "output"
-    / "wiki-news-300d-1M.vec"
-)
-
-EMBEDDING_DIM = 300
+from utils import PILOT_FILE, LEXICON_V2, FASTTEXT_VEC, EMBEDDING_DIM, normalise
 
 
 def load_fasttext_vectors(vec_path: Path) -> dict[str, tuple[float, ...]]:
@@ -81,11 +70,6 @@ def get_compound_embedding(
         sum(e[i] for e in embeddings) / len(embeddings) for i in range(EMBEDDING_DIM)
     )
     return struct.pack(f"{EMBEDDING_DIM}f", *avg)
-
-
-def normalise(text: str) -> str:
-    """Normalise property text."""
-    return text.lower().strip()
 
 
 def main():

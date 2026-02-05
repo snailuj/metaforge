@@ -2,7 +2,7 @@
 --
 -- Migration from sch.v1:
 --   RETAIN: synsets, lemmas, relations, frequencies (OEWN core)
---   RETAIN: embeddings.bin (GloVe 100d, external file)
+--   RETAIN: embeddings.bin (FastText 300d, external file)
 --   ADD: VerbNet selective tables
 --   ADD: SyntagNet collocation pairs
 --   ADD: FrameNet frame metadata
@@ -130,7 +130,7 @@ CREATE INDEX idx_fn_frame_synsets_frame ON fn_frame_synsets(frame_id);
 -- Property Vocabulary with Embeddings
 -- ============================================================
 
--- Property vocabulary: curated properties with GloVe embeddings for fuzzy matching
+-- Property vocabulary: curated properties with FastText embeddings for fuzzy matching
 -- Embeddings enable:
 --   1. Synonym clustering (reduce/decrease/lower cluster naturally)
 --   2. Confidence scoring (distance between properties)
@@ -138,7 +138,7 @@ CREATE INDEX idx_fn_frame_synsets_frame ON fn_frame_synsets(frame_id);
 CREATE TABLE property_vocabulary (
     property_id INTEGER PRIMARY KEY,
     text TEXT NOT NULL UNIQUE,            -- Normalised property (lemmatised)
-    embedding BLOB,                       -- GloVe 100d (400 bytes) or NULL if OOV
+    embedding BLOB,                       -- FastText 300d (1200 bytes) or NULL if OOV
     is_oov INTEGER NOT NULL DEFAULT 0,    -- 1 if out-of-vocabulary (flagged for review)
     source TEXT NOT NULL DEFAULT 'spike'  -- Origin: 'spike', 'curation', 'manual'
 );
