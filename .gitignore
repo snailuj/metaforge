@@ -2,9 +2,12 @@
 .worktrees/
 
 # Data pipeline outputs (generated, large)
-data-pipeline/output/
+data-pipeline/output/*.db
 data-pipeline/raw/
 data-pipeline/.venv/
+
+# SQLite databases
+*.db
 
 # Go
 api/metaforge
