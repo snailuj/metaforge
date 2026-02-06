@@ -14,6 +14,8 @@ import (
 
 func main() {
 	dbPath := flag.String("db", "../data-pipeline/output/lexicon_v2.db", "Path to lexicon_v2.db")
+	stringsDir := flag.String("strings", "../strings", "Path to strings directory")
+	corsOrigin := flag.String("cors-origin", "http://localhost:5173", "Allowed CORS origin for dev")
 	port := flag.String("port", "8080", "Server port")
 	flag.Parse()
 
@@ -22,13 +24,16 @@ func main() {
 		log.Fatalf("Failed to initialise: %v", err)
 	}
 	defer h.Close()
+	h.SetStringsDir(*stringsDir)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(handler.CORSMiddleware(*corsOrigin))
 
 	r.Get("/forge/suggest", h.HandleSuggest)
 	r.Get("/thesaurus/lookup", h.HandleLookup)
+	r.Get("/strings/*", h.HandleStrings)
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status": "ok"}`))
@@ -37,6 +42,8 @@ func main() {
 	addr := fmt.Sprintf(":%s", *port)
 	fmt.Printf("Metaforge API starting on %s...\n", addr)
 	fmt.Printf("  Database: %s\n", *dbPath)
+	fmt.Printf("  Strings:  %s\n", *stringsDir)
+	fmt.Printf("  CORS:     %s\n", *corsOrigin)
 	fmt.Printf("  Try: curl 'http://localhost:%s/thesaurus/lookup?word=fire'\n", *port)
 	log.Fatal(http.ListenAndServe(addr, r))
 }

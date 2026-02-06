@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/snailuj/metaforge/internal/db"
 	"github.com/snailuj/metaforge/internal/embeddings"
@@ -21,7 +24,8 @@ const (
 
 // Handler holds a shared database connection for all API endpoints.
 type Handler struct {
-	database *sql.DB
+	database   *sql.DB
+	stringsDir string
 }
 
 // NewHandler creates a handler with database connection.
@@ -31,6 +35,11 @@ func NewHandler(dbPath string) (*Handler, error) {
 		return nil, err
 	}
 	return &Handler{database: database}, nil
+}
+
+// SetStringsDir sets the base directory for Fluent string files.
+func (h *Handler) SetStringsDir(dir string) {
+	h.stringsDir = dir
 }
 
 // Close releases database resources.
@@ -167,4 +176,55 @@ func (h *Handler) HandleLookup(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+// HandleStrings serves Fluent .ftl string files.
+// Route: GET /strings/v1/{filename}.ftl
+func (h *Handler) HandleStrings(w http.ResponseWriter, r *http.Request) {
+	// Extract filename from path: /strings/v1/ui.ftl → v1/ui.ftl
+	path := strings.TrimPrefix(r.URL.Path, "/strings/")
+	if path == "" || !strings.HasSuffix(path, ".ftl") {
+		http.Error(w, `{"error": "invalid path"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Prevent directory traversal
+	clean := filepath.Clean(path)
+	if strings.Contains(clean, "..") {
+		http.Error(w, `{"error": "invalid path"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Map to locale file: ui.ftl → ui.en-GB.ftl
+	base := strings.TrimSuffix(filepath.Base(clean), ".ftl")
+	dir := filepath.Dir(clean)
+	localePath := filepath.Join(h.stringsDir, dir, base+".en-GB.ftl")
+
+	data, err := os.ReadFile(localePath)
+	if err != nil {
+		http.Error(w, `{"error": "strings file not found"}`, http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Write(data)
+}
+
+// CORSMiddleware adds CORS headers for development (Vite dev server).
+func CORSMiddleware(allowedOrigin string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
