@@ -921,6 +921,18 @@ The visualisation enhances but never replaces text functionality.
 - Collection system with badges
 - Wormhole discovery
 
+#### New Ideas 20260207
+
+1. Consider vocabularysize.com [see Collaborators & Networking](./docs/gtm/collaborators-and-networking-202602.md#vocabularysizecom).
+[UPDATE Feb 7: we are shelving this idea for now -- turns into a marketing sharkfest to try and eat your competitors. Fuck that. Fuck them all. We just build what we need and want, for us. I sure as hell ain't going back to school.]
+Based upon their seemingly authoritative comments, this app may provide considerable utility for non-native English speakers looking to increase their vocabulary, and educators looking to measure their students' vocab. Therefore:
+    - ESOL Student Track Design
+    - Vocabulary Size Testing Track Design
+
+2. Also investigate whether, and if so how, it would benefit the app to replace word frequency calcs with *word familiarity* as described in [AI-based estimates of word familiarity](docs/designs/research/AI-based%20estimates%20of%20word%20familiarity%20final.pdf), which I downloaded from the [this page](https://osf.io/zq49t/files/kf9vg) on the Open Science Foundation's website while retrieving the latest SUBTLEX-UK dataset (OSF hosts the canonical version apparently).
+
+3. Do a proper survey of the [field of "vocabulary studies"](docs/gtm/collaborators-and-networking-202602.md#list-from-vocabularysizecoms-faq-section) (or whatever it calls itself). The link is a head-start in that direction perhaps.
+
 ### Phase 3
 
 - Metaphor Forge
