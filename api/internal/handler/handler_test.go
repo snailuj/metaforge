@@ -11,7 +11,7 @@ import (
 const testDBPath = "../../../data-pipeline/output/lexicon_v2.db"
 
 func TestForgeSuggestEndpoint(t *testing.T) {
-	h, err := NewForgeHandler(testDBPath)
+	h, err := NewHandler(testDBPath)
 	if err != nil {
 		t.Fatalf("Failed to create handler: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestForgeSuggestEndpoint(t *testing.T) {
 }
 
 func TestForgeSuggestWithThreshold(t *testing.T) {
-	h, err := NewForgeHandler(testDBPath)
+	h, err := NewHandler(testDBPath)
 	if err != nil {
 		t.Fatalf("Failed to create handler: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestForgeSuggestWithThreshold(t *testing.T) {
 }
 
 func TestForgeSuggestWithLimit(t *testing.T) {
-	h, err := NewForgeHandler(testDBPath)
+	h, err := NewHandler(testDBPath)
 	if err != nil {
 		t.Fatalf("Failed to create handler: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestForgeSuggestWithLimit(t *testing.T) {
 }
 
 func TestForgeSuggestMissingWord(t *testing.T) {
-	h, err := NewForgeHandler(testDBPath)
+	h, err := NewHandler(testDBPath)
 	if err != nil {
 		t.Fatalf("Failed to create handler: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestForgeSuggestMissingWord(t *testing.T) {
 }
 
 func TestForgeSuggestUnknownWord(t *testing.T) {
-	h, err := NewForgeHandler(testDBPath)
+	h, err := NewHandler(testDBPath)
 	if err != nil {
 		t.Fatalf("Failed to create handler: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestForgeSuggestUnknownWord(t *testing.T) {
 }
 
 func TestForgeSuggestDefaultThresholdAndLimit(t *testing.T) {
-	h, err := NewForgeHandler(testDBPath)
+	h, err := NewHandler(testDBPath)
 	if err != nil {
 		t.Fatalf("Failed to create handler: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestForgeSuggestDefaultThresholdAndLimit(t *testing.T) {
 }
 
 func TestForgeSuggestInvalidThreshold(t *testing.T) {
-	h, err := NewForgeHandler(testDBPath)
+	h, err := NewHandler(testDBPath)
 	if err != nil {
 		t.Fatalf("Failed to create handler: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestForgeSuggestInvalidThreshold(t *testing.T) {
 }
 
 func TestForgeSuggestInvalidLimit(t *testing.T) {
-	h, err := NewForgeHandler(testDBPath)
+	h, err := NewHandler(testDBPath)
 	if err != nil {
 		t.Fatalf("Failed to create handler: %v", err)
 	}

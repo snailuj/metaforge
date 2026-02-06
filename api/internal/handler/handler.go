@@ -10,6 +10,7 @@ import (
 	"github.com/snailuj/metaforge/internal/db"
 	"github.com/snailuj/metaforge/internal/embeddings"
 	"github.com/snailuj/metaforge/internal/forge"
+	"github.com/snailuj/metaforge/internal/thesaurus"
 )
 
 // Default values for query parameters
@@ -18,22 +19,22 @@ const (
 	DefaultLimit     = 50
 )
 
-// ForgeHandler handles /forge/* endpoints.
-type ForgeHandler struct {
+// Handler holds a shared database connection for all API endpoints.
+type Handler struct {
 	database *sql.DB
 }
 
-// NewForgeHandler creates a handler with database connection.
-func NewForgeHandler(dbPath string) (*ForgeHandler, error) {
+// NewHandler creates a handler with database connection.
+func NewHandler(dbPath string) (*Handler, error) {
 	database, err := db.Open(dbPath)
 	if err != nil {
 		return nil, err
 	}
-	return &ForgeHandler{database: database}, nil
+	return &Handler{database: database}, nil
 }
 
 // Close releases database resources.
-func (h *ForgeHandler) Close() error {
+func (h *Handler) Close() error {
 	return h.database.Close()
 }
 
@@ -48,7 +49,7 @@ type SuggestResponse struct {
 }
 
 // HandleSuggest handles GET /forge/suggest?word=<word>&threshold=<0.0-1.0>&limit=<n>
-func (h *ForgeHandler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 	word := r.URL.Query().Get("word")
 	if word == "" {
 		http.Error(w, `{"error": "missing 'word' parameter"}`, http.StatusBadRequest)
@@ -144,4 +145,26 @@ func (h *ForgeHandler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// HandleLookup handles GET /thesaurus/lookup?word=<word>
+func (h *Handler) HandleLookup(w http.ResponseWriter, r *http.Request) {
+	word := r.URL.Query().Get("word")
+	if word == "" {
+		http.Error(w, `{"error": "missing 'word' parameter"}`, http.StatusBadRequest)
+		return
+	}
+
+	result, err := thesaurus.GetLookup(h.database, word)
+	if err == thesaurus.ErrWordNotFound {
+		http.Error(w, `{"error": "word not found"}`, http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, `{"error": "lookup failed"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
