@@ -1,4 +1,4 @@
-# Metaforge Implementation Map
+# Metaforge MVP Build Map
 
 ---
 
@@ -121,7 +121,7 @@
 
 ---
 
-## Implementation Phases
+## MVP Build Phases
 
 ### Phase 0: Data Pipeline + Metaphor Forge (Sprint Zero)
 
@@ -236,11 +236,21 @@
 
 | Task | Description |
 |------|-------------|
-| 7.1 | Performance audit (target 60fps) |
+| 7.01 | Licensing audit |
+| 7.011... | Licensing changes (CC-Attribution etc) |
+| 7.02 | To monetise or not |
+| 7.05 | Security audit |
+| 7.07 | Security patches, config hardening |
+| 7.1 | Performance audit (E2E, target 60fps) |
 | 7.2 | Cache tuning |
 | 7.3 | Accessibility (keyboard, screen reader basics) |
-| 7.4 | Error handling |
-| 7.5 | Deployment setup (self-hosted) |
+| 7.4 | Error handling, Logging |
+| 7.41 | Monitoring, Instrumentation, Deployment planning |
+| 7.43 | Second security audit |
+| 7.45 | Security upgrades |
+| 7.5 | Deployment setup (VPS) |
+| 7.9 | Stress-testing, Pen-testing, Performance under load |
+| 7.9999...| Ongoing monitoring, Dashboards |
 
 **Deliverable:** MVP complete
 

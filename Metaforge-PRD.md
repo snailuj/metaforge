@@ -18,6 +18,9 @@ Metaforge is a blazing 🔥 fast browser-based visual dictionary / thesaurus des
 
 **Platform:** Desktop-first (writers use laptops), browser-based, fully self-hosted, open-source, no paid API dependencies.
 
+**Marketing Pops:**
+- "language is old magic and we're going to show you how it works."
+
 ### Outstanding Design Questions
 The following have not been scoped and require brainstorming
 - [ ] Product Market Fit: the big one -- do people WANT this? Not "will they pay?", not "is it fun?" -- do they WANT it.
