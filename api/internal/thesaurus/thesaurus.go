@@ -43,7 +43,7 @@ type Sense struct {
 	SynsetID   string    `json:"synset_id"`
 	POS        string    `json:"pos"`
 	Definition string    `json:"definition"`
-	Synonyms   []string  `json:"synonyms"`
+	Synonyms   []RelatedWord `json:"synonyms"`
 	Relations  Relations `json:"relations"`
 }
 
@@ -108,7 +108,9 @@ func querySenses(database *sql.DB, lemma string) ([]Sense, error) {
 		}
 		s.POS = posName(rawPOS)
 		if rawSynonyms.Valid && rawSynonyms.String != "" {
-			s.Synonyms = strings.Split(rawSynonyms.String, "|")
+			for _, word := range strings.Split(rawSynonyms.String, "|") {
+				s.Synonyms = append(s.Synonyms, RelatedWord{Word: word, SynsetID: s.SynsetID})
+			}
 		}
 		s.Relations = Relations{
 			Hypernyms: []RelatedWord{},

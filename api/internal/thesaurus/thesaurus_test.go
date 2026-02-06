@@ -75,8 +75,20 @@ func TestGetLookup_Melancholy(t *testing.T) {
 	// Check that synonyms exclude the searched word itself
 	for i, sense := range result.Senses {
 		for _, syn := range sense.Synonyms {
-			if syn == "melancholy" {
+			if syn.Word == "melancholy" {
 				t.Errorf("sense[%d] synonyms should exclude the searched word, found 'melancholy'", i)
+			}
+		}
+	}
+
+	// Each synonym must have Word and SynsetID
+	for i, sense := range result.Senses {
+		for _, syn := range sense.Synonyms {
+			if syn.Word == "" {
+				t.Errorf("sense[%d] has synonym with empty Word", i)
+			}
+			if syn.SynsetID == "" {
+				t.Errorf("sense[%d] has synonym with empty SynsetID", i)
 			}
 		}
 	}
@@ -89,10 +101,10 @@ func TestGetLookup_Melancholy(t *testing.T) {
 			hasSomber := false
 			hasSombre := false
 			for _, syn := range sense.Synonyms {
-				if syn == "somber" {
+				if syn.Word == "somber" {
 					hasSomber = true
 				}
-				if syn == "sombre" {
+				if syn.Word == "sombre" {
 					hasSombre = true
 				}
 			}
@@ -153,6 +165,11 @@ func TestGetLookup_Relations(t *testing.T) {
 		for _, rel := range sense.Relations.Hyponyms {
 			if rel.Word == "" || rel.SynsetID == "" {
 				t.Errorf("hyponym has empty Word or SynsetID in sense %s", sense.SynsetID)
+			}
+		}
+		for _, rel := range sense.Relations.Similar {
+			if rel.Word == "" || rel.SynsetID == "" {
+				t.Errorf("similar has empty Word or SynsetID in sense %s", sense.SynsetID)
 			}
 		}
 	}
