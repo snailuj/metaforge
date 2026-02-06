@@ -4,6 +4,7 @@ package handler
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -165,7 +166,7 @@ func (h *Handler) HandleLookup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := thesaurus.GetLookup(h.database, word)
-	if err == thesaurus.ErrWordNotFound {
+	if errors.Is(err, thesaurus.ErrWordNotFound) {
 		http.Error(w, `{"error": "word not found"}`, http.StatusNotFound)
 		return
 	}

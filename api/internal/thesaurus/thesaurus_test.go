@@ -121,6 +121,23 @@ func TestGetLookup_Melancholy(t *testing.T) {
 	}
 }
 
+func TestGetLookup_CaseInsensitive(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	variants := []string{"Fire", "FIRE", " fire ", "MELANCHOLY"}
+	for _, input := range variants {
+		result, err := GetLookup(database, input)
+		if err != nil {
+			t.Errorf("GetLookup(%q) returned error: %v", input, err)
+			continue
+		}
+		if len(result.Senses) == 0 {
+			t.Errorf("GetLookup(%q) returned no senses", input)
+		}
+	}
+}
+
 func TestGetLookup_UnknownWord(t *testing.T) {
 	database := openTestDB(t)
 	defer database.Close()

@@ -56,6 +56,8 @@ type LookupResult struct {
 // GetLookup returns all senses for a given lemma, grouped by synset,
 // with synonyms and relations. Uses two queries total.
 func GetLookup(database *sql.DB, lemma string) (*LookupResult, error) {
+	lemma = strings.ToLower(strings.TrimSpace(lemma))
+
 	// Query 1: all synsets for this lemma, with synonyms via GROUP_CONCAT
 	senses, err := querySenses(database, lemma)
 	if err != nil {
@@ -107,9 +109,14 @@ func querySenses(database *sql.DB, lemma string) ([]Sense, error) {
 			return nil, err
 		}
 		s.POS = posName(rawPOS)
+		s.Synonyms = []RelatedWord{}
 		if rawSynonyms.Valid && rawSynonyms.String != "" {
+			seen := map[string]bool{}
 			for _, word := range strings.Split(rawSynonyms.String, "|") {
-				s.Synonyms = append(s.Synonyms, RelatedWord{Word: word, SynsetID: s.SynsetID})
+				if !seen[word] {
+					seen[word] = true
+					s.Synonyms = append(s.Synonyms, RelatedWord{Word: word, SynsetID: s.SynsetID})
+				}
 			}
 		}
 		s.Relations = Relations{
