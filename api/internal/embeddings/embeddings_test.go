@@ -85,3 +85,130 @@ func TestComputeSynsetDistance(t *testing.T) {
 		t.Errorf("Distance should be 0-2, got %f", dist)
 	}
 }
+
+func TestBlobToFloatsWrongSize(t *testing.T) {
+	// Blob not exactly EmbeddingDim * 4 bytes should return nil
+	result := BlobToFloats([]byte{1, 2, 3})
+	if result != nil {
+		t.Errorf("Expected nil for wrong-size blob, got %v", result)
+	}
+}
+
+func TestBlobToFloatsNil(t *testing.T) {
+	result := BlobToFloats(nil)
+	if result != nil {
+		t.Errorf("Expected nil for nil blob, got %v", result)
+	}
+}
+
+func TestCosineDistanceEmptyVectors(t *testing.T) {
+	dist := CosineDistance([]float32{}, []float32{})
+	if dist != 1.0 {
+		t.Errorf("Expected 1.0 for empty vectors, got %f", dist)
+	}
+}
+
+func TestCosineDistanceMismatchedLengths(t *testing.T) {
+	dist := CosineDistance([]float32{1, 0}, []float32{1})
+	if dist != 1.0 {
+		t.Errorf("Expected 1.0 for mismatched vectors, got %f", dist)
+	}
+}
+
+func TestCosineDistanceZeroVector(t *testing.T) {
+	zero := []float32{0, 0, 0}
+	nonzero := []float32{1, 0, 0}
+	dist := CosineDistance(zero, nonzero)
+	if dist != 1.0 {
+		t.Errorf("Expected 1.0 for zero vector, got %f", dist)
+	}
+}
+
+func TestCosineDistanceOppositeVectors(t *testing.T) {
+	v1 := []float32{1, 0, 0}
+	v2 := []float32{-1, 0, 0}
+	dist := CosineDistance(v1, v2)
+	if dist != 2.0 {
+		t.Errorf("Expected 2.0 for opposite vectors, got %f", dist)
+	}
+}
+
+func TestGetPropertyEmbeddingNotFound(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	_, err := GetPropertyEmbedding(db, "xyzzynotaproperty12345")
+	if err == nil {
+		t.Error("Expected error for nonexistent property")
+	}
+}
+
+func TestGetPropertyEmbeddingOOV(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	// "adducting" exists in property_vocabulary but has NULL embedding (OOV)
+	_, err := GetPropertyEmbedding(db, "adducting")
+	if err == nil {
+		t.Error("Expected error for OOV property with null embedding")
+	}
+}
+
+func TestComputeSynsetDistanceNoProperties(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	// Synset "1" has no properties in synset_properties table
+	// Find a synset that DOES have properties for the other side
+	var synsetWithProps string
+	err := db.QueryRow(`
+		SELECT DISTINCT synset_id FROM synset_properties LIMIT 1
+	`).Scan(&synsetWithProps)
+	if err != nil {
+		t.Skipf("No synsets with properties: %v", err)
+	}
+
+	// When one synset has no property embeddings, distance should be 1.0
+	dist, err := ComputeSynsetDistance(db, "1", synsetWithProps)
+	if err != nil {
+		t.Fatalf("ComputeSynsetDistance failed: %v", err)
+	}
+	if dist != 1.0 {
+		t.Errorf("Expected distance 1.0 for synset without properties, got %f", dist)
+	}
+}
+
+func TestBlobToFloatsValidBlob(t *testing.T) {
+	// Create a valid 300-dim blob (all zeros)
+	blob := make([]byte, EmbeddingDim*4)
+	result := BlobToFloats(blob)
+	if result == nil {
+		t.Fatal("Expected non-nil result for valid-size blob")
+	}
+	if len(result) != EmbeddingDim {
+		t.Errorf("Expected %d floats, got %d", EmbeddingDim, len(result))
+	}
+}
+
+func TestComputeSynsetDistanceSameSynset(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	// Find a synset with properties
+	var synsetID string
+	err := db.QueryRow(`
+		SELECT DISTINCT synset_id FROM synset_properties LIMIT 1
+	`).Scan(&synsetID)
+	if err != nil {
+		t.Skipf("No synsets with properties: %v", err)
+	}
+
+	// Same synset should have distance 0
+	dist, err := ComputeSynsetDistance(db, synsetID, synsetID)
+	if err != nil {
+		t.Fatalf("ComputeSynsetDistance failed: %v", err)
+	}
+	if dist != 0.0 {
+		t.Errorf("Expected distance 0.0 for same synset, got %f", dist)
+	}
+}

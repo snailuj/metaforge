@@ -191,3 +191,79 @@ func TestGetLookup_Relations(t *testing.T) {
 		}
 	}
 }
+
+func TestGetLookup_PosNames(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	// "fire" has both noun and verb senses — check POS names are human-readable
+	result, err := GetLookup(database, "fire")
+	if err != nil {
+		t.Fatalf("GetLookup(fire) returned error: %v", err)
+	}
+
+	posValues := map[string]bool{}
+	for _, sense := range result.Senses {
+		posValues[sense.POS] = true
+	}
+
+	// Should have human-readable POS names, not raw codes
+	if posValues["n"] || posValues["v"] || posValues["a"] || posValues["r"] {
+		t.Error("POS should be human-readable (noun, verb, etc.), not raw codes")
+	}
+	if !posValues["noun"] {
+		t.Error("Expected 'noun' among POS values for 'fire'")
+	}
+	if !posValues["verb"] {
+		t.Error("Expected 'verb' among POS values for 'fire'")
+	}
+}
+
+func TestGetLookup_SimilarRelations(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	// "hold" has many similar relations (type 11) in the database
+	result, err := GetLookup(database, "hold")
+	if err != nil {
+		t.Skipf("'hold' not found: %v", err)
+	}
+
+	hasSimilar := false
+	for _, sense := range result.Senses {
+		if len(sense.Relations.Similar) > 0 {
+			hasSimilar = true
+			for _, rel := range sense.Relations.Similar {
+				if rel.Word == "" || rel.SynsetID == "" {
+					t.Errorf("Similar relation has empty Word or SynsetID in sense %s", sense.SynsetID)
+				}
+			}
+			break
+		}
+	}
+	if !hasSimilar {
+		t.Error("Expected 'hold' to have similar relations")
+	}
+}
+
+func TestGetLookup_AdjectiveSatellitePOS(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	// "abandoned" has adjective satellite senses (POS code "s")
+	result, err := GetLookup(database, "abandoned")
+	if err != nil {
+		t.Skipf("'abandoned' not found: %v", err)
+	}
+
+	hasAdjSat := false
+	for _, sense := range result.Senses {
+		if sense.POS == "adjective satellite" {
+			hasAdjSat = true
+			break
+		}
+	}
+	if !hasAdjSat {
+		t.Error("Expected 'abandoned' to have at least one 'adjective satellite' sense")
+	}
+}

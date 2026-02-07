@@ -391,3 +391,81 @@ func TestGetForgeMatchesLimitRespected(t *testing.T) {
 		t.Errorf("Expected at most 5 results, got %d", len(matches))
 	}
 }
+
+func TestGetSynsetIDForLemma(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// "fire" should exist and return a synset ID
+	synsetID, err := GetSynsetIDForLemma(db, "fire")
+	if err != nil {
+		t.Fatalf("GetSynsetIDForLemma(fire) failed: %v", err)
+	}
+	if synsetID == "" {
+		t.Error("Expected non-empty synset ID for 'fire'")
+	}
+}
+
+func TestGetSynsetIDForLemmaNotFound(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	_, err = GetSynsetIDForLemma(db, "xyzzynotaword12345")
+	if err == nil {
+		t.Error("Expected error for nonexistent lemma")
+	}
+}
+
+func TestGetLemmaForSynset(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// First get a valid synset ID
+	synsetID, err := GetSynsetIDForLemma(db, "fire")
+	if err != nil {
+		t.Fatalf("GetSynsetIDForLemma(fire) failed: %v", err)
+	}
+
+	lemma, err := GetLemmaForSynset(db, synsetID)
+	if err != nil {
+		t.Fatalf("GetLemmaForSynset(%s) failed: %v", synsetID, err)
+	}
+	if lemma == "" {
+		t.Error("Expected non-empty lemma")
+	}
+}
+
+func TestGetLemmaForSynsetNotFound(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	_, err = GetLemmaForSynset(db, "999999999")
+	if err == nil {
+		t.Error("Expected error for nonexistent synset")
+	}
+}
+
+func TestGetSynsetNotFound(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	_, err = GetSynset(db, "999999999")
+	if err == nil {
+		t.Error("Expected error for nonexistent synset ID")
+	}
+}
