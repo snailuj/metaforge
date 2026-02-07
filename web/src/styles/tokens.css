@@ -1,0 +1,43 @@
+:root {
+  /* Backgrounds */
+  --colour-bg-primary: #1a1a2e;
+  --colour-bg-secondary: #16213e;
+  --colour-bg-hud: rgba(22, 33, 62, 0.6);
+
+  /* Text */
+  --colour-text-primary: #e8e0d4;
+  --colour-text-secondary: #a89f94;
+  --colour-text-muted: #6b6560;
+
+  /* Accents */
+  --colour-accent-gold: #d4af37;
+  --colour-accent-gold-dim: rgba(212, 175, 55, 0.5);
+
+  /* Node colours */
+  --colour-node-central: #d4af37;
+  --colour-node-synonym: #c4956a;
+  --colour-node-hypernym: #8b6f47;
+  --colour-node-hyponym: #6a8b6f;
+  --colour-node-similar: #7a6a8b;
+
+  /* Edges */
+  --colour-edge-default: rgba(232, 224, 212, 0.15);
+  --colour-edge-highlight: rgba(212, 175, 55, 0.4);
+
+  /* Typography */
+  --font-heading: 'Playfair Display', Georgia, serif;
+  --font-body: 'Crimson Text', 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Spacing */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+
+  /* HUD */
+  --hud-width: 320px;
+  --hud-border: 1px solid rgba(212, 175, 55, 0.2);
+  --hud-radius: 4px;
+}

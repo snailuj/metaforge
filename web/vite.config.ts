@@ -1,0 +1,23 @@
+import { defineConfig } from 'vite'
+import { resolve } from 'path'
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src'),
+    },
+  },
+  server: {
+    port: 5173,
+    proxy: {
+      '/thesaurus': 'http://localhost:8080',
+      '/forge': 'http://localhost:8080',
+      '/strings': 'http://localhost:8080',
+      '/health': 'http://localhost:8080',
+    },
+  },
+  test: {
+    environment: 'happy-dom',
+    include: ['src/**/*.test.ts'],
+  },
+})
