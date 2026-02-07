@@ -6,9 +6,9 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 
 | Document | Purpose |
 |----------|---------|
-| `Metaforge-PRD.md` | Full product requirements |
-| `IMPLEMENTATION-PLAN.md` | Technical architecture and phases |
-| `docs/plans/2026-01-26-sprint-zero.md` | Sprint Zero implementation plan (executing) |
+| `Metaforge-PRD-2.md` | **Authoritative PRD** (supersedes original, includes parked ideas) |
+| `docs/plans/20260207-prd-reconciliation-scratchpad.md` | Decision log from PRD reconciliation |
+| `docs/plans/2026-01-26-sprint-zero.md` | Sprint Zero implementation plan (backend complete) |
 | `docs/plans/2026-01-28-performance-tuning.md` | Performance optimisation notes and scaling strategies |
 | `docs/designs/` | Feature brainstorms (start here for design context) |
 | `docs/designs/metaphor-forge.md` | ✓ Complete - Sprint Zero feature |
@@ -17,15 +17,15 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 ## Architecture
 
 - **Backend:** Go headless API (stateless, self-hostable)
-- **Frontend:** TypeScript + Three.js/WebGPU (browser-first)
+- **Frontend:** Lit + Vite + TypeScript + `3d-force-graph` (browser-first)
 - **Data:** SQLite + GloVe embeddings + Gemini-extracted properties
 - **Storage:** IndexedDB for local user data (no accounts in MVP)
 
 ## Current Phase
 
-**Sprint Zero: Metaphor Forge** - proving out the data pipeline before 3D work.
+**Sprint Zero backend complete.** Forge + Thesaurus endpoints working, 38 Go tests passing.
 
-Design complete. Ready for implementation planning.
+Next: Phase 1 MVP frontend — 3D force graph + HUD results panel.
 
 ---
 
@@ -75,10 +75,10 @@ The superpowers skills are bundled in this repo for portability (CCotW, remote s
 
 ## Design Status
 
-| Feature | Status |
-|---------|--------|
-| Metaphor Forge | ✓ Design complete |
-| Core Thesaurus | ◐ Started |
-| 3D Visualization | ○ Not started |
-| Word Hunt | ○ Not started |
-| Constellation | ○ Not started |
+| Feature | Design | Implementation |
+|---------|--------|----------------|
+| Metaphor Forge | ✓ Complete | ✓ Backend complete |
+| Core Thesaurus | ✓ Complete | ✓ Backend complete, ○ Frontend not started |
+| 3D Force Graph | ✓ Complete (PRD-2) | ○ Not started |
+| Word Hunt | Parked | Parked |
+| Constellation | Parked (near-horizon) | Parked |
