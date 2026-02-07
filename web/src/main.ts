@@ -1,2 +1,2 @@
-// App entry — component imports will go here as we build them
-console.log('Metaforge starting...')
+// App entry — register all components
+import './components/mf-app'
