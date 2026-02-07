@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'lit'
-import { customElement, property, state } from 'lit/decorators.js'
+import { customElement, property } from 'lit/decorators.js'
+import type { PropertyValues } from 'lit'
 import ForceGraph3D from '3d-force-graph'
 import type { GraphData, GraphNode } from '@/graph/types'
 
@@ -14,6 +15,8 @@ const NODE_COLOURS: Record<string, string> = {
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
 
+const DBLCLICK_THRESHOLD_MS = 200
+
 @customElement('mf-force-graph')
 export class MfForceGraph extends LitElement {
   static styles = css`
@@ -27,7 +30,7 @@ export class MfForceGraph extends LitElement {
     }
   `
 
-  @state() private graph: ReturnType<typeof ForceGraph3D> | null = null
+  private graph: ReturnType<typeof ForceGraph3D> | null = null
   private container: HTMLDivElement | null = null
   private clickTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -41,14 +44,15 @@ export class MfForceGraph extends LitElement {
       controlType: 'fly',
     })
       .backgroundColor('#1a1a2e')
-      .nodeLabel((node: GraphNode) => node.word)
-      .nodeColor((node: GraphNode) => NODE_COLOURS[node.relationType] || '#e8e0d4')
-      .nodeVal((node: GraphNode) => node.val)
+      .nodeLabel((n: unknown) => (n as GraphNode).word)
+      .nodeColor((n: unknown) => NODE_COLOURS[(n as GraphNode).relationType] || '#e8e0d4')
+      .nodeVal((n: unknown) => (n as GraphNode).val)
       .nodeOpacity(0.9)
       .linkColor(() => EDGE_COLOUR)
       .linkWidth(1)
       .linkOpacity(0.6)
-      .onNodeClick((node: GraphNode) => {
+      .onNodeClick((n: unknown) => {
+        const node = n as GraphNode
         if (this.clickTimer) {
           // Double click — navigate
           clearTimeout(this.clickTimer)
@@ -67,12 +71,13 @@ export class MfForceGraph extends LitElement {
                 detail: node, bubbles: true, composed: true,
               }),
             )
-          }, 300)
+          }, DBLCLICK_THRESHOLD_MS)
         }
       })
-      .onNodeRightClick((node: GraphNode, event: MouseEvent) => {
+      .onNodeRightClick((n: unknown, event: MouseEvent) => {
+        const node = n as GraphNode
         event.preventDefault()
-        navigator.clipboard.writeText(node.word)
+        navigator.clipboard.writeText(node.word).catch(() => { /* clipboard unavailable */ })
         this.dispatchEvent(
           new CustomEvent('mf-node-copy', {
             detail: { word: node.word },
@@ -81,7 +86,8 @@ export class MfForceGraph extends LitElement {
           }),
         )
       })
-      .onNodeHover((node: GraphNode | null) => {
+      .onNodeHover((n: unknown) => {
+        const node = n as GraphNode | null
         if (this.container) {
           this.container.style.cursor = node ? 'pointer' : 'default'
         }
@@ -92,7 +98,7 @@ export class MfForceGraph extends LitElement {
     }
   }
 
-  updated(changed: Map<string, unknown>): void {
+  updated(changed: PropertyValues<this>): void {
     if (changed.has('graphData') && this.graph && this.graphData.nodes.length) {
       this.graph.graphData(this.graphData)
     }
@@ -101,7 +107,12 @@ export class MfForceGraph extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback()
     if (this.clickTimer) clearTimeout(this.clickTimer)
-    this.graph = null
+    if (this.graph) {
+      this.graph.pauseAnimation()
+      const renderer = this.graph.renderer()
+      if (renderer) renderer.dispose()
+      this.graph = null
+    }
   }
 
   render() {

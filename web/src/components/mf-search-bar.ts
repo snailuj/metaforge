@@ -1,5 +1,5 @@
 import { LitElement, html, css } from 'lit'
-import { customElement, state } from 'lit/decorators.js'
+import { customElement, property, state } from 'lit/decorators.js'
 
 @customElement('mf-search-bar')
 export class MfSearchBar extends LitElement {
@@ -42,6 +42,9 @@ export class MfSearchBar extends LitElement {
     }
   `
 
+  @property() placeholder = 'Search for a word...'
+  @property() searchLabel = 'Search for a word'
+
   @state() private value = ''
 
   connectedCallback(): void {
@@ -55,10 +58,18 @@ export class MfSearchBar extends LitElement {
   }
 
   private handleGlobalKeydown = (e: KeyboardEvent) => {
-    if (e.key === '/' && document.activeElement !== this.inputEl) {
-      e.preventDefault()
-      this.inputEl?.focus()
-    }
+    if (e.key !== '/') return
+    const active = document.activeElement
+    // Don't steal focus from any text input
+    if (
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement ||
+      active?.getAttribute('contenteditable') === 'true'
+    ) return
+    // Also check if our own shadow input is focused
+    if (active === this && this.shadowRoot?.activeElement === this.inputEl) return
+    e.preventDefault()
+    this.inputEl?.focus()
   }
 
   private get inputEl(): HTMLInputElement | null {
@@ -98,11 +109,11 @@ export class MfSearchBar extends LitElement {
       <div class="search-wrapper">
         <input
           type="text"
-          placeholder="Search for a word..."
+          placeholder=${this.placeholder}
           .value=${this.value}
           @input=${this.handleInput}
           @keydown=${this.handleKeydown}
-          aria-label="Search for a word"
+          aria-label=${this.searchLabel}
           role="searchbox"
         />
         <span class="shortcut-hint">/</span>

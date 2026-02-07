@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 import type { LookupResult, Sense, RelatedWord } from '@/types/api'
+import { getString } from '@/lib/strings'
 
 @customElement('mf-results-panel')
 export class MfResultsPanel extends LitElement {
@@ -91,6 +92,11 @@ export class MfResultsPanel extends LitElement {
     .word-chip.hypernym { color: #8b6f47; }
     .word-chip.hyponym { color: #6a8b6f; }
     .word-chip.similar { color: #7a6a8b; }
+
+    .word-chip:focus {
+      outline: 1px solid var(--colour-accent-gold, #d4af37);
+      outline-offset: 1px;
+    }
   `
 
   @property({ type: Object }) result: LookupResult | null = null
@@ -107,7 +113,7 @@ export class MfResultsPanel extends LitElement {
 
   private handleWordRightClick(e: MouseEvent, word: string) {
     e.preventDefault()
-    navigator.clipboard.writeText(word)
+    navigator.clipboard.writeText(word).catch(() => { /* clipboard unavailable */ })
     this.dispatchEvent(
       new CustomEvent('mf-word-copy', {
         detail: { word },
@@ -117,14 +123,23 @@ export class MfResultsPanel extends LitElement {
     )
   }
 
+  private handleWordKeydown(e: KeyboardEvent, word: string) {
+    if (e.key === 'Enter') {
+      this.handleWordDblClick(word)
+    }
+  }
+
   private renderWordChip(rw: RelatedWord, type: string) {
     return html`
       <span
         class="word-chip ${type}"
         data-word=${rw.word}
+        tabindex="0"
+        role="button"
         @dblclick=${() => this.handleWordDblClick(rw.word)}
         @contextmenu=${(e: MouseEvent) => this.handleWordRightClick(e, rw.word)}
-        title="Double-click to navigate, right-click to copy"
+        @keydown=${(e: KeyboardEvent) => this.handleWordKeydown(e, rw.word)}
+        title="${getString('word-chip-title')}"
       >${rw.word}</span>
     `
   }
@@ -137,7 +152,7 @@ export class MfResultsPanel extends LitElement {
 
         ${sense.synonyms.length
           ? html`
-              <div class="section-label">Synonyms</div>
+              <div class="section-label">${getString('results-synonyms')}</div>
               <div class="word-list">
                 ${sense.synonyms.map(s => this.renderWordChip(s, 'synonym'))}
               </div>
@@ -146,7 +161,7 @@ export class MfResultsPanel extends LitElement {
 
         ${sense.relations.hypernyms.length
           ? html`
-              <div class="section-label">Broader terms</div>
+              <div class="section-label">${getString('results-broader')}</div>
               <div class="word-list">
                 ${sense.relations.hypernyms.map(h => this.renderWordChip(h, 'hypernym'))}
               </div>
@@ -155,7 +170,7 @@ export class MfResultsPanel extends LitElement {
 
         ${sense.relations.hyponyms.length
           ? html`
-              <div class="section-label">Narrower terms</div>
+              <div class="section-label">${getString('results-narrower')}</div>
               <div class="word-list">
                 ${sense.relations.hyponyms.map(h => this.renderWordChip(h, 'hyponym'))}
               </div>
@@ -164,7 +179,7 @@ export class MfResultsPanel extends LitElement {
 
         ${sense.relations.similar.length
           ? html`
-              <div class="section-label">Similar</div>
+              <div class="section-label">${getString('results-similar')}</div>
               <div class="word-list">
                 ${sense.relations.similar.map(s => this.renderWordChip(s, 'similar'))}
               </div>
@@ -180,7 +195,7 @@ export class MfResultsPanel extends LitElement {
     }
 
     return html`
-      <div class="panel" role="region" aria-label="Thesaurus results">
+      <div class="panel" role="region" aria-label="${getString('results-aria-label')}" aria-live="polite">
         <h2>${this.result.word}</h2>
         ${this.result.senses.map(s => this.renderSense(s))}
       </div>

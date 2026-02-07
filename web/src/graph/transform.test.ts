@@ -132,4 +132,26 @@ describe('transformLookupToGraph', () => {
     expect(graph.nodes.length).toBe(1)
     expect(graph.links.length).toBe(0)
   })
+
+  it('filters self-references from synonyms', () => {
+    const selfRef: LookupResult = {
+      word: 'happy',
+      senses: [
+        {
+          synset_id: '1',
+          pos: 'adjective',
+          definition: 'feeling pleasure',
+          synonyms: [
+            { word: 'happy', synset_id: '1' },  // self-reference
+            { word: 'joyful', synset_id: '2' },
+          ],
+          relations: { hypernyms: [], hyponyms: [], similar: [] },
+        },
+      ],
+    }
+    const graph = transformLookupToGraph(selfRef)
+    const happyNodes = graph.nodes.filter(n => n.word === 'happy')
+    expect(happyNodes.length).toBe(1) // only the central node
+    expect(happyNodes[0].relationType).toBe('central')
+  })
 })

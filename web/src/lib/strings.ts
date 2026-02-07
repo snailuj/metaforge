@@ -22,6 +22,11 @@ export async function initStrings(locale = 'en-GB'): Promise<void> {
   }
 }
 
+/** Reset the bundle — for testing only. */
+export function resetStrings(): void {
+  bundle = null
+}
+
 /**
  * Get a translated string by message ID.
  * Returns the ID itself as fallback if not found.

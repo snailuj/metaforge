@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { initStrings, getString } from './strings'
+import { initStrings, getString, resetStrings } from './strings'
 
 const MOCK_FTL = `
 search-placeholder = Search for a word...
@@ -9,6 +9,7 @@ pos-noun = noun
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  resetStrings()
 })
 
 describe('Fluent strings', () => {
@@ -42,5 +43,15 @@ describe('Fluent strings', () => {
 
     await initStrings()
     expect(getString('nonexistent-key')).toBe('nonexistent-key')
+  })
+
+  it('returns message ID before initStrings is called', () => {
+    expect(getString('some-key')).toBe('some-key')
+  })
+
+  it('falls back to message IDs when fetch fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }))
+    await initStrings()
+    expect(getString('search-placeholder')).toBe('search-placeholder')
   })
 })

@@ -23,5 +23,9 @@ export async function lookupWord(word: string): Promise<LookupResult> {
     throw new ApiError(body.error || `HTTP ${response.status}`, response.status)
   }
 
-  return response.json()
+  const data = await response.json()
+  if (!data || typeof data.word !== 'string' || !Array.isArray(data.senses)) {
+    throw new ApiError('Invalid response shape', 0)
+  }
+  return data as LookupResult
 }

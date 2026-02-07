@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { lookupWord, ApiError } from '@/api/client'
 import { transformLookupToGraph } from '@/graph/transform'
-import { initStrings } from '@/lib/strings'
+import { initStrings, getString } from '@/lib/strings'
 import type { LookupResult } from '@/types/api'
 import type { GraphData } from '@/graph/types'
 import type { MfToast } from './mf-toast'
@@ -88,6 +88,7 @@ export class MfApp extends LitElement {
   async connectedCallback(): Promise<void> {
     super.connectedCallback()
     await initStrings()
+    this.requestUpdate() // re-render now that strings are loaded
 
     // Check URL hash for initial word
     const hashWord = this.getWordFromHash()
@@ -139,7 +140,7 @@ export class MfApp extends LitElement {
 
   private handleCopy(e: CustomEvent<{ word: string }>) {
     const toast = this.shadowRoot?.querySelector('mf-toast') as MfToast | null
-    toast?.show(`Copied "${e.detail.word}"`)
+    toast?.show(getString('toast-copied', { word: e.detail.word }))
   }
 
   private async doLookup(word: string) {
@@ -155,9 +156,9 @@ export class MfApp extends LitElement {
     } catch (err) {
       this.appState = 'error'
       if (err instanceof ApiError && err.status === 404) {
-        this.errorMessage = `"${word}" was not found in the thesaurus.`
+        this.errorMessage = getString('results-word-not-found', { word })
       } else {
-        this.errorMessage = 'Something went wrong. Please try again.'
+        this.errorMessage = getString('error-generic')
       }
     }
   }
@@ -165,7 +166,11 @@ export class MfApp extends LitElement {
   render() {
     return html`
       <div class="search-container">
-        <mf-search-bar @mf-search=${this.handleSearch}></mf-search-bar>
+        <mf-search-bar
+          .placeholder=${getString('search-placeholder')}
+          .searchLabel=${getString('search-aria-label')}
+          @mf-search=${this.handleSearch}
+        ></mf-search-bar>
       </div>
 
       <div role="status" aria-live="polite" aria-atomic="true">
@@ -173,7 +178,7 @@ export class MfApp extends LitElement {
           ? html`
               <div class="status-message">
                 <div class="loading-ring"></div>
-                Loading...
+                ${getString('status-loading')}
               </div>
             `
           : ''}
@@ -183,7 +188,7 @@ export class MfApp extends LitElement {
           : ''}
 
         ${this.appState === 'idle'
-          ? html`<div class="status-message">Search for a word to begin exploring.</div>`
+          ? html`<div class="status-message">${getString('status-idle')}</div>`
           : ''}
       </div>
 
