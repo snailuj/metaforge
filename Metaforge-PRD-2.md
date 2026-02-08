@@ -44,7 +44,7 @@ These aren't mutually exclusive — Metaforge could ship with the force graph as
 
 ### What's In the Box
 
-- **Search** — always visible, always under 100ms. Returns definitions, synonyms/antonyms, register, connotations, etymology, collocations/metonyms, and usage examples
+- **Search** — always visible, always under 100ms. Returns definitions, synonyms/antonyms, register, connotations, etymology, rarity badges, collocations/metonyms, and usage examples
 - **Visual graph** — the core interaction; click, drag, travel between clusters
 - **Metaphor generator** — experimental creative tool surfacing unexpected semantic connections
 - **Themes** — at least two visual skins that completely change the look and feel
@@ -128,34 +128,38 @@ The interface serves both simultaneously.
 The UI is a full-viewport 3D force graph with a semi-transparent HUD overlay.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  [🔍 Search...]                                          [Settings] │
-├───────────────────────┬─────────────────────────────────────────────┤
-│                       │                                             │
-│   HUD RESULTS PANEL   │         3D FORCE GRAPH                      │
-│   (~60% opacity bg)   │         (WebGL canvas, full viewport)       │
-│                       │                                             │
-│   ┌─────────────────┐ │       ● melancholy                         │
-│   │ melancholy      │ │      / │ \      \                           │
-│   │ ────────────────│ │   ● sad  ● wistful  ● pensive              │
-│   │ Uncommon | Poetic│ │    │         \                              │
-│   └─────────────────┘ │  ● gloomy    ● sorrowful                   │
-│                       │                                             │
-│   Synonyms:           │                                             │
-│   • sad               │                                             │
-│   • sorrowful         │                                             │
-│   • gloomy            │                                             │
-│   • wistful           │                                             │
-│   • pensive           │                                             │
-│                       │                                             │
-│   Antonyms:           │                                             │
-│   • happy             │                                             │
-│   • cheerful          │                                             │
-│                       │                                             │
-│   [▼ Collocations]    │                                             │
-│   [▼ Etymology]       │                                             │
-│                       │                                             │
-├───────────────────────┴─────────────────────────────────────────────┤
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                      [ Search...]                      [Settings]   │
+├────────────────────────┬────────────────────────────────────────────────────────────────────────────┤
+│                        │                                                                            │
+│   HUD RESULTS PANEL    │                                                                            │
+│   (~60% opacity bg)    │                                                                            │
+│   (font-outline ??)    │                                                                            │
+│   (font-scale 0.7)     │                                                                            │
+│  ┌──────────────────┐  │                                                                            │
+│  │ melancholy       │  │                                                                            │
+│  │ ─────────────────│  │                                                                            │
+│  │ Uncommon | Poetic│  │                                                                            │
+│  └──────────────────┘  │                                  3D FORCE GRAPH                            │
+│                        │                           (WebGL canvas, full viewport)                    │
+│    Synonyms:           │                                                                            │
+│   • sad                │                                                                            │
+│   • gloomy             │                      ● melancholy     ● wistful                            │
+│   • wistful            │                    / │ \      \      /                                     │
+│   • pensive            │                   /  │  \      \    /                                      │
+│   • sorrowful          │                  /   │   \      \  /                                       │
+│                        │             sad ●    ●    \       ● pensive                                │
+│   Antonyms:            │                   gloomy   \                                               │
+│   • happy              │                             \               •                              │
+│   • cheerful           │                              ● sorrowful   /                               │
+│   [▼ Collocations]     │                                      /  \ /                                │
+│   [▼ Etymology]        │                                     •    •                                 │
+│                        │                                     │     \                                │
+│________________________│                                     •      •                               │
+│                                                                                                     │
+│                                                                                                     │
+│                                                                                                     │
+├─────────────────────────────────────────────────────────────────────┬───────────────────────────────┘
 │   "a melancholy autumn evening" — usage example                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -360,17 +364,20 @@ The HUD panel is the accessible surface. The 3D graph is a visual enhancement �
 
 ## Parked Ideas
 
-The following features were fully designed in the original PRD but are parked until the core experience proves itself. Nothing here is deleted — it's preserved for when/if we return to it.
+The following features were fully designed in the original PRD but are parked until the core experience proves itself. Nothing here is deleted — it's preserved verbatim for when/if we return to it.
 
-### 3D Starfield / Celestial Visualisation
+### 3D Visualisation System
 
-An alternative rendering where words become celestial bodies in a semantic solar system.
+The semantic solar system that transforms lookup into exploration.
+
+#### Visual Representation
 
 **Words as Celestial Bodies (LexiNodes):**
-- Central Star: the currently selected word. Bright, prominent, centre of view
-- Planets: strongly related words. Size indicates relationship strength
-- Moons: secondary relationships or nuances
-- Distant Stars: weakly related words. Visible but dim
+
+- **Central Star:** The currently selected word. Bright, prominent, centre of view
+- **Planets:** Strongly related words. Size indicates relationship strength
+- **Moons:** Secondary relationships or nuances
+- **Distant Stars:** Weakly related words. Visible but dim
 
 **Visual Properties Encode Meaning:**
 
@@ -382,7 +389,9 @@ An alternative rendering where words become celestial bodies in a semantic solar
 | Colour hue | Semantic category or register |
 | Orbital speed | Relationship type (synonyms orbit differently than antonyms) |
 
-**Relationship layer toggles:**
+#### Relationship Modes
+
+**Layered visibility** rather than discrete modes. Users toggle layers on/off:
 
 | Layer | Default | Description |
 |-------|---------|-------------|
@@ -392,9 +401,60 @@ An alternative rendering where words become celestial bodies in a semantic solar
 | Etymology | Off | Root trails showing word lineage |
 | Wormholes | Auto | Hidden until discovered |
 
+**Synonym View:**
+- Synonyms form tight cluster around central star
+- Proximity indicates semantic similarity
+- Subtle colour variations denote register/connotation
+
+**Antonym View:**
+- Antonyms appear diametrically opposite
+- Contrasting colours (warm vs cool)
+- Distance represents degree of opposition
+
+**Metonym View:**
+- Metonyms appear as nebulae or clusters
+- Connected via visible "gravitational tethers"
+- Clicking tether reveals relationship type (part-for-whole, symbol-for-referent, etc)
+
+#### Navigation
+
+**Camera Controls:**
+
+- **Orbit:** Click and drag to orbit around current centre
+- **Zoom:** Scroll wheel to move closer/farther
+- **Fly:** WASD keys or right-click drag to move freely through space
+
+**Navigation Feel:**
+
+Navigation should feel like piloting a spacecraft:
+
+- Smooth acceleration and deceleration
+- Momentum carries you forward
+- Gravity wells create drag (see Gravity System)
+- Skilled navigators learn efficient paths
+
+#### Visual Feedback
+
+- **Hover:** Word glows, label appears
+- **Selection:** Smooth transition as new word becomes centre
+- **Previously visited:** Words glow brighter (luminosity gradient)
+- **Rare words:** Distinct visual treatment (special glow or particle effect)
+
+#### Performance Considerations
+
+- **Dynamic loading:** Only render visible region plus buffer
+- **Level of detail:** Distant words render as simple points
+- **Spatial indexing:** Efficient lookup for nearby words
+
+---
+
 ### Gravity System
 
-All words exert gravitational pull proportional to their frequency, creating navigation texture.
+All words exert gravitational pull. This creates navigation texture and reflects linguistic reality -- common words dominate thought.
+
+#### How Gravity Works
+
+**Every word has gravity** proportional to its frequency:
 
 | Word Type | Gravity Strength | Examples |
 |-----------|------------------|----------|
@@ -404,9 +464,26 @@ All words exert gravitational pull proportional to their frequency, creating nav
 | Uncommon words | Weak | melancholy, ephemeral, sanguine |
 | Rare words | Very weak | defenestration, petrichor |
 
-**Gravity Wells:** high-gravity words as visible landmarks. Larger, more luminous bodies with visible gravity field effect. Navigation effects: approaching slows movement, passing near curves trajectory, breaking free requires sustained thrust.
+#### Gravity Wells
 
-**Skill element:** novice navigators get "trapped" in obvious word spaces; skilled navigators slingshot around wells for speed.
+High-gravity words are "gravity wells" -- visible landmarks that pull navigation toward them.
+
+**Visual representation:**
+- Larger, more luminous bodies
+- Visible "gravity field" effect (subtle distortion or glow)
+- Gravitational influence radius shown on approach
+
+**Navigation effects:**
+- Approaching a gravity well slows movement
+- Passing near a well curves your trajectory
+- Breaking free requires sustained thrust away
+
+**Skill element:**
+- Novice navigators get "trapped" in obvious word spaces
+- Skilled navigators slingshot around wells for speed
+- Finding rare words requires navigating past common ones
+
+#### Gravity in Different Contexts
 
 | Context | Gravity Behaviour |
 |---------|-------------------|
@@ -414,13 +491,36 @@ All words exert gravitational pull proportional to their frequency, creating nav
 | Word Hunt (active) | Full gravity physics; wells are obstacles |
 | Word Hunt (relaxed) | Reduced gravity; wells are landmarks only |
 
+---
+
 ### Constellation System
 
 Users build a personal map of their journey through the Metaforge.
 
-**Automatic generation:** each visited word becomes a star; navigation paths become lines connecting stars. No manual action required.
+#### Automatic Generation
 
-**Minimap:** small icon in corner, shows simplified constellation. Pulses gently when new stars are added. Click to expand to full map view (2D star chart, dark field with stars connected by faint lines).
+As users navigate:
+
+1. **Each visited word becomes a star** in their personal constellation
+2. **Navigation paths become lines** connecting stars
+3. **The constellation grows organically** with use
+
+No manual action required -- exploration naturally builds the map.
+
+#### The Constellation View
+
+**Minimap (always visible):**
+- Small icon in corner of visualisation panel
+- Shows simplified version of user's constellation
+- Pulses gently when new stars are added
+
+**Full Map View (on click):**
+- Clicking minimap expands to full constellation view
+- Replaces 3D visualisation panel temporarily
+- 2D representation -- like a real star chart
+- Dark field with stars connected by faint lines
+
+**Visual Elements:**
 
 | Element | Appearance |
 |---------|------------|
@@ -432,15 +532,50 @@ Users build a personal map of their journey through the Metaforge.
 | Wormhole endpoints | Special connector line |
 | Navigation paths | Faint lines between stars |
 
-**Persistence:** without account in browser local storage; with account synced to server. Reset option and export as image.
+**Interaction:**
+- Hover over star to see word
+- Click any star to:
+    - Minimise constellation back to minimap
+    - Load 3D visualisation
+    - Navigate to that word
 
-### Collection System (Specimen Cabinet)
+#### Persistence
+
+- **Without account:** Stored in browser local storage
+- **With account:** Synced to server
+- **Reset option:** "Start a new constellation" clears history
+- **Export:** Download constellation as image (shareable)
+
+#### Future Features
+
+- Public constellation gallery
+- Share constellation as "guided tour"
+- Compare constellations with friends
+- Teacher-assigned constellation challenges
+
+---
+
+### Collection System
 
 A personal vocabulary cabinet for pinning and collecting words.
 
-**Adding words:** double-click to pin, long-press on mobile, "Pin" button in info panel. Sortable by date, alphabetical, rarity, category. Custom folders/tags.
+#### The Specimen Cabinet
 
-**Word Badges:**
+Users curate a personal collection of favourite or interesting words.
+
+**Adding words:**
+- Double-click any word to pin it
+- Long-press on mobile
+- "Pin" button in word info panel
+
+**Collection organisation:**
+- Words displayed in a grid or list
+- Sortable by: date added, alphabetical, rarity, category
+- User can create custom folders/tags
+
+#### Word Badges
+
+Collected words display earned badges:
 
 | Badge | Earned By |
 |-------|-----------|
@@ -450,7 +585,9 @@ A personal vocabulary cabinet for pinning and collecting words.
 | Wormhole | Discovered via wormhole connection |
 | Forged | Used in Metaphor Forge |
 
-**Rarity System:**
+#### Rarity System
+
+Words are classified by corpus frequency:
 
 | Rarity | Description | Collector Value |
 |--------|-------------|-----------------|
@@ -460,49 +597,166 @@ A personal vocabulary cabinet for pinning and collecting words.
 | Archaic | Historically used, now rare | Very high |
 | Endangered | At risk of falling out of use | Special |
 
-**Word Families:** words sharing etymological roots form "genera." Completing all words from a root completes a "word family."
+**Discovery messages:**
+- "You discovered a rare word!" (toast notification)
+- "This word is endangered -- help keep it alive!"
 
-**Annotations:** users can add personal notes to collected words.
+#### Word Families
 
-**Export:** JSON, CSV, printable PDF. "Linguistic passport" shareable summary.
+Words sharing etymological roots form "genera":
+
+- Collecting all words from a root completes a "word family"
+- Visual indicator shows completion progress
+- Completed families earn special recognition
+
+#### Annotations
+
+Users can add personal notes to collected words:
+- "Used this in my story about the lighthouse"
+- "Perfect for describing autumn"
+
+#### Export & Sharing
+
+- **Export collection:** JSON, CSV, or printable PDF
+- **"Linguistic passport":** Shareable summary of collection stats
+- **Future:** Public profiles showing collection highlights
+
+---
 
 ### Wormholes (Surprising Connections)
 
 Hidden connections between semantically distant but structurally analogous words.
 
-**Example:** "Grief" ↔ "Anchor" — different domains (emotion vs nautical), shared structure (both hold something in place, preventing movement).
+#### What Are Wormholes?
 
-**Discovery triggers:**
-1. Visit both endpoints in a single session
-2. Linger on a word long enough to "sense" distant resonance
-3. Use Metaphor Forge successfully with the pair
-4. Navigate near an undiscovered wormhole (proximity trigger)
+Wormholes connect words that:
+- Belong to different semantic domains (high distance)
+- Share deep structural properties (analogous relationships)
 
-**Discovery moment:** dramatic animation (visual tear in space), sound effect, notification, naming opportunity, collection update with "Wormhole" badge, constellation update with special connector line.
+**Example:** "Grief" ↔ "Anchor"
+- Different domains (emotion vs nautical)
+- Shared structure: Both hold something in place, preventing movement
 
-**Wormhole travel:** once discovered, remains visible. Clicking instantly transports to other endpoint. Creates shortcuts through semantic space.
+#### Discovery Mechanics
 
-**Data source:** pre-computed from embedding distance (semantic dissimilarity) + relational overlap (structural similarity) + curated additions.
+Wormholes are **hidden until discovered**. Discovery triggers:
+
+1. **Visit both endpoints** in a single session
+2. **Linger on a word** long enough to "sense" distant resonance
+3. **Use Metaphor Forge** successfully with the pair
+4. **Navigate near** an undiscovered wormhole (proximity trigger)
+
+#### Discovery Moment
+
+When discovered:
+
+1. **Dramatic animation:** Visual tear in space connecting two distant points
+2. **Sound effect:** Distinctive "wormhole open" audio cue
+3. **Notification:** "You discovered a wormhole between [Word A] and [Word B]!"
+4. **Naming opportunity:** User can give the wormhole a personal name
+5. **Collection update:** Both words added to collection with "Wormhole" badge
+6. **Constellation update:** Special connector line appears on map
+
+#### Wormhole Travel
+
+Once discovered:
+- Wormhole remains visible on subsequent visits
+- Clicking the wormhole instantly transports to the other endpoint
+- Creates shortcuts through semantic space
+
+#### Treasure Display
+
+Discovered wormholes appear in:
+- **Collection:** Special "Wormholes" section
+- **Constellation:** Distinctive connection lines
+- **Profile:** Bragging rights -- "12 wormholes discovered"
+
+#### Wormhole Data Source
+
+Wormholes are pre-computed based on:
+- Embedding distance (semantic dissimilarity)
+- ConceptNet relational overlap (structural similarity)
+- Curated additions for particularly surprising/educational connections
+
+---
 
 ### Etymology Trails
 
 Visual traces showing how words evolved from roots.
 
-**Toggle behaviour:** off by default, toggle on to see root trails throughout visible space.
+#### Toggle Behaviour
 
-**Visual representation:** glowing trails connecting words sharing roots. Root nodes as special markers. Colour coded: Latin (gold), Greek (blue), Germanic (silver), Other (white).
+Etymology is a visibility layer:
+- **Off by default:** Clean thesaurus view
+- **Toggle on:** Root trails appear throughout visible space
 
-**Example — viewing "telephone":** trail connects to "television", "telegraph", "telescope" (root: Greek "tele-" = far). Additional trail to "phone", "phonetic", "symphony" (root: Greek "phone-" = sound/voice).
+#### Visual Representation
+
+When enabled:
+- **Glowing trails** connect words sharing roots
+- **Root nodes:** Ancient roots appear as special markers
+- **Colour coding:** Latin (gold), Greek (blue), Germanic (silver), Other (white)
+
+#### Trail Navigation
+
+- Click any trail to highlight the full word family
+- Navigate along trails to explore etymological relationships
+- "Ancestor words" (extinct forms) appear as ghostly markers
+
+#### Educational Value
+
+Etymology trails teach:
+- Why words are related ("salary" from "salt")
+- Language history (Latin influence on English)
+- Word formation patterns (prefixes, suffixes, roots)
+
+#### Example
+
+Viewing "telephone":
+- Trail connects to "television", "telegraph", "telescope"
+- Root node: Greek "tele-" (far)
+- Additional trail to "phone", "phonetic", "symphony"
+- Root node: Greek "phone-" (sound/voice)
+
+---
 
 ### Word Hunt System
 
 A daily quest to find a hidden word through semantic navigation.
 
-**Core concept:** each day, a curated word is hidden. Users receive cryptic clues and navigate semantic space to find it.
+#### Core Concept
 
-**Modes:** Timed (full scoring, timer) and Relaxed (no timer, no scoring, just exploration).
+Each day, a curated word is hidden in the Metaforge. Users receive cryptic clues and must navigate semantic space to find it. The hunt teaches vocabulary and relationships through play.
 
-**Progressive clues teach semantic relationships:**
+#### Hunt Modes
+
+| Mode | Description | Audience |
+|------|-------------|----------|
+| **Timed** | Full scoring, timer running | Competitive players |
+| **Relaxed** | No timer, no scoring, just exploration | Casual learners |
+
+Users choose mode before starting.
+
+#### Daily Reset
+
+- New word at midnight (user's local time)
+- Previous day's hunt remains available for 24 hours (marked "yesterday")
+- Streak tracking for consecutive completions
+
+#### Clue System
+
+**Progressive clues:**
+```
+Clue 1 (Starting point): "Begin at OCEAN"
+Clue 2 (Direction):      "Seek what is vast but not wet"
+Clue 3 (Relationship):   "The answer is an antonym of 'confined'"
+Clue 4 (Register):       "Writers use this word in poetry, rarely in essays"
+Clue 5 (Final hint):     "Rhymes with 'ace'"
+
+Answer: SPACE
+```
+
+**Clue types teach semantic relationships:**
 
 | Clue Type | What It Teaches |
 |-----------|-----------------|
@@ -513,19 +767,135 @@ A daily quest to find a hidden word through semantic navigation.
 | "Shares a root with X" | Etymology |
 | "Follow the metonyms of X" | Associative thinking |
 
-**Scoring (timed only):** base 1000, -1/second, -100/clue requested. Bonuses for fewer clues.
+**Clue request:**
+- Users can request next clue at any time
+- In timed mode: clue requests reduce score
+- In relaxed mode: unlimited clues, no penalty
 
-**Difficulty tiers:** Novice → Explorer (7-day streak) → Wayfinder (30-day) → Lexicon Master (100-day).
+#### Scoring (Timed Mode Only)
 
-**Portal mechanic:** ~1 in 10 hunts, a gravity-well word contains a hidden portal leading directly to the target. Risk/reward for navigating gravity wells.
+```
+Base score:     1000 points
+Time penalty:   -1 point per second
+Clue penalty:   -100 points per clue requested (after Clue 1)
 
-**Hunt generation:** target word selection, starting word, progressive clues, optional portal, difficulty calibration. Future: AI-assisted generation with human review.
+Bonuses:
+  +200  for finding without Clue 5
+  +500  for finding without Clues 4 or 5
+  +1000 for finding with only Clue 1 (legendary)
+```
+
+#### Navigation During Hunt
+
+**Starting state:**
+- User placed at starting word (Clue 1)
+- Timer begins (timed mode) or not (relaxed mode)
+- Full gravity physics activate
+- Visualisation enters "Hunt mode" with subtle visual shift
+
+**Hunt navigation:**
+- Full spaceship feel -- momentum, gravity, slingshots
+- All relationship layers visible (synonyms, antonyms, metonyms)
+- Wormholes remain hidden but discoverable (lucky shortcut!)
+- Gravity wells are obstacles requiring skill to navigate
+
+**Click-to-copy pauses hunt:**
+- If user clicks to copy a word (for their actual writing), hunt pauses
+- Timer stops, "Hunt Paused" indicator appears
+- Resume button to continue
+- Prevents hunt from interfering with thesaurus utility
+
+#### Portal Mechanic
+
+Occasionally (approximately 1 in 10 hunts), a gravity-well word contains a hidden portal:
+
+- Portal leads directly to the target word
+- Creates risk/reward: "Do I fight through this gravity well hoping for a portal?"
+- Portals are scripted per-hunt (future: AI-generated)
+- Discovery is a delightful surprise
+
+#### Finding the Target
+
+When user navigates to the correct word:
+
+1. **Triumphant animation:** Word "unlocks" with visual celebration
+2. **Sound effect:** Victory audio
+3. **Score display:** (Timed mode) Final score with breakdown
+4. **Collection update:** Word added with "Hunted" badge
+5. **Streak update:** Consecutive day count incremented
+6. **Constellation update:** New star with gold glow
+
+#### Personal Records
+
+Tracked statistics:
+- Best time (overall)
+- Best score (overall)
+- Longest streak (consecutive days)
+- "Legendary finds" count (Clue 1 only)
+- Total hunts completed
+
+#### Difficulty Tiers
+
+As users improve, difficulty scales:
+
+| Tier | Unlocked After | Features |
+|------|----------------|----------|
+| **Novice** | Default | 5 clues; generous time; weak gravity |
+| **Explorer** | 7-day streak | 4 clues; moderate gravity |
+| **Wayfinder** | 30-day streak | 3 clues; strong gravity; longer paths |
+| **Lexicon Master** | 100-day streak | 2 clues; brutal gravity; obscure words |
+
+Users can always drop to lower tier for relaxed play.
+
+#### Vocabulary Level Tailoring (Future)
+
+Hunts should match user's vocabulary level:
+- Track which words user knows (from lookups, collections)
+- Target words should be learnable but not frustrating
+- "Just beyond current vocabulary" is the sweet spot
+- Adaptive difficulty based on hunt success rate
+
+#### Hunt Generation
+
+**Daily hunt components:**
+1. Target word selection (curated or algorithmic)
+2. Starting word (semantically distant but reachable)
+3. Progressive clues (teaching path)
+4. Optional portal placement
+5. Difficulty calibration
+
+**AI-Assisted Generation (Admin Tool, Future):**
+- AI selects target word based on criteria
+- AI generates clue sequence
+- AI validates hunt is solvable (pathfinding)
+- Human reviews before publishing
+
+#### Multiplayer (Future)
+
+**Asynchronous:**
+- Daily leaderboards (opt-in)
+- Friends list with score comparison
+- Weekly tournaments with themed hunts
+
+**Synchronous:**
+- "Race" mode: same hunt, same start, first to find wins
+- Spectator mode for tournaments
+- Classroom integration (teacher sets hunt, students race)
+
+---
 
 ### Ambient Soundscape
 
 Generative audio that makes the Metaforge feel alive.
 
-**Behaviour:** paused on load, fades in on first navigation, user-controllable.
+#### Behaviour
+
+- **On load:** Sound is paused/muted
+- **On first navigation:** Sound fades in gradually
+- **User control:** Can be turned off in settings; preference persists
+- **If explicitly disabled:** Remains off until user re-enables
+
+#### Sound Design
 
 **Semantic regions have tonal signatures:**
 
@@ -537,20 +907,105 @@ Generative audio that makes the Metaforge feel alive.
 | Rare/archaic words | Mysterious, distant |
 | Gravity wells | Low rumble, tension |
 
-**Implementation:** Web Audio API, pre-composed stems layered by context, low CPU usage.
+**Movement creates music:**
+- Navigation speed affects rhythm
+- Changing regions creates melodic transitions
+- Discovering wormholes has distinctive sound
+- Hunt victory has triumphant audio
 
-### Multiplayer & Social (Future)
+#### Implementation Notes
 
-- Daily leaderboards (opt-in)
-- Friends list with score comparison
-- "Race" mode: same hunt, same start, first to find wins
-- Classroom integration (teacher sets hunt, students race)
-- Public constellation gallery
-- Share constellation as "guided tour"
+- Web Audio API for generative sound
+- Pre-composed stems that layer based on context
+- Low CPU usage (runs efficiently in background)
+- Graceful degradation if audio fails
 
-### User Accounts & Sync (Future)
+---
 
-- Required for leaderboards, constellation sync, classroom features
-- Simplest possible auth for self-hosted deployment
-- Without account: everything stored in browser (IndexedDB)
-- With account: sync to server
+### Future Considerations
+
+#### Phase 1 (MVP)
+
+- Core thesaurus functionality
+- 3D visualisation with synonyms/antonyms
+- Basic constellation (auto-generated)
+- Word Hunt (daily, single-player)
+
+#### Phase 2
+
+- Metonym layer
+- Etymology trails
+- Collection system with badges
+- Wormhole discovery
+
+##### New Ideas 20260207
+
+1. Consider vocabularysize.com [see Collaborators & Networking](./docs/gtm/collaborators-and-networking-202602.md#vocabularysizecom).
+[UPDATE Feb 7: we are shelving this idea for now -- turns into a marketing sharkfest to try and eat your competitors. Fuck that. Fuck them all. We just build what we need and want, for us. I sure as hell ain't going back to school.]
+Based upon their seemingly authoritative comments, this app may provide considerable utility for non-native English speakers looking to increase their vocabulary, and educators looking to measure their students' vocab. Therefore:
+    - ESOL Student Track Design
+    - Vocabulary Size Testing Track Design
+
+2. Also investigate whether, and if so how, it would benefit the app to replace word frequency calcs with *word familiarity* as described in [AI-based estimates of word familiarity](docs/designs/research/AI-based%20estimates%20of%20word%20familiarity%20final.pdf), which I downloaded from the [this page](https://osf.io/zq49t/files/kf9vg) on the Open Science Foundation's website while retrieving the latest SUBTLEX-UK dataset (OSF hosts the canonical version apparently).
+
+3. Do a proper survey of the [field of "vocabulary studies"](docs/gtm/collaborators-and-networking-202602.md#list-from-vocabularysizecoms-faq-section) (or whatever it calls itself). The link is a head-start in that direction perhaps.
+
+#### Phase 3
+
+- Metaphor Forge
+- Ambient soundscape
+- Hunt difficulty tiers
+
+#### Phase 4
+
+- User accounts and sync
+- Multiplayer hunts
+- Leaderboards
+- Classroom/teacher tools
+
+#### Phase 5
+
+- AI-assisted hunt generation
+- Vocabulary level adaptation
+- Additional languages
+- Mobile app (if demand)
+
+---
+
+### Open Questions (from original PRD)
+
+1. **User accounts:** Required for leaderboards and sync. What's the simplest auth approach for self-hosted?
+2. **Hunt curation:** Who creates daily hunts? Volunteer curators? Algorithmic? AI-assisted?
+3. **Moderation:** If user constellations become public, how do we handle inappropriate naming?
+4. **Mobile:** If demand emerges, what's the mobile UX? Separate app or responsive web?
+
+---
+
+### Appendix: Example Hunt
+
+**Target word:** EPHEMERAL
+
+**Clues:**
+```
+Clue 1: "Begin at FOREVER"
+Clue 2: "Seek its opposite — what does not last"
+Clue 3: "Not 'temporary' — something more poetic"
+Clue 4: "From Greek, meaning 'lasting only a day'"
+Clue 5: "Begins with E, ends with L"
+```
+
+**Teaching path:**
+- Clue 1 → Clue 2: Antonym relationship
+- Clue 2 → Clue 3: Register distinction (common vs poetic)
+- Clue 3 → Clue 4: Etymology as differentiator
+- Clue 4 → Clue 5: Final letter hint if needed
+
+**Optimal navigation:**
+1. Start at FOREVER
+2. Navigate to antonym region
+3. Pass through TEMPORARY, FLEETING
+4. Arrive at EPHEMERAL
+
+**Gravity wells encountered:** ETERNAL, TIME, MOMENT (common words in this region)
+
+**Possible portal:** MOMENT might contain portal (thematic connection to "lasting only a day")
