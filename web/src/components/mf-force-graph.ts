@@ -3,6 +3,7 @@ import { customElement, property } from 'lit/decorators.js'
 import type { PropertyValues } from 'lit'
 import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
+import SpriteText from 'three-spritetext'
 import type { GraphData, GraphNode } from '@/graph/types'
 
 // Colour map for node types
@@ -34,6 +35,7 @@ export class MfForceGraph extends LitElement {
   private graph: ForceGraph3DInstance | null = null
   private container: HTMLDivElement | null = null
   private clickTimer: ReturnType<typeof setTimeout> | null = null
+  private resizeObserver: ResizeObserver | null = null
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
 
@@ -47,6 +49,16 @@ export class MfForceGraph extends LitElement {
       .nodeColor((n: unknown) => NODE_COLOURS[(n as GraphNode).relationType] || '#e8e0d4')
       .nodeVal((n: unknown) => (n as GraphNode).val)
       .nodeOpacity(0.9)
+      .nodeThreeObjectExtend(true)
+      .nodeThreeObject((n: unknown) => {
+        const node = n as GraphNode
+        const colour = NODE_COLOURS[node.relationType] || '#e8e0d4'
+        const sprite = new SpriteText(node.word, 3, colour)
+        sprite.fontFace = 'serif'
+        sprite.backgroundColor = false as unknown as string
+        sprite.position.y = 6
+        return sprite
+      })
       .linkColor(() => EDGE_COLOUR)
       .linkWidth(1)
       .linkOpacity(0.6)
@@ -92,8 +104,22 @@ export class MfForceGraph extends LitElement {
         }
       })
 
+    // Sync renderer dimensions to actual container size (fixes hit-test offset)
+    requestAnimationFrame(() => this.syncDimensions())
+
+    this.resizeObserver = new ResizeObserver(() => this.syncDimensions())
+    this.resizeObserver.observe(this.container)
+
     if (this.graphData.nodes.length) {
       this.graph.graphData(this.graphData)
+    }
+  }
+
+  private syncDimensions() {
+    if (!this.container || !this.graph) return
+    const { clientWidth, clientHeight } = this.container
+    if (clientWidth > 0 && clientHeight > 0) {
+      this.graph.width(clientWidth).height(clientHeight)
     }
   }
 
@@ -106,6 +132,10 @@ export class MfForceGraph extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback()
     if (this.clickTimer) clearTimeout(this.clickTimer)
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect()
+      this.resizeObserver = null
+    }
     if (this.graph) {
       this.graph.pauseAnimation()
       const renderer = this.graph.renderer()

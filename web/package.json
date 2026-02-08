@@ -14,9 +14,11 @@
   "dependencies": {
     "@fluent/bundle": "^0.18.0",
     "3d-force-graph": "^1.77.0",
-    "lit": "^3.2.0"
+    "lit": "^3.2.0",
+    "three-spritetext": "^1.10.0"
   },
   "devDependencies": {
+    "@types/three": "^0.182.0",
     "@vitest/coverage-v8": "^3.2.4",
     "happy-dom": "^17.0.0",
     "typescript": "^5.7.0",

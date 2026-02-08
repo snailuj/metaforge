@@ -5,6 +5,8 @@ declare module '3d-force-graph' {
     nodeColor(fn: (node: unknown) => string): ForceGraph3DInstance
     nodeVal(fn: (node: unknown) => number): ForceGraph3DInstance
     nodeOpacity(opacity: number): ForceGraph3DInstance
+    nodeThreeObject(fn: (node: unknown) => object): ForceGraph3DInstance
+    nodeThreeObjectExtend(extend: boolean): ForceGraph3DInstance
     linkColor(fn: () => string): ForceGraph3DInstance
     linkWidth(width: number): ForceGraph3DInstance
     linkOpacity(opacity: number): ForceGraph3DInstance
@@ -12,6 +14,10 @@ declare module '3d-force-graph' {
     onNodeRightClick(fn: (node: unknown, event: MouseEvent) => void): ForceGraph3DInstance
     onNodeHover(fn: (node: unknown | null) => void): ForceGraph3DInstance
     graphData(data?: { nodes: unknown[]; links: unknown[] }): ForceGraph3DInstance
+    width(): number
+    width(w: number): ForceGraph3DInstance
+    height(): number
+    height(h: number): ForceGraph3DInstance
     pauseAnimation(): ForceGraph3DInstance
     resumeAnimation(): ForceGraph3DInstance
     renderer(): { dispose(): void } | undefined

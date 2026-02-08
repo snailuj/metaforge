@@ -1,6 +1,9 @@
 import { LitElement, html, css } from 'lit'
 import { customElement, property, state } from 'lit/decorators.js'
 
+const DEBOUNCE_MS = 300
+const MIN_SUGGEST_LENGTH = 3
+
 @customElement('mf-search-bar')
 export class MfSearchBar extends LitElement {
   static styles = css`
@@ -47,6 +50,8 @@ export class MfSearchBar extends LitElement {
 
   @state() private value = ''
 
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null
+
   connectedCallback(): void {
     super.connectedCallback()
     document.addEventListener('keydown', this.handleGlobalKeydown)
@@ -55,6 +60,7 @@ export class MfSearchBar extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback()
     document.removeEventListener('keydown', this.handleGlobalKeydown)
+    if (this.debounceTimer) clearTimeout(this.debounceTimer)
   }
 
   private handleGlobalKeydown = (e: KeyboardEvent) => {
@@ -78,17 +84,45 @@ export class MfSearchBar extends LitElement {
 
   private handleInput(e: Event) {
     this.value = (e.target as HTMLInputElement).value
+    this.scheduleDebounce()
+  }
+
+  private scheduleDebounce() {
+    if (this.debounceTimer) clearTimeout(this.debounceTimer)
+
+    const word = this.value.trim().toLowerCase()
+    if (word.length < MIN_SUGGEST_LENGTH) return
+
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null
+      this.submit()
+    }, DEBOUNCE_MS)
   }
 
   private handleKeydown(e: KeyboardEvent) {
+    // Stop all key events from propagating to FlyControls on window
+    e.stopPropagation()
+
     if (e.key === 'Enter') {
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer)
+        this.debounceTimer = null
+      }
       this.submit()
     }
     if (e.key === 'Escape') {
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer)
+        this.debounceTimer = null
+      }
       this.value = ''
       if (this.inputEl) this.inputEl.value = ''
       this.inputEl?.blur()
     }
+  }
+
+  private handleKeyup(e: KeyboardEvent) {
+    e.stopPropagation()
   }
 
   private submit() {
@@ -113,6 +147,7 @@ export class MfSearchBar extends LitElement {
           .value=${this.value}
           @input=${this.handleInput}
           @keydown=${this.handleKeydown}
+          @keyup=${this.handleKeyup}
           aria-label=${this.searchLabel}
           role="searchbox"
         />
