@@ -5,6 +5,7 @@ declare module '3d-force-graph' {
     nodeColor(fn: (node: unknown) => string): ForceGraph3DInstance
     nodeVal(fn: (node: unknown) => number): ForceGraph3DInstance
     nodeOpacity(opacity: number): ForceGraph3DInstance
+    nodeRelSize(size: number): ForceGraph3DInstance
     nodeThreeObject(fn: (node: unknown) => object): ForceGraph3DInstance
     nodeThreeObjectExtend(extend: boolean): ForceGraph3DInstance
     linkColor(fn: () => string): ForceGraph3DInstance

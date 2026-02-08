@@ -16,6 +16,7 @@ const NODE_COLOURS: Record<string, string> = {
 }
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
+const LABEL_FONT = 'Georgia, "Times New Roman", serif'
 
 const DBLCLICK_THRESHOLD_MS = 200
 
@@ -45,18 +46,18 @@ export class MfForceGraph extends LitElement {
 
     this.graph = ForceGraph3D({ controlType: 'fly' })(this.container)
       .backgroundColor('#1a1a2e')
-      .nodeLabel((n: unknown) => (n as GraphNode).word)
       .nodeColor((n: unknown) => NODE_COLOURS[(n as GraphNode).relationType] || '#e8e0d4')
       .nodeVal((n: unknown) => (n as GraphNode).val)
       .nodeOpacity(0.9)
+      .nodeRelSize(0.5)
       .nodeThreeObjectExtend(true)
       .nodeThreeObject((n: unknown) => {
         const node = n as GraphNode
         const colour = NODE_COLOURS[node.relationType] || '#e8e0d4'
         const sprite = new SpriteText(node.word, 3, colour)
-        sprite.fontFace = 'serif'
+        sprite.fontFace = LABEL_FONT
         sprite.backgroundColor = false as unknown as string
-        sprite.position.y = 6
+        sprite.position.y = 3
         return sprite
       })
       .linkColor(() => EDGE_COLOUR)

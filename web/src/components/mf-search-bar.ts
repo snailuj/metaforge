@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit'
 import { customElement, property, state } from 'lit/decorators.js'
 
-const DEBOUNCE_MS = 300
+const DEBOUNCE_MS = 200
 const MIN_SUGGEST_LENGTH = 3
 
 @customElement('mf-search-bar')
@@ -95,7 +95,7 @@ export class MfSearchBar extends LitElement {
 
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null
-      this.submit()
+      this.emitSearch(word, true)
     }, DEBOUNCE_MS)
   }
 
@@ -128,10 +128,13 @@ export class MfSearchBar extends LitElement {
   private submit() {
     const word = this.value.trim().toLowerCase()
     if (!word) return
+    this.emitSearch(word, false)
+  }
 
+  private emitSearch(word: string, suggest: boolean) {
     this.dispatchEvent(
       new CustomEvent('mf-search', {
-        detail: { word },
+        detail: { word, suggest },
         bubbles: true,
         composed: true,
       }),

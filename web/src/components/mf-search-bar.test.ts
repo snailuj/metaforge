@@ -68,7 +68,7 @@ describe('MfSearchBar', () => {
     window.removeEventListener('keyup', windowHandler)
   })
 
-  it('fires mf-search after debounce delay when typing', async () => {
+  it('fires mf-search with suggest flag after 200ms debounce', async () => {
     const handler = vi.fn()
     el.addEventListener('mf-search', handler)
 
@@ -76,13 +76,25 @@ describe('MfSearchBar', () => {
     input.value = 'ephemeral'
     input.dispatchEvent(new Event('input'))
 
-    // Should not fire immediately
     expect(handler).not.toHaveBeenCalled()
 
-    // Should fire after debounce
-    vi.advanceTimersByTime(350)
+    vi.advanceTimersByTime(250)
     expect(handler).toHaveBeenCalledOnce()
     expect(handler.mock.calls[0][0].detail.word).toBe('ephemeral')
+    expect(handler.mock.calls[0][0].detail.suggest).toBe(true)
+  })
+
+  it('Enter fires without suggest flag', async () => {
+    const handler = vi.fn()
+    el.addEventListener('mf-search', handler)
+
+    const input = el.shadowRoot!.querySelector('input')!
+    input.value = 'ephemeral'
+    input.dispatchEvent(new Event('input'))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+
+    expect(handler).toHaveBeenCalledOnce()
+    expect(handler.mock.calls[0][0].detail.suggest).toBeFalsy()
   })
 
   it('resets debounce timer on subsequent input', async () => {
@@ -93,17 +105,17 @@ describe('MfSearchBar', () => {
     input.value = 'eph'
     input.dispatchEvent(new Event('input'))
 
-    vi.advanceTimersByTime(200)
+    vi.advanceTimersByTime(150)
     expect(handler).not.toHaveBeenCalled()
 
     // New input resets the timer
     input.value = 'ephemeral'
     input.dispatchEvent(new Event('input'))
 
-    vi.advanceTimersByTime(200)
+    vi.advanceTimersByTime(150)
     expect(handler).not.toHaveBeenCalled()
 
-    vi.advanceTimersByTime(150)
+    vi.advanceTimersByTime(100)
     expect(handler).toHaveBeenCalledOnce()
     expect(handler.mock.calls[0][0].detail.word).toBe('ephemeral')
   })
