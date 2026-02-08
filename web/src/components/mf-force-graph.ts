@@ -60,6 +60,10 @@ export class MfForceGraph extends LitElement {
         sprite.position.y = 3
         return sprite
       })
+      .d3VelocityDecay(0.85)
+      .d3AlphaDecay(0.005)
+      .cooldownTime(30000)
+      .warmupTicks(50)
       .linkColor(() => EDGE_COLOUR)
       .linkWidth(1)
       .linkOpacity(0.6)
