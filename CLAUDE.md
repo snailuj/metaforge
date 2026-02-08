@@ -11,7 +11,8 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 | `docs/plans/2026-01-26-sprint-zero.md` | Sprint Zero implementation plan (backend complete) |
 | `docs/plans/2026-01-28-performance-tuning.md` | Performance optimisation notes and scaling strategies |
 | `docs/designs/` | Feature brainstorms (start here for design context) |
-| `docs/designs/metaphor-forge.md` | ✓ Complete - Sprint Zero feature |
+| `docs/plans/` | Detailed implementation plans |
+| `docs/designs/metaphor-forge.md` | Sprint Zero feature |
 | `MetaforgeConcept.png` | Visual reference (antique + cosmic themes) |
 
 ## Architecture
