@@ -1,5 +1,5 @@
 declare module '3d-force-graph' {
-  interface ForceGraph3DInstance {
+  export interface ForceGraph3DInstance {
     backgroundColor(colour: string): ForceGraph3DInstance
     nodeLabel(fn: (node: unknown) => string): ForceGraph3DInstance
     nodeColor(fn: (node: unknown) => string): ForceGraph3DInstance
@@ -21,9 +21,8 @@ declare module '3d-force-graph' {
   }
 
   function ForceGraph3D(
-    container: HTMLElement,
     options?: { controlType?: string },
-  ): ForceGraph3DInstance
+  ): (container: HTMLElement) => ForceGraph3DInstance
 
   export default ForceGraph3D
 }

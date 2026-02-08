@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 import type { PropertyValues } from 'lit'
 import ForceGraph3D from '3d-force-graph'
+import type { ForceGraph3DInstance } from '3d-force-graph'
 import type { GraphData, GraphNode } from '@/graph/types'
 
 // Colour map for node types
@@ -30,7 +31,7 @@ export class MfForceGraph extends LitElement {
     }
   `
 
-  private graph: ReturnType<typeof ForceGraph3D> | null = null
+  private graph: ForceGraph3DInstance | null = null
   private container: HTMLDivElement | null = null
   private clickTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -40,9 +41,7 @@ export class MfForceGraph extends LitElement {
     this.container = this.renderRoot.querySelector('#graph-container') as HTMLDivElement
     if (!this.container) return
 
-    this.graph = ForceGraph3D(this.container, {
-      controlType: 'fly',
-    })
+    this.graph = ForceGraph3D({ controlType: 'fly' })(this.container)
       .backgroundColor('#1a1a2e')
       .nodeLabel((n: unknown) => (n as GraphNode).word)
       .nodeColor((n: unknown) => NODE_COLOURS[(n as GraphNode).relationType] || '#e8e0d4')
