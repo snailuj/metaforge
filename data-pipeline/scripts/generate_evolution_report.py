@@ -611,3 +611,76 @@ def section_appendix_per_pair_detail(trials: list[dict]) -> str:
 
     lines.append("")
     return "\n".join(lines)
+
+
+# --- Report composition -----------------------------------------------------
+
+def generate_report(
+    trials: list[dict],
+    pairs: list[dict],
+    model: str = "haiku",
+    no_llm: bool = False,
+) -> str:
+    """Compose all sections into a complete markdown report."""
+    sections = [
+        "# Evolutionary Prompt Optimisation — Experiment Report",
+        "",
+        section_executive_summary(trials, model=model, no_llm=no_llm, pairs=pairs),
+        section_methodology(trials),
+        section_exploration_results(trials),
+        section_exploitation_results(trials, model=model, no_llm=no_llm, pairs=pairs),
+        section_cross_generation_analysis(trials),
+        section_per_pair_analysis(trials, pairs),
+        section_discussion(trials, pairs, model=model, no_llm=no_llm),
+        section_appendix_prompts(trials),
+        section_appendix_per_pair_detail(trials),
+    ]
+    return "\n".join(sections)
+
+
+# --- CLI ---------------------------------------------------------------------
+
+def main():
+    """CLI entry point for report generation."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate comprehensive evolution experiment report"
+    )
+    parser.add_argument(
+        "--experiment-log", type=str, default=str(DEFAULT_EXPERIMENT_LOG),
+        help=f"Path to experiment_log.json (default: {DEFAULT_EXPERIMENT_LOG})",
+    )
+    parser.add_argument(
+        "--pairs", type=str, default=str(DEFAULT_PAIRS_FILE),
+        help=f"Path to metaphor_pairs.json (default: {DEFAULT_PAIRS_FILE})",
+    )
+    parser.add_argument(
+        "--output", "-o", type=str, default=str(DEFAULT_OUTPUT),
+        help=f"Output report path (default: {DEFAULT_OUTPUT})",
+    )
+    parser.add_argument(
+        "--model", "-m", type=str, default="haiku",
+        help="Claude model for LLM prose (default: haiku)",
+    )
+    parser.add_argument(
+        "--no-llm", action="store_true",
+        help="Skip LLM prose sections (for CI/testing)",
+    )
+    args = parser.parse_args()
+
+    trials = load_experiment_log(Path(args.experiment_log))
+    pairs = load_metaphor_pairs(Path(args.pairs))
+
+    report = generate_report(trials, pairs, model=args.model, no_llm=args.no_llm)
+
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        f.write(report)
+
+    print(f"Report written to {output_path} ({len(report)} chars)")
+
+
+if __name__ == "__main__":
+    main()

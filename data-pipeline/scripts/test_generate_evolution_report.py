@@ -466,3 +466,56 @@ def test_section_executive_summary_no_llm(sample_trials):
     md = section_executive_summary(sample_trials, model="haiku", no_llm=True)
     assert "## 1. Executive Summary" in md
     assert "LLM" in md or "placeholder" in md.lower() or "skipped" in md.lower()
+
+
+# ===========================================================================
+# 5. Composition + CLI
+# ===========================================================================
+
+def test_generate_report_contains_all_sections(sample_trials, sample_pairs):
+    """generate_report with no_llm=True includes all 9 numbered sections."""
+    from generate_evolution_report import generate_report
+
+    report = generate_report(sample_trials, sample_pairs, model="haiku", no_llm=True)
+    assert "# Evolutionary Prompt Optimisation — Experiment Report" in report
+    for i in range(1, 10):
+        assert f"## {i}." in report, f"Missing section {i}"
+
+
+def test_generate_report_edge_case_no_exploitation():
+    """generate_report handles trials with no exploitation phase."""
+    from generate_evolution_report import generate_report
+
+    trials = [
+        _make_trial("baseline", "baseline", 0.08),
+        _make_trial("explore-alpha", "alpha", 0.10, survived=True),
+    ]
+    pairs = [{"source": "anger", "target": "fire", "tier": "strong"}]
+    report = generate_report(trials, pairs, model="haiku", no_llm=True)
+    assert "No exploitation" in report
+
+
+def test_main_writes_output_file(tmp_path, sample_trials, sample_pairs):
+    """main() writes the report to the specified output path."""
+    from generate_evolution_report import main
+
+    log_file = tmp_path / "log.json"
+    log_file.write_text(json.dumps(sample_trials))
+
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps(sample_pairs))
+
+    output_file = tmp_path / "report.md"
+
+    with patch("sys.argv", [
+        "generate_evolution_report.py",
+        "--experiment-log", str(log_file),
+        "--pairs", str(pairs_file),
+        "--output", str(output_file),
+        "--no-llm",
+    ]):
+        main()
+
+    assert output_file.exists()
+    content = output_file.read_text()
+    assert "# Evolutionary Prompt Optimisation" in content
