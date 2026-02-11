@@ -47,6 +47,7 @@ The superpowers skills are bundled in this repo for portability (CCotW, remote s
 | **Frequent Commits** | Commit after each green test. Small, atomic commits. Never batch up changes. |
 | **CI/CD** | All commits trigger automated tests. No merging with failing tests. |
 | **Canary Releases** | New features deploy to subset first. Monitor before full rollout. |
+| **All Errors/Exceptions Handled**| Even if the error is recoverable or negligible it should be logged, and if not recoverable it must escalate to callers. |
 
 **If you're about to write code without a failing test, STOP.**
 

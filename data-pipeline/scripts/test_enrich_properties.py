@@ -17,6 +17,7 @@ from enrich_properties import (
     extract_batch,
     load_checkpoint,
     save_checkpoint,
+    UsageExhaustedError,
 )
 
 
@@ -201,3 +202,112 @@ def test_extract_batch_retries_on_failure(mock_invoke):
     results = extract_batch(SAMPLE_SYNSETS, model="haiku")
     assert len(results) == 2
     assert mock_invoke.call_count == 3
+
+
+# --- 12. UsageExhaustedError on rate limit ------------------------------------
+
+def test_parse_response_rate_limit_raises_usage_exhausted():
+    """parse_response raises UsageExhaustedError on rate-limit error text."""
+    events = [
+        {"type": "system", "subtype": "init", "session_id": "test"},
+        {"type": "result", "subtype": "error", "is_error": True,
+         "result": "rate limit exceeded, please wait"},
+    ]
+    proc = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+    with pytest.raises(UsageExhaustedError, match="rate limit"):
+        parse_response(proc)
+
+
+def test_parse_response_quota_raises_usage_exhausted():
+    """parse_response raises UsageExhaustedError on quota/429 error text."""
+    for error_text in ["quota exceeded", "429 Too Many Requests", "usage limit reached", "overloaded"]:
+        events = [
+            {"type": "system", "subtype": "init", "session_id": "test"},
+            {"type": "result", "subtype": "error", "is_error": True,
+             "result": error_text},
+        ]
+        proc = subprocess.CompletedProcess(
+            args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+        )
+        with pytest.raises(UsageExhaustedError):
+            parse_response(proc)
+
+
+def test_parse_response_non_rate_limit_error_raises_runtime_error():
+    """parse_response raises RuntimeError (not UsageExhaustedError) for other errors."""
+    events = [
+        {"type": "system", "subtype": "init", "session_id": "test"},
+        {"type": "result", "subtype": "error", "is_error": True,
+         "result": "model not available"},
+    ]
+    proc = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+    with pytest.raises(RuntimeError, match="model not available"):
+        parse_response(proc)
+    # Ensure it's NOT a UsageExhaustedError
+    try:
+        parse_response(proc)
+    except UsageExhaustedError:
+        pytest.fail("Should not raise UsageExhaustedError for non-rate-limit errors")
+    except RuntimeError:
+        pass  # expected
+
+
+# --- 13. extract_batch does NOT retry on UsageExhaustedError ------------------
+
+@patch("enrich_properties.invoke_claude")
+def test_extract_batch_no_retry_on_usage_exhausted(mock_invoke):
+    """UsageExhaustedError surfaces immediately, no retries."""
+    events = [
+        {"type": "system", "subtype": "init", "session_id": "test"},
+        {"type": "result", "subtype": "error", "is_error": True,
+         "result": "rate limit exceeded"},
+    ]
+    mock_invoke.return_value = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+    with pytest.raises(UsageExhaustedError):
+        extract_batch(SAMPLE_SYNSETS, model="haiku")
+    # Should be called exactly once — no retries
+    assert mock_invoke.call_count == 1
+
+
+# --- 14. extract_batch uses custom prompt_template ----------------------------
+
+@patch("enrich_properties.invoke_claude")
+def test_extract_batch_custom_prompt_template(mock_invoke):
+    """extract_batch uses prompt_template when provided."""
+    mock_invoke.return_value = _make_completed_process(CANNED_RESULT)
+    custom = "Custom prompt: {batch_items}\nJSON only: [{{}}]"
+    extract_batch(SAMPLE_SYNSETS, model="haiku", prompt_template=custom)
+
+    # Verify the prompt passed to invoke_claude contains our custom text
+    call_args = mock_invoke.call_args
+    prompt_text = call_args[0][0]
+    assert "Custom prompt:" in prompt_text
+    assert "ID: 100001" in prompt_text  # batch_items still interpolated
+
+
+# --- 15. extract_batch uses BATCH_PROMPT by default --------------------------
+
+@patch("enrich_properties.invoke_claude")
+def test_extract_batch_default_prompt_unchanged(mock_invoke):
+    """extract_batch uses BATCH_PROMPT when no prompt_template given."""
+    mock_invoke.return_value = _make_completed_process(CANNED_RESULT)
+    extract_batch(SAMPLE_SYNSETS, model="haiku")
+
+    call_args = mock_invoke.call_args
+    prompt_text = call_args[0][0]
+    # BATCH_PROMPT contains "sensory and behavioural properties"
+    assert "sensory and behavioural properties" in prompt_text
+
+
+# --- 16. extract_batch rejects invalid template -------------------------------
+
+def test_extract_batch_invalid_template():
+    """extract_batch raises ValueError if template lacks {batch_items}."""
+    with pytest.raises(ValueError, match="batch_items"):
+        extract_batch(SAMPLE_SYNSETS, model="haiku", prompt_template="No placeholder here")

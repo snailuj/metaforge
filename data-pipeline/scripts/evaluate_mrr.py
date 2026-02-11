@@ -12,6 +12,7 @@ Usage:
 """
 import argparse
 import json
+import logging
 import os
 import signal
 import sqlite3
@@ -21,10 +22,13 @@ import time
 from pathlib import Path
 from typing import Optional
 
+log = logging.getLogger(__name__)
+
 import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
 from enrich_pipeline import run_pipeline
+from enrich_properties import run_enrichment
 from utils import OUTPUT_DIR, FASTTEXT_VEC
 
 
@@ -109,40 +113,57 @@ def _lookup_synsets(conn: sqlite3.Connection, lemma: str) -> set[str]:
     return {r[0] for r in rows}
 
 
+def collect_required_synset_ids(
+    conn: sqlite3.Connection, pairs: list[dict]
+) -> set[str]:
+    """Resolve all metaphor pair lemmas to synset IDs.
+
+    Unlike resolve_pair_synsets, this collects synset IDs from ALL pairs
+    including one-sided ones (where only source or only target is found).
+    This ensures the enrichment covers every word that could contribute.
+    """
+    ids = set()
+    for pair in pairs:
+        ids.update(_lookup_synsets(conn, pair["source"]))
+        ids.update(_lookup_synsets(conn, pair["target"]))
+    return ids
+
+
 # --- Query the Forge API -----------------------------------------------------
 
 def query_forge_rank(
-    source_synset: str,
+    source_word: str,
+    target_word: str,
     target_synsets: set[str],
     port: int = 9090,
     threshold: float = 0.7,
     limit: int = 200,
 ) -> Optional[int]:
-    """Query /forge/suggest and find the rank of any target synset.
+    """Query /forge/suggest and find the rank of the target.
+
+    The API takes a word (lemma), not a synset_id.  We match the target
+    by both word and synset_id — word match catches cases where the API
+    picked a different synset for the same lemma.
 
     Returns 1-based rank or None if not found / error.
     """
+    url = f"http://localhost:{port}/forge/suggest"
+    params = {"word": source_word, "threshold": threshold, "limit": limit}
     try:
-        resp = requests.get(
-            f"http://localhost:{port}/forge/suggest",
-            params={
-                "synset_id": source_synset,
-                "threshold": threshold,
-                "limit": limit,
-            },
-            timeout=30,
-        )
-    except requests.RequestException:
+        resp = requests.get(url, params=params, timeout=30)
+    except requests.RequestException as exc:
+        log.error("Request failed for %r: %s", source_word, exc)
         return None
 
     if resp.status_code != 200:
+        log.warning("API %d for %r: %s", resp.status_code, source_word, resp.text[:200])
         return None
 
     data = resp.json()
     suggestions = data.get("suggestions", [])
 
     for i, s in enumerate(suggestions):
-        if s.get("synset_id") in target_synsets:
+        if s.get("synset_id") in target_synsets or s.get("word") == target_word:
             return i + 1  # 1-based rank
 
     return None
@@ -247,26 +268,44 @@ def wait_for_health(
 # --- Main orchestrator -------------------------------------------------------
 
 def evaluate(
-    enrichment_file: str,
+    enrichment_file: str = None,
     pairs_file: str = None,
     threshold: float = 0.7,
     limit: int = 200,
     port: int = 9090,
     output_file: str = None,
+    enrich_size: int = None,
+    enrich_model: str = "haiku",
+    enrich_batch_size: int = 20,
+    enrich_delay: float = 1.0,
+    prompt_template: str = None,
 ) -> dict:
     """Run full MRR evaluation.
 
     1. Load metaphor pairs and resolve synset IDs
     2. Restore baseline into temp DB
-    3. Run enrichment pipeline
+    3. Run enrichment (LLM if --enrich, or from pre-computed file)
     4. Start Go API, query pairs, compute MRR
     5. Output results
+
+    Two modes:
+      --enrichment FILE  Use a pre-computed enrichment JSON
+      --enrich --size N  Run LLM enrichment, guaranteeing metaphor pair
+                         synsets are included in the enrichment set
     """
+    if enrichment_file is None and enrich_size is None:
+        raise ValueError("Provide --enrichment FILE or --enrich --size N")
+
     if pairs_file is None:
         pairs_file = str(DEFAULT_PAIRS)
 
+    mode = "enrich" if enrich_size is not None else "file"
     print(f"=== MRR Evaluation ===")
-    print(f"  Enrichment: {enrichment_file}")
+    print(f"  Mode: {mode}")
+    if enrichment_file:
+        print(f"  Enrichment: {enrichment_file}")
+    else:
+        print(f"  Enrich: size={enrich_size}, model={enrich_model}")
     print(f"  Pairs: {pairs_file}")
 
     # Step 1: Load pairs and resolve synsets from baseline
@@ -288,8 +327,23 @@ def evaluate(
     testable, skipped, all_synset_ids = resolve_pair_synsets(conn, pairs)
     conn.close()
     print(f"  Testable pairs: {len(testable)}, skipped: {len(skipped)}")
+    print(f"  Required synset IDs: {len(all_synset_ids)}")
 
-    # Step 2: Run enrichment pipeline on the work DB
+    # Step 2: Get enrichment JSON (LLM or pre-computed)
+    if enrich_size is not None:
+        print(f"  Running LLM enrichment (size={enrich_size}, "
+              f"required={len(all_synset_ids)})...")
+        enrichment_file = run_enrichment(
+            size=enrich_size,
+            batch_size=enrich_batch_size,
+            model=enrich_model,
+            delay=enrich_delay,
+            output_file=OUTPUT_DIR / "eval_enrichment.json",
+            required_synset_ids=all_synset_ids,
+            prompt_template=prompt_template,
+        )
+
+    # Step 3: Run downstream pipeline on the work DB
     print("  Running enrichment pipeline...")
     run_pipeline(
         db_path=db_path,
@@ -304,32 +358,29 @@ def evaluate(
         wait_for_health(port, timeout=60)
         print("  Server ready.")
 
-        # Step 4: Query each testable pair
+        # Step 4: Query each testable pair (API takes word, not synset_id)
         ranks = []
         per_pair = []
         for pair in testable:
-            best_rank = None
-            for src_synset in pair["source_synsets"]:
-                r = query_forge_rank(
-                    source_synset=src_synset,
-                    target_synsets=pair["target_synsets"],
-                    port=port,
-                    threshold=threshold,
-                    limit=limit,
-                )
-                if r is not None and (best_rank is None or r < best_rank):
-                    best_rank = r
+            rank = query_forge_rank(
+                source_word=pair["source"],
+                target_word=pair["target"],
+                target_synsets=pair["target_synsets"],
+                port=port,
+                threshold=threshold,
+                limit=limit,
+            )
 
-            rr = 1.0 / best_rank if best_rank is not None else 0.0
-            ranks.append(best_rank)
+            rr = 1.0 / rank if rank is not None else 0.0
+            ranks.append(rank)
             per_pair.append({
                 "source": pair["source"],
                 "target": pair["target"],
-                "rank": best_rank,
+                "rank": rank,
                 "reciprocal_rank": rr,
                 "tier": pair.get("tier", ""),
             })
-            print(f"    {pair['source']} → {pair['target']}: rank={best_rank}, rr={rr:.3f}")
+            print(f"    {pair['source']} → {pair['target']}: rank={rank}, rr={rr:.3f}")
 
         # Step 5: Compute MRR
         mrr = compute_mrr(ranks)
@@ -368,10 +419,37 @@ def evaluate(
 
 def main():
     parser = argparse.ArgumentParser(description="MRR evaluation for enrichment quality")
-    parser.add_argument(
-        "--enrichment", required=True,
-        help="Enrichment JSON file (from enrich_properties.py)",
+
+    # Enrichment source: pre-computed file OR live LLM run
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--enrichment",
+        help="Pre-computed enrichment JSON file",
     )
+    source.add_argument(
+        "--enrich", action="store_true",
+        help="Run LLM enrichment (requires --size)",
+    )
+
+    # Enrich-mode options
+    parser.add_argument(
+        "--size", type=int, default=None,
+        help="Enrichment size (required with --enrich)",
+    )
+    parser.add_argument(
+        "--model", type=str, default="haiku",
+        help="Claude model for enrichment (default: haiku)",
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=20,
+        help="Synsets per LLM call (default: 20)",
+    )
+    parser.add_argument(
+        "--delay", type=float, default=1.0,
+        help="Seconds between batches (default: 1.0)",
+    )
+
+    # Common options
     parser.add_argument(
         "--pairs", default=None,
         help=f"Metaphor pairs JSON (default: {DEFAULT_PAIRS})",
@@ -394,6 +472,9 @@ def main():
     )
     args = parser.parse_args()
 
+    if args.enrich and args.size is None:
+        parser.error("--enrich requires --size")
+
     evaluate(
         enrichment_file=args.enrichment,
         pairs_file=args.pairs,
@@ -401,8 +482,13 @@ def main():
         limit=args.limit,
         port=args.port,
         output_file=args.output,
+        enrich_size=args.size if args.enrich else None,
+        enrich_model=args.model,
+        enrich_batch_size=args.batch_size,
+        enrich_delay=args.delay,
     )
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     main()

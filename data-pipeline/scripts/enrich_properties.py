@@ -22,10 +22,19 @@ from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
 
 from utils import SQLUNET_DB, OUTPUT_DIR
+
+
+# --- Errors ------------------------------------------------------------------
+
+class UsageExhaustedError(RuntimeError):
+    """Raised when the LLM API returns a rate-limit or quota error."""
+    pass
+
+
+_RATE_LIMIT_INDICATORS = ("rate limit", "usage limit", "quota", "overloaded", "429")
 
 
 # --- Prompt (Variant C: original prompt, 10-15 properties) -------------------
@@ -105,7 +114,10 @@ def parse_response(proc: subprocess.CompletedProcess) -> List[Dict]:
     if result_event is None:
         raise RuntimeError("No result event in claude output")
     if result_event.get("is_error"):
-        raise RuntimeError(f"claude returned error: {result_event.get('result', '')}")
+        error_text = result_event.get("result", "")
+        if any(ind in error_text.lower() for ind in _RATE_LIMIT_INDICATORS):
+            raise UsageExhaustedError(f"Usage exhausted: {error_text}")
+        raise RuntimeError(f"claude returned error: {error_text}")
     text = result_event["result"].strip()
 
     # Strip markdown fences if present
@@ -136,24 +148,25 @@ def invoke_claude(prompt: str, model: str = "haiku") -> subprocess.CompletedProc
     )
 
 
+def _retry_unless_usage_exhausted(retry_state):
+    """Retry on transient errors but surface UsageExhaustedError immediately."""
+    exc = retry_state.outcome.exception()
+    if isinstance(exc, UsageExhaustedError):
+        return False
+    return isinstance(exc, (RuntimeError, json.JSONDecodeError, ValueError))
+
+
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=2, min=4, max=120),
-    retry=retry_if_exception_type((RuntimeError, json.JSONDecodeError, ValueError)),
+    retry=_retry_unless_usage_exhausted,
     before_sleep=lambda retry_state: print(
         f"    Retry {retry_state.attempt_number}/5 after error: "
         f"{retry_state.outcome.exception()}"
     ),
 )
-def extract_batch(synsets: List[Dict], model: str = "haiku") -> List[Dict]:
-    """Extract properties for a batch of synsets via claude CLI.
-
-    Returns merged results with local data (lemma, definition, pos).
-    Retries up to 5 times on failure.
-    """
-    batch_items = format_batch_items(synsets)
-    prompt = BATCH_PROMPT.format(batch_items=batch_items)
-
+def _extract_batch_inner(prompt: str, synsets: List[Dict], model: str) -> List[Dict]:
+    """Retryable inner: invoke LLM, parse, merge."""
     proc = invoke_claude(prompt, model=model)
     results = parse_response(proc)
 
@@ -174,6 +187,24 @@ def extract_batch(synsets: List[Dict], model: str = "haiku") -> List[Dict]:
             print(f"    Warning: LLM returned unknown ID {rid}")
 
     return merged
+
+
+def extract_batch(
+    synsets: List[Dict],
+    model: str = "haiku",
+    prompt_template: str = None,
+) -> List[Dict]:
+    """Extract properties for a batch of synsets via claude CLI.
+
+    Returns merged results with local data (lemma, definition, pos).
+    Retries up to 5 times on failure.
+    """
+    template = prompt_template or BATCH_PROMPT
+    if "{batch_items}" not in template:
+        raise ValueError("prompt_template must contain {batch_items} placeholder")
+    batch_items = format_batch_items(synsets)
+    prompt = template.format(batch_items=batch_items)
+    return _extract_batch_inner(prompt, synsets, model)
 
 
 # --- Checkpoint ---------------------------------------------------------------
@@ -284,8 +315,13 @@ def run_enrichment(
     resume: bool = False,
     output_file: Path = None,
     synset_ids_file: Path = None,
-):
-    """Run property enrichment on synsets using claude CLI."""
+    required_synset_ids: set[str] = None,
+    prompt_template: str = None,
+) -> str:
+    """Run property enrichment on synsets using claude CLI.
+
+    Returns the output file path as a string.
+    """
     if not SQLUNET_DB.exists():
         raise FileNotFoundError(f"Database not found: {SQLUNET_DB}")
 
@@ -296,9 +332,12 @@ def run_enrichment(
 
     checkpoint_path = OUTPUT_DIR / "checkpoint_enrich.json"
 
-    # Load required synset IDs if provided
+    # Load required synset IDs — from set, file, or neither
     required_ids = None
-    if synset_ids_file is not None:
+    if required_synset_ids is not None:
+        required_ids = list(required_synset_ids)
+        print(f"  Required synset IDs: {len(required_ids)} (passed directly)")
+    elif synset_ids_file is not None:
         with open(synset_ids_file) as f:
             required_ids = json.load(f)
         print(f"  Required synset IDs: {len(required_ids)} from {synset_ids_file}")
@@ -338,7 +377,9 @@ def run_enrichment(
         print(f"\n  Batch {batch_idx + 1}/{num_batches} ({len(batch)} synsets)...")
 
         try:
-            batch_results = extract_batch(batch, model=model)
+            batch_results = extract_batch(
+                batch, model=model, prompt_template=prompt_template,
+            )
 
             for result in batch_results:
                 results.append(result)
@@ -406,6 +447,7 @@ def run_enrichment(
     print(f"  Output: {output_file}")
 
     conn.close()
+    return str(output_file)
 
 
 def main():
