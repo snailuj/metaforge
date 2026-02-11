@@ -158,3 +158,217 @@ def _format_correlation(r: float) -> str:
     if r >= 0:
         return f"{strength} positive"
     return f"{strength} negative"
+
+
+# --- Deterministic section generators ----------------------------------------
+
+def section_methodology(trials: list[dict]) -> str:
+    """Section 2: Methodology — derived from trial data, static description."""
+    explore = _exploration_trials(trials)
+    baseline = _baseline_trial(trials)
+    pair_count = len(baseline["per_pair"]) if baseline["per_pair"] else 0
+    exploit = _exploitation_trials(trials)
+
+    lines = [
+        "## 2. Methodology",
+        "",
+        f"The experiment evaluated **{len(explore)} exploration prompts** against a baseline, "
+        f"scoring each on **{pair_count} metaphor pairs** using Mean Reciprocal Rank (MRR).",
+        "",
+        "**Procedure:**",
+        "",
+        "1. **Exploration (Gen 0):** Each prompt was used to enrich a sample of synsets "
+        "with sensory/behavioural properties. The enriched lexicon was then queried via "
+        "the Metaforge API to find each metaphor pair's target in the source's nearest "
+        "neighbours. MRR across all pairs gives a single score per prompt.",
+        "2. **Exploitation (Gen 1+):** Prompts that outperformed the baseline (survivors) "
+        "were iteratively tweaked by an LLM. Each tweak was evaluated identically; "
+        "improvements were kept, regressions reverted. Early stopping after consecutive "
+        "failures prevented wasted budget.",
+        "",
+        f"Total trials: **{len(trials)}** "
+        f"({1 + len(explore)} exploration, {len(exploit)} exploitation).",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def section_exploration_results(trials: list[dict]) -> str:
+    """Section 3: Exploration results table — all gen 0 trials sorted by MRR desc."""
+    gen0 = [t for t in trials if t["generation"] == 0]
+    gen0.sort(key=lambda t: t["mrr"], reverse=True)
+
+    lines = [
+        "## 3. Exploration Results (Gen 0)",
+        "",
+        "| Prompt | MRR | unique_props | hapax_rate | avg_props/synset | hit_rate | survived |",
+        "|--------|-----|-------------|------------|-----------------|----------|----------|",
+    ]
+    for t in gen0:
+        sec = t.get("secondary", {})
+        survived = "Yes" if t["survived"] else "No"
+        hr = _hit_rate(t)
+        lines.append(
+            f"| {t['prompt_name']} | {t['mrr']:.4f} "
+            f"| {sec.get('unique_properties', '-')} "
+            f"| {sec.get('hapax_rate', 0):.3f} "
+            f"| {sec.get('avg_properties_per_synset', 0):.1f} "
+            f"| {hr:.3f} "
+            f"| {survived} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def section_cross_generation_analysis(trials: list[dict]) -> str:
+    """Section 5: Correlations between MRR and secondary metrics."""
+    nd = _non_degenerate_trials(trials)
+
+    lines = [
+        "## 5. Cross-Generation Analysis",
+        "",
+    ]
+
+    if len(nd) < 3:
+        lines.append("Insufficient non-degenerate trials for correlation analysis "
+                      f"(need ≥ 3, have {len(nd)}).")
+        lines.append("")
+        return "\n".join(lines)
+
+    mrrs = [t["mrr"] for t in nd]
+    metrics = ["unique_properties", "hapax_rate", "avg_properties_per_synset"]
+
+    lines.append("### Correlations (MRR vs secondary metrics)")
+    lines.append("")
+    lines.append("| Metric | Pearson r | Description |")
+    lines.append("|--------|----------|-------------|")
+
+    for metric in metrics:
+        values = [t.get("secondary", {}).get(metric, 0) for t in nd]
+        r = _pearson_r(mrrs, values)
+        desc = _format_correlation(r)
+        lines.append(f"| {metric} | {r:.3f} | {desc} |")
+
+    # Hit rate correlation
+    hit_rates = [_hit_rate(t) for t in nd]
+    r = _pearson_r(mrrs, hit_rates)
+    desc = _format_correlation(r)
+    lines.append(f"| hit_rate | {r:.3f} | {desc} |")
+
+    lines.append("")
+
+    # Hit rate comparison table
+    lines.append("### Hit Rate Comparison")
+    lines.append("")
+    lines.append("| Trial | MRR | Hit Rate |")
+    lines.append("|-------|-----|----------|")
+    for t in sorted(nd, key=lambda t: t["mrr"], reverse=True):
+        lines.append(f"| {t['trial_id']} | {t['mrr']:.4f} | {_hit_rate(t):.3f} |")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def section_per_pair_analysis(trials: list[dict], pairs: list[dict]) -> str:
+    """Section 6: Easiest/hardest pairs, never-found, tier split."""
+    nd = _non_degenerate_trials(trials)
+    avg_rr = _avg_rr_by_pair(nd) if nd else _avg_rr_by_pair(trials)
+    sorted_pairs = sorted(avg_rr.items(), key=lambda x: x[1])
+
+    lines = [
+        "## 6. Per-Pair Analysis",
+        "",
+    ]
+
+    # Top 10 easiest
+    lines.append("### Easiest Pairs (highest avg RR)")
+    lines.append("")
+    for pair, avg in sorted_pairs[-10:][::-1]:
+        lines.append(f"- {pair}: avg RR = {avg:.3f}")
+    lines.append("")
+
+    # Top 10 hardest
+    lines.append("### Hardest Pairs (lowest avg RR)")
+    lines.append("")
+    for pair, avg in sorted_pairs[:10]:
+        lines.append(f"- {pair}: avg RR = {avg:.3f}")
+    lines.append("")
+
+    # Never found
+    never_found = [pair for pair, avg in sorted_pairs if avg == 0.0]
+    if never_found:
+        lines.append(f"### Never Found ({len(never_found)} pairs)")
+        lines.append("")
+        for pair in never_found:
+            lines.append(f"- {pair}")
+        lines.append("")
+
+    # Tier split
+    tier_split = _tier_mrr_split(trials)
+    if tier_split:
+        lines.append("### Tier Comparison")
+        lines.append("")
+        lines.append("| Tier | Avg RR |")
+        lines.append("|------|--------|")
+        for tier in sorted(tier_split.keys()):
+            lines.append(f"| {tier} | {tier_split[tier]:.4f} |")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def section_appendix_prompts(trials: list[dict]) -> str:
+    """Section 8: Appendix A — every unique prompt text in fenced code blocks."""
+    lines = [
+        "## 8. Appendix A: All Prompt Texts",
+        "",
+    ]
+
+    seen_texts: set[str] = set()
+    for t in trials:
+        text = t["prompt_text"]
+        if text in seen_texts:
+            lines.append(f"### {t['trial_id']} (`{t['prompt_name']}`)")
+            lines.append("")
+            lines.append(f"*Same as earlier {t['prompt_name']} prompt.*")
+            lines.append("")
+            continue
+        seen_texts.add(text)
+        lines.append(f"### {t['trial_id']} (`{t['prompt_name']}`)")
+        lines.append("")
+        lines.append("```")
+        lines.append(text)
+        lines.append("```")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def section_appendix_per_pair_detail(trials: list[dict]) -> str:
+    """Section 9: Appendix B — per-pair detail table for the best trial."""
+    best = _best_trial(trials)
+
+    lines = [
+        "## 9. Appendix B: Per-Pair Detail (Best Trial)",
+        "",
+        f"Best trial: **{best['trial_id']}** (MRR = {best['mrr']:.4f})",
+        "",
+        "| Source | Target | Tier | Rank | Reciprocal Rank |",
+        "|--------|--------|------|------|-----------------|",
+    ]
+
+    sorted_pairs = sorted(
+        best["per_pair"],
+        key=lambda p: p.get("reciprocal_rank", 0.0),
+        reverse=True,
+    )
+    for p in sorted_pairs:
+        rank = p.get("rank") or "—"
+        rr = p.get("reciprocal_rank", 0.0)
+        lines.append(
+            f"| {p['source']} | {p['target']} | {p.get('tier', '—')} "
+            f"| {rank} | {rr:.4f} |"
+        )
+
+    lines.append("")
+    return "\n".join(lines)

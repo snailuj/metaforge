@@ -267,3 +267,118 @@ def test_format_correlation_descriptions():
     assert "weak" in _format_correlation(0.15)
     assert "strong negative" == _format_correlation(-0.85)
     assert "moderate negative" == _format_correlation(-0.55)
+
+
+# ===========================================================================
+# 3. Deterministic section generators
+# ===========================================================================
+
+def test_section_methodology_mentions_pair_count(sample_trials):
+    """section_methodology includes the number of pairs evaluated."""
+    from generate_evolution_report import section_methodology
+
+    md = section_methodology(sample_trials)
+    assert "## 2. Methodology" in md
+    # Should mention exploration prompt count (2 non-baseline gen-0 trials)
+    assert "2" in md
+    # Should describe MRR scoring
+    assert "MRR" in md
+
+
+def test_section_exploration_results_has_table(sample_trials):
+    """section_exploration_results contains a markdown table with all gen-0 trials."""
+    from generate_evolution_report import section_exploration_results
+
+    md = section_exploration_results(sample_trials)
+    assert "## 3. Exploration Results" in md
+    # Table headers
+    assert "Prompt" in md
+    assert "MRR" in md
+    # Should contain baseline and both explore prompts
+    assert "baseline" in md
+    assert "alpha" in md
+    assert "beta" in md
+
+
+def test_section_exploration_results_sorted_by_mrr_desc(sample_trials):
+    """Exploration table rows are sorted by MRR descending."""
+    from generate_evolution_report import section_exploration_results
+
+    md = section_exploration_results(sample_trials)
+    lines = md.split("\n")
+    # Find table data rows (skip header, separator)
+    data_rows = [l for l in lines if l.startswith("|") and "Prompt" not in l and "---" not in l]
+    mrrs = []
+    for row in data_rows:
+        cells = [c.strip() for c in row.split("|") if c.strip()]
+        # MRR is second column
+        mrrs.append(float(cells[1]))
+    assert mrrs == sorted(mrrs, reverse=True)
+
+
+def test_section_cross_generation_analysis_has_correlations():
+    """section_cross_generation_analysis includes correlation table."""
+    from generate_evolution_report import section_cross_generation_analysis
+
+    trials = [
+        _make_trial("t1", "a", 0.10, secondary={
+            "unique_properties": 100, "hapax_count": 60,
+            "hapax_rate": 0.6, "avg_properties_per_synset": 11.0,
+        }),
+        _make_trial("t2", "b", 0.15, secondary={
+            "unique_properties": 200, "hapax_count": 120,
+            "hapax_rate": 0.6, "avg_properties_per_synset": 12.0,
+        }),
+        _make_trial("t3", "c", 0.20, secondary={
+            "unique_properties": 300, "hapax_count": 180,
+            "hapax_rate": 0.6, "avg_properties_per_synset": 13.0,
+        }),
+    ]
+    md = section_cross_generation_analysis(trials)
+    assert "## 5. Cross-Generation Analysis" in md
+    assert "Metric" in md
+    assert "unique_properties" in md
+    # Should describe correlation strength
+    assert "positive" in md or "negative" in md or "weak" in md
+
+
+def test_section_per_pair_analysis_has_top_10(sample_trials, sample_pairs):
+    """section_per_pair_analysis shows easiest, hardest, and never-found pairs."""
+    from generate_evolution_report import section_per_pair_analysis
+
+    md = section_per_pair_analysis(sample_trials, sample_pairs)
+    assert "## 6. Per-Pair Analysis" in md
+    assert "Easiest" in md or "easiest" in md
+    assert "Hardest" in md or "hardest" in md
+
+
+def test_section_per_pair_analysis_tier_split(sample_trials, sample_pairs):
+    """section_per_pair_analysis includes tier comparison."""
+    from generate_evolution_report import section_per_pair_analysis
+
+    md = section_per_pair_analysis(sample_trials, sample_pairs)
+    assert "strong" in md
+    assert "medium" in md
+
+
+def test_section_appendix_prompts_includes_all_unique(sample_trials):
+    """section_appendix_prompts shows every unique prompt text in fenced blocks."""
+    from generate_evolution_report import section_appendix_prompts
+
+    md = section_appendix_prompts(sample_trials)
+    assert "## 8. Appendix A" in md
+    assert "```" in md
+    # Each trial_id should appear as a label
+    for t in sample_trials:
+        assert t["trial_id"] in md
+
+
+def test_section_appendix_per_pair_detail_uses_best_trial(sample_trials):
+    """section_appendix_per_pair_detail shows the per-pair table for the best trial."""
+    from generate_evolution_report import section_appendix_per_pair_detail
+
+    md = section_appendix_per_pair_detail(sample_trials)
+    assert "## 9. Appendix B" in md
+    # Best trial is exploit-alpha-g1 (MRR=0.12)
+    assert "exploit-alpha-g1" in md
+    assert "anger" in md
