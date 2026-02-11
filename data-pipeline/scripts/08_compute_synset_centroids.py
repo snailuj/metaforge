@@ -96,22 +96,22 @@ def main():
 
     print(f"Computing synset centroids in {LEXICON_V2}...")
     conn = sqlite3.connect(LEXICON_V2)
+    try:
+        create_centroids_table(conn)
+        count = compute_and_store_centroids(conn)
 
-    create_centroids_table(conn)
-    count = compute_and_store_centroids(conn)
-
-    # Show stats
-    if count > 0:
-        row = conn.execute("""
-            SELECT MIN(property_count), MAX(property_count), AVG(property_count)
-            FROM synset_centroids
-        """).fetchone()
-        print(f"\nComputed {count} synset centroids")
-        print(f"  Properties per synset: min={row[0]}, max={row[1]}, avg={row[2]:.1f}")
-    else:
-        print("\nNo centroids computed (no enriched synsets with embeddings)")
-
-    conn.close()
+        # Show stats
+        if count > 0:
+            row = conn.execute("""
+                SELECT MIN(property_count), MAX(property_count), AVG(property_count)
+                FROM synset_centroids
+            """).fetchone()
+            print(f"\nComputed {count} synset centroids")
+            print(f"  Properties per synset: min={row[0]}, max={row[1]}, avg={row[2]:.1f}")
+        else:
+            print("\nNo centroids computed (no enriched synsets with embeddings)")
+    finally:
+        conn.close()
     print("Centroid computation complete!")
 
 

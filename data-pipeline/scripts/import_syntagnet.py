@@ -48,21 +48,22 @@ def main():
         raise FileNotFoundError(f"Target DB not found: {LEXICON_V2}")
 
     src = sqlite3.connect(SQLUNET_DB)
-    dst = sqlite3.connect(LEXICON_V2)
+    try:
+        dst = sqlite3.connect(LEXICON_V2)
+        try:
+            import_syntagms(src, dst)
+            dst.commit()
 
-    import_syntagms(src, dst)
-
-    dst.commit()
-
-    # Count and log orphan syntagms
-    orphans, total, rate = count_orphan_syntagms(dst)
-    print(f"\nOrphan syntagm analysis:")
-    print(f"  Total syntagms: {total}")
-    print(f"  Orphans (unlinked synsets): {orphans}")
-    print(f"  Orphan rate: {rate:.2%}")
-
-    src.close()
-    dst.close()
+            # Count and log orphan syntagms
+            orphans, total, rate = count_orphan_syntagms(dst)
+            print(f"\nOrphan syntagm analysis:")
+            print(f"  Total syntagms: {total}")
+            print(f"  Orphans (unlinked synsets): {orphans}")
+            print(f"  Orphan rate: {rate:.2%}")
+        finally:
+            dst.close()
+    finally:
+        src.close()
     print("\nSyntagNet import complete!")
 
 

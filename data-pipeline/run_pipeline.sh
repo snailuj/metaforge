@@ -6,6 +6,7 @@
 # Usage:
 #   ./run_pipeline.sh          Rebuild using pre-computed LLM output
 #   ./run_pipeline.sh --full   Rebuild everything (runs LLM extraction — costs API calls)
+#   ./run_pipeline.sh --check  Validate prerequisites only (no execution)
 #
 # Raw sources required in data-pipeline/raw/:
 #   - sqlunet_master.db        SQLunet integrated database
@@ -23,8 +24,11 @@ RAW_DIR="$PIPELINE_DIR/raw"
 OUTPUT_DIR="$PIPELINE_DIR/output"
 
 FULL=false
+CHECK=false
 if [[ "${1:-}" == "--full" ]]; then
     FULL=true
+elif [[ "${1:-}" == "--check" ]]; then
+    CHECK=true
 fi
 
 # --- Validation -----------------------------------------------------------
@@ -44,7 +48,7 @@ if [[ ! -f "$RAW_DIR/wiki-news-300d-1M.vec" ]]; then
     errors=1
 fi
 
-if [[ "$FULL" == false && ! -f "$OUTPUT_DIR/property_pilot_2k.json" ]]; then
+if [[ "$FULL" == false && "$CHECK" == false && ! -f "$OUTPUT_DIR/property_pilot_2k.json" ]]; then
     echo "ERROR: Missing $OUTPUT_DIR/property_pilot_2k.json"
     echo "       Run with --full to regenerate via LLM, or restore from backup."
     errors=1
@@ -67,7 +71,10 @@ if [[ $errors -ne 0 ]]; then
     exit 1
 fi
 
-if [[ "$FULL" == true ]]; then
+if [[ "$CHECK" == true ]]; then
+    echo "All prerequisites found. Ready to run."
+    exit 0
+elif [[ "$FULL" == true ]]; then
     echo "MODE: Full rebuild (including LLM extraction)"
     read -rp "This will consume Gemini API calls. Continue? [y/N] " confirm
     if [[ "${confirm,,}" != "y" ]]; then
@@ -90,6 +97,10 @@ run_step() {
     "$@"
     echo ""
 }
+
+# NOTE: SUBTLEX-UK frequency import is pending (needs re-downloading).
+# The 'frequencies' table exists in the schema but is not populated.
+# See PRD-2 open questions and schema-v2.sql for context.
 
 # --- Phase 1: Schema from raw sources -------------------------------------
 

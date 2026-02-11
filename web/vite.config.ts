@@ -13,6 +13,7 @@ export default defineConfig({
       '/thesaurus': 'http://localhost:8080',
       '/forge': 'http://localhost:8080',
       '/health': 'http://localhost:8080',
+      '/strings': 'http://localhost:8080',
     },
   },
   test: {

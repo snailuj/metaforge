@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -40,10 +42,13 @@ func main() {
 	})
 
 	addr := fmt.Sprintf(":%s", *port)
-	fmt.Printf("Metaforge API starting on %s...\n", addr)
-	fmt.Printf("  Database: %s\n", *dbPath)
-	fmt.Printf("  Strings:  %s\n", *stringsDir)
-	fmt.Printf("  CORS:     %s\n", *corsOrigin)
-	fmt.Printf("  Try: curl 'http://localhost:%s/thesaurus/lookup?word=fire'\n", *port)
-	log.Fatal(http.ListenAndServe(addr, r))
+	slog.Info("Metaforge API starting", "addr", addr, "db", *dbPath, "strings", *stringsDir, "cors", *corsOrigin)
+
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      r,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+	log.Fatal(srv.ListenAndServe())
 }

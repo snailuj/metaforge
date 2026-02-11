@@ -2,6 +2,7 @@
 import json
 import sqlite3
 import struct
+from pathlib import Path
 from typing import Optional
 import re
 
@@ -96,36 +97,37 @@ def main():
 
     # Process each property
     conn = sqlite3.connect(LEXICON_V2)
+    try:
+        oov_count = 0
+        emb_count = 0
+        oov_list = []
 
-    oov_count = 0
-    emb_count = 0
-    oov_list = []
+        for prop in sorted(all_props):
+            # Try direct lookup first
+            emb = get_embedding(prop, vectors)
 
-    for prop in sorted(all_props):
-        # Try direct lookup first
-        emb = get_embedding(prop, vectors)
+            # Try compound if direct fails (handles hyphens, spaces, slashes)
+            if emb is None and re.search(r"[-\s/]", prop):
+                emb = get_compound_embedding(prop, vectors)
 
-        # Try compound if direct fails (handles hyphens, spaces, slashes)
-        if emb is None and re.search(r"[-\s/]", prop):
-            emb = get_compound_embedding(prop, vectors)
+            is_oov = 1 if emb is None else 0
+            if is_oov:
+                oov_count += 1
+                oov_list.append(prop)
+            else:
+                emb_count += 1
 
-        is_oov = 1 if emb is None else 0
-        if is_oov:
-            oov_count += 1
-            oov_list.append(prop)
-        else:
-            emb_count += 1
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO property_vocabulary (text, embedding, is_oov, source)
+                VALUES (?, ?, ?, 'pilot')
+            """,
+                (prop, emb, is_oov),
+            )
 
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO property_vocabulary (text, embedding, is_oov, source)
-            VALUES (?, ?, ?, 'pilot')
-        """,
-            (prop, emb, is_oov),
-        )
-
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
 
     print(f"\nCuration complete!")
     print(f"  Properties with embeddings: {emb_count}")

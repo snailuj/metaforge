@@ -1,9 +1,8 @@
 """Test OEWN import to lexicon_v2.db."""
 import sqlite3
-from pathlib import Path
 import pytest
 
-LEXICON_V2 = Path(__file__).parent.parent / "output" / "lexicon_v2.db"
+from utils import LEXICON_V2
 
 
 def test_synsets_imported():

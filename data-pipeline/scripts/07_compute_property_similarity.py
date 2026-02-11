@@ -81,13 +81,14 @@ def store_similarities(conn: sqlite3.Connection, property_ids: list[int],
     n = len(property_ids)
     pairs = []
 
-    # Only store upper triangle (i < j) to avoid duplicates
+    # Store both (a,b) and (b,a) for each pair so queries can filter on
+    # property_id_a alone without needing OR clauses. This doubles row count
+    # (~366K vs ~183K) but simplifies and speeds up lookups.
     for i in range(n):
         for j in range(i + 1, n):
             sim = float(similarity[i, j])
             if sim >= threshold:
                 pairs.append((property_ids[i], property_ids[j], sim))
-                # Also store reverse for easier querying
                 pairs.append((property_ids[j], property_ids[i], sim))
 
     # Batch insert
@@ -112,22 +113,22 @@ def main():
 
     print(f"Computing property similarity matrix (threshold={args.threshold})...")
     conn = sqlite3.connect(LEXICON_V2)
+    try:
+        # Create table
+        create_similarity_table(conn)
 
-    # Create table
-    create_similarity_table(conn)
+        # Load embeddings
+        property_ids, embeddings = load_embeddings(conn)
 
-    # Load embeddings
-    property_ids, embeddings = load_embeddings(conn)
+        # Compute similarity
+        print("Computing pairwise cosine similarities...")
+        similarity = compute_similarity_matrix(embeddings)
 
-    # Compute similarity
-    print("Computing pairwise cosine similarities...")
-    similarity = compute_similarity_matrix(embeddings)
-
-    # Store results
-    print(f"Storing pairs with similarity >= {args.threshold}...")
-    pair_count = store_similarities(conn, property_ids, similarity, args.threshold)
-
-    conn.close()
+        # Store results
+        print(f"Storing pairs with similarity >= {args.threshold}...")
+        pair_count = store_similarities(conn, property_ids, similarity, args.threshold)
+    finally:
+        conn.close()
 
     print(f"\nSimilarity computation complete!")
     print(f"  Stored {pair_count} unique similar property pairs")

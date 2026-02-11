@@ -1,10 +1,9 @@
 """Test property vocabulary curation."""
 import sqlite3
 import struct
-from pathlib import Path
 import pytest
 
-LEXICON_V2 = Path(__file__).parent.parent / "output" / "lexicon_v2.db"
+from utils import LEXICON_V2
 
 
 def test_properties_imported():

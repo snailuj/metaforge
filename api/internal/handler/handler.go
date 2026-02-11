@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -35,6 +36,20 @@ func NewHandler(dbPath string) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Validate required tables exist
+	requiredTables := []string{"synsets", "lemmas", "synset_properties", "property_vocabulary", "synset_centroids"}
+	for _, table := range requiredTables {
+		var count int
+		err := database.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)
+		if err != nil || count == 0 {
+			database.Close()
+			return nil, fmt.Errorf("required table %q not found in database", table)
+		}
+	}
+
+	database.SetMaxOpenConns(4)
+
 	return &Handler{database: database}, nil
 }
 

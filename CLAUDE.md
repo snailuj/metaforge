@@ -19,7 +19,7 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 
 - **Backend:** Go headless API (stateless, self-hostable)
 - **Frontend:** Lit + Vite + TypeScript + `3d-force-graph` (browser-first)
-- **Data:** SQLite + GloVe embeddings + Gemini-extracted properties
+- **Data:** SQLite + FastText embeddings + Gemini-extracted properties
 - **Storage:** IndexedDB for local user data (no accounts in MVP)
 
 ## Current Phase

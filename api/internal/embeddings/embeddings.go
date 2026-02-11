@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"math"
 )
 
@@ -55,9 +56,9 @@ func CosineDistance(a, b []float32) float64 {
 
 	var dot, normA, normB float64
 	for i := range a {
-		dot += float64(a[i] * b[i])
-		normA += float64(a[i] * a[i])
-		normB += float64(b[i] * b[i])
+		dot += float64(a[i]) * float64(b[i])
+		normA += float64(a[i]) * float64(a[i])
+		normB += float64(b[i]) * float64(b[i])
 	}
 
 	if normA == 0 || normB == 0 {
@@ -110,11 +111,16 @@ func getSynsetPropertyEmbeddings(db *sql.DB, synsetID string) ([][]float32, erro
 	for rows.Next() {
 		var blob []byte
 		if err := rows.Scan(&blob); err != nil {
+			slog.Warn("scan embedding blob failed", "synset", synsetID, "err", err)
 			continue
 		}
 		if vec := BlobToFloats(blob); vec != nil {
 			embeddings = append(embeddings, vec)
 		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating property embeddings for %s: %w", synsetID, err)
 	}
 
 	return embeddings, nil

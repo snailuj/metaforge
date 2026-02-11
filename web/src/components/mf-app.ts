@@ -127,9 +127,9 @@ export class MfApp extends LitElement {
     this.doLookup(e.detail.word, e.detail.suggest)
   }
 
-  private async handleNodeNavigate(e: CustomEvent) {
+  private async handleNodeNavigate(e: CustomEvent<{ word: string }>) {
     const node = e.detail
-    if (node?.word) {
+    if (node.word) {
       this.doLookup(node.word)
     }
   }

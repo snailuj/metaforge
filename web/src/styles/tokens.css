@@ -37,7 +37,7 @@
   --space-xl: 2rem;
 
   /* HUD */
-  --hud-width: 320px;
+  --hud-width: 20rem;
   --hud-border: 1px solid rgba(212, 175, 55, 0.2);
   --hud-radius: 4px;
 }

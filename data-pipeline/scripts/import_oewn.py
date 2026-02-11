@@ -60,15 +60,17 @@ def main():
         raise FileNotFoundError(f"Target DB not found: {LEXICON_V2}")
 
     src = sqlite3.connect(SQLUNET_DB)
-    dst = sqlite3.connect(LEXICON_V2)
-
-    import_synsets(src, dst)
-    import_lemmas(src, dst)
-    import_relations(src, dst)
-
-    dst.commit()
-    src.close()
-    dst.close()
+    try:
+        dst = sqlite3.connect(LEXICON_V2)
+        try:
+            import_synsets(src, dst)
+            import_lemmas(src, dst)
+            import_relations(src, dst)
+            dst.commit()
+        finally:
+            dst.close()
+    finally:
+        src.close()
     print("OEWN import complete!")
 
 

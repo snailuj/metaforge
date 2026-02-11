@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { MfResultsPanel } from './mf-results-panel'
 import type { LookupResult } from '@/types/api'
 
@@ -20,40 +20,42 @@ const melancholy: LookupResult = {
 }
 
 describe('MfResultsPanel', () => {
+  let el: MfResultsPanel
+
+  beforeEach(async () => {
+    el = document.createElement('mf-results-panel') as MfResultsPanel
+    document.body.appendChild(el)
+    await el.updateComplete
+  })
+
+  afterEach(() => {
+    document.body.removeChild(el)
+  })
+
   it('is defined as a custom element', () => {
     expect(MfResultsPanel).toBeDefined()
     expect(customElements.get('mf-results-panel')).toBeDefined()
   })
 
   it('renders the word heading when result is set', async () => {
-    const el = document.createElement('mf-results-panel') as MfResultsPanel
     el.result = melancholy
-    document.body.appendChild(el)
     await el.updateComplete
 
     const heading = el.shadowRoot!.querySelector('h2')
     expect(heading?.textContent).toContain('melancholy')
-
-    document.body.removeChild(el)
   })
 
   it('renders sense definitions', async () => {
-    const el = document.createElement('mf-results-panel') as MfResultsPanel
     el.result = melancholy
-    document.body.appendChild(el)
     await el.updateComplete
 
     const defs = el.shadowRoot!.querySelectorAll('.definition')
     expect(defs.length).toBeGreaterThan(0)
     expect(defs[0].textContent).toContain('thoughtful sadness')
-
-    document.body.removeChild(el)
   })
 
   it('fires mf-word-navigate on double-click of a related word', async () => {
-    const el = document.createElement('mf-results-panel') as MfResultsPanel
     el.result = melancholy
-    document.body.appendChild(el)
     await el.updateComplete
 
     const handler = vi.fn()
@@ -63,7 +65,5 @@ describe('MfResultsPanel', () => {
     wordEl?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
 
     expect(handler).toHaveBeenCalledOnce()
-
-    document.body.removeChild(el)
   })
 })

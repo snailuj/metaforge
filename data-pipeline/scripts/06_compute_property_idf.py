@@ -123,11 +123,11 @@ def main():
 
     print(f"Computing IDF weights in {LEXICON_V2}...")
     conn = sqlite3.connect(LEXICON_V2)
-
-    add_idf_column(conn)
-    compute_idf(conn)
-
-    conn.close()
+    try:
+        add_idf_column(conn)
+        compute_idf(conn)
+    finally:
+        conn.close()
     print("\nIDF computation complete!")
 
 

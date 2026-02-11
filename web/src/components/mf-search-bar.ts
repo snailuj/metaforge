@@ -63,6 +63,9 @@ export class MfSearchBar extends LitElement {
     if (this.debounceTimer) clearTimeout(this.debounceTimer)
   }
 
+  // NOTE: document.activeElement in shadow DOM returns the host element,
+  // not the inner input. We check our own shadow root explicitly (line 76).
+  // Other shadow-rooted inputs would need similar guards if added in future.
   private handleGlobalKeydown = (e: KeyboardEvent) => {
     if (e.key !== '/') return
     const active = document.activeElement
@@ -143,7 +146,7 @@ export class MfSearchBar extends LitElement {
 
   render() {
     return html`
-      <div class="search-wrapper">
+      <div class="search-wrapper" role="search">
         <input
           type="text"
           placeholder=${this.placeholder}
@@ -152,7 +155,6 @@ export class MfSearchBar extends LitElement {
           @keydown=${this.handleKeydown}
           @keyup=${this.handleKeyup}
           aria-label=${this.searchLabel}
-          role="searchbox"
         />
         <span class="shortcut-hint">/</span>
       </div>

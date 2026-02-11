@@ -10,6 +10,15 @@ npm run test:coverage # Run tests with coverage report
 
 Coverage HTML report: `web/coverage/index.html`
 
+## Python (Data Pipeline)
+
+```bash
+cd data-pipeline && python -m pytest scripts/ -v
+```
+
+Tests validate imported data integrity against `data-pipeline/output/lexicon_v2.db`.
+The database must be built (or restored via `scripts/restore_db.sh`) before running tests.
+
 ## Go (Backend)
 
 ```bash

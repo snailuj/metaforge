@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -19,11 +20,11 @@ type Synset struct {
 	POS          string   `json:"pos"`
 	Definition   string   `json:"definition"`
 	Properties   []string `json:"properties,omitempty"`
-	Metonyms     []string `json:"metonyms,omitempty"`
+	Metonyms     []string `json:"metonyms,omitempty"`     // Placeholder: SyntagNet import pending
 	Connotation  string   `json:"connotation,omitempty"`
 	Register     string   `json:"register,omitempty"`
 	UsageExample string   `json:"usage_example,omitempty"`
-	Rarity       string   `json:"rarity,omitempty"`
+	Rarity       string   `json:"rarity,omitempty"`        // Placeholder: SUBTLEX-UK frequency data pending
 }
 
 // Open establishes a read-only connection to the lexicon SQLite database.
@@ -82,9 +83,14 @@ func GetSynset(db *sql.DB, synsetID string) (*Synset, error) {
 	for rows.Next() {
 		var prop string
 		if err := rows.Scan(&prop); err != nil {
+			slog.Warn("scan property failed", "synset", synsetID, "err", err)
 			continue
 		}
 		s.Properties = append(s.Properties, prop)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating properties for %s: %w", synsetID, err)
 	}
 
 	return &s, nil
@@ -157,6 +163,7 @@ func GetSynsetsWithSharedProperties(db *sql.DB, sourceID string, threshold float
 	for rows.Next() {
 		var m SynsetMatch
 		if err := rows.Scan(&m.SynsetID, &m.TotalScore, &m.OverlapCount); err != nil {
+			slog.Warn("scan match failed", "source", sourceID, "err", err)
 			continue
 		}
 		matches = append(matches, m)
@@ -198,11 +205,13 @@ func getSynsetsWithSharedPropertiesLegacy(db *sql.DB, sourceID string, limit int
 	for rows.Next() {
 		var id, propsJSON string
 		if err := rows.Scan(&id, &propsJSON); err != nil {
+			slog.Warn("scan legacy match failed", "source", sourceID, "err", err)
 			continue
 		}
 
 		var props []string
 		if err := json.Unmarshal([]byte(propsJSON), &props); err != nil {
+			slog.Warn("unmarshal properties failed", "synset", id, "err", err)
 			continue
 		}
 
@@ -221,6 +230,10 @@ func getSynsetsWithSharedPropertiesLegacy(db *sql.DB, sourceID string, limit int
 				TotalScore:       float64(len(shared)), // Use overlap count as score for legacy
 			})
 		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating legacy matches: %w", err)
 	}
 
 	// Sort by TotalScore descending and apply limit
@@ -343,6 +356,7 @@ func GetForgeMatches(db *sql.DB, sourceID string, threshold float64, limit int) 
 			&m.ExactOverlap, &sharedProps, &m.TotalScore,
 			&srcBlob, &tgtBlob,
 		); err != nil {
+			slog.Warn("scan forge match failed", "err", err)
 			continue
 		}
 

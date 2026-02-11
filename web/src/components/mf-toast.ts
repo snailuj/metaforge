@@ -43,9 +43,14 @@ export class MfToast extends LitElement {
     }, duration)
   }
 
+  disconnectedCallback(): void {
+    super.disconnectedCallback()
+    if (this.hideTimer) clearTimeout(this.hideTimer)
+  }
+
   render() {
     return html`
-      <div class="toast ${this.visible ? 'visible' : ''}">${this.message}</div>
+      <div class="toast ${this.visible ? 'visible' : ''}" role="status" aria-live="polite">${this.message}</div>
     `
   }
 }

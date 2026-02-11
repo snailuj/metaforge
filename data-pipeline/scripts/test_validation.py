@@ -1,13 +1,11 @@
 """End-to-end validation of lexicon_v2.db."""
 import sqlite3
 import struct
-from pathlib import Path
 import math
 
 import pytest
 
-LEXICON_V2 = Path(__file__).parent.parent / "output" / "lexicon_v2.db"
-EMBEDDING_DIM = 300  # FastText 300d
+from utils import LEXICON_V2, EMBEDDING_DIM
 
 
 def cosine_similarity(emb1: bytes, emb2: bytes) -> float:

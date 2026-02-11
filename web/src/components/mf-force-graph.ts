@@ -5,20 +5,14 @@ import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
 import SpriteText from 'three-spritetext'
 import type { GraphData, GraphNode } from '@/graph/types'
-
-// Colour map for node types
-const NODE_COLOURS: Record<string, string> = {
-  central: '#d4af37',
-  synonym: '#c4956a',
-  hypernym: '#8b6f47',
-  hyponym: '#6a8b6f',
-  similar: '#7a6a8b',
-}
+import { NODE_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
 const LABEL_FONT = 'Georgia, "Times New Roman", serif'
 
-const DBLCLICK_THRESHOLD_MS = 200
+// 300ms matches typical OS double-click threshold; balances responsiveness
+// with avoiding false double-click detection on slower clickers
+const DBLCLICK_THRESHOLD_MS = 300
 
 @customElement('mf-force-graph')
 export class MfForceGraph extends LitElement {
@@ -46,7 +40,7 @@ export class MfForceGraph extends LitElement {
 
     this.graph = ForceGraph3D({ controlType: 'fly' })(this.container)
       .backgroundColor('#1a1a2e')
-      .nodeColor((n: unknown) => NODE_COLOURS[(n as GraphNode).relationType] || '#e8e0d4')
+      .nodeColor((n: unknown) => NODE_COLOURS[(n as GraphNode).relationType] || DEFAULT_NODE_COLOUR)
       .nodeVal((n: unknown) => (n as GraphNode).val)
       .nodeOpacity(0.9)
       .nodeRelSize(0.5)
@@ -56,6 +50,7 @@ export class MfForceGraph extends LitElement {
         const colour = NODE_COLOURS[node.relationType] || '#e8e0d4'
         const sprite = new SpriteText(node.word, 3, colour)
         sprite.fontFace = LABEL_FONT
+        // three-spritetext accepts `false` to disable background, but types only declare `string`
         sprite.backgroundColor = false as unknown as string
         sprite.position.y = 3
         return sprite
@@ -129,7 +124,7 @@ export class MfForceGraph extends LitElement {
   }
 
   updated(changed: PropertyValues<this>): void {
-    if (changed.has('graphData') && this.graph && this.graphData.nodes.length) {
+    if (changed.has('graphData') && this.graph) {
       this.graph.graphData(this.graphData)
     }
   }

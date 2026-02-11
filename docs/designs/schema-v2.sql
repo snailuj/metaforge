@@ -213,6 +213,33 @@ CREATE INDEX idx_synset_properties_property ON synset_properties(property_id);
 CREATE INDEX idx_synset_metonyms_synset ON synset_metonyms(synset_id);
 
 -- ============================================================
+-- Computed Tables (created by pipeline steps, not initial schema)
+-- ============================================================
+
+-- Pairwise property similarity (cosine similarity >= threshold).
+-- Both directions stored for query convenience: (a,b) and (b,a).
+CREATE TABLE IF NOT EXISTS property_similarity (
+    property_id_a INTEGER NOT NULL,
+    property_id_b INTEGER NOT NULL,
+    similarity REAL NOT NULL,
+    PRIMARY KEY (property_id_a, property_id_b),
+    FOREIGN KEY (property_id_a) REFERENCES property_vocabulary(property_id),
+    FOREIGN KEY (property_id_b) REFERENCES property_vocabulary(property_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_property_similarity_a ON property_similarity(property_id_a);
+CREATE INDEX IF NOT EXISTS idx_property_similarity_b ON property_similarity(property_id_b);
+CREATE INDEX IF NOT EXISTS idx_property_similarity_score ON property_similarity(similarity);
+
+-- Per-synset centroid: average of its property embeddings (FastText 300d).
+-- Precomputed to avoid N+1 queries in the Go API layer.
+CREATE TABLE IF NOT EXISTS synset_centroids (
+    synset_id TEXT PRIMARY KEY,
+    centroid BLOB NOT NULL,
+    property_count INTEGER NOT NULL
+);
+
+-- ============================================================
 -- Runtime Query Examples
 -- ============================================================
 
