@@ -237,8 +237,9 @@ def test_build_server_command():
     cmd = build_server_command(
         db_path="/tmp/test.db", port=9090
     )
-    assert "go" in cmd[0] or cmd[0] == "go"
+    assert cmd[0] == "go"
     assert "run" in cmd
+    assert "./cmd/metaforge" in cmd
     assert "--db" in cmd
     assert "/tmp/test.db" in cmd
     assert "--port" in cmd

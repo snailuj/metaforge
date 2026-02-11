@@ -200,7 +200,7 @@ def compute_secondary_metrics(conn: sqlite3.Connection) -> dict:
 def build_server_command(db_path: str, port: int = 9090) -> list[str]:
     """Build the Go API server command."""
     return [
-        "go", "run", str(API_DIR / "cmd" / "metaforge" / "main.go"),
+        "go", "run", "./cmd/metaforge",
         "--db", db_path,
         "--port", str(port),
     ]
@@ -213,6 +213,7 @@ def start_server(db_path: str, port: int = 9090) -> subprocess.Popen:
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        cwd=str(API_DIR),
     )
     return proc
 
@@ -300,7 +301,7 @@ def evaluate(
     print(f"  Starting API server on port {port}...")
     server = start_server(db_path, port)
     try:
-        wait_for_health(port, timeout=30)
+        wait_for_health(port, timeout=60)
         print("  Server ready.")
 
         # Step 4: Query each testable pair
