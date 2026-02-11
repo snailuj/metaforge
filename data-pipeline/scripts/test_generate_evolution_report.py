@@ -5,6 +5,7 @@ All LLM-calling tests mock invoke_claude — no real API calls.
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -382,3 +383,86 @@ def test_section_appendix_per_pair_detail_uses_best_trial(sample_trials):
     # Best trial is exploit-alpha-g1 (MRR=0.12)
     assert "exploit-alpha-g1" in md
     assert "anger" in md
+
+
+# ===========================================================================
+# 4. LLM prose functions
+# ===========================================================================
+
+def test_build_briefing_contains_key_metrics(sample_trials, sample_pairs):
+    """_build_briefing returns structured dict with all computed metrics."""
+    from generate_evolution_report import _build_briefing
+
+    briefing = _build_briefing(sample_trials, sample_pairs)
+    assert "best_trial_id" in briefing
+    assert "best_mrr" in briefing
+    assert "baseline_mrr" in briefing
+    assert "improvement_pct" in briefing
+    assert "survivor_count" in briefing
+    assert "total_trials" in briefing
+    assert "correlations" in briefing
+    assert "tier_split" in briefing
+
+
+def test_executive_summary_prompt_includes_briefing_data(sample_trials, sample_pairs):
+    """_executive_summary_prompt produces a prompt containing key metrics."""
+    from generate_evolution_report import _build_briefing, _executive_summary_prompt
+
+    briefing = _build_briefing(sample_trials, sample_pairs)
+    prompt = _executive_summary_prompt(briefing)
+    assert str(briefing["best_mrr"]) in prompt
+    assert str(briefing["total_trials"]) in prompt
+
+
+def test_discussion_prompt_includes_briefing_data(sample_trials, sample_pairs):
+    """_discussion_prompt produces a prompt containing correlation and tier data."""
+    from generate_evolution_report import _build_briefing, _discussion_prompt
+
+    briefing = _build_briefing(sample_trials, sample_pairs)
+    prompt = _discussion_prompt(briefing)
+    # Should contain the JSON briefing
+    assert "correlations" in prompt
+    assert "tier_split" in prompt
+
+
+def _mock_invoke_result(text):
+    """Build a mock CompletedProcess mimicking claude CLI JSON output."""
+    events = [
+        {"type": "result", "result": text, "is_error": False},
+    ]
+    proc = MagicMock()
+    proc.returncode = 0
+    proc.stdout = json.dumps(events)
+    proc.stderr = ""
+    return proc
+
+
+@patch("generate_evolution_report.invoke_claude")
+def test_llm_prose_calls_invoke_claude_and_extracts_text(mock_invoke):
+    """_llm_prose calls invoke_claude and returns the result text."""
+    from generate_evolution_report import _llm_prose
+
+    mock_invoke.return_value = _mock_invoke_result("This is the analysis.")
+    result = _llm_prose({"key": "value"}, "Write analysis.", model="haiku")
+    assert result == "This is the analysis."
+    mock_invoke.assert_called_once()
+
+
+@patch("generate_evolution_report.invoke_claude")
+def test_section_executive_summary_with_llm(mock_invoke, sample_trials):
+    """section_executive_summary calls LLM and includes the returned prose."""
+    from generate_evolution_report import section_executive_summary
+
+    mock_invoke.return_value = _mock_invoke_result("The experiment showed promising results.")
+    md = section_executive_summary(sample_trials, model="haiku")
+    assert "## 1. Executive Summary" in md
+    assert "promising results" in md
+
+
+def test_section_executive_summary_no_llm(sample_trials):
+    """section_executive_summary with no_llm=True produces placeholder text."""
+    from generate_evolution_report import section_executive_summary
+
+    md = section_executive_summary(sample_trials, model="haiku", no_llm=True)
+    assert "## 1. Executive Summary" in md
+    assert "LLM" in md or "placeholder" in md.lower() or "skipped" in md.lower()

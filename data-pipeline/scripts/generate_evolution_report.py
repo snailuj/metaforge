@@ -11,8 +11,10 @@ Usage:
 """
 import json
 import math
+import re
 from pathlib import Path
 
+from enrich_properties import invoke_claude
 from utils import OUTPUT_DIR, PIPELINE_DIR
 
 
@@ -158,6 +160,243 @@ def _format_correlation(r: float) -> str:
     if r >= 0:
         return f"{strength} positive"
     return f"{strength} negative"
+
+
+# --- LLM prose helpers -------------------------------------------------------
+
+def _build_briefing(trials: list[dict], pairs: list[dict]) -> dict:
+    """Compute all metrics into a structured dict for LLM consumption."""
+    baseline = _baseline_trial(trials)
+    best = _best_trial(trials)
+    nd = _non_degenerate_trials(trials)
+    explore = _exploration_trials(trials)
+    exploit = _exploitation_trials(trials)
+    survivors = [t for t in explore if t["survived"]]
+
+    improvement = (best["mrr"] - baseline["mrr"]) / baseline["mrr"] if baseline["mrr"] > 0 else 0.0
+
+    # Correlations
+    correlations = {}
+    if len(nd) >= 3:
+        mrrs = [t["mrr"] for t in nd]
+        for metric in ["unique_properties", "hapax_rate", "avg_properties_per_synset"]:
+            values = [t.get("secondary", {}).get(metric, 0) for t in nd]
+            r = _pearson_r(mrrs, values)
+            correlations[metric] = {"r": round(r, 3), "description": _format_correlation(r)}
+        hit_rates = [_hit_rate(t) for t in nd]
+        r = _pearson_r(mrrs, hit_rates)
+        correlations["hit_rate"] = {"r": round(r, 3), "description": _format_correlation(r)}
+
+    # Lineage summaries
+    lineage_data = {}
+    for name, lineage in _lineages(trials).items():
+        if name == "baseline":
+            continue
+        lineage_data[name] = [
+            {
+                "trial_id": t["trial_id"],
+                "generation": t["generation"],
+                "mrr": t["mrr"],
+                "survived": t["survived"],
+                "mutation": t.get("mutation"),
+            }
+            for t in lineage
+        ]
+
+    # Degenerate trials
+    degenerate = [t["trial_id"] for t in trials if t["mrr"] == 0.0]
+
+    return {
+        "best_trial_id": best["trial_id"],
+        "best_mrr": best["mrr"],
+        "baseline_mrr": baseline["mrr"],
+        "improvement_pct": _format_pct(improvement),
+        "improvement_raw": round(improvement, 4),
+        "survivor_count": len(survivors),
+        "total_trials": len(trials),
+        "exploration_count": len(explore),
+        "exploitation_count": len(exploit),
+        "pair_count": len(baseline.get("per_pair", [])),
+        "correlations": correlations,
+        "tier_split": _tier_mrr_split(trials),
+        "lineages": lineage_data,
+        "degenerate_trials": degenerate,
+    }
+
+
+def _executive_summary_prompt(briefing: dict) -> str:
+    """Build the meta-prompt for executive summary LLM generation."""
+    return (
+        "You are writing a concise executive summary paragraph for a prompt "
+        "optimisation experiment report. Here are the key metrics:\n\n"
+        f"- Total trials: {briefing['total_trials']}\n"
+        f"- Best trial: {briefing['best_trial_id']} (MRR = {briefing['best_mrr']})\n"
+        f"- Baseline MRR: {briefing['baseline_mrr']}\n"
+        f"- Improvement: {briefing['improvement_pct']}\n"
+        f"- Survivors: {briefing['survivor_count']} out of {briefing['exploration_count']}\n"
+        f"- Degenerate trials (MRR=0): {len(briefing['degenerate_trials'])}\n\n"
+        "Write a single analytical paragraph summarising the experiment outcomes. "
+        "Be concise, factual, and highlight the most important findings. "
+        "Do not use markdown headers. Output only the paragraph text."
+    )
+
+
+def _exploitation_narrative_prompt(briefing: dict) -> str:
+    """Build the meta-prompt for exploitation lineage narratives."""
+    return (
+        "You are writing brief analytical narratives for each lineage in a prompt "
+        "optimisation experiment. Here is the lineage data:\n\n"
+        f"{json.dumps(briefing['lineages'], indent=2)}\n\n"
+        "For each lineage, write 2-3 sentences explaining what mutations were tried "
+        "and why they succeeded or failed. Format as markdown with ### headers for "
+        "each lineage name. Be concise and analytical."
+    )
+
+
+def _discussion_prompt(briefing: dict) -> str:
+    """Build the meta-prompt for the discussion section."""
+    return (
+        "You are writing the Discussion section of a prompt optimisation experiment report. "
+        "Here is a comprehensive data briefing:\n\n"
+        f"```json\n{json.dumps(briefing, indent=2)}\n```\n\n"
+        "Write an analytical discussion covering:\n"
+        "1. What prompt characteristics correlated with higher MRR\n"
+        "2. Why certain exploitation tweaks succeeded or failed\n"
+        "3. Tier performance patterns (strong vs medium metaphor pairs)\n"
+        "4. Failure modes and degenerate trials\n"
+        "5. Recommendations for the next iteration\n\n"
+        "Use markdown subheadings (###). Be concise, data-driven, and analytical. "
+        "Reference specific numbers from the briefing."
+    )
+
+
+def _llm_prose(briefing: dict, section_prompt: str, model: str = "haiku") -> str:
+    """Invoke Claude CLI and extract the result text."""
+    proc = invoke_claude(section_prompt, model=model)
+
+    events = json.loads(proc.stdout)
+    result_event = next(
+        (e for e in reversed(events) if e.get("type") == "result"), None
+    )
+    if result_event is None:
+        return "*[LLM returned no result]*"
+    if result_event.get("is_error"):
+        return f"*[LLM error: {result_event.get('result', 'unknown')}]*"
+
+    text = result_event["result"].strip()
+    # Strip markdown fences if present
+    text = re.sub(r'^```(?:markdown)?\s*', '', text)
+    text = re.sub(r'\s*```$', '', text)
+    return text
+
+
+# --- LLM-authored section generators ----------------------------------------
+
+def section_executive_summary(
+    trials: list[dict], model: str = "haiku", no_llm: bool = False,
+    pairs: list[dict] | None = None,
+) -> str:
+    """Section 1: Executive Summary — LLM-authored or placeholder."""
+    lines = ["## 1. Executive Summary", ""]
+
+    if no_llm:
+        best = _best_trial(trials)
+        baseline = _baseline_trial(trials)
+        improvement = (
+            (best["mrr"] - baseline["mrr"]) / baseline["mrr"]
+            if baseline["mrr"] > 0 else 0.0
+        )
+        lines.append(
+            f"*[LLM prose skipped]* Best trial: {best['trial_id']} "
+            f"(MRR = {best['mrr']:.4f}, {_format_pct(improvement)} over baseline)."
+        )
+    else:
+        briefing = _build_briefing(trials, pairs or [])
+        prompt = _executive_summary_prompt(briefing)
+        prose = _llm_prose(briefing, prompt, model=model)
+        lines.append(prose)
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def section_exploitation_results(
+    trials: list[dict], model: str = "haiku", no_llm: bool = False,
+    pairs: list[dict] | None = None,
+) -> str:
+    """Section 4: Exploitation results — tables + LLM narrative per lineage."""
+    exploit = _exploitation_trials(trials)
+    all_lineages = _lineages(trials)
+
+    lines = ["## 4. Exploitation Results (Gen 1+)", ""]
+
+    if not exploit:
+        lines.append("No exploitation trials were run.")
+        lines.append("")
+        return "\n".join(lines)
+
+    # Per-lineage tables
+    for name, lineage in all_lineages.items():
+        if name == "baseline":
+            continue
+        exploit_in_lineage = [t for t in lineage if t["generation"] > 0]
+        if not exploit_in_lineage:
+            continue
+
+        gen0 = next((t for t in lineage if t["generation"] == 0), None)
+        lines.append(f"### {name}")
+        lines.append("")
+        lines.append("| Gen | Parent MRR | MRR | Delta | Mutation | Kept? |")
+        lines.append("|-----|-----------|-----|-------|----------|-------|")
+
+        parent_mrr = gen0["mrr"] if gen0 else 0.0
+        for t in exploit_in_lineage:
+            delta = t["mrr"] - parent_mrr
+            kept = "Yes" if t["survived"] else "No"
+            mutation = t.get("mutation", "-") or "-"
+            # Truncate long mutations for table
+            if len(mutation) > 80:
+                mutation = mutation[:77] + "..."
+            lines.append(
+                f"| {t['generation']} | {parent_mrr:.4f} | {t['mrr']:.4f} "
+                f"| {delta:+.4f} | {mutation} | {kept} |"
+            )
+            if t["survived"]:
+                parent_mrr = t["mrr"]
+
+        lines.append("")
+
+    # LLM narrative
+    if not no_llm:
+        briefing = _build_briefing(trials, pairs or [])
+        prompt = _exploitation_narrative_prompt(briefing)
+        prose = _llm_prose(briefing, prompt, model=model)
+        lines.append(prose)
+        lines.append("")
+    else:
+        lines.append("*[LLM lineage narratives skipped]*")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def section_discussion(
+    trials: list[dict], pairs: list[dict],
+    model: str = "haiku", no_llm: bool = False,
+) -> str:
+    """Section 7: Discussion — LLM-authored or placeholder."""
+    lines = ["## 7. Discussion", ""]
+
+    if no_llm:
+        lines.append("*[LLM discussion skipped]*")
+    else:
+        briefing = _build_briefing(trials, pairs)
+        prompt = _discussion_prompt(briefing)
+        prose = _llm_prose(briefing, prompt, model=model)
+        lines.append(prose)
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 # --- Deterministic section generators ----------------------------------------
