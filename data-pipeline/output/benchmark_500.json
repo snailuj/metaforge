@@ -1,0 +1,6486 @@
+{
+  "synsets": [
+    {
+      "id": "45426",
+      "definition": "a rig of triangular sails for a yacht",
+      "pos": "n",
+      "lemma": "bermuda rig",
+      "all_lemmas": [
+        "bermuda rig",
+        "bermudan rig",
+        "bermudian rig",
+        "marconi rig"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "33101",
+      "definition": "push one's way",
+      "pos": "v",
+      "lemma": "barge",
+      "all_lemmas": [
+        "barge",
+        "push forward",
+        "thrust ahead"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "46349",
+      "definition": "a thick and heavy shoe",
+      "pos": "n",
+      "lemma": "brogan",
+      "all_lemmas": [
+        "brogan",
+        "brogue",
+        "clodhopper",
+        "work shoe"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "36402",
+      "definition": "tropical nomadic ant that preys mainly on other insects",
+      "pos": "n",
+      "lemma": "army ant",
+      "all_lemmas": [
+        "army ant",
+        "driver ant",
+        "legionary ant"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "11255",
+      "definition": "treat with nitrogen or a nitrogen compound",
+      "pos": "v",
+      "lemma": "nitrify",
+      "all_lemmas": [
+        "nitrify",
+        "nitrogenise",
+        "nitrogenize"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "45565",
+      "definition": "a laboratory for biological research",
+      "pos": "n",
+      "lemma": "bio lab",
+      "all_lemmas": [
+        "bio lab",
+        "biology lab",
+        "biology laboratory"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "84183",
+      "definition": "the girlfriend of a gangster",
+      "pos": "n",
+      "lemma": "gangster's moll",
+      "all_lemmas": [
+        "gangster's moll",
+        "gun moll",
+        "moll"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "41358",
+      "definition": "(of circumstances) tending to constrict freedom",
+      "pos": "s",
+      "lemma": "constricting",
+      "all_lemmas": [
+        "constricting",
+        "constrictive",
+        "narrowing"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "9800",
+      "definition": "make less active or fast",
+      "pos": "v",
+      "lemma": "relax",
+      "all_lemmas": [
+        "relax",
+        "slack",
+        "slack up",
+        "slacken"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "41121",
+      "definition": "take charge of or deal with",
+      "pos": "v",
+      "lemma": "attend",
+      "all_lemmas": [
+        "attend",
+        "look",
+        "see",
+        "take care"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "72712",
+      "definition": "feelings of extreme heartlessness",
+      "pos": "n",
+      "lemma": "cruelty",
+      "all_lemmas": [
+        "cruelty",
+        "mercilessness",
+        "pitilessness",
+        "ruthlessness"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "2427",
+      "definition": "at a previous time",
+      "pos": "r",
+      "lemma": "at one time",
+      "all_lemmas": [
+        "at one time",
+        "erst",
+        "erstwhile",
+        "formerly",
+        "once"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "86105",
+      "definition": "a prostitute who attracts customers by walking the streets",
+      "pos": "n",
+      "lemma": "floozie",
+      "all_lemmas": [
+        "floozie",
+        "floozy",
+        "hooker",
+        "hustler",
+        "slattern",
+        "street girl",
+        "streetwalker"
+      ],
+      "lemma_count": 7
+    },
+    {
+      "id": "42107",
+      "definition": "surgeon fish of the West Indies",
+      "pos": "n",
+      "lemma": "acanthurus chirurgus",
+      "all_lemmas": [
+        "acanthurus chirurgus",
+        "doctor-fish",
+        "doctorfish"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "42200",
+      "definition": "medium-sized tuna-like food fish of warm Atlantic and Pacific waters; less valued than tuna",
+      "pos": "n",
+      "lemma": "atlantic bonito",
+      "all_lemmas": [
+        "atlantic bonito",
+        "sarda sarda",
+        "skipjack"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "88771",
+      "definition": "coarse perennial ragweed with creeping roots of dry barren lands of southwestern United States and Mexico",
+      "pos": "n",
+      "lemma": "ambrosia psilostachya",
+      "all_lemmas": [
+        "ambrosia psilostachya",
+        "perennial ragweed",
+        "western ragweed"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "2286",
+      "definition": "in such a manner as could not be otherwise",
+      "pos": "r",
+      "lemma": "inevitably",
+      "all_lemmas": [
+        "inevitably",
+        "necessarily",
+        "needs",
+        "of necessity"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "17100",
+      "definition": "put before",
+      "pos": "v",
+      "lemma": "posit",
+      "all_lemmas": [
+        "posit",
+        "put forward",
+        "state",
+        "submit"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "19018",
+      "definition": "incapable of reproducing",
+      "pos": "a",
+      "lemma": "infertile",
+      "all_lemmas": [
+        "infertile",
+        "sterile",
+        "unfertile"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "31519",
+      "definition": "sluggish tailless Australian arboreal marsupial with grey furry ears and coat; feeds on eucalyptus leaves and bark",
+      "pos": "n",
+      "lemma": "kangaroo bear",
+      "all_lemmas": [
+        "kangaroo bear",
+        "koala",
+        "koala bear",
+        "native bear",
+        "phascolarctos cinereus"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "99117",
+      "definition": "clinical neurological syndrome characterized by muscular twitching and cramps and (when severe) seizures; associated with calcium deficiency (hypoparathyroidism) or vitamin D deficiency or alkalosis",
+      "pos": "n",
+      "lemma": "apyretic tetanus",
+      "all_lemmas": [
+        "apyretic tetanus",
+        "intermittent cramp",
+        "intermittent tetanus",
+        "tetanilla",
+        "tetany"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "41330",
+      "definition": "causing or able to cause nausea",
+      "pos": "s",
+      "lemma": "loathsome",
+      "all_lemmas": [
+        "loathsome",
+        "nauseating",
+        "nauseous",
+        "noisome",
+        "offensive",
+        "queasy",
+        "sickening",
+        "vile"
+      ],
+      "lemma_count": 8
+    },
+    {
+      "id": "104809",
+      "definition": "a male professional killer who uses a gun",
+      "pos": "n",
+      "lemma": "gunman",
+      "all_lemmas": [
+        "gunman",
+        "hit man",
+        "hitman"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "26661",
+      "definition": "crowd or pack to capacity",
+      "pos": "v",
+      "lemma": "chock up",
+      "all_lemmas": [
+        "chock up",
+        "cram",
+        "jam",
+        "jampack",
+        "ram",
+        "wad"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "64128",
+      "definition": "the sum or range of what has been perceived, discovered, or learned",
+      "pos": "n",
+      "lemma": "cognitive content",
+      "all_lemmas": [
+        "cognitive content",
+        "content",
+        "mental object"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "93086",
+      "definition": "delicate maidenhair fern with slender shining black leaf stalks; cosmopolitan",
+      "pos": "n",
+      "lemma": "adiantum capillus-veneris",
+      "all_lemmas": [
+        "adiantum capillus-veneris",
+        "common maidenhair",
+        "southern maidenhair",
+        "venus'-hair fern",
+        "venus maidenhair",
+        "venushair"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "41052",
+      "definition": "destroy property or hinder normal operations",
+      "pos": "v",
+      "lemma": "counteract",
+      "all_lemmas": [
+        "counteract",
+        "countermine",
+        "sabotage",
+        "subvert",
+        "undermine",
+        "weaken"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "3151",
+      "definition": "above and beyond all other consideration",
+      "pos": "r",
+      "lemma": "above all",
+      "all_lemmas": [
+        "above all",
+        "most especially",
+        "most importantly"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "2011",
+      "definition": "before the usual time or the time expected",
+      "pos": "r",
+      "lemma": "ahead of time",
+      "all_lemmas": [
+        "ahead of time",
+        "early",
+        "too soon"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "47927",
+      "definition": "of or relating to or characteristic of Scotland or its people or culture or its English dialect or Gaelic language",
+      "pos": "a",
+      "lemma": "scotch",
+      "all_lemmas": [
+        "scotch",
+        "scots",
+        "scottish"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "64214",
+      "definition": "a system of checking for errors in computer functioning",
+      "pos": "n",
+      "lemma": "odd-even check",
+      "all_lemmas": [
+        "odd-even check",
+        "parity check",
+        "redundancy check"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "41050",
+      "definition": "(music) gradually decreasing in tempo",
+      "pos": "s",
+      "lemma": "rallentando",
+      "all_lemmas": [
+        "rallentando",
+        "rit.",
+        "ritardando",
+        "ritenuto"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "15278",
+      "definition": "the act of deceiving",
+      "pos": "n",
+      "lemma": "deceit",
+      "all_lemmas": [
+        "deceit",
+        "deception",
+        "dissembling",
+        "dissimulation"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "28308",
+      "definition": "produce",
+      "pos": "v",
+      "lemma": "effect",
+      "all_lemmas": [
+        "effect",
+        "effectuate",
+        "set up"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "18663",
+      "definition": "speak haltingly",
+      "pos": "v",
+      "lemma": "bumble",
+      "all_lemmas": [
+        "bumble",
+        "falter",
+        "stammer",
+        "stutter"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "54701",
+      "definition": "a line of track providing a runway for wheels",
+      "pos": "n",
+      "lemma": "railroad",
+      "all_lemmas": [
+        "railroad",
+        "railroad track",
+        "railway"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "53562",
+      "definition": "the fourth or lowest deck",
+      "pos": "n",
+      "lemma": "fourth deck",
+      "all_lemmas": [
+        "fourth deck",
+        "orlop",
+        "orlop deck"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "86301",
+      "definition": "someone given to teasing (as by mocking or stirring curiosity)",
+      "pos": "n",
+      "lemma": "annoyer",
+      "all_lemmas": [
+        "annoyer",
+        "tease",
+        "teaser",
+        "vexer"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "103125",
+      "definition": "any substance that causes injury or illness or death of a living organism",
+      "pos": "n",
+      "lemma": "poison",
+      "all_lemmas": [
+        "poison",
+        "poisonous substance",
+        "toxicant"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "75338",
+      "definition": "whiskey made in Ireland chiefly from barley",
+      "pos": "n",
+      "lemma": "irish",
+      "all_lemmas": [
+        "irish",
+        "irish whiskey",
+        "irish whisky"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "33131",
+      "definition": "marked by casual disrespect",
+      "pos": "s",
+      "lemma": "flip",
+      "all_lemmas": [
+        "flip",
+        "impudent",
+        "insolent",
+        "snotty-nosed"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "20705",
+      "definition": "get on top of; deal with successfully",
+      "pos": "v",
+      "lemma": "get over",
+      "all_lemmas": [
+        "get over",
+        "master",
+        "overcome",
+        "subdue",
+        "surmount"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "64784",
+      "definition": "an unshakable belief in something without need for proof or evidence",
+      "pos": "n",
+      "lemma": "article of faith",
+      "all_lemmas": [
+        "article of faith",
+        "conviction",
+        "strong belief"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "30752",
+      "definition": "share the suffering of",
+      "pos": "v",
+      "lemma": "compassionate",
+      "all_lemmas": [
+        "compassionate",
+        "condole with",
+        "feel for",
+        "pity",
+        "sympathize with"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "9462",
+      "definition": "as of footsteps",
+      "pos": "r",
+      "lemma": "pit-a-pat",
+      "all_lemmas": [
+        "pit-a-pat",
+        "pitter-patter",
+        "pitty-pat",
+        "pitty-patty"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "48872",
+      "definition": "serving to purge or rid of sin",
+      "pos": "a",
+      "lemma": "purgatorial",
+      "all_lemmas": [
+        "purgatorial",
+        "purging",
+        "purifying"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "98249",
+      "definition": "a disease or disorder that is inherited genetically",
+      "pos": "n",
+      "lemma": "congenital disease",
+      "all_lemmas": [
+        "congenital disease",
+        "genetic abnormality",
+        "genetic defect",
+        "genetic disease",
+        "genetic disorder",
+        "hereditary condition",
+        "hereditary disease",
+        "inherited disease",
+        "inherited disorder"
+      ],
+      "lemma_count": 9
+    },
+    {
+      "id": "1126",
+      "definition": "frequently or in great quantities",
+      "pos": "r",
+      "lemma": "a great deal",
+      "all_lemmas": [
+        "a great deal",
+        "much",
+        "often"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "3923",
+      "definition": "impregnate, combine, or supply with oxygen",
+      "pos": "v",
+      "lemma": "aerate",
+      "all_lemmas": [
+        "aerate",
+        "oxygenate",
+        "oxygenise",
+        "oxygenize"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "5172",
+      "definition": "add oxygen to or combine with oxygen",
+      "pos": "v",
+      "lemma": "oxidate",
+      "all_lemmas": [
+        "oxidate",
+        "oxidise",
+        "oxidize"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "77876",
+      "definition": "the branch of international law that deals with territorial and international waters or with shipping or with ocean fishery etc.",
+      "pos": "n",
+      "lemma": "admiralty law",
+      "all_lemmas": [
+        "admiralty law",
+        "marine law",
+        "maritime law"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "19326",
+      "definition": "make reference to",
+      "pos": "v",
+      "lemma": "advert",
+      "all_lemmas": [
+        "advert",
+        "bring up",
+        "cite",
+        "mention",
+        "name",
+        "refer"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "48423",
+      "definition": "a television that transmits images in color",
+      "pos": "n",
+      "lemma": "color television",
+      "all_lemmas": [
+        "color television",
+        "color television system",
+        "color tv",
+        "colour television",
+        "colour television system",
+        "colour tv"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "90743",
+      "definition": "tropical woody herb with showy yellow flowers and flat pods; much cultivated in the tropics",
+      "pos": "n",
+      "lemma": "cajan pea",
+      "all_lemmas": [
+        "cajan pea",
+        "cajanus cajan",
+        "catjang pea",
+        "dahl",
+        "dhal",
+        "pigeon-pea plant",
+        "pigeon pea",
+        "red gram"
+      ],
+      "lemma_count": 8
+    },
+    {
+      "id": "30184",
+      "definition": "excessively or hypocritically pious",
+      "pos": "s",
+      "lemma": "holier-than-thou",
+      "all_lemmas": [
+        "holier-than-thou",
+        "pharisaic",
+        "pharisaical",
+        "pietistic",
+        "pietistical",
+        "sanctimonious",
+        "self-righteous"
+      ],
+      "lemma_count": 7
+    },
+    {
+      "id": "9731",
+      "definition": "move faster",
+      "pos": "v",
+      "lemma": "accelerate",
+      "all_lemmas": [
+        "accelerate",
+        "quicken",
+        "speed",
+        "speed up"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "68131",
+      "definition": "a secret word or phrase known only to a restricted group",
+      "pos": "n",
+      "lemma": "countersign",
+      "all_lemmas": [
+        "countersign",
+        "parole",
+        "password",
+        "watchword",
+        "word"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "40441",
+      "definition": "arrange for and reserve (something for someone else) in advance",
+      "pos": "v",
+      "lemma": "book",
+      "all_lemmas": [
+        "book",
+        "hold",
+        "reserve"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "88987",
+      "definition": "annual of southwestern United States having rigid woody branches with sticky foliage and yellow flowers",
+      "pos": "n",
+      "lemma": "broom-weed",
+      "all_lemmas": [
+        "broom-weed",
+        "broomweed",
+        "gutierrezia texana"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "4407",
+      "definition": "with honesty",
+      "pos": "r",
+      "lemma": "justifiedly",
+      "all_lemmas": [
+        "justifiedly",
+        "justly",
+        "rightly"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "146",
+      "definition": "practicing great self-denial",
+      "pos": "s",
+      "lemma": "ascetic",
+      "all_lemmas": [
+        "ascetic",
+        "ascetical",
+        "austere",
+        "spartan"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "35546",
+      "definition": "unable to see distant objects clearly",
+      "pos": "a",
+      "lemma": "myopic",
+      "all_lemmas": [
+        "myopic",
+        "nearsighted",
+        "shortsighted"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "66172",
+      "definition": "sensationalist journalism",
+      "pos": "n",
+      "lemma": "tab",
+      "all_lemmas": [
+        "tab",
+        "tabloid",
+        "yellow journalism"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "92046",
+      "definition": "South American potato vine",
+      "pos": "n",
+      "lemma": "solanum commersonii",
+      "all_lemmas": [
+        "solanum commersonii",
+        "uruguay potato",
+        "uruguay potato vine"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "67042",
+      "definition": "a summary of your academic and work history",
+      "pos": "n",
+      "lemma": "curriculum vitae",
+      "all_lemmas": [
+        "curriculum vitae",
+        "cv",
+        "resume"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "88927",
+      "definition": "common North American weed with linear leaves and small discoid heads of yellowish flowers; widely naturalized throughout temperate regions; sometimes placed in genus Erigeron",
+      "pos": "n",
+      "lemma": "canadian fleabane",
+      "all_lemmas": [
+        "canadian fleabane",
+        "conyza canadensis",
+        "erigeron canadensis",
+        "fleabane",
+        "horseweed"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "14553",
+      "definition": "think intently and at length, as for spiritual purposes",
+      "pos": "v",
+      "lemma": "contemplate",
+      "all_lemmas": [
+        "contemplate",
+        "meditate",
+        "study"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "78812",
+      "definition": "a ridge of land that separates two adjacent river systems",
+      "pos": "n",
+      "lemma": "divide",
+      "all_lemmas": [
+        "divide",
+        "water parting",
+        "watershed"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "28803",
+      "definition": "small active lizard of United States and north to British Columbia",
+      "pos": "n",
+      "lemma": "eastern fence lizard",
+      "all_lemmas": [
+        "eastern fence lizard",
+        "pine lizard",
+        "sceloporus undulatus"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "29573",
+      "definition": "befitting or characteristic of a wife",
+      "pos": "a",
+      "lemma": "uxorial",
+      "all_lemmas": [
+        "uxorial",
+        "wifelike",
+        "wifely"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "5119",
+      "definition": "place restrictions on",
+      "pos": "v",
+      "lemma": "curb",
+      "all_lemmas": [
+        "curb",
+        "curtail",
+        "cut back",
+        "restrict"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "85052",
+      "definition": "an authoritative person who divines the future",
+      "pos": "n",
+      "lemma": "oracle",
+      "all_lemmas": [
+        "oracle",
+        "prophesier",
+        "prophet",
+        "seer",
+        "vaticinator"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "104749",
+      "definition": "a canid living in the deserts of Northern Africa related to the golden jackal and the grey wolf",
+      "pos": "n",
+      "lemma": "african golden wolf",
+      "all_lemmas": [
+        "african golden wolf",
+        "canis anthus",
+        "egyptian jackal",
+        "grey jackal",
+        "jackal"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "9527",
+      "definition": "not conforming to dietary laws",
+      "pos": "s",
+      "lemma": "nonkosher",
+      "all_lemmas": [
+        "nonkosher",
+        "terefah",
+        "tref"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "90411",
+      "definition": "North American elm having twigs and young branches with prominent corky projections",
+      "pos": "n",
+      "lemma": "ulmus alata",
+      "all_lemmas": [
+        "ulmus alata",
+        "wing elm",
+        "winged elm"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "57836",
+      "definition": "a sewing stitch passing over an edge diagonally",
+      "pos": "n",
+      "lemma": "whipping",
+      "all_lemmas": [
+        "whipping",
+        "whipstitch",
+        "whipstitching"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "17234",
+      "definition": "give to in marriage",
+      "pos": "v",
+      "lemma": "affiance",
+      "all_lemmas": [
+        "affiance",
+        "betroth",
+        "engage",
+        "plight"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "55667",
+      "definition": "an edge tool for cutting grass or crops; has a curved blade and a short handle",
+      "pos": "n",
+      "lemma": "reap hook",
+      "all_lemmas": [
+        "reap hook",
+        "reaping hook",
+        "sickle"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "100022",
+      "definition": "a not uncommon congenital defect in which a vertebra is malformed; unless several vertebrae are affected or there is myelomeningocele there are few symptoms; can be diagnosed by amniocentesis",
+      "pos": "n",
+      "lemma": "rachischisis",
+      "all_lemmas": [
+        "rachischisis",
+        "schistorrhachis",
+        "spina bifida"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "43146",
+      "definition": "continue a certain state, condition, or activity",
+      "pos": "v",
+      "lemma": "continue",
+      "all_lemmas": [
+        "continue",
+        "go along",
+        "go on",
+        "keep",
+        "proceed"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "44254",
+      "definition": "pertaining to or concerned with the humanities",
+      "pos": "a",
+      "lemma": "humane",
+      "all_lemmas": [
+        "humane",
+        "humanist",
+        "humanistic"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "32548",
+      "definition": "not refined or processed",
+      "pos": "a",
+      "lemma": "crude",
+      "all_lemmas": [
+        "crude",
+        "unprocessed",
+        "unrefined"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "47615",
+      "definition": "a quantity of explosive to be set off at one time",
+      "pos": "n",
+      "lemma": "burster",
+      "all_lemmas": [
+        "burster",
+        "bursting charge",
+        "charge",
+        "explosive charge"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "104385",
+      "definition": "the time at which something is supposed to begin",
+      "pos": "n",
+      "lemma": "beginning",
+      "all_lemmas": [
+        "beginning",
+        "commencement",
+        "first",
+        "get-go",
+        "kickoff",
+        "offset",
+        "outset",
+        "showtime",
+        "start",
+        "starting time"
+      ],
+      "lemma_count": 10
+    },
+    {
+      "id": "19426",
+      "definition": "incapable of adapting or changing to meet circumstances",
+      "pos": "s",
+      "lemma": "inflexible",
+      "all_lemmas": [
+        "inflexible",
+        "rigid",
+        "unbending"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "46274",
+      "definition": "relating to or concerned with machinery or tools",
+      "pos": "a",
+      "lemma": "mechanical",
+      "all_lemmas": [
+        "mechanical",
+        "mechanically skillful",
+        "technical"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "67945",
+      "definition": "a machine-readable version of a standard dictionary; organized alphabetically",
+      "pos": "n",
+      "lemma": "electronic dictionary",
+      "all_lemmas": [
+        "electronic dictionary",
+        "machine readable dictionary",
+        "mrd"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "9300",
+      "definition": "severely restrict in scope or extent",
+      "pos": "v",
+      "lemma": "constrain",
+      "all_lemmas": [
+        "constrain",
+        "stiffen",
+        "tighten",
+        "tighten up"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "78675",
+      "definition": "an unilluminated area",
+      "pos": "n",
+      "lemma": "dark",
+      "all_lemmas": [
+        "dark",
+        "darkness",
+        "shadow"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "40312",
+      "definition": "sloping upward",
+      "pos": "s",
+      "lemma": "acclivitous",
+      "all_lemmas": [
+        "acclivitous",
+        "rising",
+        "uphill"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "40864",
+      "definition": "small fishes found in great schools along coasts of Europe; smaller and rounder than herring",
+      "pos": "n",
+      "lemma": "pilchard",
+      "all_lemmas": [
+        "pilchard",
+        "sardina pilchardus",
+        "sardine"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "45420",
+      "definition": "relating to small pox",
+      "pos": "a",
+      "lemma": "variolar",
+      "all_lemmas": [
+        "variolar",
+        "variolic",
+        "variolous"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "24180",
+      "definition": "capable of relieving pain",
+      "pos": "s",
+      "lemma": "analgesic",
+      "all_lemmas": [
+        "analgesic",
+        "analgetic",
+        "anodyne"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "16618",
+      "definition": "use foul or abusive language towards",
+      "pos": "v",
+      "lemma": "abuse",
+      "all_lemmas": [
+        "abuse",
+        "blackguard",
+        "clapperclaw",
+        "shout"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "53126",
+      "definition": "a crude incendiary bomb made of a bottle filled with flammable liquid and fitted with a rag wick",
+      "pos": "n",
+      "lemma": "gasoline bomb",
+      "all_lemmas": [
+        "gasoline bomb",
+        "molotov cocktail",
+        "petrol bomb"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "66594",
+      "definition": "a syllabic script used in writing Sanskrit and Hindi",
+      "pos": "n",
+      "lemma": "devanagari",
+      "all_lemmas": [
+        "devanagari",
+        "devanagari script",
+        "nagari",
+        "nagari script"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "96071",
+      "definition": "the cardinal number that is the sum of four and one",
+      "pos": "n",
+      "lemma": "5",
+      "all_lemmas": [
+        "5",
+        "cinque",
+        "fin",
+        "five",
+        "fivesome",
+        "little phoebe",
+        "pentad",
+        "phoebe",
+        "quint",
+        "quintet",
+        "quintuplet",
+        "v"
+      ],
+      "lemma_count": 12
+    },
+    {
+      "id": "91132",
+      "definition": "American red-fruited hawthorn with stems and leaves densely covered with short woolly hairs",
+      "pos": "n",
+      "lemma": "crataegus coccinea mollis",
+      "all_lemmas": [
+        "crataegus coccinea mollis",
+        "crataegus mollis",
+        "downy haw",
+        "red haw"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "34358",
+      "definition": "capable of being ascended",
+      "pos": "s",
+      "lemma": "ascendable",
+      "all_lemmas": [
+        "ascendable",
+        "ascendible",
+        "climbable",
+        "surmountable"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "96090",
+      "definition": "the cardinal number that is the sum of nineteen and one",
+      "pos": "n",
+      "lemma": "20",
+      "all_lemmas": [
+        "20",
+        "twenty",
+        "xx"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "42181",
+      "definition": "suffice for a period between two points",
+      "pos": "v",
+      "lemma": "bridge over",
+      "all_lemmas": [
+        "bridge over",
+        "keep going",
+        "tide over"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "100045",
+      "definition": "misfortune resulting in lost effort or money",
+      "pos": "n",
+      "lemma": "gutter",
+      "all_lemmas": [
+        "gutter",
+        "sewer",
+        "toilet"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "9876",
+      "definition": "reduce or cause to be reduced from a solid to a liquid state, usually by heating",
+      "pos": "v",
+      "lemma": "melt",
+      "all_lemmas": [
+        "melt",
+        "melt down",
+        "run"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "95273",
+      "definition": "a unit of information equal to 1000 bytes",
+      "pos": "n",
+      "lemma": "k",
+      "all_lemmas": [
+        "k",
+        "kb",
+        "kilobyte"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "20299",
+      "definition": "give up in the face of defeat of lacking hope; admit defeat",
+      "pos": "v",
+      "lemma": "chuck up the sponge",
+      "all_lemmas": [
+        "chuck up the sponge",
+        "drop by the wayside",
+        "drop out",
+        "fall by the wayside",
+        "give up",
+        "quit",
+        "throw in",
+        "throw in the towel"
+      ],
+      "lemma_count": 8
+    },
+    {
+      "id": "90040",
+      "definition": "similar to Gentiana andrewsii but with larger flowers",
+      "pos": "n",
+      "lemma": "blind gentian",
+      "all_lemmas": [
+        "blind gentian",
+        "closed gentian",
+        "gentiana clausa"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "26028",
+      "definition": "possessing qualities befitting a man",
+      "pos": "a",
+      "lemma": "manful",
+      "all_lemmas": [
+        "manful",
+        "manlike",
+        "manly"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "35873",
+      "definition": "make a strident noise",
+      "pos": "v",
+      "lemma": "beep",
+      "all_lemmas": [
+        "beep",
+        "blare",
+        "claxon",
+        "honk",
+        "toot"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "5256",
+      "definition": "having three nuclei",
+      "pos": "a",
+      "lemma": "trinuclear",
+      "all_lemmas": [
+        "trinuclear",
+        "trinucleate",
+        "trinucleated"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "52940",
+      "definition": "a synthetic narcotic drug (trade name Demerol) used to treat pain",
+      "pos": "n",
+      "lemma": "demerol",
+      "all_lemmas": [
+        "demerol",
+        "meperidine",
+        "meperidine hydrochloride"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "44897",
+      "definition": "of or relating to positivism",
+      "pos": "a",
+      "lemma": "positive",
+      "all_lemmas": [
+        "positive",
+        "positivist",
+        "positivistic"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "473",
+      "definition": "denoting additional information",
+      "pos": "r",
+      "lemma": "furthermore",
+      "all_lemmas": [
+        "furthermore",
+        "in addition",
+        "moreover",
+        "what is more"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "71993",
+      "definition": "a loud resonant repeating noise",
+      "pos": "n",
+      "lemma": "clang",
+      "all_lemmas": [
+        "clang",
+        "clangor",
+        "clangoring",
+        "clangour",
+        "clank",
+        "clash",
+        "crash"
+      ],
+      "lemma_count": 7
+    },
+    {
+      "id": "17549",
+      "definition": "inspiring mixed contempt and pity",
+      "pos": "s",
+      "lemma": "pathetic",
+      "all_lemmas": [
+        "pathetic",
+        "pitiable",
+        "pitiful"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "32823",
+      "definition": "increase",
+      "pos": "v",
+      "lemma": "boost",
+      "all_lemmas": [
+        "boost",
+        "hike",
+        "hike up"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "77097",
+      "definition": "a particular society at a particular time and place",
+      "pos": "n",
+      "lemma": "civilisation",
+      "all_lemmas": [
+        "civilisation",
+        "civilization",
+        "culture"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "57159",
+      "definition": "large open car seating four with folding top",
+      "pos": "n",
+      "lemma": "phaeton",
+      "all_lemmas": [
+        "phaeton",
+        "tourer",
+        "touring car"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "4385",
+      "definition": "in an incorrect manner",
+      "pos": "r",
+      "lemma": "incorrectly",
+      "all_lemmas": [
+        "incorrectly",
+        "wrong",
+        "wrongly"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "91631",
+      "definition": "small Peruvian evergreen with broad rounded head and slender pendant branches with attractive clusters of greenish flowers followed by clusters of rose-pink fruits",
+      "pos": "n",
+      "lemma": "molle",
+      "all_lemmas": [
+        "molle",
+        "pepper tree",
+        "peruvian mastic tree",
+        "schinus molle"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "99903",
+      "definition": "a state of ill-being due to affliction or misfortune",
+      "pos": "n",
+      "lemma": "miserableness",
+      "all_lemmas": [
+        "miserableness",
+        "misery",
+        "wretchedness"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "6896",
+      "definition": "(of animals) carnivorous",
+      "pos": "s",
+      "lemma": "flesh-eating",
+      "all_lemmas": [
+        "flesh-eating",
+        "meat-eating",
+        "zoophagous"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "103371",
+      "definition": "anterior pituitary hormone that stimulates the function of the thyroid gland",
+      "pos": "n",
+      "lemma": "thyroid-stimulating hormone",
+      "all_lemmas": [
+        "thyroid-stimulating hormone",
+        "thyrotrophic hormone",
+        "thyrotrophin",
+        "thyrotropic hormone",
+        "thyrotropin",
+        "tsh"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "37813",
+      "definition": "rip off; ask an unreasonable price",
+      "pos": "v",
+      "lemma": "fleece",
+      "all_lemmas": [
+        "fleece",
+        "gazump",
+        "hook",
+        "overcharge",
+        "pluck",
+        "plume",
+        "rob",
+        "soak",
+        "surcharge"
+      ],
+      "lemma_count": 9
+    },
+    {
+      "id": "97710",
+      "definition": "impotence resulting from a man's inability to have or maintain an erection of his penis",
+      "pos": "n",
+      "lemma": "ed",
+      "all_lemmas": [
+        "ed",
+        "erectile dysfunction",
+        "male erectile dysfunction"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "16678",
+      "definition": "intercourse via the anus, committed by a man with a man or woman",
+      "pos": "n",
+      "lemma": "anal intercourse",
+      "all_lemmas": [
+        "anal intercourse",
+        "anal sex",
+        "buggery",
+        "sodomy"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "8490",
+      "definition": "change completely the nature or appearance of",
+      "pos": "v",
+      "lemma": "metamorphose",
+      "all_lemmas": [
+        "metamorphose",
+        "transfigure",
+        "transmogrify"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "39823",
+      "definition": "a sloth of Central America that has two long claws on each forefoot and three long claws on each hindfoot",
+      "pos": "n",
+      "lemma": "choloepus hoffmanni",
+      "all_lemmas": [
+        "choloepus hoffmanni",
+        "two-toed sloth",
+        "unai",
+        "unau"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "100903",
+      "definition": "a radioactive element of the alkali-metal group discovered as a disintegration product of actinium",
+      "pos": "n",
+      "lemma": "atomic number 87",
+      "all_lemmas": [
+        "atomic number 87",
+        "fr",
+        "francium"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "21937",
+      "definition": "be hungry; go without food",
+      "pos": "v",
+      "lemma": "famish",
+      "all_lemmas": [
+        "famish",
+        "hunger",
+        "starve"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "36017",
+      "definition": "being three more than forty",
+      "pos": "s",
+      "lemma": "43",
+      "all_lemmas": [
+        "43",
+        "forty-three",
+        "xliii"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "16568",
+      "definition": "give away information about somebody",
+      "pos": "v",
+      "lemma": "betray",
+      "all_lemmas": [
+        "betray",
+        "denounce",
+        "give away",
+        "grass",
+        "rat",
+        "shit",
+        "shop",
+        "snitch",
+        "stag",
+        "tell on"
+      ],
+      "lemma_count": 10
+    },
+    {
+      "id": "40105",
+      "definition": "with hand brought forward and down from above shoulder level",
+      "pos": "a",
+      "lemma": "overarm",
+      "all_lemmas": [
+        "overarm",
+        "overhand",
+        "overhanded"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "13274",
+      "definition": "make unclear, indistinct, or blurred",
+      "pos": "v",
+      "lemma": "blur",
+      "all_lemmas": [
+        "blur",
+        "confuse",
+        "obnubilate",
+        "obscure"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "5805",
+      "definition": "the act of improving by renewing and restoring",
+      "pos": "n",
+      "lemma": "overhaul",
+      "all_lemmas": [
+        "overhaul",
+        "redevelopment",
+        "renovation"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "39984",
+      "definition": "do one's shopping at; do business with; be a customer or client of",
+      "pos": "v",
+      "lemma": "buy at",
+      "all_lemmas": [
+        "buy at",
+        "frequent",
+        "patronise",
+        "patronize",
+        "shop",
+        "shop at",
+        "sponsor"
+      ],
+      "lemma_count": 7
+    },
+    {
+      "id": "8435",
+      "definition": "of brown tinged with red",
+      "pos": "s",
+      "lemma": "mahogany-red",
+      "all_lemmas": [
+        "mahogany-red",
+        "red-brown",
+        "reddish-brown"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "19983",
+      "definition": "(of political bodies) not controlled by outside forces",
+      "pos": "s",
+      "lemma": "autonomous",
+      "all_lemmas": [
+        "autonomous",
+        "independent",
+        "self-governing",
+        "sovereign"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "57794",
+      "definition": "sports equipment used in calisthenic exercises and weightlifting; it is not attached to anything and is raised and lowered by use of the hands and arms",
+      "pos": "n",
+      "lemma": "exercising weight",
+      "all_lemmas": [
+        "exercising weight",
+        "free weight",
+        "weight"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "88626",
+      "definition": "small grey Asiatic desert plant bearing minute white flowers that rolls up when dry and expands when moist",
+      "pos": "n",
+      "lemma": "anastatica hierochuntica",
+      "all_lemmas": [
+        "anastatica hierochuntica",
+        "resurrection plant",
+        "rose of jericho"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "94826",
+      "definition": "a process for identifying minerals or crystals; a small rod is coated with a powdered form of the substance and subjected to suitably modified X-rays; the pattern of diffracted rings is used for identification",
+      "pos": "n",
+      "lemma": "powder method",
+      "all_lemmas": [
+        "powder method",
+        "powder photography",
+        "powder technique"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "840",
+      "definition": "addicted to a drug",
+      "pos": "s",
+      "lemma": "dependant",
+      "all_lemmas": [
+        "dependant",
+        "dependent",
+        "drug-addicted",
+        "hooked",
+        "strung-out"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "39433",
+      "definition": "large North American deer with large much-branched antlers in the male",
+      "pos": "n",
+      "lemma": "american elk",
+      "all_lemmas": [
+        "american elk",
+        "cervus elaphus canadensis",
+        "elk",
+        "wapiti"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "44285",
+      "definition": "a nuclear weapon in which enormous energy is released by nuclear fission (splitting the nuclei of a heavy element like uranium 235 or plutonium 239)",
+      "pos": "n",
+      "lemma": "a-bomb",
+      "all_lemmas": [
+        "a-bomb",
+        "atom bomb",
+        "atomic bomb",
+        "fission bomb",
+        "plutonium bomb"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "55117",
+      "definition": "a crosspiece between the legs of a chair",
+      "pos": "n",
+      "lemma": "round",
+      "all_lemmas": [
+        "round",
+        "rung",
+        "stave"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "89907",
+      "definition": "large European beech with minutely-toothed leaves; widely planted as an ornamental in North America",
+      "pos": "n",
+      "lemma": "common beech",
+      "all_lemmas": [
+        "common beech",
+        "european beech",
+        "fagus sylvatica"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "36146",
+      "definition": "minute two-winged insect that sucks the blood of mammals and birds and other insects",
+      "pos": "n",
+      "lemma": "biting midge",
+      "all_lemmas": [
+        "biting midge",
+        "no-see-um",
+        "punkey",
+        "punkie",
+        "punky"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "35368",
+      "definition": "either of the rudimentary hind wings of dipterous insects; used for maintaining equilibrium during flight",
+      "pos": "n",
+      "lemma": "balancer",
+      "all_lemmas": [
+        "balancer",
+        "halter",
+        "haltere"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "91747",
+      "definition": "cultivated European current bearing small edible red berries",
+      "pos": "n",
+      "lemma": "garden current",
+      "all_lemmas": [
+        "garden current",
+        "red currant",
+        "ribes rubrum"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "3266",
+      "definition": "usually; as a rule",
+      "pos": "r",
+      "lemma": "by and large",
+      "all_lemmas": [
+        "by and large",
+        "generally",
+        "more often than not",
+        "mostly"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "49356",
+      "definition": "of or relating to or caused by streptococci",
+      "pos": "a",
+      "lemma": "strep",
+      "all_lemmas": [
+        "strep",
+        "streptococcal",
+        "streptococcic"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "57",
+      "definition": "give out (breath or an odor)",
+      "pos": "v",
+      "lemma": "emanate",
+      "all_lemmas": [
+        "emanate",
+        "exhale",
+        "give forth"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "58666",
+      "definition": "the quality of being incapable of mutation",
+      "pos": "n",
+      "lemma": "fixity",
+      "all_lemmas": [
+        "fixity",
+        "immutability",
+        "immutableness"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "71802",
+      "definition": "waves breaking on the shore",
+      "pos": "n",
+      "lemma": "breaker",
+      "all_lemmas": [
+        "breaker",
+        "breakers",
+        "surf"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "58189",
+      "definition": "a disposition to exhibit uncontrolled anger",
+      "pos": "n",
+      "lemma": "biliousness",
+      "all_lemmas": [
+        "biliousness",
+        "irritability",
+        "peevishness",
+        "pettishness",
+        "snappishness",
+        "surliness",
+        "temper"
+      ],
+      "lemma_count": 7
+    },
+    {
+      "id": "93049",
+      "definition": "any of various ferns of the genus Dryopteris",
+      "pos": "n",
+      "lemma": "wood-fern",
+      "all_lemmas": [
+        "wood-fern",
+        "wood fern",
+        "woodfern"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "3181",
+      "definition": "unable to speak because of hereditary deafness",
+      "pos": "s",
+      "lemma": "dumb",
+      "all_lemmas": [
+        "dumb",
+        "mute",
+        "silent"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "40512",
+      "definition": "expel, as if by official decree",
+      "pos": "v",
+      "lemma": "banish",
+      "all_lemmas": [
+        "banish",
+        "bar",
+        "relegate"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "97418",
+      "definition": "the state of being sad",
+      "pos": "n",
+      "lemma": "sadness",
+      "all_lemmas": [
+        "sadness",
+        "sorrow",
+        "sorrowfulness"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "75606",
+      "definition": "people in general (often used in the plural)",
+      "pos": "n",
+      "lemma": "common people",
+      "all_lemmas": [
+        "common people",
+        "folk",
+        "folks"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "49203",
+      "definition": "a heavy iron lever with one end forged into a wedge",
+      "pos": "n",
+      "lemma": "crowbar",
+      "all_lemmas": [
+        "crowbar",
+        "pry",
+        "pry bar",
+        "wrecking bar"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "54939",
+      "definition": "an antibacterial drug (trade names Rifadin and Rimactane) used to treat tuberculosis",
+      "pos": "n",
+      "lemma": "rifadin",
+      "all_lemmas": [
+        "rifadin",
+        "rifampin",
+        "rimactane"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "43257",
+      "definition": "of or relating to or befitting cenobites or their practices of communal living",
+      "pos": "a",
+      "lemma": "cenobitic",
+      "all_lemmas": [
+        "cenobitic",
+        "cenobitical",
+        "coenobitic",
+        "coenobitical"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "38155",
+      "definition": "make steady progress; be at the high point in one's career or reach a high point in historical significance or importance",
+      "pos": "v",
+      "lemma": "flourish",
+      "all_lemmas": [
+        "flourish",
+        "fly high",
+        "prosper",
+        "thrive"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "91257",
+      "definition": "white-flowered raspberry of western North America and northern Mexico with thimble-shaped orange berries",
+      "pos": "n",
+      "lemma": "rubus parviflorus",
+      "all_lemmas": [
+        "rubus parviflorus",
+        "salmon berry",
+        "salmonberry",
+        "thimbleberry"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "38255",
+      "definition": "relieve from",
+      "pos": "v",
+      "lemma": "disembarrass",
+      "all_lemmas": [
+        "disembarrass",
+        "free",
+        "rid"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "26790",
+      "definition": "not excessive or extreme",
+      "pos": "s",
+      "lemma": "fair",
+      "all_lemmas": [
+        "fair",
+        "fairish",
+        "reasonable"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "8616",
+      "definition": "cause to grow thin or weak",
+      "pos": "v",
+      "lemma": "emaciate",
+      "all_lemmas": [
+        "emaciate",
+        "macerate",
+        "waste"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "40886",
+      "definition": "greatly desired",
+      "pos": "s",
+      "lemma": "longed-for",
+      "all_lemmas": [
+        "longed-for",
+        "wished-for",
+        "yearned-for"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "99636",
+      "definition": "enlargement of the nose with dilation of follicles and redness and prominent vascularity of the skin; often associated with excessive consumption of alcohol",
+      "pos": "n",
+      "lemma": "brandy nose",
+      "all_lemmas": [
+        "brandy nose",
+        "copper nose",
+        "hammer nose",
+        "hypertrophic rosacea",
+        "potato nose",
+        "rhinophyma",
+        "rum-blossom",
+        "rum nose",
+        "toper's nose"
+      ],
+      "lemma_count": 9
+    },
+    {
+      "id": "49189",
+      "definition": "of or relating to or derived from wheat",
+      "pos": "a",
+      "lemma": "wheaten",
+      "all_lemmas": [
+        "wheaten",
+        "whole-wheat",
+        "wholemeal"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "86644",
+      "definition": "a doctor who practices veterinary medicine",
+      "pos": "n",
+      "lemma": "vet",
+      "all_lemmas": [
+        "vet",
+        "veterinarian",
+        "veterinary",
+        "veterinary surgeon"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "64594",
+      "definition": "an elaborate or deceitful scheme contrived to deceive or evade",
+      "pos": "n",
+      "lemma": "contrivance",
+      "all_lemmas": [
+        "contrivance",
+        "dodge",
+        "stratagem"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "33715",
+      "definition": "having committed unrighteous acts",
+      "pos": "s",
+      "lemma": "sinful",
+      "all_lemmas": [
+        "sinful",
+        "unholy",
+        "wicked"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "6248",
+      "definition": "walking by a person who is asleep",
+      "pos": "n",
+      "lemma": "noctambulation",
+      "all_lemmas": [
+        "noctambulation",
+        "noctambulism",
+        "sleepwalking",
+        "somnambulation",
+        "somnambulism"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "62919",
+      "definition": "hinge joint in the human leg connecting the tibia and fibula with the femur and protected in front by the patella",
+      "pos": "n",
+      "lemma": "articulatio genus",
+      "all_lemmas": [
+        "articulatio genus",
+        "genu",
+        "human knee",
+        "knee",
+        "knee joint"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "40426",
+      "definition": "large short-tailed lemur of Madagascar having thick silky fur in black and white and fawn",
+      "pos": "n",
+      "lemma": "indri",
+      "all_lemmas": [
+        "indri",
+        "indri brevicaudatus",
+        "indri indri",
+        "indris"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "45862",
+      "definition": "a cord fastened around the neck with an ornamental clasp and worn as a necktie",
+      "pos": "n",
+      "lemma": "bola",
+      "all_lemmas": [
+        "bola",
+        "bola tie",
+        "bolo",
+        "bolo tie"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "43093",
+      "definition": "cause to continue in a certain state, position, or activity",
+      "pos": "v",
+      "lemma": "hold",
+      "all_lemmas": [
+        "hold",
+        "keep",
+        "maintain"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "78808",
+      "definition": "a line corresponding to the surface of the water when the vessel is afloat on an even keel; often painted on the hull of a ship",
+      "pos": "n",
+      "lemma": "water level",
+      "all_lemmas": [
+        "water level",
+        "water line",
+        "waterline"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "32704",
+      "definition": "jump lightly",
+      "pos": "v",
+      "lemma": "hop",
+      "all_lemmas": [
+        "hop",
+        "hop-skip",
+        "skip"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "47469",
+      "definition": "belonging to the same genus",
+      "pos": "a",
+      "lemma": "congeneric",
+      "all_lemmas": [
+        "congeneric",
+        "congenerical",
+        "congenerous"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "4293",
+      "definition": "insert words into texts, often falsifying it thereby",
+      "pos": "v",
+      "lemma": "alter",
+      "all_lemmas": [
+        "alter",
+        "falsify",
+        "interpolate"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "38455",
+      "definition": "pig-sized tailless South American amphibious rodent with partly webbed feet; largest living rodent",
+      "pos": "n",
+      "lemma": "capibara",
+      "all_lemmas": [
+        "capibara",
+        "capybara",
+        "hydrochoerus hydrochaeris"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "35544",
+      "definition": "(used of certain religious orders) barefoot or wearing only sandals",
+      "pos": "a",
+      "lemma": "discalceate",
+      "all_lemmas": [
+        "discalceate",
+        "discalced",
+        "unshod"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "125",
+      "definition": "to some extent; in some degree; not wholly",
+      "pos": "r",
+      "lemma": "in part",
+      "all_lemmas": [
+        "in part",
+        "part",
+        "partially",
+        "partly"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "29453",
+      "definition": "any of numerous small nonvenomous North American snakes with a yellow or orange ring around the neck",
+      "pos": "n",
+      "lemma": "ring-necked snake",
+      "all_lemmas": [
+        "ring-necked snake",
+        "ring snake",
+        "ringneck snake"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "14447",
+      "definition": "not conquered",
+      "pos": "s",
+      "lemma": "unbeaten",
+      "all_lemmas": [
+        "unbeaten",
+        "unconquered",
+        "unvanquished"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "2655",
+      "definition": "occurring or existing before birth",
+      "pos": "a",
+      "lemma": "antenatal",
+      "all_lemmas": [
+        "antenatal",
+        "antepartum",
+        "prenatal"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "88469",
+      "definition": "small European weed with whorled leaves and white flowers",
+      "pos": "n",
+      "lemma": "corn spurrey",
+      "all_lemmas": [
+        "corn spurrey",
+        "corn spurry",
+        "spergula arvensis"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "44262",
+      "definition": "be beautiful to look at",
+      "pos": "v",
+      "lemma": "adorn",
+      "all_lemmas": [
+        "adorn",
+        "beautify",
+        "deck",
+        "decorate",
+        "embellish",
+        "grace"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "62908",
+      "definition": "the sphincter muscle of the anus",
+      "pos": "n",
+      "lemma": "anal sphincter",
+      "all_lemmas": [
+        "anal sphincter",
+        "musculus sphincter ani",
+        "sphincter ani"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "8942",
+      "definition": "make more complicated or confused through entanglements",
+      "pos": "v",
+      "lemma": "embrangle",
+      "all_lemmas": [
+        "embrangle",
+        "snarl",
+        "snarl up"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "51536",
+      "definition": "the military installation from which a commander performs the functions of command",
+      "pos": "n",
+      "lemma": "headquarters",
+      "all_lemmas": [
+        "headquarters",
+        "hq",
+        "military headquarters"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "1692",
+      "definition": "perform vaccinations or produce immunity in by inoculation",
+      "pos": "v",
+      "lemma": "immunise",
+      "all_lemmas": [
+        "immunise",
+        "immunize",
+        "inoculate",
+        "vaccinate"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "7957",
+      "definition": "hired for the exclusive temporary use of a group of travelers",
+      "pos": "a",
+      "lemma": "chartered",
+      "all_lemmas": [
+        "chartered",
+        "hired",
+        "leased"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "38445",
+      "definition": "South American cavy; possibly ancestral to the domestic guinea pig",
+      "pos": "n",
+      "lemma": "aperea",
+      "all_lemmas": [
+        "aperea",
+        "cavia porcellus",
+        "wild cavy"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "39704",
+      "definition": "carnivore of Central America and South America resembling a weasel with a greyish-white back and dark underparts",
+      "pos": "n",
+      "lemma": "galictis vittatus",
+      "all_lemmas": [
+        "galictis vittatus",
+        "grison",
+        "grison vittatus"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "5492",
+      "definition": "quietly in concealment",
+      "pos": "r",
+      "lemma": "doggo",
+      "all_lemmas": [
+        "doggo",
+        "in hiding",
+        "out of sight"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "87481",
+      "definition": "opposition to the flow of sound through a surface; acoustic resistance is the real component of acoustic impedance and acoustic reactance is the imaginary component",
+      "pos": "n",
+      "lemma": "acoustic impedance",
+      "all_lemmas": [
+        "acoustic impedance",
+        "acoustic reactance",
+        "acoustic resistance"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "59879",
+      "definition": "unnatural lack of color in the skin (as from bruising or sickness or emotional distress)",
+      "pos": "n",
+      "lemma": "achromasia",
+      "all_lemmas": [
+        "achromasia",
+        "lividity",
+        "lividness",
+        "luridness",
+        "paleness",
+        "pallidness",
+        "pallor",
+        "wanness"
+      ],
+      "lemma_count": 8
+    },
+    {
+      "id": "6411",
+      "definition": "introduce light into",
+      "pos": "v",
+      "lemma": "illume",
+      "all_lemmas": [
+        "illume",
+        "illuminate",
+        "illumine",
+        "light",
+        "light up"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "43357",
+      "definition": "pose a threat to; present a danger to",
+      "pos": "v",
+      "lemma": "endanger",
+      "all_lemmas": [
+        "endanger",
+        "imperil",
+        "jeopardise",
+        "jeopardize",
+        "menace",
+        "peril",
+        "threaten"
+      ],
+      "lemma_count": 7
+    },
+    {
+      "id": "28148",
+      "definition": "deduce (a principle) or construe (a meaning)",
+      "pos": "v",
+      "lemma": "draw out",
+      "all_lemmas": [
+        "draw out",
+        "educe",
+        "elicit",
+        "evoke",
+        "extract"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "92984",
+      "definition": "large Australasian fern with fanlike repeatedly forked fronds; sometimes placed in genus Gleichenia",
+      "pos": "n",
+      "lemma": "fan fern",
+      "all_lemmas": [
+        "fan fern",
+        "gleichenia flabellata",
+        "sticherus flabellatus",
+        "umbrella fern"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "54653",
+      "definition": "pneumatic tire that has radial-ply casing",
+      "pos": "n",
+      "lemma": "radial",
+      "all_lemmas": [
+        "radial",
+        "radial-ply tire",
+        "radial tire"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "19766",
+      "definition": "the act of putting something in a certain place",
+      "pos": "n",
+      "lemma": "emplacement",
+      "all_lemmas": [
+        "emplacement",
+        "locating",
+        "location",
+        "placement",
+        "position",
+        "positioning"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "7066",
+      "definition": "(of plants) producing a well-developed stem above ground",
+      "pos": "a",
+      "lemma": "caulescent",
+      "all_lemmas": [
+        "caulescent",
+        "cauline",
+        "stemmed"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "50142",
+      "definition": "a soft quilt usually filled with the down of the eider",
+      "pos": "n",
+      "lemma": "continental quilt",
+      "all_lemmas": [
+        "continental quilt",
+        "duvet",
+        "eiderdown"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "62081",
+      "definition": "flow of blood from the uterus; occurs at roughly monthly intervals during a woman's reproductive years",
+      "pos": "n",
+      "lemma": "menorrhea",
+      "all_lemmas": [
+        "menorrhea",
+        "menstrual blood",
+        "menstrual flow"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "89261",
+      "definition": "orchid growing along streams or ponds of western North America having leafy stems and 1 greenish-brown and pinkish flower in the axil of each upper leaf",
+      "pos": "n",
+      "lemma": "chatterbox",
+      "all_lemmas": [
+        "chatterbox",
+        "epipactis gigantea",
+        "giant helleborine",
+        "stream orchid"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "106707",
+      "definition": "a weapon with a hammer on one side and an axe on the other.",
+      "pos": "n",
+      "lemma": "axe-hammer",
+      "all_lemmas": [
+        "axe-hammer",
+        "hammer-axe",
+        "hammer axe"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "39824",
+      "definition": "follow with the eyes or the mind",
+      "pos": "v",
+      "lemma": "follow",
+      "all_lemmas": [
+        "follow",
+        "keep an eye on",
+        "observe",
+        "watch",
+        "watch over"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "81253",
+      "definition": "the illegitimate offspring of unmarried parents",
+      "pos": "n",
+      "lemma": "bastard",
+      "all_lemmas": [
+        "bastard",
+        "by-blow",
+        "illegitimate",
+        "illegitimate child",
+        "love child",
+        "whoreson"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "11644",
+      "definition": "a brief show (music or dance etc.) inserted between the sections of a longer performance",
+      "pos": "n",
+      "lemma": "entr'acte",
+      "all_lemmas": [
+        "entr'acte",
+        "interlude",
+        "intermezzo"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "4173",
+      "definition": "extremely alarming",
+      "pos": "s",
+      "lemma": "bloodcurdling",
+      "all_lemmas": [
+        "bloodcurdling",
+        "hair-raising",
+        "nightmarish"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "2014",
+      "definition": "later than usual or than expected",
+      "pos": "r",
+      "lemma": "belatedly",
+      "all_lemmas": [
+        "belatedly",
+        "late",
+        "tardily"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "59422",
+      "definition": "providence by virtue of planning prudently for the future",
+      "pos": "n",
+      "lemma": "foresight",
+      "all_lemmas": [
+        "foresight",
+        "foresightedness",
+        "foresightfulness"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "35776",
+      "definition": "bores through wood making a ticking sound popularly thought to presage death",
+      "pos": "n",
+      "lemma": "deathwatch",
+      "all_lemmas": [
+        "deathwatch",
+        "deathwatch beetle",
+        "xestobium rufovillosum"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "19907",
+      "definition": "having no odor",
+      "pos": "a",
+      "lemma": "inodorous",
+      "all_lemmas": [
+        "inodorous",
+        "odorless",
+        "odourless"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "41647",
+      "definition": "succeed in doing, achieving, or producing (something) with the limited or inadequate means available",
+      "pos": "v",
+      "lemma": "contend",
+      "all_lemmas": [
+        "contend",
+        "cope",
+        "deal",
+        "get by",
+        "grapple",
+        "make do",
+        "make out",
+        "manage"
+      ],
+      "lemma_count": 8
+    },
+    {
+      "id": "30277",
+      "definition": "annoy continually or chronically",
+      "pos": "v",
+      "lemma": "beset",
+      "all_lemmas": [
+        "beset",
+        "chevvy",
+        "chevy",
+        "chivvy",
+        "chivy",
+        "harass",
+        "harry",
+        "hassle",
+        "molest",
+        "plague",
+        "provoke"
+      ],
+      "lemma_count": 11
+    },
+    {
+      "id": "70325",
+      "definition": "a genre of popular music composed for ballroom dancing",
+      "pos": "n",
+      "lemma": "ballroom music",
+      "all_lemmas": [
+        "ballroom music",
+        "dance music",
+        "danceroom music"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "22984",
+      "definition": "pleasantly cold and invigorating",
+      "pos": "s",
+      "lemma": "crisp",
+      "all_lemmas": [
+        "crisp",
+        "frosty",
+        "nipping",
+        "nippy",
+        "snappy"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "35177",
+      "definition": "reveal to view as by removing a cover",
+      "pos": "v",
+      "lemma": "disclose",
+      "all_lemmas": [
+        "disclose",
+        "expose",
+        "uncover"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "52819",
+      "definition": "a pointed iron hand tool that is used to separate strands of a rope or cable (as in splicing)",
+      "pos": "n",
+      "lemma": "marlinespike",
+      "all_lemmas": [
+        "marlinespike",
+        "marlingspike",
+        "marlinspike"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "5744",
+      "definition": "having a relatively long head with a cephalic index of under 75",
+      "pos": "a",
+      "lemma": "dolichocephalic",
+      "all_lemmas": [
+        "dolichocephalic",
+        "dolichocranial",
+        "dolichocranic"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "93032",
+      "definition": "a showy tree fern of New Zealand and Australia having a crown of pinnated fronds with whitish undersides",
+      "pos": "n",
+      "lemma": "black tree fern",
+      "all_lemmas": [
+        "black tree fern",
+        "cyathea medullaris",
+        "sago fern",
+        "silver tree fern"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "31540",
+      "definition": "change place or direction",
+      "pos": "v",
+      "lemma": "dislodge",
+      "all_lemmas": [
+        "dislodge",
+        "reposition",
+        "shift"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "85761",
+      "definition": "one who hesitates (usually out of fear)",
+      "pos": "n",
+      "lemma": "hesitater",
+      "all_lemmas": [
+        "hesitater",
+        "hesitator",
+        "vacillator",
+        "waverer"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "33162",
+      "definition": "go after with the intent to catch",
+      "pos": "v",
+      "lemma": "chase",
+      "all_lemmas": [
+        "chase",
+        "chase after",
+        "dog",
+        "give chase",
+        "go after",
+        "tag",
+        "tail",
+        "track",
+        "trail"
+      ],
+      "lemma_count": 9
+    },
+    {
+      "id": "62599",
+      "definition": "a large plexus of sympathetic nerves in the abdomen behind the stomach",
+      "pos": "n",
+      "lemma": "abdominal nerve plexus",
+      "all_lemmas": [
+        "abdominal nerve plexus",
+        "coeliac plexus",
+        "plexus celiacus",
+        "solar plexus"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "89499",
+      "definition": "slender European grass of shady places; grown also in northeastern America and temperate Asia",
+      "pos": "n",
+      "lemma": "agrostis alba",
+      "all_lemmas": [
+        "agrostis alba",
+        "poa nemoralis",
+        "wood meadowgrass"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "4953",
+      "definition": "increase the level of",
+      "pos": "v",
+      "lemma": "enhance",
+      "all_lemmas": [
+        "enhance",
+        "heighten",
+        "raise"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "44732",
+      "definition": "of or relating to or denoting numbers",
+      "pos": "a",
+      "lemma": "numeral",
+      "all_lemmas": [
+        "numeral",
+        "numeric",
+        "numerical"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "66610",
+      "definition": "a code of letters and digits added to a postal address to aid in the sorting of mail",
+      "pos": "n",
+      "lemma": "postal code",
+      "all_lemmas": [
+        "postal code",
+        "postcode",
+        "zip",
+        "zip code"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "25624",
+      "definition": "freshwater fish of Central America having a long swordlike tail; popular aquarium fish",
+      "pos": "n",
+      "lemma": "helleri",
+      "all_lemmas": [
+        "helleri",
+        "swordtail",
+        "topminnow",
+        "xyphophorus helleri"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "131",
+      "definition": "keep back by blinking",
+      "pos": "v",
+      "lemma": "blink",
+      "all_lemmas": [
+        "blink",
+        "blink away",
+        "wink"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "65905",
+      "definition": "an ideological belief in the complete and unrestricted power of government.",
+      "pos": "n",
+      "lemma": "absolutism",
+      "all_lemmas": [
+        "absolutism",
+        "totalism",
+        "totalitarianism"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "49394",
+      "definition": "shaped like a wedge",
+      "pos": "a",
+      "lemma": "cuneal",
+      "all_lemmas": [
+        "cuneal",
+        "cuneiform",
+        "wedge-shaped"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "42401",
+      "definition": "of or relating to the development of an embryo in the absence of fertilization",
+      "pos": "a",
+      "lemma": "apogametic",
+      "all_lemmas": [
+        "apogametic",
+        "apogamic",
+        "apogamous"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "83420",
+      "definition": "a person who worships idols",
+      "pos": "n",
+      "lemma": "idol worshiper",
+      "all_lemmas": [
+        "idol worshiper",
+        "idolater",
+        "idoliser",
+        "idolizer"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "90137",
+      "definition": "hickory of southern United States and Mexico having hard nutmeg-shaped nuts",
+      "pos": "n",
+      "lemma": "carya myristicaeformis",
+      "all_lemmas": [
+        "carya myristicaeformis",
+        "carya myristiciformis",
+        "nutmeg hickory"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "1435",
+      "definition": "at or to or toward the front; forward",
+      "pos": "r",
+      "lemma": "forrad",
+      "all_lemmas": [
+        "forrad",
+        "forrard",
+        "forward",
+        "forwards",
+        "frontward",
+        "frontwards"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "69561",
+      "definition": "Kamarupan languages spoken in western Burma and Bangladesh and easternmost India",
+      "pos": "n",
+      "lemma": "chin",
+      "all_lemmas": [
+        "chin",
+        "chin language",
+        "kuki",
+        "kuki-chin",
+        "kuki-chin language",
+        "kuki language"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "18437",
+      "definition": "to give an account or representation of in words",
+      "pos": "v",
+      "lemma": "account",
+      "all_lemmas": [
+        "account",
+        "describe",
+        "report"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "20335",
+      "definition": "filled up",
+      "pos": "s",
+      "lemma": "brimful",
+      "all_lemmas": [
+        "brimful",
+        "brimfull",
+        "brimming"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "53986",
+      "definition": "a representation of a person or scene in the form of a print or transparent slide or in digital format",
+      "pos": "n",
+      "lemma": "exposure",
+      "all_lemmas": [
+        "exposure",
+        "photo",
+        "photograph",
+        "pic",
+        "picture"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "30141",
+      "definition": "cause fear in",
+      "pos": "v",
+      "lemma": "affright",
+      "all_lemmas": [
+        "affright",
+        "fright",
+        "frighten",
+        "scare"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "102513",
+      "definition": "a plant fiber from the kapok tree; used for stuffing and insulation",
+      "pos": "n",
+      "lemma": "kapok",
+      "all_lemmas": [
+        "kapok",
+        "silk cotton",
+        "vegetable silk"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "61228",
+      "definition": "the deep vascular inner layer of the skin",
+      "pos": "n",
+      "lemma": "corium",
+      "all_lemmas": [
+        "corium",
+        "derma",
+        "dermis"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "78191",
+      "definition": "(physics) the center of mass of the immersed part of ship or other floating object",
+      "pos": "n",
+      "lemma": "center of buoyancy",
+      "all_lemmas": [
+        "center of buoyancy",
+        "center of immersion",
+        "centre of buoyancy",
+        "centre of immersion"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "39569",
+      "definition": "manage badly or incompetently",
+      "pos": "v",
+      "lemma": "misconduct",
+      "all_lemmas": [
+        "misconduct",
+        "mishandle",
+        "mismanage"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "47928",
+      "definition": "a theater where films are shown",
+      "pos": "n",
+      "lemma": "cinema",
+      "all_lemmas": [
+        "cinema",
+        "movie house",
+        "movie theater",
+        "movie theatre",
+        "picture palace"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "34296",
+      "definition": "strew or distribute over an area",
+      "pos": "v",
+      "lemma": "scatter",
+      "all_lemmas": [
+        "scatter",
+        "spread",
+        "spread out"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "38952",
+      "definition": "create and charge with a task or function",
+      "pos": "v",
+      "lemma": "appoint",
+      "all_lemmas": [
+        "appoint",
+        "constitute",
+        "name",
+        "nominate"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "28931",
+      "definition": "trace the shape of",
+      "pos": "v",
+      "lemma": "delineate",
+      "all_lemmas": [
+        "delineate",
+        "limn",
+        "outline"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "27357",
+      "definition": "not genuine or real; being an imitation of the genuine article",
+      "pos": "s",
+      "lemma": "fake",
+      "all_lemmas": [
+        "fake",
+        "false",
+        "faux",
+        "imitation",
+        "simulated"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "19372",
+      "definition": "state or say further",
+      "pos": "v",
+      "lemma": "add",
+      "all_lemmas": [
+        "add",
+        "append",
+        "supply"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "46080",
+      "definition": "relating to or existing on or affecting the skin",
+      "pos": "a",
+      "lemma": "cutaneal",
+      "all_lemmas": [
+        "cutaneal",
+        "cutaneous",
+        "dermal"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "26031",
+      "definition": "not possessing qualities befitting a man",
+      "pos": "a",
+      "lemma": "unmanful",
+      "all_lemmas": [
+        "unmanful",
+        "unmanlike",
+        "unmanly"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "15524",
+      "definition": "cause to do; cause to act in a specified manner",
+      "pos": "v",
+      "lemma": "cause",
+      "all_lemmas": [
+        "cause",
+        "get",
+        "have",
+        "induce",
+        "make",
+        "stimulate"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "59258",
+      "definition": "the trait of resolutely controlling your own behavior",
+      "pos": "n",
+      "lemma": "possession",
+      "all_lemmas": [
+        "possession",
+        "self-command",
+        "self-control",
+        "self-possession",
+        "self-will",
+        "will power",
+        "willpower"
+      ],
+      "lemma_count": 7
+    },
+    {
+      "id": "7090",
+      "definition": "make brown and crisp by heating",
+      "pos": "v",
+      "lemma": "crisp",
+      "all_lemmas": [
+        "crisp",
+        "crispen",
+        "toast"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "94965",
+      "definition": "the eruption through the gums of baby teeth",
+      "pos": "n",
+      "lemma": "dentition",
+      "all_lemmas": [
+        "dentition",
+        "odontiasis",
+        "teething"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "19525",
+      "definition": "speak (about unimportant matters) rapidly and incessantly",
+      "pos": "v",
+      "lemma": "blab",
+      "all_lemmas": [
+        "blab",
+        "blabber",
+        "chatter",
+        "clack",
+        "gabble",
+        "gibber",
+        "maunder",
+        "palaver",
+        "piffle",
+        "prate",
+        "prattle",
+        "tattle",
+        "tittle-tattle",
+        "twaddle"
+      ],
+      "lemma_count": 14
+    },
+    {
+      "id": "84355",
+      "definition": "any new participant in some activity",
+      "pos": "n",
+      "lemma": "entrant",
+      "all_lemmas": [
+        "entrant",
+        "fledgeling",
+        "fledgling",
+        "freshman",
+        "neophyte",
+        "newbie",
+        "newcomer",
+        "starter"
+      ],
+      "lemma_count": 8
+    },
+    {
+      "id": "54403",
+      "definition": "a power tool for cutting wood",
+      "pos": "n",
+      "lemma": "power saw",
+      "all_lemmas": [
+        "power saw",
+        "saw",
+        "sawing machine"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "71413",
+      "definition": "V-shaped sleeve badge indicating military rank and service",
+      "pos": "n",
+      "lemma": "chevron",
+      "all_lemmas": [
+        "chevron",
+        "grade insignia",
+        "stripe",
+        "stripes"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "100204",
+      "definition": "congenital disorder consisting of an inability to digest milk and milk products; absence or deficiency of lactase results in an inability to hydrolyze lactose",
+      "pos": "n",
+      "lemma": "lactase deficiency",
+      "all_lemmas": [
+        "lactase deficiency",
+        "lactose intolerance",
+        "milk intolerance"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "48339",
+      "definition": "of or relating to or characteristic of a violent tropical storm",
+      "pos": "a",
+      "lemma": "cyclonal",
+      "all_lemmas": [
+        "cyclonal",
+        "cyclonic",
+        "cyclonical"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "90424",
+      "definition": "autumn-flowering elm of southeastern United States",
+      "pos": "n",
+      "lemma": "red elm",
+      "all_lemmas": [
+        "red elm",
+        "september elm",
+        "ulmus serotina"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "72496",
+      "definition": "a footrace in which contestants must negotiate a series of hurdles",
+      "pos": "n",
+      "lemma": "hurdle race",
+      "all_lemmas": [
+        "hurdle race",
+        "hurdles",
+        "hurdling"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "7872",
+      "definition": "not converted into ions",
+      "pos": "a",
+      "lemma": "nonionic",
+      "all_lemmas": [
+        "nonionic",
+        "nonionised",
+        "nonionized",
+        "unionised",
+        "unionized"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "54950",
+      "definition": "the piece of ground in the outfield on the catcher's right",
+      "pos": "n",
+      "lemma": "right",
+      "all_lemmas": [
+        "right",
+        "right field",
+        "rightfield"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "5294",
+      "definition": "the act of preparing something (as food) by the application of heat",
+      "pos": "n",
+      "lemma": "cookery",
+      "all_lemmas": [
+        "cookery",
+        "cooking",
+        "preparation"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "32750",
+      "definition": "come up, of celestial bodies",
+      "pos": "v",
+      "lemma": "ascend",
+      "all_lemmas": [
+        "ascend",
+        "come up",
+        "rise",
+        "uprise"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "4",
+      "definition": "draw air into, and expel out of, the lungs",
+      "pos": "v",
+      "lemma": "breathe",
+      "all_lemmas": [
+        "breathe",
+        "respire",
+        "suspire",
+        "take a breath"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "11003",
+      "definition": "being or characteristic of a single thing or person",
+      "pos": "a",
+      "lemma": "case-by-case",
+      "all_lemmas": [
+        "case-by-case",
+        "individual",
+        "item-by-item",
+        "single"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "106583",
+      "definition": "photography producing images that appear to have depth and solidness and that are created by using a special device (called a stereoscope) to look at two slightly different photographs of something at the same time.",
+      "pos": "n",
+      "lemma": "stereo photography",
+      "all_lemmas": [
+        "stereo photography",
+        "stereophotography",
+        "stereoscopic photography"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "6518",
+      "definition": "easy to believe on the basis of available evidence",
+      "pos": "r",
+      "lemma": "believably",
+      "all_lemmas": [
+        "believably",
+        "credibly",
+        "plausibly",
+        "probably"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "61273",
+      "definition": "an unpaired sinus of the dura mater",
+      "pos": "n",
+      "lemma": "sinus rectus",
+      "all_lemmas": [
+        "sinus rectus",
+        "straight sinus",
+        "tentorial sinus"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "16480",
+      "definition": "be deliberately ambiguous or unclear in order to mislead or withhold information",
+      "pos": "v",
+      "lemma": "beat around the bush",
+      "all_lemmas": [
+        "beat around the bush",
+        "equivocate",
+        "palter",
+        "prevaricate",
+        "tergiversate"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "72656",
+      "definition": "extreme mental distress",
+      "pos": "n",
+      "lemma": "anguish",
+      "all_lemmas": [
+        "anguish",
+        "torment",
+        "torture"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "33755",
+      "definition": "move in an orbit",
+      "pos": "v",
+      "lemma": "orb",
+      "all_lemmas": [
+        "orb",
+        "orbit",
+        "revolve"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "90580",
+      "definition": "small early blooming tulip",
+      "pos": "n",
+      "lemma": "dwarf tulip",
+      "all_lemmas": [
+        "dwarf tulip",
+        "tulipa armena",
+        "tulipa suaveolens"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "72323",
+      "definition": "a sudden rapid flow (as of water)",
+      "pos": "n",
+      "lemma": "flush",
+      "all_lemmas": [
+        "flush",
+        "gush",
+        "outpouring"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "69672",
+      "definition": "the standard German language; developed historically from West Germanic",
+      "pos": "n",
+      "lemma": "german",
+      "all_lemmas": [
+        "german",
+        "german language",
+        "high german",
+        "high german language"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "87085",
+      "definition": "(neurophysiology) rapid fluctuations of voltage between parts of the cerebral cortex that are detectable with an electroencephalograph",
+      "pos": "n",
+      "lemma": "brain wave",
+      "all_lemmas": [
+        "brain wave",
+        "brainwave",
+        "cortical potential"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "794",
+      "definition": "take off weight",
+      "pos": "v",
+      "lemma": "melt off",
+      "all_lemmas": [
+        "melt off",
+        "reduce",
+        "slenderize",
+        "slim",
+        "slim down",
+        "thin"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "47800",
+      "definition": "a tranquilizer (trade names Librium and Libritabs) used in the treatment of alcoholism",
+      "pos": "n",
+      "lemma": "chlordiazepoxide",
+      "all_lemmas": [
+        "chlordiazepoxide",
+        "libritabs",
+        "librium"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "102",
+      "definition": "blow hard and loudly",
+      "pos": "v",
+      "lemma": "chuff",
+      "all_lemmas": [
+        "chuff",
+        "huff",
+        "puff"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "67974",
+      "definition": "a mark of a foot or shoe on a surface",
+      "pos": "n",
+      "lemma": "footmark",
+      "all_lemmas": [
+        "footmark",
+        "footprint",
+        "step"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "28809",
+      "definition": "decorate",
+      "pos": "v",
+      "lemma": "bedeck",
+      "all_lemmas": [
+        "bedeck",
+        "bedight",
+        "deck"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "13941",
+      "definition": "establish the validity of something, as by an example, explanation or experiment",
+      "pos": "v",
+      "lemma": "demonstrate",
+      "all_lemmas": [
+        "demonstrate",
+        "establish",
+        "prove",
+        "shew",
+        "show"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "46857",
+      "definition": "a recreational vehicle equipped for camping out while traveling",
+      "pos": "n",
+      "lemma": "camper",
+      "all_lemmas": [
+        "camper",
+        "camping bus",
+        "motor home"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "88228",
+      "definition": "A herbaceous plant species of western North America (Anemone occidentalis, Pulsatilla occidentalis)",
+      "pos": "n",
+      "lemma": "anemone occidentalis",
+      "all_lemmas": [
+        "anemone occidentalis",
+        "pulsatilla occidentalis",
+        "western pasqueflower"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "69682",
+      "definition": "an official language of the Republic of South Africa; closely related to Dutch and Flemish",
+      "pos": "n",
+      "lemma": "afrikaans",
+      "all_lemmas": [
+        "afrikaans",
+        "afrikaans language",
+        "taal",
+        "taal language"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "53975",
+      "definition": "a small bottle that contains a drug (especially a sealed sterile container for injection by needle)",
+      "pos": "n",
+      "lemma": "ampoule",
+      "all_lemmas": [
+        "ampoule",
+        "ampul",
+        "ampule",
+        "phial",
+        "vial"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "49799",
+      "definition": "a machine for washing dishes",
+      "pos": "n",
+      "lemma": "dish washer",
+      "all_lemmas": [
+        "dish washer",
+        "dishwasher",
+        "dishwashing machine"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "25134",
+      "definition": "having the same or similar characteristics",
+      "pos": "a",
+      "lemma": "alike",
+      "all_lemmas": [
+        "alike",
+        "like",
+        "similar"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "78720",
+      "definition": "a line indicating the location of the start of a race or a game",
+      "pos": "n",
+      "lemma": "scratch",
+      "all_lemmas": [
+        "scratch",
+        "scratch line",
+        "start",
+        "starting line"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "72354",
+      "definition": "a movement upward; rise above the ground",
+      "pos": "n",
+      "lemma": "ascension",
+      "all_lemmas": [
+        "ascension",
+        "ascent",
+        "rise",
+        "rising"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "57739",
+      "definition": "plaything consisting of a toy pistol that squirts water",
+      "pos": "n",
+      "lemma": "squirt gun",
+      "all_lemmas": [
+        "squirt gun",
+        "squirter",
+        "water gun",
+        "water pistol"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "3614",
+      "definition": "any clever maneuver",
+      "pos": "n",
+      "lemma": "device",
+      "all_lemmas": [
+        "device",
+        "gimmick",
+        "twist"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "19410",
+      "definition": "able to adjust readily to different conditions",
+      "pos": "s",
+      "lemma": "elastic",
+      "all_lemmas": [
+        "elastic",
+        "flexible",
+        "pliable",
+        "pliant"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "41",
+      "definition": "in essence; at bottom or by one's (or its) very nature",
+      "pos": "r",
+      "lemma": "basically",
+      "all_lemmas": [
+        "basically",
+        "essentially",
+        "fundamentally"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "74262",
+      "definition": "tart red berries similar to American cranberries but smaller",
+      "pos": "n",
+      "lemma": "cowberry",
+      "all_lemmas": [
+        "cowberry",
+        "lingonberry",
+        "lowbush cranberry",
+        "mountain cranberry"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "46672",
+      "definition": "of or relating to or supporting Hinduism",
+      "pos": "a",
+      "lemma": "hindi",
+      "all_lemmas": [
+        "hindi",
+        "hindoo",
+        "hindu"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "98754",
+      "definition": "malignant tumor originating in glandular epithelium",
+      "pos": "n",
+      "lemma": "adenocarcinoma",
+      "all_lemmas": [
+        "adenocarcinoma",
+        "glandular cancer",
+        "glandular carcinoma"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "16584",
+      "definition": "bring an accusation against; level a charge against",
+      "pos": "v",
+      "lemma": "accuse",
+      "all_lemmas": [
+        "accuse",
+        "criminate",
+        "impeach",
+        "incriminate"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "30533",
+      "definition": "attract; cause to be enamored",
+      "pos": "v",
+      "lemma": "becharm",
+      "all_lemmas": [
+        "becharm",
+        "beguile",
+        "bewitch",
+        "captivate",
+        "capture",
+        "catch",
+        "charm",
+        "enamor",
+        "enamour",
+        "enchant",
+        "entrance",
+        "fascinate",
+        "trance"
+      ],
+      "lemma_count": 13
+    },
+    {
+      "id": "50701",
+      "definition": "a shop where flowers and ornamental plants are sold",
+      "pos": "n",
+      "lemma": "florist",
+      "all_lemmas": [
+        "florist",
+        "florist shop",
+        "flower store"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "41642",
+      "definition": "rule a country as a tyrant",
+      "pos": "v",
+      "lemma": "grind down",
+      "all_lemmas": [
+        "grind down",
+        "tyrannise",
+        "tyrannize"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "25204",
+      "definition": "give a thrashing to; beat hard",
+      "pos": "v",
+      "lemma": "flail",
+      "all_lemmas": [
+        "flail",
+        "lam",
+        "thrash",
+        "thresh"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "30653",
+      "definition": "give moral or emotional strength to",
+      "pos": "v",
+      "lemma": "comfort",
+      "all_lemmas": [
+        "comfort",
+        "console",
+        "solace",
+        "soothe"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "6443",
+      "definition": "make more beautiful",
+      "pos": "v",
+      "lemma": "beautify",
+      "all_lemmas": [
+        "beautify",
+        "embellish",
+        "fancify",
+        "prettify"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "69260",
+      "definition": "a gaudy outward display",
+      "pos": "n",
+      "lemma": "fanfare",
+      "all_lemmas": [
+        "fanfare",
+        "flash",
+        "ostentation"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "740",
+      "definition": "use special care in dressing, making-up, etc.",
+      "pos": "v",
+      "lemma": "do up",
+      "all_lemmas": [
+        "do up",
+        "doll up",
+        "glam up",
+        "pretty up"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "66512",
+      "definition": "a fictitious name used when the person performs a particular social role",
+      "pos": "n",
+      "lemma": "anonym",
+      "all_lemmas": [
+        "anonym",
+        "nom de guerre",
+        "pseudonym"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "1596",
+      "definition": "without missing a year",
+      "pos": "r",
+      "lemma": "annually",
+      "all_lemmas": [
+        "annually",
+        "each year",
+        "every year",
+        "yearly"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "43607",
+      "definition": "close in",
+      "pos": "v",
+      "lemma": "confine",
+      "all_lemmas": [
+        "confine",
+        "enclose",
+        "hold in"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "89875",
+      "definition": "low deciduous shrub of the eastern United States bearing dark blue sweet berries",
+      "pos": "n",
+      "lemma": "dryland berry",
+      "all_lemmas": [
+        "dryland berry",
+        "dryland blueberry",
+        "vaccinium pallidum"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "88878",
+      "definition": "the common European annual marigold",
+      "pos": "n",
+      "lemma": "calendula officinalis",
+      "all_lemmas": [
+        "calendula officinalis",
+        "common marigold",
+        "pot marigold",
+        "ruddles",
+        "scotch marigold"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "17369",
+      "definition": "defend, explain, clear away, or make excuses for by reasoning",
+      "pos": "v",
+      "lemma": "apologise",
+      "all_lemmas": [
+        "apologise",
+        "apologize",
+        "excuse",
+        "rationalise",
+        "rationalize"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "88535",
+      "definition": "prostrate herb having heads of deep pink to white flowers; found in coastal dunes from British Columbia to Baja California",
+      "pos": "n",
+      "lemma": "abronia umbellata",
+      "all_lemmas": [
+        "abronia umbellata",
+        "beach sand verbena",
+        "pink sand verbena"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "59542",
+      "definition": "the trait of being rude and impertinent; inclined to take liberties",
+      "pos": "n",
+      "lemma": "cheekiness",
+      "all_lemmas": [
+        "cheekiness",
+        "crust",
+        "freshness",
+        "gall",
+        "impertinence",
+        "impudence",
+        "insolence"
+      ],
+      "lemma_count": 7
+    },
+    {
+      "id": "92743",
+      "definition": "a semiaquatic plant that grows in soft wet land; most are monocots: sedge, sphagnum, grasses, cattails, etc.; possibly heath",
+      "pos": "n",
+      "lemma": "bog plant",
+      "all_lemmas": [
+        "bog plant",
+        "marsh plant",
+        "swamp plant"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "46838",
+      "definition": "temporary living quarters specially built by the army for soldiers",
+      "pos": "n",
+      "lemma": "bivouac",
+      "all_lemmas": [
+        "bivouac",
+        "camp",
+        "cantonment",
+        "encampment"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "88312",
+      "definition": "erect shrub with small if any spines having racemes of white to yellow flowers followed by curved pointed pods and black shiny seeds; West Indies and Florida",
+      "pos": "n",
+      "lemma": "black bead",
+      "all_lemmas": [
+        "black bead",
+        "cat's-claw",
+        "catclaw",
+        "pithecellobium unguis-cati"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "5212",
+      "definition": "make large",
+      "pos": "v",
+      "lemma": "blow up",
+      "all_lemmas": [
+        "blow up",
+        "enlarge",
+        "magnify"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "57065",
+      "definition": "a shop that sells pipes and pipe tobacco and cigars and cigarettes",
+      "pos": "n",
+      "lemma": "tobacco shop",
+      "all_lemmas": [
+        "tobacco shop",
+        "tobacconist",
+        "tobacconist shop"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "17542",
+      "definition": "of the most contemptible kind",
+      "pos": "s",
+      "lemma": "abject",
+      "all_lemmas": [
+        "abject",
+        "low",
+        "low-down",
+        "miserable",
+        "scummy",
+        "scurvy"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "36453",
+      "definition": "throw or cast away",
+      "pos": "v",
+      "lemma": "cast aside",
+      "all_lemmas": [
+        "cast aside",
+        "cast away",
+        "cast out",
+        "chuck out",
+        "discard",
+        "dispose",
+        "fling",
+        "put away",
+        "throw away",
+        "throw out",
+        "toss",
+        "toss away",
+        "toss out"
+      ],
+      "lemma_count": 13
+    },
+    {
+      "id": "43399",
+      "definition": "a tricyclic antidepressant drug (trade name Elavil) with serious side effects; interacts with many other medications",
+      "pos": "n",
+      "lemma": "amitriptyline",
+      "all_lemmas": [
+        "amitriptyline",
+        "amitriptyline hydrochloride",
+        "elavil"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "61760",
+      "definition": "an artery that originates in the external carotid and gives off branches that supply the neck and face",
+      "pos": "n",
+      "lemma": "arteria facialis",
+      "all_lemmas": [
+        "arteria facialis",
+        "external maxillary artery",
+        "facial artery"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "36818",
+      "definition": "enter a computer",
+      "pos": "v",
+      "lemma": "log-in",
+      "all_lemmas": [
+        "log-in",
+        "log in",
+        "log on"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "2064",
+      "definition": "turn red, as if in embarrassment or shame",
+      "pos": "v",
+      "lemma": "blush",
+      "all_lemmas": [
+        "blush",
+        "crimson",
+        "flush",
+        "redden"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "51243",
+      "definition": "a heavy coat worn over clothes in winter",
+      "pos": "n",
+      "lemma": "greatcoat",
+      "all_lemmas": [
+        "greatcoat",
+        "overcoat",
+        "topcoat"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "54886",
+      "definition": "a building where people go to eat",
+      "pos": "n",
+      "lemma": "eatery",
+      "all_lemmas": [
+        "eatery",
+        "eating house",
+        "eating place",
+        "restaurant"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "45306",
+      "definition": "a furnished sitting room with sleeping accommodations (and some plumbing)",
+      "pos": "n",
+      "lemma": "bedsit",
+      "all_lemmas": [
+        "bedsit",
+        "bedsitter",
+        "bedsitting room"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "20378",
+      "definition": "remove offensive capability from",
+      "pos": "v",
+      "lemma": "demilitarise",
+      "all_lemmas": [
+        "demilitarise",
+        "demilitarize",
+        "disarm"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "28272",
+      "definition": "common North American green or brownish frog having white-edged dark oval spots",
+      "pos": "n",
+      "lemma": "leopard frog",
+      "all_lemmas": [
+        "leopard frog",
+        "lithobates pipiens",
+        "rana pipiens",
+        "spring frog"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "37496",
+      "definition": "large green white-striped hawkmoth larva that feeds on tomato and potato plants; similar to tobacco hornworm",
+      "pos": "n",
+      "lemma": "manduca quinquemaculata",
+      "all_lemmas": [
+        "manduca quinquemaculata",
+        "potato worm",
+        "tomato hornworm"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "103974",
+      "definition": "commemorates Saint Peter's miraculous deliverance from prison; a quarter day in Scotland; a harvest festival in England",
+      "pos": "n",
+      "lemma": "august 1",
+      "all_lemmas": [
+        "august 1",
+        "lammas",
+        "lammas day"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "17295",
+      "definition": "(often followed by \u2018for\u2019) ardently or excessively desirous",
+      "pos": "s",
+      "lemma": "avid",
+      "all_lemmas": [
+        "avid",
+        "devouring",
+        "esurient",
+        "greedy"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "88417",
+      "definition": "erect evergreen shrub or small tree of Australia and northern New Guinea having palmately compound leaves",
+      "pos": "n",
+      "lemma": "brassaia actinophylla",
+      "all_lemmas": [
+        "brassaia actinophylla",
+        "schefflera actinophylla",
+        "umbrella tree"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "30397",
+      "definition": "valued as a game bird in eastern United States and Canada",
+      "pos": "n",
+      "lemma": "bonasa umbellus",
+      "all_lemmas": [
+        "bonasa umbellus",
+        "partridge",
+        "ruffed grouse"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "64807",
+      "definition": "a belief or sentiment shared by most people; the voice of the people",
+      "pos": "n",
+      "lemma": "opinion",
+      "all_lemmas": [
+        "opinion",
+        "popular opinion",
+        "public opinion",
+        "vox populi"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "48930",
+      "definition": "of or relating to or resulting in redemption",
+      "pos": "a",
+      "lemma": "redemptional",
+      "all_lemmas": [
+        "redemptional",
+        "redemptive",
+        "redemptory"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "23828",
+      "definition": "gather, as of natural products",
+      "pos": "v",
+      "lemma": "glean",
+      "all_lemmas": [
+        "glean",
+        "harvest",
+        "reap"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "50375",
+      "definition": "the face or front of a building",
+      "pos": "n",
+      "lemma": "facade",
+      "all_lemmas": [
+        "facade",
+        "frontage",
+        "frontal"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "18667",
+      "definition": "the operation of gathering information about an enemy",
+      "pos": "n",
+      "lemma": "intelligence",
+      "all_lemmas": [
+        "intelligence",
+        "intelligence activity",
+        "intelligence operation"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "63376",
+      "definition": "the faculty of distinguishing sweet, sour, bitter, and salty properties in the mouth",
+      "pos": "n",
+      "lemma": "gustation",
+      "all_lemmas": [
+        "gustation",
+        "gustatory modality",
+        "sense of taste",
+        "taste"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "41305",
+      "definition": "perform a task as well as possible",
+      "pos": "v",
+      "lemma": "do one's best",
+      "all_lemmas": [
+        "do one's best",
+        "give full measure",
+        "give one's best",
+        "go all out"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "28462",
+      "definition": "put together out of artificial or natural components or parts",
+      "pos": "v",
+      "lemma": "construct",
+      "all_lemmas": [
+        "construct",
+        "fabricate",
+        "manufacture"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "24626",
+      "definition": "capable of being known",
+      "pos": "a",
+      "lemma": "cognisable",
+      "all_lemmas": [
+        "cognisable",
+        "cognizable",
+        "cognoscible",
+        "knowable"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "20742",
+      "definition": "obtain advantages, such as points, etc.",
+      "pos": "v",
+      "lemma": "advance",
+      "all_lemmas": [
+        "advance",
+        "gain",
+        "gain ground",
+        "get ahead",
+        "make headway",
+        "pull ahead",
+        "win"
+      ],
+      "lemma_count": 7
+    },
+    {
+      "id": "68183",
+      "definition": "the news as presented by reporters for newspapers or radio or television",
+      "pos": "n",
+      "lemma": "coverage",
+      "all_lemmas": [
+        "coverage",
+        "reportage",
+        "reporting"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "84254",
+      "definition": "a worker who drives mules",
+      "pos": "n",
+      "lemma": "mule driver",
+      "all_lemmas": [
+        "mule driver",
+        "mule skinner",
+        "muleteer",
+        "skinner"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "1622",
+      "definition": "having or showing a ready disposition to fight",
+      "pos": "s",
+      "lemma": "battleful",
+      "all_lemmas": [
+        "battleful",
+        "bellicose",
+        "combative"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "84957",
+      "definition": "an infant that is born prior to 37 weeks of gestation",
+      "pos": "n",
+      "lemma": "preemie",
+      "all_lemmas": [
+        "preemie",
+        "premature baby",
+        "premature infant",
+        "premie",
+        "preterm baby",
+        "preterm infant"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "53745",
+      "definition": "a small storeroom for storing foods or wines",
+      "pos": "n",
+      "lemma": "buttery",
+      "all_lemmas": [
+        "buttery",
+        "larder",
+        "pantry"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "6013",
+      "definition": "extremely dark",
+      "pos": "s",
+      "lemma": "black",
+      "all_lemmas": [
+        "black",
+        "pitch-black",
+        "pitch-dark"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "2751",
+      "definition": "the act of smacking something; a blow delivered with an open hand",
+      "pos": "n",
+      "lemma": "slap",
+      "all_lemmas": [
+        "slap",
+        "smack",
+        "smacking"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "17680",
+      "definition": "to insert between other elements",
+      "pos": "v",
+      "lemma": "come in",
+      "all_lemmas": [
+        "come in",
+        "inject",
+        "interject",
+        "interpose",
+        "put in",
+        "throw in"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "26713",
+      "definition": "put, fix, force, or implant",
+      "pos": "v",
+      "lemma": "deposit",
+      "all_lemmas": [
+        "deposit",
+        "lodge",
+        "stick",
+        "wedge"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "70255",
+      "definition": "a rhythmical work song originally sung by sailors",
+      "pos": "n",
+      "lemma": "chantey",
+      "all_lemmas": [
+        "chantey",
+        "chanty",
+        "sea chantey",
+        "shanty"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "94459",
+      "definition": "process of changing to an inferior state",
+      "pos": "n",
+      "lemma": "declension",
+      "all_lemmas": [
+        "declension",
+        "decline in quality",
+        "deterioration",
+        "worsening"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "51465",
+      "definition": "a lightweight protective helmet (plastic or metal) worn by construction workers",
+      "pos": "n",
+      "lemma": "hard hat",
+      "all_lemmas": [
+        "hard hat",
+        "safety hat",
+        "tin hat"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "19471",
+      "definition": "act on verbally or in some form of artistic expression",
+      "pos": "v",
+      "lemma": "address",
+      "all_lemmas": [
+        "address",
+        "cover",
+        "deal",
+        "handle",
+        "plow",
+        "treat"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "32814",
+      "definition": "related on the mother's side",
+      "pos": "s",
+      "lemma": "enate",
+      "all_lemmas": [
+        "enate",
+        "enatic",
+        "maternal"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "15827",
+      "definition": "call in an official matter, such as to attend court",
+      "pos": "v",
+      "lemma": "cite",
+      "all_lemmas": [
+        "cite",
+        "summon",
+        "summons"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "33833",
+      "definition": "resembling the new moon in shape",
+      "pos": "s",
+      "lemma": "crescent",
+      "all_lemmas": [
+        "crescent",
+        "crescent-shaped",
+        "lunate",
+        "semilunar"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "18388",
+      "definition": "procedures involved in taking defensive measures against attacks using biological agents",
+      "pos": "n",
+      "lemma": "biodefence",
+      "all_lemmas": [
+        "biodefence",
+        "biodefense",
+        "biological defence",
+        "biological defense"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "64031",
+      "definition": "thinking again about a choice previously made",
+      "pos": "n",
+      "lemma": "afterthought",
+      "all_lemmas": [
+        "afterthought",
+        "reconsideration",
+        "rethink",
+        "second thought"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "53916",
+      "definition": "a barbiturate (trade name Nembutal) used as a sedative and hypnotic and antispasmodic",
+      "pos": "n",
+      "lemma": "nembutal",
+      "all_lemmas": [
+        "nembutal",
+        "pentobarbital",
+        "pentobarbital sodium",
+        "yellow jacket"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "23329",
+      "definition": "of the greatest importance",
+      "pos": "s",
+      "lemma": "all-important",
+      "all_lemmas": [
+        "all-important",
+        "all important",
+        "crucial",
+        "essential",
+        "of the essence"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "23351",
+      "definition": "become wrinkled or drawn together",
+      "pos": "v",
+      "lemma": "pucker",
+      "all_lemmas": [
+        "pucker",
+        "ruck",
+        "ruck up"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "62377",
+      "definition": "a widely distributed system of free and fixed macrophages derived from bone marrow",
+      "pos": "n",
+      "lemma": "mononuclear phagocyte system",
+      "all_lemmas": [
+        "mononuclear phagocyte system",
+        "mps",
+        "system of macrophages"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "67771",
+      "definition": "nonsense that is simply incoherent and unintelligible",
+      "pos": "n",
+      "lemma": "incoherence",
+      "all_lemmas": [
+        "incoherence",
+        "incoherency",
+        "unintelligibility"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "16243",
+      "definition": "refuse to abandon one's opinion or belief",
+      "pos": "v",
+      "lemma": "hold firm",
+      "all_lemmas": [
+        "hold firm",
+        "stand fast",
+        "stand firm",
+        "stand pat"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "33418",
+      "definition": "to intrude upon, infringe, encroach on, violate",
+      "pos": "v",
+      "lemma": "encroach upon",
+      "all_lemmas": [
+        "encroach upon",
+        "intrude on",
+        "invade",
+        "obtrude upon"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "90009",
+      "definition": "large tree of Pacific coast of North America having hard red wood much used for furniture",
+      "pos": "n",
+      "lemma": "alnus rubra",
+      "all_lemmas": [
+        "alnus rubra",
+        "oregon alder",
+        "red alder"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "14973",
+      "definition": "stick to correctly or closely",
+      "pos": "v",
+      "lemma": "keep",
+      "all_lemmas": [
+        "keep",
+        "maintain",
+        "observe"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "89580",
+      "definition": "European maritime sedge naturalized along Atlantic coast of United States; rootstock has properties of sarsaparilla",
+      "pos": "n",
+      "lemma": "carex arenaria",
+      "all_lemmas": [
+        "carex arenaria",
+        "sand reed",
+        "sand sedge"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "45705",
+      "definition": "of or relating to cilia projecting from the surface of a cell",
+      "pos": "a",
+      "lemma": "cilial",
+      "all_lemmas": [
+        "cilial",
+        "ciliary",
+        "ciliate"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "86292",
+      "definition": "a biologist who specializes in the classification of organisms into groups on the basis of their structure and origin and behavior",
+      "pos": "n",
+      "lemma": "systematist",
+      "all_lemmas": [
+        "systematist",
+        "taxonomer",
+        "taxonomist"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "14161",
+      "definition": "forming one or more whorls (especially a whorl of leaves around a stem)",
+      "pos": "s",
+      "lemma": "verticillate",
+      "all_lemmas": [
+        "verticillate",
+        "verticillated",
+        "whorled"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "95440",
+      "definition": "a Swedish unit of length equivalent to 10 km",
+      "pos": "n",
+      "lemma": "mil",
+      "all_lemmas": [
+        "mil",
+        "mile",
+        "swedish mile"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "40644",
+      "definition": "put at a disadvantage; hinder, harm",
+      "pos": "v",
+      "lemma": "disadvantage",
+      "all_lemmas": [
+        "disadvantage",
+        "disfavor",
+        "disfavour"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "93217",
+      "definition": "personal as opposed to real property; any tangible movable property (furniture or domestic animals or a car etc.)",
+      "pos": "n",
+      "lemma": "chattel",
+      "all_lemmas": [
+        "chattel",
+        "movable",
+        "personal chattel"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "385",
+      "definition": "become or make oneself fresh again",
+      "pos": "v",
+      "lemma": "freshen",
+      "all_lemmas": [
+        "freshen",
+        "freshen up",
+        "refresh",
+        "refreshen"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "91391",
+      "definition": "tree of northern India and China having purple blossoms and small inedible yellow fruits; naturalized in the southern United States as a shade tree",
+      "pos": "n",
+      "lemma": "azedarach",
+      "all_lemmas": [
+        "azedarach",
+        "azederach",
+        "china tree",
+        "chinaberry",
+        "chinaberry tree",
+        "melia azedarach",
+        "melia azederach",
+        "persian lilac",
+        "pride-of-india"
+      ],
+      "lemma_count": 9
+    },
+    {
+      "id": "77364",
+      "definition": "Israel's elite secret commando unit responsible for counterterrorist and top secret intelligence gathering and hostage rescue missions",
+      "pos": "n",
+      "lemma": "sayeret",
+      "all_lemmas": [
+        "sayeret",
+        "sayeret mat'kal",
+        "sayeret matkal"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "22839",
+      "definition": "the act of releasing from a snarled or tangled condition",
+      "pos": "n",
+      "lemma": "disentanglement",
+      "all_lemmas": [
+        "disentanglement",
+        "extrication",
+        "unsnarling",
+        "untangling"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "25400",
+      "definition": "get sexual gratification through self-stimulation",
+      "pos": "v",
+      "lemma": "fuck off",
+      "all_lemmas": [
+        "fuck off",
+        "jack off",
+        "jerk off",
+        "masturbate",
+        "she-bop",
+        "wank"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "86431",
+      "definition": "terms of abuse for a masturbator",
+      "pos": "n",
+      "lemma": "jerk-off",
+      "all_lemmas": [
+        "jerk-off",
+        "tosser",
+        "wanker"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "42777",
+      "definition": "use as a basis for theories and claims",
+      "pos": "v",
+      "lemma": "build on",
+      "all_lemmas": [
+        "build on",
+        "build upon",
+        "repose on",
+        "rest on"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "77360",
+      "definition": "the most notorious and possibly the most important arm of Iraq's security system",
+      "pos": "n",
+      "lemma": "iis",
+      "all_lemmas": [
+        "iis",
+        "iraqi intelligence service",
+        "iraqi mukhabarat"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "46129",
+      "definition": "proceeding from or ordered by or subject to a pope or the papacy regarded as the successor of the Apostles",
+      "pos": "a",
+      "lemma": "apostolic",
+      "all_lemmas": [
+        "apostolic",
+        "apostolical",
+        "papal",
+        "pontifical"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "77846",
+      "definition": "all the plant life in a particular region or period",
+      "pos": "n",
+      "lemma": "botany",
+      "all_lemmas": [
+        "botany",
+        "flora",
+        "vegetation"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "39532",
+      "definition": "be in charge of, act on, or dispose of",
+      "pos": "v",
+      "lemma": "care",
+      "all_lemmas": [
+        "care",
+        "deal",
+        "handle",
+        "manage"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "6327",
+      "definition": "obstinate in your opinions",
+      "pos": "s",
+      "lemma": "opinionated",
+      "all_lemmas": [
+        "opinionated",
+        "opinionative",
+        "self-opinionated"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "375",
+      "definition": "give new life or energy to",
+      "pos": "v",
+      "lemma": "animate",
+      "all_lemmas": [
+        "animate",
+        "quicken",
+        "reanimate",
+        "recreate",
+        "renovate",
+        "repair",
+        "revive",
+        "revivify",
+        "vivify"
+      ],
+      "lemma_count": 9
+    },
+    {
+      "id": "1376",
+      "definition": "(used in combination) affected by something overwhelming",
+      "pos": "s",
+      "lemma": "smitten",
+      "all_lemmas": [
+        "smitten",
+        "stricken",
+        "struck"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "42106",
+      "definition": "continue to live and avoid dying",
+      "pos": "v",
+      "lemma": "endure",
+      "all_lemmas": [
+        "endure",
+        "go",
+        "hold out",
+        "hold up",
+        "last",
+        "live",
+        "live on",
+        "survive"
+      ],
+      "lemma_count": 8
+    },
+    {
+      "id": "36084",
+      "definition": "being ten more than seventy",
+      "pos": "s",
+      "lemma": "80",
+      "all_lemmas": [
+        "80",
+        "eighty",
+        "fourscore",
+        "lxxx"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "28612",
+      "definition": "large-headed turtle with powerful hooked jaws found in or near water; prone to bite",
+      "pos": "n",
+      "lemma": "chelydra serpentina",
+      "all_lemmas": [
+        "chelydra serpentina",
+        "common snapping turtle",
+        "snapper"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "32782",
+      "definition": "thick-walled muscular pouch below the crop in many birds and reptiles for grinding food",
+      "pos": "n",
+      "lemma": "gastric mill",
+      "all_lemmas": [
+        "gastric mill",
+        "gizzard",
+        "ventriculus"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "100134",
+      "definition": "the state of having little or no money and few or no material possessions",
+      "pos": "n",
+      "lemma": "impoverishment",
+      "all_lemmas": [
+        "impoverishment",
+        "poorness",
+        "poverty"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "14026",
+      "definition": "form a critical opinion of",
+      "pos": "v",
+      "lemma": "evaluate",
+      "all_lemmas": [
+        "evaluate",
+        "judge",
+        "pass judgment"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "10238",
+      "definition": "in a slim or slender manner",
+      "pos": "r",
+      "lemma": "slenderly",
+      "all_lemmas": [
+        "slenderly",
+        "slightly",
+        "slimly"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "48136",
+      "definition": "pertaining to or resembling amoebae",
+      "pos": "a",
+      "lemma": "ameban",
+      "all_lemmas": [
+        "ameban",
+        "amebic",
+        "amebous",
+        "amoeban",
+        "amoebic",
+        "amoebous"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "225",
+      "definition": "take a siesta",
+      "pos": "v",
+      "lemma": "catch a wink",
+      "all_lemmas": [
+        "catch a wink",
+        "catnap",
+        "nap"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "2069",
+      "definition": "turn pale, as if in fear",
+      "pos": "v",
+      "lemma": "blanch",
+      "all_lemmas": [
+        "blanch",
+        "blench",
+        "pale"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "43196",
+      "definition": "span an interval of distance, space or time",
+      "pos": "v",
+      "lemma": "continue",
+      "all_lemmas": [
+        "continue",
+        "cover",
+        "extend"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "32728",
+      "definition": "having corresponding sounds especially terminal sounds",
+      "pos": "a",
+      "lemma": "rhymed",
+      "all_lemmas": [
+        "rhymed",
+        "rhyming",
+        "riming"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "32983",
+      "definition": "even up the edges of a stack of paper, in printing",
+      "pos": "v",
+      "lemma": "even up",
+      "all_lemmas": [
+        "even up",
+        "jog",
+        "square up"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "95292",
+      "definition": "a unit of information equal to 1024 pebibytes or 2^60 bytes",
+      "pos": "n",
+      "lemma": "eb",
+      "all_lemmas": [
+        "eb",
+        "eib",
+        "exabyte",
+        "exbibyte"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "3485",
+      "definition": "lost in thought; showing preoccupation",
+      "pos": "s",
+      "lemma": "absent",
+      "all_lemmas": [
+        "absent",
+        "absentminded",
+        "abstracted",
+        "scatty"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "34193",
+      "definition": "run away quickly",
+      "pos": "v",
+      "lemma": "flee",
+      "all_lemmas": [
+        "flee",
+        "fly",
+        "take flight"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "95276",
+      "definition": "a unit of information equal to 1024 kibibytes or 2^20 (1,048,576) bytes",
+      "pos": "n",
+      "lemma": "m",
+      "all_lemmas": [
+        "m",
+        "mb",
+        "mebibyte",
+        "megabyte",
+        "mib"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "2202",
+      "definition": "(baseball) a pitch thrown with maximum velocity",
+      "pos": "n",
+      "lemma": "bullet",
+      "all_lemmas": [
+        "bullet",
+        "fastball",
+        "heater",
+        "hummer",
+        "smoke"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "32735",
+      "definition": "cephalopod mollusk of warm seas whose females have delicate papery spiral shells",
+      "pos": "n",
+      "lemma": "argonaut",
+      "all_lemmas": [
+        "argonaut",
+        "argonauta argo",
+        "nautilus",
+        "paper nautilus"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "15947",
+      "definition": "make a retreat from an earlier commitment or activity",
+      "pos": "v",
+      "lemma": "back away",
+      "all_lemmas": [
+        "back away",
+        "back out",
+        "crawfish",
+        "crawfish out",
+        "pull back",
+        "pull in one's horns",
+        "retreat",
+        "withdraw"
+      ],
+      "lemma_count": 8
+    },
+    {
+      "id": "57763",
+      "definition": "a weapon that kills or injures civilian as well as military personnel (nuclear and chemical and biological weapons)",
+      "pos": "n",
+      "lemma": "w.m.d.",
+      "all_lemmas": [
+        "w.m.d.",
+        "weapon of mass destruction",
+        "wmd"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "4863",
+      "definition": "having or exerting a malignant influence",
+      "pos": "s",
+      "lemma": "evil",
+      "all_lemmas": [
+        "evil",
+        "malefic",
+        "malevolent",
+        "malign"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "20023",
+      "definition": "present somebody with something, usually to accuse or criticize",
+      "pos": "v",
+      "lemma": "confront",
+      "all_lemmas": [
+        "confront",
+        "face",
+        "present"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "35955",
+      "definition": "become quiet or quieter",
+      "pos": "v",
+      "lemma": "hush",
+      "all_lemmas": [
+        "hush",
+        "pipe down",
+        "quiesce",
+        "quiet",
+        "quiet down",
+        "quieten"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "34780",
+      "definition": "breed of various very small compact wiry-coated dogs of Belgian origin having a short bearded muzzle",
+      "pos": "n",
+      "lemma": "belgian griffon",
+      "all_lemmas": [
+        "belgian griffon",
+        "brussels griffon",
+        "griffon"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "49915",
+      "definition": "a propeller plane with an engine that drives two propellers in opposite directions (for stability)",
+      "pos": "n",
+      "lemma": "double-prop",
+      "all_lemmas": [
+        "double-prop",
+        "double-propeller plane",
+        "twin-prop",
+        "twin-propeller-plane"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "28242",
+      "definition": "not established by conditioning or learning",
+      "pos": "a",
+      "lemma": "innate",
+      "all_lemmas": [
+        "innate",
+        "unconditioned",
+        "unlearned"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "1463",
+      "definition": "eject the contents of the stomach through the mouth",
+      "pos": "v",
+      "lemma": "barf",
+      "all_lemmas": [
+        "barf",
+        "be sick",
+        "cast",
+        "cat",
+        "chuck",
+        "disgorge",
+        "honk",
+        "puke",
+        "purge",
+        "regorge",
+        "regurgitate",
+        "retch",
+        "sick",
+        "spew",
+        "spue",
+        "throw up",
+        "upchuck",
+        "vomit",
+        "vomit up"
+      ],
+      "lemma_count": 19
+    },
+    {
+      "id": "64032",
+      "definition": "the person or thing chosen or selected",
+      "pos": "n",
+      "lemma": "choice",
+      "all_lemmas": [
+        "choice",
+        "pick",
+        "selection"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "44992",
+      "definition": "a support or foundation",
+      "pos": "n",
+      "lemma": "base",
+      "all_lemmas": [
+        "base",
+        "pedestal",
+        "stand"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "4300",
+      "definition": "cut and assemble the components of",
+      "pos": "v",
+      "lemma": "cut",
+      "all_lemmas": [
+        "cut",
+        "edit",
+        "edit out"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "4792",
+      "definition": "without regard to specific details or exceptions",
+      "pos": "r",
+      "lemma": "broadly",
+      "all_lemmas": [
+        "broadly",
+        "broadly speaking",
+        "generally",
+        "loosely"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "6009",
+      "definition": "in a murderous frenzy",
+      "pos": "r",
+      "lemma": "amok",
+      "all_lemmas": [
+        "amok",
+        "amuck",
+        "murderously"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "88890",
+      "definition": "south European plant having dark-eyed flowers with flat blue rays",
+      "pos": "n",
+      "lemma": "blue succory",
+      "all_lemmas": [
+        "blue succory",
+        "catananche caerulea",
+        "cupid's dart"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "35976",
+      "definition": "deaden (a sound or noise), especially by wrapping",
+      "pos": "v",
+      "lemma": "damp",
+      "all_lemmas": [
+        "damp",
+        "dampen",
+        "dull",
+        "muffle",
+        "mute",
+        "tone down"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "422",
+      "definition": "used to indicate that a statement explains or supports a previous statement",
+      "pos": "r",
+      "lemma": "anyhow",
+      "all_lemmas": [
+        "anyhow",
+        "anyway",
+        "anyways",
+        "at any rate",
+        "in any case",
+        "in any event"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "66490",
+      "definition": "(law) a name under which a corporation conducts business that is not the legal name of the corporation as shown in its articles of incorporation",
+      "pos": "n",
+      "lemma": "assumed name",
+      "all_lemmas": [
+        "assumed name",
+        "dba",
+        "doing business as",
+        "fictitious name"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "93137",
+      "definition": "any of numerous fern allies of the genus Selaginella",
+      "pos": "n",
+      "lemma": "little club moss",
+      "all_lemmas": [
+        "little club moss",
+        "spike moss",
+        "spikemoss"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "89067",
+      "definition": "shrub with white woolly branches and woolly leaves having fragrant flowers forming long sprays; flowers suitable for drying; sometimes placed in genus Helichrysum",
+      "pos": "n",
+      "lemma": "cascade everlasting",
+      "all_lemmas": [
+        "cascade everlasting",
+        "helichrysum secundiflorum",
+        "ozothamnus secundiflorus"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "42686",
+      "definition": "flounder found from North Carolina to Florida and the eastern Gulf of Mexico",
+      "pos": "n",
+      "lemma": "etropus rimosus",
+      "all_lemmas": [
+        "etropus rimosus",
+        "gray flounder",
+        "grey flounder"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "6923",
+      "definition": "lose in value",
+      "pos": "v",
+      "lemma": "depreciate",
+      "all_lemmas": [
+        "depreciate",
+        "devaluate",
+        "devalue",
+        "undervalue"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "10606",
+      "definition": "lighted up by or as by fire or flame",
+      "pos": "s",
+      "lemma": "ablaze",
+      "all_lemmas": [
+        "ablaze",
+        "afire",
+        "aflame",
+        "aflare",
+        "alight",
+        "on fire"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "41556",
+      "definition": "exert pressure on someone through threats",
+      "pos": "v",
+      "lemma": "blackjack",
+      "all_lemmas": [
+        "blackjack",
+        "blackmail",
+        "pressure"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "494",
+      "definition": "excessively greedy and grasping",
+      "pos": "s",
+      "lemma": "rapacious",
+      "all_lemmas": [
+        "rapacious",
+        "ravening",
+        "voracious"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "21416",
+      "definition": "take vengeance on or get even",
+      "pos": "v",
+      "lemma": "fix",
+      "all_lemmas": [
+        "fix",
+        "get",
+        "pay back",
+        "pay off"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "30101",
+      "definition": "have a fancy or particular liking or desire for",
+      "pos": "v",
+      "lemma": "fancy",
+      "all_lemmas": [
+        "fancy",
+        "go for",
+        "take to"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "23407",
+      "definition": "of behavior that is impressive and ambitious in scale or scope",
+      "pos": "s",
+      "lemma": "expansive",
+      "all_lemmas": [
+        "expansive",
+        "grand",
+        "heroic"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "17210",
+      "definition": "reduced in efficacy or vitality or intensity",
+      "pos": "s",
+      "lemma": "shriveled",
+      "all_lemmas": [
+        "shriveled",
+        "shrivelled",
+        "shrunken"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "41561",
+      "definition": "characteristic of or devoted to the temporal world as opposed to the spiritual world",
+      "pos": "a",
+      "lemma": "secular",
+      "all_lemmas": [
+        "secular",
+        "temporal",
+        "worldly"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "57853",
+      "definition": "a small high-velocity shell; it makes a whizzing sound followed by a bang when it hits",
+      "pos": "n",
+      "lemma": "whizbang",
+      "all_lemmas": [
+        "whizbang",
+        "whizbang shell",
+        "whizzbang"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "2889",
+      "definition": "in accordance with what is appropriate or suitable for the circumstances",
+      "pos": "r",
+      "lemma": "appropriately",
+      "all_lemmas": [
+        "appropriately",
+        "befittingly",
+        "duly",
+        "fitly",
+        "fittingly",
+        "properly",
+        "suitably"
+      ],
+      "lemma_count": 7
+    },
+    {
+      "id": "39795",
+      "definition": "about three feet long exclusive of tail",
+      "pos": "n",
+      "lemma": "giant armadillo",
+      "all_lemmas": [
+        "giant armadillo",
+        "priodontes giganteus",
+        "tatou",
+        "tatu"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "94804",
+      "definition": "the process of permeating or infusing something with a substance",
+      "pos": "n",
+      "lemma": "permeation",
+      "all_lemmas": [
+        "permeation",
+        "pervasion",
+        "suffusion"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "88280",
+      "definition": "prostrate or semi-erect subshrub of tropical America, and Australia; heavily armed with recurved thorns and having sensitive soft grey-green leaflets that fold and droop at night or when touched or cooled",
+      "pos": "n",
+      "lemma": "action plant",
+      "all_lemmas": [
+        "action plant",
+        "humble plant",
+        "live-and-die",
+        "mimosa pudica",
+        "sensitive plant",
+        "shame plant",
+        "touch-me-not"
+      ],
+      "lemma_count": 7
+    },
+    {
+      "id": "59424",
+      "definition": "extreme care in spending money; reluctance to spend money unnecessarily",
+      "pos": "n",
+      "lemma": "parsimoniousness",
+      "all_lemmas": [
+        "parsimoniousness",
+        "parsimony",
+        "penny-pinching",
+        "thrift"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "40795",
+      "definition": "succeed in obtaining a position",
+      "pos": "v",
+      "lemma": "nail",
+      "all_lemmas": [
+        "nail",
+        "nail down",
+        "peg"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "2197",
+      "definition": "in a gradual manner",
+      "pos": "r",
+      "lemma": "bit by bit",
+      "all_lemmas": [
+        "bit by bit",
+        "gradually",
+        "step by step"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "6254",
+      "definition": "uttering speech while asleep",
+      "pos": "n",
+      "lemma": "sleep talking",
+      "all_lemmas": [
+        "sleep talking",
+        "somniloquism",
+        "somniloquy"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "49848",
+      "definition": "landing in a harbor next to a pier where ships are loaded and unloaded or repaired; may have gates to let water in or out",
+      "pos": "n",
+      "lemma": "dock",
+      "all_lemmas": [
+        "dock",
+        "dockage",
+        "docking facility"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "5232",
+      "definition": "(formal) in or into that thing or place",
+      "pos": "r",
+      "lemma": "in that",
+      "all_lemmas": [
+        "in that",
+        "in this",
+        "therein"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "47982",
+      "definition": "relating to abdominal delivery",
+      "pos": "a",
+      "lemma": "caesarean",
+      "all_lemmas": [
+        "caesarean",
+        "caesarian",
+        "cesarean",
+        "cesarian"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "19378",
+      "definition": "not making concessions",
+      "pos": "a",
+      "lemma": "inflexible",
+      "all_lemmas": [
+        "inflexible",
+        "sturdy",
+        "uncompromising"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "22361",
+      "definition": "the formal act of approving",
+      "pos": "n",
+      "lemma": "approval",
+      "all_lemmas": [
+        "approval",
+        "approving",
+        "blessing"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "101534",
+      "definition": "a soft suede leather formerly from the skin of the chamois antelope but now from sheepskin",
+      "pos": "n",
+      "lemma": "chammy",
+      "all_lemmas": [
+        "chammy",
+        "chammy leather",
+        "chamois",
+        "chamois leather",
+        "shammy",
+        "shammy leather"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "98515",
+      "definition": "sudden prostration due to exposure to the sun or excessive heat",
+      "pos": "n",
+      "lemma": "insolation",
+      "all_lemmas": [
+        "insolation",
+        "siriasis",
+        "sunstroke",
+        "thermic fever"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "23554",
+      "definition": "displaying luxury and furnishing gratification to the senses",
+      "pos": "s",
+      "lemma": "epicurean",
+      "all_lemmas": [
+        "epicurean",
+        "luxuriant",
+        "luxurious",
+        "sybaritic",
+        "voluptuary",
+        "voluptuous"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "42531",
+      "definition": "of or relating to invertebrates of the phylum Arthropoda",
+      "pos": "a",
+      "lemma": "arthropodal",
+      "all_lemmas": [
+        "arthropodal",
+        "arthropodan",
+        "arthropodous"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "90234",
+      "definition": "a plant of the genus Trapa bearing spiny four-pronged edible nutlike fruits",
+      "pos": "n",
+      "lemma": "caltrop",
+      "all_lemmas": [
+        "caltrop",
+        "water chestnut",
+        "water chestnut plant"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "6526",
+      "definition": "travelling about without any clear destination",
+      "pos": "n",
+      "lemma": "roving",
+      "all_lemmas": [
+        "roving",
+        "vagabondage",
+        "wandering"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "78144",
+      "definition": "a line that indicates a boundary",
+      "pos": "n",
+      "lemma": "border",
+      "all_lemmas": [
+        "border",
+        "borderline",
+        "boundary line",
+        "delimitation",
+        "mete"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "24078",
+      "definition": "having or marked by unusual and impressive intelligence",
+      "pos": "s",
+      "lemma": "brainy",
+      "all_lemmas": [
+        "brainy",
+        "brilliant",
+        "smart as a whip"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "69552",
+      "definition": "the Tibeto-Burman language spoken in northern Burma and Yunnan",
+      "pos": "n",
+      "lemma": "burmese-yi",
+      "all_lemmas": [
+        "burmese-yi",
+        "burmese-yi language",
+        "lolo-burmese",
+        "lolo-burmese language"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "21236",
+      "definition": "suggesting taste, ease, and wealth",
+      "pos": "s",
+      "lemma": "elegant",
+      "all_lemmas": [
+        "elegant",
+        "graceful",
+        "refined"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "96266",
+      "definition": "an overwhelming number or amount",
+      "pos": "n",
+      "lemma": "deluge",
+      "all_lemmas": [
+        "deluge",
+        "flood",
+        "inundation",
+        "torrent"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "92430",
+      "definition": "small tropical and subtropical edible mushroom having a white cap and long stem; an expensive delicacy in China and other Asian countries where it is grown commercially",
+      "pos": "n",
+      "lemma": "chinese mushroom",
+      "all_lemmas": [
+        "chinese mushroom",
+        "straw mushroom",
+        "volvariella volvacea"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "5497",
+      "definition": "form or accumulate steadily",
+      "pos": "v",
+      "lemma": "build",
+      "all_lemmas": [
+        "build",
+        "build up",
+        "progress",
+        "work up"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "127",
+      "definition": "having capacity or tendency to adsorb or cause to accumulate on a surface",
+      "pos": "a",
+      "lemma": "adsorbent",
+      "all_lemmas": [
+        "adsorbent",
+        "adsorptive",
+        "surface-assimilative"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "82059",
+      "definition": "a whimsically eccentric person",
+      "pos": "n",
+      "lemma": "crackpot",
+      "all_lemmas": [
+        "crackpot",
+        "crank",
+        "fruitcake",
+        "nut",
+        "nut case",
+        "screwball"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "44276",
+      "definition": "a support for the genitals worn by men engaging in strenuous exercise",
+      "pos": "n",
+      "lemma": "athletic supporter",
+      "all_lemmas": [
+        "athletic supporter",
+        "jock",
+        "jockstrap",
+        "supporter",
+        "suspensor"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "84224",
+      "definition": "a boy excessively attached to his mother; lacking normal masculine interests",
+      "pos": "n",
+      "lemma": "mama's boy",
+      "all_lemmas": [
+        "mama's boy",
+        "mamma's boy",
+        "mother's boy"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "5249",
+      "definition": "having two nuclei",
+      "pos": "a",
+      "lemma": "binuclear",
+      "all_lemmas": [
+        "binuclear",
+        "binucleate",
+        "binucleated"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "42450",
+      "definition": "relating to or resembling a member of the class Arachnida",
+      "pos": "a",
+      "lemma": "arachnidian",
+      "all_lemmas": [
+        "arachnidian",
+        "arachnoid",
+        "spiderlike",
+        "spiderly",
+        "spidery"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "31269",
+      "definition": "providing privacy or seclusion",
+      "pos": "s",
+      "lemma": "cloistered",
+      "all_lemmas": [
+        "cloistered",
+        "reclusive",
+        "secluded",
+        "sequestered"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "37311",
+      "definition": "make illegal payments to in exchange for favors or influence",
+      "pos": "v",
+      "lemma": "bribe",
+      "all_lemmas": [
+        "bribe",
+        "buy",
+        "corrupt",
+        "grease one's palms"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "46770",
+      "definition": "having notes of fixed rhythmic value",
+      "pos": "a",
+      "lemma": "measured",
+      "all_lemmas": [
+        "measured",
+        "mensurable",
+        "mensural"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "45711",
+      "definition": "an obstruction in a pipe or tube",
+      "pos": "n",
+      "lemma": "block",
+      "all_lemmas": [
+        "block",
+        "blockage",
+        "closure",
+        "occlusion",
+        "stop",
+        "stoppage"
+      ],
+      "lemma_count": 6
+    },
+    {
+      "id": "542",
+      "definition": "without any delay",
+      "pos": "r",
+      "lemma": "in a flash",
+      "all_lemmas": [
+        "in a flash",
+        "instantaneously",
+        "instantly",
+        "outright"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "22698",
+      "definition": "upright in position or posture",
+      "pos": "a",
+      "lemma": "erect",
+      "all_lemmas": [
+        "erect",
+        "upright",
+        "vertical"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "85487",
+      "definition": "(Yiddish) an awkward and stupid person",
+      "pos": "n",
+      "lemma": "schlep",
+      "all_lemmas": [
+        "schlep",
+        "schlepper",
+        "shlep",
+        "shlepper"
+      ],
+      "lemma_count": 4
+    },
+    {
+      "id": "18029",
+      "definition": "thoroughly acquainted through study or experience",
+      "pos": "s",
+      "lemma": "intimate",
+      "all_lemmas": [
+        "intimate",
+        "knowledgeable",
+        "versed"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "42976",
+      "definition": "of or relating to or characteristic of the subclass Branchiopoda",
+      "pos": "a",
+      "lemma": "branchiopod",
+      "all_lemmas": [
+        "branchiopod",
+        "branchiopodan",
+        "branchiopodous"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "25593",
+      "definition": "widely distributed in warm clear shallow streams",
+      "pos": "n",
+      "lemma": "hog molly",
+      "all_lemmas": [
+        "hog molly",
+        "hog sucker",
+        "hypentelium nigricans"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "20140",
+      "definition": "the act of indulging or gratifying a desire",
+      "pos": "n",
+      "lemma": "humoring",
+      "all_lemmas": [
+        "humoring",
+        "humouring",
+        "indulgence",
+        "indulging",
+        "pampering"
+      ],
+      "lemma_count": 5
+    },
+    {
+      "id": "63189",
+      "definition": "the formation of a mental image of something that is not perceived as real and is not present to the senses",
+      "pos": "n",
+      "lemma": "imagination",
+      "all_lemmas": [
+        "imagination",
+        "imaginativeness",
+        "vision"
+      ],
+      "lemma_count": 3
+    },
+    {
+      "id": "36845",
+      "definition": "notched like a saw with teeth pointing toward the apex",
+      "pos": "s",
+      "lemma": "notched",
+      "all_lemmas": [
+        "notched",
+        "saw-toothed",
+        "serrate",
+        "serrated",
+        "toothed"
+      ],
+      "lemma_count": 5
+    }
+  ],
+  "meta": {
+    "size": 500,
+    "seed": 42,
+    "min_lemma_count": 3,
+    "pos_distribution": {
+      "n": 250,
+      "v": 125,
+      "s": 50,
+      "r": 25,
+      "a": 50
+    },
+    "source_db": "/home/msi/projects/metaforge/.worktrees/sprint-zero/data-pipeline/raw/sqlunet_master.db"
+  }
+}
