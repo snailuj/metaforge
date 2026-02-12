@@ -206,6 +206,25 @@ def test_extract_batch_retries_on_failure(mock_invoke):
     assert mock_invoke.call_count == 3
 
 
+@patch("enrich_properties.invoke_claude")
+def test_extract_batch_retries_on_key_error(mock_invoke):
+    """Result event missing 'result' key triggers KeyError — must be retried."""
+    # Result event exists but lacks the "result" field → KeyError in parse_response
+    bad_events = [
+        {"type": "system", "subtype": "init", "session_id": "test"},
+        {"type": "result", "subtype": "success", "is_error": False},
+    ]
+    bad_proc = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(bad_events), stderr="",
+    )
+    ok_proc = _make_completed_process(CANNED_RESULT)
+    mock_invoke.side_effect = [bad_proc, ok_proc]
+
+    results = extract_batch(SAMPLE_SYNSETS, model="haiku")
+    assert len(results) == 2
+    assert mock_invoke.call_count == 2
+
+
 # --- 12. UsageExhaustedError on rate limit ------------------------------------
 
 def test_parse_response_rate_limit_raises_usage_exhausted():

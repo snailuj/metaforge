@@ -36,8 +36,18 @@ SIMILARITY_CHUNK_SIZE = 2048
 # 1. Curate properties (from curate_properties.py)
 # =============================================================================
 
+_fasttext_cache: dict[str, dict[str, tuple[float, ...]]] = {}
+
+
 def load_fasttext_vectors(vec_path: str) -> dict[str, tuple[float, ...]]:
-    """Load FastText vectors from .vec file into memory."""
+    """Load FastText vectors from .vec file into memory.
+
+    Results are cached by path — subsequent calls return the same dict.
+    """
+    if vec_path in _fasttext_cache:
+        print(f"  Using cached vectors for {vec_path}")
+        return _fasttext_cache[vec_path]
+
     vectors = {}
     print(f"  Loading {vec_path}...")
 
@@ -60,6 +70,7 @@ def load_fasttext_vectors(vec_path: str) -> dict[str, tuple[float, ...]]:
                 print(f"    Loaded {i + 1} words...")
 
     print(f"  Loaded {len(vectors)} vectors")
+    _fasttext_cache[vec_path] = vectors
     return vectors
 
 

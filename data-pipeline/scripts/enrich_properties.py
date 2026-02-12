@@ -174,11 +174,13 @@ def invoke_claude(prompt: str, model: str = "haiku", verbose: bool = False) -> s
 
 
 def _retry_unless_usage_exhausted(retry_state):
-    """Retry on transient errors but surface UsageExhaustedError immediately."""
+    """Retry on any error except UsageExhaustedError."""
     exc = retry_state.outcome.exception()
+    if exc is None:
+        return False
     if isinstance(exc, UsageExhaustedError):
         return False
-    return isinstance(exc, (RuntimeError, json.JSONDecodeError, ValueError))
+    return True
 
 
 @retry(

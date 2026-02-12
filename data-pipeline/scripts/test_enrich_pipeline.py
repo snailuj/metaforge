@@ -18,7 +18,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from enrich_pipeline import (
     MAX_PROPERTIES_PER_SYNSET,
     SIMILARITY_CHUNK_SIZE,
+    _fasttext_cache,
     curate_properties,
+    load_fasttext_vectors,
     populate_synset_properties,
     compute_idf,
     compute_property_similarity,
@@ -485,3 +487,25 @@ def test_similarity_chunk_size_one():
     assert (warm_id, cold_id) not in pairs
 
     assert count > 0
+
+
+# --- 13. FastText vector caching ---------------------------------------------
+
+def test_load_fasttext_vectors_caches(tmp_path):
+    """Second call with same path returns cached vectors without re-reading."""
+    vec_file = tmp_path / "test.vec"
+    vec_file.write_text("2 3\nhello 1.0 0.0 0.0\nworld 0.0 1.0 0.0\n")
+
+    # Clear any prior cache state
+    _fasttext_cache.clear()
+
+    v1 = load_fasttext_vectors(str(vec_file))
+    assert "hello" in v1
+
+    # Delete the file — second call must use cache, not disk
+    vec_file.unlink()
+
+    v2 = load_fasttext_vectors(str(vec_file))
+    assert v1 is v2
+
+    _fasttext_cache.clear()
