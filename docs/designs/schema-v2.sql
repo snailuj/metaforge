@@ -40,14 +40,19 @@ CREATE INDEX idx_relations_type ON relations(relation_type);
 
 CREATE TABLE frequencies (
     lemma TEXT PRIMARY KEY,
-    frequency INTEGER NOT NULL,
-    zipf REAL NOT NULL,
-    rarity TEXT NOT NULL CHECK (rarity IN ('common', 'uncommon', 'rare', 'archaic'))
+    familiarity REAL,
+    familiarity_dominant INTEGER,
+    zipf REAL,
+    frequency INTEGER,
+    rarity TEXT NOT NULL DEFAULT 'unusual'
+        CHECK (rarity IN ('common', 'unusual', 'rare')),
+    source TEXT
 );
 
 CREATE INDEX idx_frequencies_lemma ON frequencies(lemma);
 CREATE INDEX idx_frequencies_zipf ON frequencies(zipf);
 CREATE INDEX idx_frequencies_rarity ON frequencies(rarity);
+CREATE INDEX idx_frequencies_familiarity ON frequencies(familiarity);
 
 -- ============================================================
 -- VerbNet Selective Integration (classes, roles, examples only)
