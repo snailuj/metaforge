@@ -1,13 +1,18 @@
 """Tests for synset centroid computation."""
+import importlib
 import sqlite3
 import struct
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import LEXICON_V2, EMBEDDING_DIM
+
+# Import module with numeric prefix
+centroid_module = importlib.import_module("08_compute_synset_centroids")
 
 
 def test_synset_centroids_table_exists():
@@ -98,3 +103,27 @@ def test_centroid_index_exists():
 
     assert "synset_id" in columns, "synset_centroids should have synset_id column"
     assert columns["synset_id"] > 0, "synset_id should be primary key"
+
+
+# Unit tests for _compute_centroid function
+
+
+def test_compute_centroid_averages_vectors():
+    """Verify _compute_centroid averages vectors correctly."""
+    embeddings = [
+        np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        np.array([0.0, 1.0, 0.0], dtype=np.float32),
+    ]
+    centroid = centroid_module._compute_centroid(embeddings)
+
+    expected = np.array([0.5, 0.5, 0.0], dtype=np.float32)
+    np.testing.assert_array_almost_equal(centroid, expected, decimal=6)
+
+
+def test_compute_centroid_single_vector():
+    """Verify _compute_centroid with single vector returns itself."""
+    embeddings = [np.array([1.0, 2.0, 3.0], dtype=np.float32)]
+    centroid = centroid_module._compute_centroid(embeddings)
+
+    expected = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+    np.testing.assert_array_almost_equal(centroid, expected, decimal=6)
