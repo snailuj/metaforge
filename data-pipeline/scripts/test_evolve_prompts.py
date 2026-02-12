@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from evolve_prompts import (
     TrialResult, run_exploration, run_exploitation,
-    run_experiment, dry_run_estimate, generate_report,
+    run_experiment, dry_run_estimate, generate_report, improve_prompt,
 )
 
 
@@ -382,17 +382,14 @@ def test_run_experiment_combines_phases(mock_explore, mock_exploit, tmp_path):
 # --- 11. dry_run_estimate returns budget estimate ----------------------------
 
 def test_dry_run_estimate():
-    """dry_run_estimate returns a cost breakdown dict."""
+    """dry_run_estimate returns a run count breakdown dict."""
     estimate = dry_run_estimate(
         num_prompts=5,
         max_tweaks=7,
-        cost_per_run=1.50,
     )
     assert estimate["exploration_runs"] == 6  # baseline + 5
-    assert estimate["exploration_cost"] == 9.0
     assert estimate["max_exploitation_runs"] == 35  # 7 × 5 (worst case: all survive)
-    assert estimate["max_exploitation_cost"] == 52.5
-    assert estimate["max_total_cost"] == 61.5
+    assert estimate["max_total_runs"] == 41
 
 
 # --- 12. generate_report produces markdown with required sections -------------

@@ -413,30 +413,20 @@ def run_experiment(
     return all_trials
 
 
-# --- Budget estimate ---------------------------------------------------------
+# --- Dry run -----------------------------------------------------------------
 
 def dry_run_estimate(
     num_prompts: int = 5,
     max_tweaks: int = 7,
-    cost_per_run: float = 1.50,
 ) -> dict:
-    """Estimate budget for the experiment without running anything."""
+    """Estimate run counts for the experiment without running anything."""
     exploration_runs = 1 + num_prompts  # baseline + prompts
-    exploration_cost = exploration_runs * cost_per_run
-
-    # Worst case: all prompts survive
-    max_exploitation_runs = max_tweaks * num_prompts
-    max_exploitation_cost = max_exploitation_runs * cost_per_run
-
-    max_total = exploration_cost + max_exploitation_cost
+    max_exploitation_runs = max_tweaks * num_prompts  # worst case: all survive
 
     return {
         "exploration_runs": exploration_runs,
-        "exploration_cost": exploration_cost,
         "max_exploitation_runs": max_exploitation_runs,
-        "max_exploitation_cost": max_exploitation_cost,
         "max_total_runs": exploration_runs + max_exploitation_runs,
-        "max_total_cost": max_total,
     }
 
 
@@ -579,14 +569,11 @@ def main():
             num_prompts=len(EXPLORATION_PROMPTS),
             max_tweaks=args.max_tweaks,
         )
-        print("=== Dry Run: Budget Estimate ===")
-        print(f"  Exploration: {estimate['exploration_runs']} runs "
-              f"(~${estimate['exploration_cost']:.0f})")
-        print(f"  Exploitation (worst case): {estimate['max_exploitation_runs']} runs "
-              f"(~${estimate['max_exploitation_cost']:.0f})")
-        print(f"  Total (worst case): {estimate['max_total_runs']} runs "
-              f"(~${estimate['max_total_cost']:.0f})")
-        print("\nNote: Early stopping typically reduces exploitation cost by 30-50%.")
+        print("=== Dry Run: Run Count Estimate ===")
+        print(f"  Exploration: {estimate['exploration_runs']} runs")
+        print(f"  Exploitation (worst case): {estimate['max_exploitation_runs']} runs")
+        print(f"  Total (worst case): {estimate['max_total_runs']} runs")
+        print("\nNote: Early stopping typically reduces exploitation runs by 30-50%.")
         return
 
     if args.verbose:
