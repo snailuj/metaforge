@@ -15,6 +15,7 @@ import subprocess
 import sqlite3
 import time
 from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -35,6 +36,20 @@ class UsageExhaustedError(RuntimeError):
 
 
 _RATE_LIMIT_INDICATORS = ("rate limit", "usage limit", "quota", "overloaded", "429")
+
+
+@dataclass
+class EnrichmentResult:
+    """Result of a run_enrichment() invocation, including coverage stats."""
+    output_file: str
+    requested: int
+    succeeded: int
+    failed: int
+    failed_ids: list[str] = field(default_factory=list)
+
+    @property
+    def coverage(self) -> float:
+        return self.succeeded / self.requested if self.requested else 1.0
 
 
 # --- Prompt (Variant C: original prompt, 10-15 properties) -------------------
@@ -367,6 +382,7 @@ def run_enrichment(
 
     all_properties = []
     failed_batches = 0
+    failed_synset_ids: list[str] = []
 
     num_batches = (len(remaining) + batch_size - 1) // batch_size
     for batch_idx in range(num_batches):
@@ -396,6 +412,7 @@ def run_enrichment(
         except Exception as e:
             print(f"  BATCH FAILED after retries: {e}")
             failed_batches += 1
+            failed_synset_ids.extend(s['id'] for s in batch)
             save_checkpoint(checkpoint_path, {
                 "completed_ids": list(completed_ids),
                 "results": results,
@@ -423,6 +440,7 @@ def run_enrichment(
                 len(all_properties) / len(results), 2
             ) if results else 0,
             "failed_batches": failed_batches,
+            "failed_synset_ids": failed_synset_ids,
         },
         "config": {
             "model": model,
@@ -447,7 +465,13 @@ def run_enrichment(
     print(f"  Output: {output_file}")
 
     conn.close()
-    return str(output_file)
+    return EnrichmentResult(
+        output_file=str(output_file),
+        requested=len(synsets),
+        succeeded=len(results),
+        failed=len(failed_synset_ids),
+        failed_ids=failed_synset_ids,
+    )
 
 
 def main():

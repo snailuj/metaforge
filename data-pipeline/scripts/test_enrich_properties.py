@@ -17,6 +17,8 @@ from enrich_properties import (
     extract_batch,
     load_checkpoint,
     save_checkpoint,
+    run_enrichment,
+    EnrichmentResult,
     UsageExhaustedError,
 )
 
@@ -311,3 +313,137 @@ def test_extract_batch_invalid_template():
     """extract_batch raises ValueError if template lacks {batch_items}."""
     with pytest.raises(ValueError, match="batch_items"):
         extract_batch(SAMPLE_SYNSETS, model="haiku", prompt_template="No placeholder here")
+
+
+# --- Helpers for run_enrichment tests ----------------------------------------
+
+def _mock_sqlunet_db():
+    """Create a MagicMock that acts like a Path for SQLUNET_DB."""
+    mock_path = MagicMock()
+    mock_path.exists.return_value = True
+    mock_path.__str__ = lambda s: ":memory:"
+    return mock_path
+
+
+# --- 17. run_enrichment returns EnrichmentResult dataclass --------------------
+
+@patch("enrich_properties.extract_batch")
+@patch("enrich_properties.get_pilot_synsets")
+@patch("enrich_properties.sqlite3")
+def test_run_enrichment_returns_enrichment_result(
+    mock_sqlite, mock_get_synsets, mock_extract, tmp_path,
+):
+    """run_enrichment returns an EnrichmentResult dataclass with expected fields."""
+    mock_conn = MagicMock()
+    mock_sqlite.connect.return_value = mock_conn
+
+    mock_get_synsets.return_value = SAMPLE_SYNSETS
+    mock_extract.return_value = [
+        {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n",
+         "properties": ["warm", "flickering"]},
+        {"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v",
+         "properties": ["quiet", "intimate"]},
+    ]
+
+    with patch("enrich_properties.SQLUNET_DB", _mock_sqlunet_db()), \
+         patch("enrich_properties.OUTPUT_DIR", tmp_path):
+        result = run_enrichment(
+            size=2,
+            batch_size=20,
+            delay=0,
+            output_file=tmp_path / "out.json",
+        )
+
+    assert isinstance(result, EnrichmentResult)
+    assert result.requested == 2
+    assert result.succeeded == 2
+    assert result.failed == 0
+    assert result.failed_ids == []
+    assert result.coverage == 1.0
+    assert (tmp_path / "out.json").exists()
+    assert result.output_file == str(tmp_path / "out.json")
+
+
+# --- 18. run_enrichment tracks failed synset IDs ----------------------------
+
+@patch("enrich_properties.extract_batch")
+@patch("enrich_properties.get_pilot_synsets")
+@patch("enrich_properties.sqlite3")
+def test_run_enrichment_tracks_failed_synset_ids(
+    mock_sqlite, mock_get_synsets, mock_extract, tmp_path,
+):
+    """When a batch fails, run_enrichment captures the failed synset IDs."""
+    mock_conn = MagicMock()
+    mock_sqlite.connect.return_value = mock_conn
+
+    synsets = [
+        {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n"},
+        {"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v"},
+        {"id": "100003", "lemma": "thunder", "definition": "loud noise", "pos": "n"},
+    ]
+    mock_get_synsets.return_value = synsets
+
+    # First batch succeeds (first 2), second batch fails (third synset)
+    mock_extract.side_effect = [
+        [
+            {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n",
+             "properties": ["warm"]},
+            {"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v",
+             "properties": ["quiet"]},
+        ],
+        RuntimeError("API failure"),
+    ]
+
+    with patch("enrich_properties.SQLUNET_DB", _mock_sqlunet_db()), \
+         patch("enrich_properties.OUTPUT_DIR", tmp_path):
+        result = run_enrichment(
+            size=3,
+            batch_size=2,
+            delay=0,
+            output_file=tmp_path / "out.json",
+        )
+
+    assert isinstance(result, EnrichmentResult)
+    assert result.succeeded == 2
+    assert result.failed == 1
+    assert result.failed_ids == ["100003"]
+    assert result.coverage == pytest.approx(2 / 3)
+
+
+# --- 19. enrichment output JSON includes failed_synset_ids -------------------
+
+@patch("enrich_properties.extract_batch")
+@patch("enrich_properties.get_pilot_synsets")
+@patch("enrich_properties.sqlite3")
+def test_enrichment_output_json_includes_failed_ids(
+    mock_sqlite, mock_get_synsets, mock_extract, tmp_path,
+):
+    """Output JSON file includes failed_synset_ids in stats."""
+    mock_conn = MagicMock()
+    mock_sqlite.connect.return_value = mock_conn
+
+    synsets = [
+        {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n"},
+        {"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v"},
+    ]
+    mock_get_synsets.return_value = synsets
+
+    # First synset succeeds, second batch fails
+    mock_extract.side_effect = [
+        [{"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n",
+          "properties": ["warm"]}],
+        RuntimeError("Timeout"),
+    ]
+
+    with patch("enrich_properties.SQLUNET_DB", _mock_sqlunet_db()), \
+         patch("enrich_properties.OUTPUT_DIR", tmp_path):
+        result = run_enrichment(
+            size=2,
+            batch_size=1,
+            delay=0,
+            output_file=tmp_path / "out.json",
+        )
+
+    output = json.loads((tmp_path / "out.json").read_text())
+    assert "failed_synset_ids" in output["stats"]
+    assert output["stats"]["failed_synset_ids"] == ["100002"]
