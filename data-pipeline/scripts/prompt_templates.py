@@ -171,3 +171,59 @@ def generate_tweak(
         "modified_prompt": tweak["modified_prompt"],
         "description": tweak.get("description", "no description"),
     }
+
+
+# --- Second-stage prompt improver --------------------------------------------
+
+_IMPROVER_META_PROMPT = """You are a prompt engineering expert. Your task is to improve the quality of the following prompt that extracts sensory/behavioural properties from word senses.
+
+Apply prompt engineering best practices:
+- Ensure clear, unambiguous instructions
+- Structure for optimal LLM comprehension
+- Remove redundancy or contradictions
+- Improve instruction ordering and flow
+- Do NOT add example words or specific domain content
+- Do NOT add concrete word examples (like "candle", "whisper", etc.)
+
+CRITICAL: The improved prompt MUST contain the literal text {{batch_items}} (with curly braces) as a placeholder — this is where word senses get inserted at runtime. Do not remove or alter this placeholder.
+
+Here is the prompt to improve:
+---
+{raw_prompt}
+---
+
+Return ONLY the improved prompt text. No explanation, no markdown fences, no preamble."""
+
+
+def improve_prompt(
+    raw_prompt: str,
+    model: str = "sonnet",
+) -> str:
+    """Apply prompt engineering best practices to a raw exploitation tweak.
+
+    Sends the prompt through a stronger model with instructions to improve
+    clarity and structure without adding domain-specific content.
+    Preserves the {batch_items} placeholder.
+
+    Returns the improved prompt text.
+    Raises ValueError if the improved prompt lacks {batch_items}.
+    """
+    meta = _IMPROVER_META_PROMPT.format(raw_prompt=raw_prompt)
+    proc = invoke_claude(meta, model=model)
+
+    events = json.loads(proc.stdout)
+    result_event = next(
+        (e for e in reversed(events) if e.get("type") == "result"), None
+    )
+    if result_event is None or result_event.get("is_error"):
+        raise ValueError("Failed to improve prompt: no valid result from LLM")
+
+    text = result_event["result"].strip()
+    # Strip markdown fences if present
+    text = re.sub(r'^```(?:markdown)?\s*', '', text)
+    text = re.sub(r'\s*```$', '', text)
+
+    if "{batch_items}" not in text:
+        raise ValueError("Improved prompt missing {batch_items} placeholder")
+
+    return text

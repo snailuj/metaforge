@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from enrich_properties import BATCH_PROMPT, UsageExhaustedError
 from evaluate_mrr import evaluate
-from prompt_templates import EXPLORATION_PROMPTS, generate_tweak
+from prompt_templates import EXPLORATION_PROMPTS, generate_tweak, improve_prompt
 from utils import OUTPUT_DIR
 
 
@@ -233,6 +233,7 @@ def run_exploitation(
     output_dir: Path = None,
     verbose: bool = False,
     exploit_model: str = "haiku",
+    improver_model: str = "sonnet",
 ) -> list[TrialResult]:
     """Exploit a surviving prompt with incremental tweaks.
 
@@ -262,6 +263,9 @@ def run_exploitation(
                 mrr=current_mrr,
                 model=exploit_model,
             )
+            # Second stage: improve the raw tweak with a stronger model
+            improved = improve_prompt(tweak["modified_prompt"], model=improver_model)
+            tweak["modified_prompt"] = improved
         except (ValueError, RuntimeError) as e:
             print(f"  Tweak generation failed: {e}")
             consecutive_failures += 1
@@ -337,6 +341,7 @@ def run_experiment(
     phase: str = "both",
     verbose: bool = False,
     exploit_model: str = "haiku",
+    improver_model: str = "sonnet",
 ) -> list[TrialResult]:
     """Run full evolutionary prompt experiment: exploration → exploitation.
 
@@ -390,6 +395,7 @@ def run_experiment(
                 output_dir=output_dir,
                 verbose=verbose,
                 exploit_model=exploit_model,
+                improver_model=improver_model,
             )
             all_trials.extend(exploit_trials)
 
@@ -551,6 +557,10 @@ def main():
         help="Model for tweak generation in exploitation (default: haiku)",
     )
     parser.add_argument(
+        "--improver-model", type=str, default="sonnet",
+        help="Model for prompt improvement stage (default: sonnet)",
+    )
+    parser.add_argument(
         "--verbose", action="store_true",
         help="Enable DEBUG logging for raw LLM request/response",
     )
@@ -586,6 +596,7 @@ def main():
         phase=args.phase,
         verbose=args.verbose,
         exploit_model=args.exploit_model,
+        improver_model=args.improver_model,
     )
 
     print(f"\n=== Experiment complete: {len(all_trials)} total trials ===")

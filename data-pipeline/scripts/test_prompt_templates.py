@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 
 from unittest.mock import patch
-from prompt_templates import EXPLORATION_PROMPTS, generate_tweak
+from prompt_templates import EXPLORATION_PROMPTS, generate_tweak, improve_prompt
 
 
 # --- 1. All exploration prompts have {batch_items} placeholder ----------------
@@ -150,3 +150,70 @@ def test_generate_tweak_rejects_missing_placeholder(mock_invoke):
             mrr=0.5,
             model="haiku",
         )
+
+
+# --- 9. improve_prompt preserves {batch_items} placeholder --------------------
+
+@patch("prompt_templates.invoke_claude")
+def test_improve_prompt_preserves_batch_items_placeholder(mock_invoke):
+    """improve_prompt returns a prompt that still contains {batch_items}."""
+    import json
+    import subprocess
+
+    improved_text = "Improved prompt with {batch_items} placeholder."
+    events = [
+        {"type": "result", "subtype": "success", "is_error": False,
+         "result": improved_text},
+    ]
+    mock_invoke.return_value = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+
+    result = improve_prompt("Raw prompt: {batch_items}", model="sonnet")
+    assert "{batch_items}" in result
+
+
+# --- 10. improve_prompt uses the specified model ------------------------------
+
+@patch("prompt_templates.invoke_claude")
+def test_improve_prompt_called_with_stronger_model(mock_invoke):
+    """improve_prompt calls invoke_claude with the specified model."""
+    import json
+    import subprocess
+
+    events = [
+        {"type": "result", "subtype": "success", "is_error": False,
+         "result": "Improved: {batch_items}"},
+    ]
+    mock_invoke.return_value = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+
+    improve_prompt("Raw: {batch_items}", model="sonnet")
+    call_kwargs = mock_invoke.call_args[1] if mock_invoke.call_args[1] else {}
+    call_args = mock_invoke.call_args[0] if mock_invoke.call_args[0] else []
+    # model should be "sonnet"
+    if "model" in call_kwargs:
+        assert call_kwargs["model"] == "sonnet"
+    else:
+        assert call_args[1] == "sonnet"
+
+
+# --- 11. improve_prompt rejects response without {batch_items} ----------------
+
+@patch("prompt_templates.invoke_claude")
+def test_improve_prompt_rejects_response_without_placeholder(mock_invoke):
+    """improve_prompt raises ValueError if LLM drops the {batch_items} placeholder."""
+    import json
+    import subprocess
+
+    events = [
+        {"type": "result", "subtype": "success", "is_error": False,
+         "result": "Improved prompt without placeholder"},
+    ]
+    mock_invoke.return_value = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+
+    with pytest.raises(ValueError, match="batch_items"):
+        improve_prompt("Raw: {batch_items}", model="sonnet")
