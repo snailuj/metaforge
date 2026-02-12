@@ -279,6 +279,7 @@ def evaluate(
     enrich_batch_size: int = 20,
     enrich_delay: float = 1.0,
     prompt_template: str = None,
+    coverage_threshold: float = 0.9,
 ) -> dict:
     """Run full MRR evaluation.
 
@@ -330,10 +331,13 @@ def evaluate(
     print(f"  Required synset IDs: {len(all_synset_ids)}")
 
     # Step 2: Get enrichment JSON (LLM or pre-computed)
+    enrichment_coverage = None
+    enrichment_succeeded = None
+    enrichment_failed = None
     if enrich_size is not None:
         print(f"  Running LLM enrichment (size={enrich_size}, "
               f"required={len(all_synset_ids)})...")
-        enrichment_file = run_enrichment(
+        enrich_result = run_enrichment(
             size=enrich_size,
             batch_size=enrich_batch_size,
             model=enrich_model,
@@ -342,6 +346,12 @@ def evaluate(
             required_synset_ids=all_synset_ids,
             prompt_template=prompt_template,
         )
+        enrichment_file = enrich_result.output_file
+        enrichment_coverage = enrich_result.coverage
+        enrichment_succeeded = enrich_result.succeeded
+        enrichment_failed = enrich_result.failed
+        print(f"  Enrichment coverage: {enrichment_coverage:.2%} "
+              f"({enrichment_succeeded}/{enrich_result.requested})")
 
     # Step 3: Run downstream pipeline on the work DB
     print("  Running enrichment pipeline...")
@@ -395,6 +405,16 @@ def evaluate(
     secondary = compute_secondary_metrics(conn)
     conn.close()
 
+    # Determine validity based on enrichment coverage
+    valid = True
+    invalid_reason = None
+    if enrichment_coverage is not None and enrichment_coverage < coverage_threshold:
+        valid = False
+        invalid_reason = (
+            f"Enrichment coverage {enrichment_coverage:.2%} "
+            f"below threshold {coverage_threshold:.0%}"
+        )
+
     results = {
         "mrr": round(mrr, 4),
         "testable_pairs": len(testable),
@@ -402,12 +422,21 @@ def evaluate(
         "per_pair": per_pair,
         "skipped": skipped,
         "secondary": secondary,
+        "valid": valid,
         "config": {
             "enrichment_file": enrichment_file,
             "threshold": threshold,
             "limit": limit,
         },
     }
+
+    if enrichment_coverage is not None:
+        results["enrichment_coverage"] = round(enrichment_coverage, 4)
+        results["enrichment_succeeded"] = enrichment_succeeded
+        results["enrichment_failed"] = enrichment_failed
+
+    if invalid_reason:
+        results["invalid_reason"] = invalid_reason
 
     if output_file:
         with open(output_file, "w") as f:

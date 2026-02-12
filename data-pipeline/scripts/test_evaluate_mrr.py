@@ -12,6 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from enrich_properties import EnrichmentResult
 from evaluate_mrr import (
     load_metaphor_pairs,
     resolve_pair_synsets,
@@ -342,7 +343,10 @@ def test_evaluate_enrich_mode_passes_synset_ids(tmp_path):
         output_path = kwargs.get("output_file")
         if output_path:
             Path(output_path).write_text(json.dumps(fake_enrichment))
-        return str(fake_enrichment_path)
+        return EnrichmentResult(
+            output_file=str(fake_enrichment_path),
+            requested=2, succeeded=2, failed=0, failed_ids=[],
+        )
 
     mock_secondary = {"unique_properties": 3, "hapax_count": 2,
                        "hapax_rate": 0.67, "avg_properties_per_synset": 3.0}
@@ -415,7 +419,10 @@ def test_evaluate_threads_prompt_template(tmp_path):
         output_path = kwargs.get("output_file")
         if output_path:
             Path(output_path).write_text(json.dumps(fake_enrichment))
-        return str(fake_enrichment_path)
+        return EnrichmentResult(
+            output_file=str(fake_enrichment_path),
+            requested=2, succeeded=2, failed=0, failed_ids=[],
+        )
 
     mock_secondary = {"unique_properties": 2, "hapax_count": 1,
                        "hapax_rate": 0.5, "avg_properties_per_synset": 2.0}
@@ -444,3 +451,157 @@ def test_evaluate_threads_prompt_template(tmp_path):
         )
 
     assert captured["prompt_template"] == custom_prompt
+
+
+# --- Helper: evaluate with standard mocks ------------------------------------
+
+def _setup_evaluate_mocks(tmp_path, enrichment_result):
+    """Create standard fixtures for evaluate() tests, returning patch context."""
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps([
+        {"source": "anger", "target": "fire", "tier": "strong"},
+    ]))
+
+    baseline_sql = tmp_path / "baseline.sql"
+    baseline_sql.write_text(
+        "CREATE TABLE lemmas (lemma TEXT, synset_id TEXT, PRIMARY KEY (lemma, synset_id));\n"
+        "INSERT INTO lemmas VALUES ('anger', 'syn-anger-01');\n"
+        "INSERT INTO lemmas VALUES ('fire', 'syn-fire-01');\n"
+        "CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, definition TEXT);\n"
+        "INSERT INTO synsets VALUES ('syn-anger-01', 'a strong emotion');\n"
+        "INSERT INTO synsets VALUES ('syn-fire-01', 'combustion');\n"
+    )
+
+    fake_enrichment = {
+        "synsets": [
+            {"id": "syn-anger-01", "lemma": "anger", "definition": "a strong emotion",
+             "pos": "n", "properties": ["hot", "intense"]},
+            {"id": "syn-fire-01", "lemma": "fire", "definition": "combustion",
+             "pos": "n", "properties": ["hot", "bright"]},
+        ],
+        "config": {"model": "haiku"},
+    }
+    fake_enrichment_path = tmp_path / "enrichment.json"
+    fake_enrichment_path.write_text(json.dumps(fake_enrichment))
+
+    def mock_run_enrichment(**kwargs):
+        output_path = kwargs.get("output_file")
+        if output_path:
+            Path(output_path).write_text(json.dumps(fake_enrichment))
+        return enrichment_result
+
+    mock_secondary = {"unique_properties": 2, "hapax_count": 1,
+                       "hapax_rate": 0.5, "avg_properties_per_synset": 2.0}
+
+    return pairs_file, baseline_sql, mock_run_enrichment, mock_secondary
+
+
+# --- 16. evaluate includes enrichment_coverage in results --------------------
+
+def test_evaluate_includes_enrichment_coverage(tmp_path):
+    """evaluate() includes enrichment_coverage in results when in enrich mode."""
+    from evaluate_mrr import evaluate
+
+    er = EnrichmentResult(
+        output_file=str(tmp_path / "enrichment.json"),
+        requested=100, succeeded=95, failed=5,
+        failed_ids=["id1", "id2", "id3", "id4", "id5"],
+    )
+    pairs_file, baseline_sql, mock_enrich, mock_sec = _setup_evaluate_mocks(tmp_path, er)
+
+    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+         patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
+         patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
+         patch("evaluate_mrr.run_enrichment", mock_enrich), \
+         patch("evaluate_mrr.run_pipeline"), \
+         patch("evaluate_mrr.compute_secondary_metrics", return_value=mock_sec), \
+         patch("evaluate_mrr.start_server") as mock_server, \
+         patch("evaluate_mrr.wait_for_health"), \
+         patch("evaluate_mrr.stop_server"), \
+         patch("evaluate_mrr.query_forge_rank", return_value=1):
+
+        mock_server.return_value = MagicMock()
+        results = evaluate(
+            enrichment_file=None,
+            pairs_file=str(pairs_file),
+            enrich_size=500,
+            enrich_model="haiku",
+        )
+
+    assert "enrichment_coverage" in results
+    assert results["enrichment_coverage"] == pytest.approx(0.95)
+    assert results["enrichment_succeeded"] == 95
+    assert results["enrichment_failed"] == 5
+
+
+# --- 17. evaluate flags low coverage as invalid ------------------------------
+
+def test_evaluate_flags_low_coverage_as_invalid(tmp_path):
+    """evaluate() sets valid=False when coverage < threshold."""
+    from evaluate_mrr import evaluate
+
+    er = EnrichmentResult(
+        output_file=str(tmp_path / "enrichment.json"),
+        requested=100, succeeded=50, failed=50,
+        failed_ids=[f"id{i}" for i in range(50)],
+    )
+    pairs_file, baseline_sql, mock_enrich, mock_sec = _setup_evaluate_mocks(tmp_path, er)
+
+    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+         patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
+         patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
+         patch("evaluate_mrr.run_enrichment", mock_enrich), \
+         patch("evaluate_mrr.run_pipeline"), \
+         patch("evaluate_mrr.compute_secondary_metrics", return_value=mock_sec), \
+         patch("evaluate_mrr.start_server") as mock_server, \
+         patch("evaluate_mrr.wait_for_health"), \
+         patch("evaluate_mrr.stop_server"), \
+         patch("evaluate_mrr.query_forge_rank", return_value=1):
+
+        mock_server.return_value = MagicMock()
+        results = evaluate(
+            enrichment_file=None,
+            pairs_file=str(pairs_file),
+            enrich_size=500,
+            enrich_model="haiku",
+            coverage_threshold=0.9,
+        )
+
+    assert results["valid"] is False
+    assert "coverage" in results.get("invalid_reason", "").lower()
+
+
+# --- 18. evaluate high coverage is valid -------------------------------------
+
+def test_evaluate_high_coverage_is_valid(tmp_path):
+    """evaluate() sets valid=True when coverage >= threshold."""
+    from evaluate_mrr import evaluate
+
+    er = EnrichmentResult(
+        output_file=str(tmp_path / "enrichment.json"),
+        requested=100, succeeded=95, failed=5,
+        failed_ids=[f"id{i}" for i in range(5)],
+    )
+    pairs_file, baseline_sql, mock_enrich, mock_sec = _setup_evaluate_mocks(tmp_path, er)
+
+    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+         patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
+         patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
+         patch("evaluate_mrr.run_enrichment", mock_enrich), \
+         patch("evaluate_mrr.run_pipeline"), \
+         patch("evaluate_mrr.compute_secondary_metrics", return_value=mock_sec), \
+         patch("evaluate_mrr.start_server") as mock_server, \
+         patch("evaluate_mrr.wait_for_health"), \
+         patch("evaluate_mrr.stop_server"), \
+         patch("evaluate_mrr.query_forge_rank", return_value=1):
+
+        mock_server.return_value = MagicMock()
+        results = evaluate(
+            enrichment_file=None,
+            pairs_file=str(pairs_file),
+            enrich_size=500,
+            enrich_model="haiku",
+            coverage_threshold=0.9,
+        )
+
+    assert results["valid"] is True
