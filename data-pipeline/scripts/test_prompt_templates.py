@@ -7,7 +7,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 
 from unittest.mock import patch
-from prompt_templates import EXPLORATION_PROMPTS, generate_tweak, improve_prompt
+from prompt_templates import (
+    EXPLORATION_PROMPTS, generate_tweak, improve_prompt,
+    load_fixture_vocabulary,
+)
 
 
 # --- 1. All exploration prompts have {batch_items} placeholder ----------------
@@ -304,3 +307,117 @@ def test_tweak_meta_prompt_has_aggregate_stats(mock_invoke):
     assert "0.4" in sent_prompt
     # Should mention hit count or pair count
     assert "3" in sent_prompt or "pair" in sent_prompt.lower()
+
+
+# --- 14. load_fixture_vocabulary extracts words from pairs --------------------
+
+def test_load_fixture_vocabulary(tmp_path):
+    """load_fixture_vocabulary returns frozenset of source+target words."""
+    import json
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps([
+        {"source": "anger", "target": "fire"},
+        {"source": "hope", "target": "light"},
+    ]))
+    vocab = load_fixture_vocabulary(str(pairs_file))
+    assert isinstance(vocab, frozenset)
+    assert vocab == frozenset({"anger", "fire", "hope", "light"})
+
+
+# --- 15. generate_tweak rejects contaminated prompt --------------------------
+
+@patch("prompt_templates.invoke_claude")
+def test_generate_tweak_rejects_contaminated_prompt(mock_invoke):
+    """generate_tweak raises ValueError when LLM embeds fixture words."""
+    import json
+    import subprocess
+
+    # Modified prompt contains "anger" which is a fixture word
+    tweak_response = {
+        "modified_prompt": "Think about anger when extracting: {batch_items}\n[{{}}]",
+        "description": "added anger reference",
+    }
+    events = [
+        {"type": "result", "subtype": "success", "is_error": False,
+         "result": json.dumps(tweak_response)},
+    ]
+    mock_invoke.return_value = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+
+    fixture_vocab = frozenset({"anger", "fire", "hope", "light"})
+
+    with pytest.raises(ValueError, match="fixture"):
+        generate_tweak(
+            current_prompt="Original: {batch_items}\n[{{}}]",
+            per_pair=[],
+            mrr=0.5,
+            model="haiku",
+            fixture_vocab=fixture_vocab,
+        )
+
+
+# --- 16. generate_tweak allows clean prompt ----------------------------------
+
+@patch("prompt_templates.invoke_claude")
+def test_generate_tweak_allows_clean_prompt(mock_invoke):
+    """generate_tweak succeeds when modified prompt has no fixture words."""
+    import json
+    import subprocess
+
+    tweak_response = {
+        "modified_prompt": "Better extraction: {batch_items}\nJSON: [{{}}]",
+        "description": "improved structure",
+    }
+    events = [
+        {"type": "result", "subtype": "success", "is_error": False,
+         "result": json.dumps(tweak_response)},
+    ]
+    mock_invoke.return_value = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+
+    fixture_vocab = frozenset({"anger", "fire", "hope", "light"})
+
+    result = generate_tweak(
+        current_prompt="Original: {batch_items}\n[{{}}]",
+        per_pair=[],
+        mrr=0.5,
+        model="haiku",
+        fixture_vocab=fixture_vocab,
+    )
+    assert "{batch_items}" in result["modified_prompt"]
+
+
+# --- 17. fixture words already in base prompt are OK --------------------------
+
+@patch("prompt_templates.invoke_claude")
+def test_fixture_words_already_in_base_prompt_ok(mock_invoke):
+    """Words in both current and modified prompt don't trigger guard."""
+    import json
+    import subprocess
+
+    # "light" is in both current and modified prompt
+    tweak_response = {
+        "modified_prompt": "Focus on light properties: {batch_items}\n[{{}}]",
+        "description": "added light emphasis",
+    }
+    events = [
+        {"type": "result", "subtype": "success", "is_error": False,
+         "result": json.dumps(tweak_response)},
+    ]
+    mock_invoke.return_value = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+
+    fixture_vocab = frozenset({"anger", "fire", "hope", "light"})
+
+    # "light" already in current prompt — should be allowed
+    result = generate_tweak(
+        current_prompt="Extract light and sensory: {batch_items}\n[{{}}]",
+        per_pair=[],
+        mrr=0.5,
+        model="haiku",
+        fixture_vocab=fixture_vocab,
+    )
+    assert "light" in result["modified_prompt"]

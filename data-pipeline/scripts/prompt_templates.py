@@ -119,11 +119,23 @@ Return ONLY a JSON object (no markdown, no explanation):
 """
 
 
+def load_fixture_vocabulary(pairs_path: str) -> frozenset[str]:
+    """Extract all unique source+target words from metaphor pairs JSON."""
+    with open(pairs_path) as f:
+        pairs = json.load(f)
+    words = set()
+    for pair in pairs:
+        words.add(pair["source"])
+        words.add(pair["target"])
+    return frozenset(words)
+
+
 def generate_tweak(
     current_prompt: str,
     per_pair: list[dict],
     mrr: float,
     model: str = "haiku",
+    fixture_vocab: frozenset[str] = None,
 ) -> dict:
     """Generate a targeted prompt tweak using an LLM.
 
@@ -181,6 +193,17 @@ def generate_tweak(
         raise ValueError("Tweak response missing 'modified_prompt' key")
     if "{batch_items}" not in tweak["modified_prompt"]:
         raise ValueError("Tweaked prompt missing {batch_items} placeholder")
+
+    # Fixture vocabulary guard: reject if new fixture words leaked in
+    if fixture_vocab:
+        current_words = set(current_prompt.lower().split())
+        modified_words = set(tweak["modified_prompt"].lower().split())
+        new_words = modified_words - current_words
+        leaked = {w for w in fixture_vocab if w.lower() in new_words}
+        if leaked:
+            raise ValueError(
+                f"Tweaked prompt contains fixture vocabulary: {leaked}"
+            )
 
     return {
         "modified_prompt": tweak["modified_prompt"],
