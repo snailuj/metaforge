@@ -44,6 +44,15 @@ class TrialResult:
     timestamp: str
     enrichment_coverage: float = 1.0
     valid: bool = True
+    # v2 instrumentation
+    mrr_shared: Optional[float] = None
+    parent_mrr_shared: Optional[float] = None
+    shared_delta: Optional[float] = None
+    eval_subset: Optional[list[str]] = None
+    shared_with_parent: Optional[list[str]] = None
+    rotation_seed: Optional[int] = None
+    pool_version: Optional[str] = None
+    elo_rating: Optional[float] = None
 
 
 # --- Helpers -----------------------------------------------------------------

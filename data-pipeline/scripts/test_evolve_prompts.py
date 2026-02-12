@@ -785,3 +785,53 @@ def test_exploitation_passes_fixture_vocab_to_tweak(mock_evaluate, mock_tweak, m
 
     tweak_kwargs = mock_tweak.call_args[1]
     assert tweak_kwargs["fixture_vocab"] == vocab
+
+
+# --- TrialResult v2 instrumentation fields ------------------------------------
+
+def test_trial_result_v2_fields():
+    """TrialResult has v2 instrumentation fields with defaults."""
+    t = TrialResult(
+        trial_id="test", prompt_name="test", prompt_text="x",
+        mrr=0.1, per_pair=[], secondary={}, parent_id=None,
+        generation=0, mutation=None, survived=True,
+        timestamp="2026-01-01",
+    )
+    # v1 defaults
+    assert t.enrichment_coverage == 1.0
+    assert t.valid is True
+    # v2 defaults
+    assert t.mrr_shared is None
+    assert t.parent_mrr_shared is None
+    assert t.shared_delta is None
+    assert t.eval_subset is None
+    assert t.shared_with_parent is None
+    assert t.rotation_seed is None
+    assert t.pool_version is None
+    assert t.elo_rating is None
+
+
+def test_trial_result_v2_fields_serialise(tmp_path):
+    """v2 fields survive JSON round-trip."""
+    t = TrialResult(
+        trial_id="test", prompt_name="test", prompt_text="x",
+        mrr=0.1, per_pair=[], secondary={}, parent_id=None,
+        generation=0, mutation=None, survived=True,
+        timestamp="2026-01-01",
+        mrr_shared=0.09, parent_mrr_shared=0.08,
+        shared_delta=0.01, eval_subset=["a:b", "c:d"],
+        shared_with_parent=["a:b"], rotation_seed=42,
+        pool_version="sha256:abc123", elo_rating=1523.4,
+    )
+    d = asdict(t)
+    assert d["mrr_shared"] == 0.09
+    assert d["eval_subset"] == ["a:b", "c:d"]
+    assert d["elo_rating"] == 1523.4
+
+    # Round-trip via JSON
+    out = tmp_path / "t.json"
+    out.write_text(json.dumps(d))
+    loaded = json.loads(out.read_text())
+    t2 = TrialResult(**loaded)
+    assert t2.mrr_shared == 0.09
+    assert t2.rotation_seed == 42
