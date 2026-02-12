@@ -656,3 +656,65 @@ def test_evolve_cli_verbose_flag():
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(["--verbose"])
     assert args.verbose is True
+
+
+# --- 20. exploitation uses exploit_model for tweak generation -----------------
+
+@patch("evolve_prompts.generate_tweak")
+@patch("evolve_prompts.evaluate")
+def test_exploitation_uses_exploit_model_for_tweak(mock_evaluate, mock_tweak, tmp_path):
+    """run_exploitation passes exploit_model to generate_tweak, not main model."""
+    mock_evaluate.side_effect = [
+        _make_eval_result(0.20),  # tweak 1 improves
+    ]
+    mock_tweak.return_value = {
+        "modified_prompt": "Tweak: {batch_items}\n[{{}}]", "description": "tweak 1",
+    }
+
+    run_exploitation(
+        survivor_name="test",
+        survivor_prompt="Original: {batch_items}\n[{{}}]",
+        survivor_mrr=0.15,
+        per_pair=[],
+        max_tweaks=1,
+        model="haiku",
+        exploit_model="sonnet",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+    )
+
+    # generate_tweak should have been called with model="sonnet"
+    tweak_kwargs = mock_tweak.call_args[1]
+    assert tweak_kwargs["model"] == "sonnet"
+
+
+# --- 21. exploitation uses main model for enrichment -------------------------
+
+@patch("evolve_prompts.generate_tweak")
+@patch("evolve_prompts.evaluate")
+def test_exploitation_uses_main_model_for_enrichment(mock_evaluate, mock_tweak, tmp_path):
+    """run_exploitation uses the main model for evaluate (enrichment), not exploit_model."""
+    mock_evaluate.side_effect = [
+        _make_eval_result(0.20),
+    ]
+    mock_tweak.return_value = {
+        "modified_prompt": "Tweak: {batch_items}\n[{{}}]", "description": "tweak 1",
+    }
+
+    run_exploitation(
+        survivor_name="test",
+        survivor_prompt="Original: {batch_items}\n[{{}}]",
+        survivor_mrr=0.15,
+        per_pair=[],
+        max_tweaks=1,
+        model="haiku",
+        exploit_model="sonnet",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+    )
+
+    # evaluate should have been called with enrich_model="haiku" (the main model)
+    eval_kwargs = mock_evaluate.call_args[1]
+    assert eval_kwargs["enrich_model"] == "haiku"

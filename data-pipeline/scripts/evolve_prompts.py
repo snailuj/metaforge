@@ -232,6 +232,7 @@ def run_exploitation(
     port: int = 9091,
     output_dir: Path = None,
     verbose: bool = False,
+    exploit_model: str = "haiku",
 ) -> list[TrialResult]:
     """Exploit a surviving prompt with incremental tweaks.
 
@@ -259,7 +260,7 @@ def run_exploitation(
                 current_prompt=current_prompt,
                 per_pair=current_per_pair,
                 mrr=current_mrr,
-                model=model,
+                model=exploit_model,
             )
         except (ValueError, RuntimeError) as e:
             print(f"  Tweak generation failed: {e}")
@@ -335,6 +336,7 @@ def run_experiment(
     consecutive_failure_limit: int = 3,
     phase: str = "both",
     verbose: bool = False,
+    exploit_model: str = "haiku",
 ) -> list[TrialResult]:
     """Run full evolutionary prompt experiment: exploration → exploitation.
 
@@ -387,6 +389,7 @@ def run_experiment(
                 port=port,
                 output_dir=output_dir,
                 verbose=verbose,
+                exploit_model=exploit_model,
             )
             all_trials.extend(exploit_trials)
 
@@ -544,6 +547,10 @@ def main():
         help="Print budget estimate without running",
     )
     parser.add_argument(
+        "--exploit-model", type=str, default="haiku",
+        help="Model for tweak generation in exploitation (default: haiku)",
+    )
+    parser.add_argument(
         "--verbose", action="store_true",
         help="Enable DEBUG logging for raw LLM request/response",
     )
@@ -578,6 +585,7 @@ def main():
         max_tweaks=args.max_tweaks,
         phase=args.phase,
         verbose=args.verbose,
+        exploit_model=args.exploit_model,
     )
 
     print(f"\n=== Experiment complete: {len(all_trials)} total trials ===")
