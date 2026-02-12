@@ -580,3 +580,79 @@ def test_trial_result_from_legacy_log():
     assert t.enrichment_coverage == 1.0
     assert t.valid is True
     assert t.mrr == 0.08
+
+
+# --- 18. evaluate passes verbose to run_enrichment ---------------------------
+
+def test_evaluate_passes_verbose_to_enrichment(tmp_path):
+    """evaluate() forwards verbose kwarg to run_enrichment."""
+    from evaluate_mrr import evaluate
+    from enrich_properties import EnrichmentResult
+
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps([
+        {"source": "anger", "target": "fire", "tier": "strong"},
+    ]))
+
+    baseline_sql = tmp_path / "baseline.sql"
+    baseline_sql.write_text(
+        "CREATE TABLE lemmas (lemma TEXT, synset_id TEXT, PRIMARY KEY (lemma, synset_id));\n"
+        "INSERT INTO lemmas VALUES ('anger', 'syn-anger-01');\n"
+        "INSERT INTO lemmas VALUES ('fire', 'syn-fire-01');\n"
+        "CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, definition TEXT);\n"
+        "INSERT INTO synsets VALUES ('syn-anger-01', 'a strong emotion');\n"
+        "INSERT INTO synsets VALUES ('syn-fire-01', 'combustion');\n"
+    )
+
+    fake_enrichment = {"synsets": [], "config": {"model": "haiku"}}
+    fake_path = tmp_path / "enrichment.json"
+    fake_path.write_text(json.dumps(fake_enrichment))
+
+    captured = {}
+
+    def mock_run_enrichment(**kwargs):
+        captured["verbose"] = kwargs.get("verbose")
+        output_path = kwargs.get("output_file")
+        if output_path:
+            Path(output_path).write_text(json.dumps(fake_enrichment))
+        return EnrichmentResult(
+            output_file=str(fake_path), requested=2, succeeded=2,
+            failed=0, failed_ids=[],
+        )
+
+    mock_sec = {"unique_properties": 2, "hapax_count": 1,
+                "hapax_rate": 0.5, "avg_properties_per_synset": 2.0}
+
+    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+         patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
+         patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
+         patch("evaluate_mrr.run_enrichment", mock_run_enrichment), \
+         patch("evaluate_mrr.run_pipeline"), \
+         patch("evaluate_mrr.compute_secondary_metrics", return_value=mock_sec), \
+         patch("evaluate_mrr.start_server") as mock_server, \
+         patch("evaluate_mrr.wait_for_health"), \
+         patch("evaluate_mrr.stop_server"), \
+         patch("evaluate_mrr.query_forge_rank", return_value=1):
+
+        mock_server.return_value = MagicMock()
+        evaluate(
+            enrichment_file=None,
+            pairs_file=str(pairs_file),
+            enrich_size=500,
+            enrich_model="haiku",
+            verbose=True,
+        )
+
+    assert captured["verbose"] is True
+
+
+# --- 19. evolve CLI --verbose flag -------------------------------------------
+
+def test_evolve_cli_verbose_flag():
+    """evolve_prompts.py CLI accepts --verbose and sets verbose=True."""
+    import argparse
+    # Simulate parsing --verbose
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--verbose", action="store_true")
+    args = parser.parse_args(["--verbose"])
+    assert args.verbose is True

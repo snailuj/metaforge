@@ -280,6 +280,7 @@ def evaluate(
     enrich_delay: float = 1.0,
     prompt_template: str = None,
     coverage_threshold: float = 0.9,
+    verbose: bool = False,
 ) -> dict:
     """Run full MRR evaluation.
 
@@ -345,6 +346,7 @@ def evaluate(
             output_file=OUTPUT_DIR / "eval_enrichment.json",
             required_synset_ids=all_synset_ids,
             prompt_template=prompt_template,
+            verbose=verbose,
         )
         enrichment_file = enrich_result.output_file
         enrichment_coverage = enrich_result.coverage

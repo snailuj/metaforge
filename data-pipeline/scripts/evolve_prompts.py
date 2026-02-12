@@ -97,6 +97,7 @@ def _evaluate_with_backoff(
     model: str,
     enrich_size: int,
     port: int,
+    verbose: bool = False,
     **kwargs,
 ) -> dict:
     """Run evaluate() with usage-exhaustion backoff."""
@@ -108,6 +109,7 @@ def _evaluate_with_backoff(
                 enrich_model=model,
                 port=port,
                 prompt_template=prompt_template,
+                verbose=verbose,
                 **kwargs,
             )
         except UsageExhaustedError:
@@ -128,6 +130,7 @@ def run_exploration(
     enrich_size: int = 700,
     port: int = 9091,
     output_dir: Path = None,
+    verbose: bool = False,
 ) -> list[TrialResult]:
     """Evaluate baseline + exploration prompts, identify survivors.
 
@@ -148,6 +151,7 @@ def run_exploration(
         model=model,
         enrich_size=enrich_size,
         port=port,
+        verbose=verbose,
     )
     baseline_trial = TrialResult(
         trial_id="baseline",
@@ -175,6 +179,7 @@ def run_exploration(
             model=model,
             enrich_size=enrich_size,
             port=port,
+            verbose=verbose,
         )
         trial_valid = result.get("valid", True)
         if trial_valid:
@@ -226,6 +231,7 @@ def run_exploitation(
     enrich_size: int = 700,
     port: int = 9091,
     output_dir: Path = None,
+    verbose: bool = False,
 ) -> list[TrialResult]:
     """Exploit a surviving prompt with incremental tweaks.
 
@@ -270,6 +276,7 @@ def run_exploitation(
             model=model,
             enrich_size=enrich_size,
             port=port,
+            verbose=verbose,
         )
 
         trial_valid = result.get("valid", True)
@@ -327,6 +334,7 @@ def run_experiment(
     max_tweaks: int = 7,
     consecutive_failure_limit: int = 3,
     phase: str = "both",
+    verbose: bool = False,
 ) -> list[TrialResult]:
     """Run full evolutionary prompt experiment: exploration → exploitation.
 
@@ -348,6 +356,7 @@ def run_experiment(
             enrich_size=enrich_size,
             port=port,
             output_dir=output_dir,
+            verbose=verbose,
         )
         all_trials.extend(explore_trials)
     elif phase == "exploit":
@@ -377,6 +386,7 @@ def run_experiment(
                 enrich_size=enrich_size,
                 port=port,
                 output_dir=output_dir,
+                verbose=verbose,
             )
             all_trials.extend(exploit_trials)
 
@@ -533,6 +543,10 @@ def main():
         "--dry-run", action="store_true",
         help="Print budget estimate without running",
     )
+    parser.add_argument(
+        "--verbose", action="store_true",
+        help="Enable DEBUG logging for raw LLM request/response",
+    )
     args = parser.parse_args()
 
     if args.dry_run:
@@ -550,6 +564,10 @@ def main():
         print("\nNote: Early stopping typically reduces exploitation cost by 30-50%.")
         return
 
+    if args.verbose:
+        import logging
+        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
+
     output_dir = Path(args.output_dir) if args.output_dir else None
 
     all_trials = run_experiment(
@@ -559,6 +577,7 @@ def main():
         output_dir=output_dir,
         max_tweaks=args.max_tweaks,
         phase=args.phase,
+        verbose=args.verbose,
     )
 
     print(f"\n=== Experiment complete: {len(all_trials)} total trials ===")
