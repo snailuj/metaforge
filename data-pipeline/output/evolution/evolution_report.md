@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-The evolutionary optimisation of enrichment prompts across 10 trials demonstrated significant gains, with the best performer (exploit-persona_poet-g2) achieving an MRR of 0.1082, representing a 25.4% improvement over the baseline of 0.0863. Of the five prompt templates explored, three survived the selection phase, while two degenerated to zero performance through overfitting on weak metaphor pairs, indicating that exploitation of high-performing variants requires careful regularisation to avoid collapse. The persona_poet approach—which explicitly instructs the LLM to generate metaphorical associations—emerged as the most robust strategy, suggesting that semantic enrichment benefits from guidance towards associative rather than taxonomic reasoning.
+The evolutionary optimisation of enrichment prompts across 10 trials produced a headline MRR of 0.1082 from the best variant (exploit-persona_poet-g2), nominally +25.4% over the baseline of 0.0863. However, post-hoc analysis revealed that three of the 49 evaluation pairs (hope→light, grief→anchor, age→winter) appear as explicit examples in the g2 prompt text, inflating the result. Excluding these leaked pairs, the corrected improvement is **+5.5%** (MRR 0.0931 vs baseline 0.0883) — still positive, but far more modest. Of the five exploration prompts, three survived initial screening, while two exploitation variants degenerated to MRR=0.0, indicating high sensitivity to prompt formulation. The persona_poet approach — which guides the LLM toward metaphorical associations — remains the most promising strategy, but the leakage finding means that future experiments must enforce strict separation between prompt examples and evaluation pairs.
 
 ## 2. Methodology
 
@@ -86,6 +86,26 @@ The exploration prompt (0.0704) underperformed other lineages, suggesting embodi
 | explore-embodied | 0.0704 | 0.776 |
 | explore-taxonomic | 0.0468 | 0.612 |
 
+### Prompt Example Leakage Analysis
+
+The exploit-persona_poet-g2 prompt contains three metaphor pairs as inline examples: `hope → light`, `grief → anchor`, and `age → winter`. These same pairs appear in the 49-pair evaluation fixture, creating data leakage. The impact:
+
+| Pair | Rank in g2 | RR |
+|------|-----------|-----|
+| hope → light | 1 | 1.0000 |
+| grief → anchor | 58 | 0.0172 |
+| age → winter | — | 0.0000 |
+
+Only `hope → light` benefited materially (rank 1, RR=1.0); `grief → anchor` was barely found and `age → winter` was missed entirely. Removing all three pairs and recomputing:
+
+| Metric | All 49 pairs | Excluding 3 leaked pairs (46) |
+|--------|-------------|-------------------------------|
+| persona_poet g2 MRR | 0.1082 | 0.0931 |
+| Baseline MRR | 0.0863 | 0.0883 |
+| **Improvement** | **+25.4%** | **+5.5%** |
+
+The corrected +5.5% improvement is real but modest. This finding applies broadly: any exploitation prompt that mentions specific metaphor pairs as examples risks inflating its score on those pairs. Future experiments must either (a) exclude prompt-mentioned pairs from evaluation, or (b) use a held-out evaluation set that is never visible to the prompt author (human or LLM).
+
 ## 6. Per-Pair Analysis
 
 ### Easiest Pairs (highest avg RR)
@@ -139,9 +159,9 @@ Notably, **hit rate showed near-zero correlation** (*r* = −0.005), suggesting 
 
 ### Why Exploitation Succeeded or Failed
 
-**Success: persona_poet g2 (+25.4% to 0.1082)**
+**Success: persona_poet g2 (headline +25.4%, corrected +5.5%)**
 
-The winning mutation added explicit instruction to capture *metaphorical associations and archetypal pairings*. This directly addressed the model's tendency to generate sensory descriptors divorced from symbolic intent. By guiding the model toward the *archetypal targets* of metaphors (e.g., journeys for time, light for hope), the prompt narrowed the property space to what actually bridges the conceptual gap in weak pairs. The generation 1 predecessor (0.0815) failed because it focused too literally on "physical embodiments" without acknowledging that the test pairs demand symbolic resonance, not just sensory anchoring.
+The winning mutation added explicit instruction to capture *metaphorical associations and archetypal pairings*. This directly addressed the model's tendency to generate sensory descriptors divorced from symbolic intent. By guiding the model toward the *archetypal targets* of metaphors, the prompt narrowed the property space to what actually bridges the conceptual gap in weak pairs. However, the g2 prompt text includes three evaluation pairs as examples (hope→light, grief→anchor, age→winter), inflating the headline MRR. After excluding these leaked pairs, the improvement drops from +25.4% to +5.5% — still the best result, but the mechanism is partly data leakage rather than purely improved reasoning. The generation 1 predecessor (0.0815) failed because it focused too literally on "physical embodiments" without acknowledging that the test pairs demand symbolic resonance, not just sensory anchoring.
 
 **Failure: persona_poet g5 (degraded to 0.0)**
 
@@ -156,7 +176,7 @@ A similar degeneracy. The mutation aimed to "surface concrete, imagistic propert
 - **Strong tier MRR: 0.1035** — metaphor pairs with robust archetypal grounding (e.g., hope→light, time→river).
 - **Medium tier MRR: 0.0571** — pairs requiring deeper or more implicit symbolic reasoning (e.g., less canonical metaphors or abstract concepts).
 
-The 1.8× gap suggests that the best-performing prompt (persona_poet g2) succeeded by anchoring properties to culturally and linguistically familiar archetypes. Medium-tier pairs remain challenging because they demand reasoning about less-canonical or context-dependent metaphorical bridges. Even at +25%, the model still underperforms on these, indicating a ceiling where richer data or multi-stage inference may be needed.
+The 1.8× gap suggests that the best-performing prompt (persona_poet g2) succeeded partly by anchoring properties to culturally familiar archetypes — though some of this effect is attributable to prompt example leakage on strong-tier pairs like hope→light. Medium-tier pairs remain challenging because they demand reasoning about less-canonical or context-dependent metaphorical bridges. Even the corrected +5.5% improvement leaves substantial room for growth, indicating a ceiling where richer data, multi-stage inference, or leakage-free prompt design may be needed.
 
 ### Failure Modes and Degenerate Trials
 
@@ -167,17 +187,19 @@ Two trials collapsed entirely (MRR = 0.0):
 
 Both failures cluster around **generation 2+**, where mutations compound. This suggests a regime where prompt drift accumulates and adaptation strategies become brittle. Three of four exploitation trials (g1, g2, g5) came from persona_poet; only g2 survived. The others (g1 at 0.0815, g5 at 0.0) illustrate diminishing returns and increased risk in deep mutation chains.
 
+A subtler failure mode is **prompt example leakage**: the LLM tweak generator introduced evaluation pairs as prompt examples (hope→light, grief→anchor, age→winter in g2; similar patterns in g1 and g5). This creates a perverse incentive where the evolutionary process selects for prompts that overfit to the evaluation fixture via their examples, rather than prompts that genuinely improve property extraction. The corrected improvement for g2 (+5.5% vs +25.4%) demonstrates the magnitude of this effect. Leakage is a systemic risk in any LLM-driven prompt evolution loop and must be addressed architecturally.
+
 ### Recommendations for Next Iteration
 
-1. **Promote persona_poet g2 as the default**: The +25.4% improvement is substantial and reliable. Roll out to the full 20K synset enrichment.
+1. **Use persona_poet g2, but strip leaked examples first**: The corrected +5.5% improvement is real but modest. Before promoting to the full 20K enrichment, remove the three leaked pairs (hope→light, grief→anchor, age→winter) from the prompt's inline examples or replace them with pairs not in the evaluation fixture. Re-evaluate to confirm the improvement holds.
 
-2. **Halt deep exploitation**: Most mutations beyond generation 1 degrade or fail. Future work should focus on *breadth* (testing orthogonal prompt families) rather than *depth* (chaining mutations).
+2. **Enforce train/test separation**: Future evolutionary runs must guarantee that no evaluation pair appears anywhere in the prompt text — including examples generated by the LLM tweak process. This likely requires an automated check at tweak generation time.
 
-3. **Target medium-tier pairs separately**: The 1.8× gap between tiers suggests a bifurcated solution space. Consider a two-model ensemble: one optimised for canonical metaphors (use persona_poet g2), another for rare or implicit pairs.
+3. **Halt deep exploitation**: Most mutations beyond generation 1 degrade or fail. Future work should focus on *breadth* (testing orthogonal prompt families) rather than *depth* (chaining mutations).
 
-4. **Measure prompt brittleness**: Track MRR variance across trial reruns to identify prompts that are fragile. g5 and contrastive g2 likely have high variance or are sensitive to RNG seeds.
+4. **Target medium-tier pairs separately**: The 1.8× gap between tiers suggests a bifurcated solution space. Consider a two-model ensemble: one optimised for canonical metaphors (use persona_poet g2), another for rare or implicit pairs.
 
-5. **Expand the test fixture**: With only 49 metaphor pairs, the correlation coefficients are weak. A richer fixture (200+ pairs across multiple tiers) would improve signal and reduce noise.
+5. **Expand the test fixture**: With only 49 metaphor pairs, the correlation coefficients are weak. A richer fixture (200+ pairs across multiple tiers) would improve signal, reduce noise, and dilute the impact of any residual leakage.
 
 ## 8. Appendix A: All Prompt Texts
 
