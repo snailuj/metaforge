@@ -756,3 +756,35 @@ def test_exploitation_chains_tweak_then_improve(mock_evaluate, mock_tweak, mock_
     # evaluate should use the improved prompt
     eval_kwargs = mock_evaluate.call_args[1]
     assert "Improved tweak" in eval_kwargs["prompt_template"]
+
+
+# --- 23. exploitation passes fixture_vocab to generate_tweak ------------------
+
+@patch("evolve_prompts.improve_prompt")
+@patch("evolve_prompts.generate_tweak")
+@patch("evolve_prompts.evaluate")
+def test_exploitation_passes_fixture_vocab_to_tweak(mock_evaluate, mock_tweak, mock_improve, tmp_path):
+    """run_exploitation forwards fixture_vocab to generate_tweak."""
+    mock_evaluate.side_effect = [_make_eval_result(0.20)]
+    mock_tweak.return_value = {
+        "modified_prompt": "Tweak: {batch_items}\n[{{}}]", "description": "tweak",
+    }
+    mock_improve.return_value = "Improved: {batch_items}\n[{{}}]"
+
+    vocab = frozenset({"anger", "fire"})
+
+    run_exploitation(
+        survivor_name="test",
+        survivor_prompt="Original: {batch_items}\n[{{}}]",
+        survivor_mrr=0.15,
+        per_pair=[],
+        max_tweaks=1,
+        model="haiku",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+        fixture_vocab=vocab,
+    )
+
+    tweak_kwargs = mock_tweak.call_args[1]
+    assert tweak_kwargs["fixture_vocab"] == vocab

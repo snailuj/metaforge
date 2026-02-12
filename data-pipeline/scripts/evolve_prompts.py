@@ -21,8 +21,8 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent))
 
 from enrich_properties import BATCH_PROMPT, UsageExhaustedError
-from evaluate_mrr import evaluate
-from prompt_templates import EXPLORATION_PROMPTS, generate_tweak, improve_prompt
+from evaluate_mrr import evaluate, DEFAULT_PAIRS
+from prompt_templates import EXPLORATION_PROMPTS, generate_tweak, improve_prompt, load_fixture_vocabulary
 from utils import OUTPUT_DIR
 
 
@@ -234,6 +234,7 @@ def run_exploitation(
     verbose: bool = False,
     exploit_model: str = "haiku",
     improver_model: str = "sonnet",
+    fixture_vocab: frozenset[str] = None,
 ) -> list[TrialResult]:
     """Exploit a surviving prompt with incremental tweaks.
 
@@ -262,6 +263,7 @@ def run_exploitation(
                 per_pair=current_per_pair,
                 mrr=current_mrr,
                 model=exploit_model,
+                fixture_vocab=fixture_vocab,
             )
             # Second stage: improve the raw tweak with a stronger model
             improved = improve_prompt(tweak["modified_prompt"], model=improver_model)
@@ -342,6 +344,7 @@ def run_experiment(
     verbose: bool = False,
     exploit_model: str = "haiku",
     improver_model: str = "sonnet",
+    pairs_file: str = None,
 ) -> list[TrialResult]:
     """Run full evolutionary prompt experiment: exploration → exploitation.
 
@@ -380,6 +383,10 @@ def run_experiment(
 
     # Exploitation
     if phase in ("both", "exploit"):
+        # Load fixture vocabulary once for all exploitation runs
+        fixture_vocab = None
+        if pairs_file:
+            fixture_vocab = load_fixture_vocabulary(pairs_file)
         survivors = [t for t in all_trials if t.survived and t.trial_id != "baseline"]
         for survivor in survivors:
             exploit_trials = run_exploitation(
@@ -396,6 +403,7 @@ def run_experiment(
                 verbose=verbose,
                 exploit_model=exploit_model,
                 improver_model=improver_model,
+                fixture_vocab=fixture_vocab,
             )
             all_trials.extend(exploit_trials)
 
@@ -597,6 +605,7 @@ def main():
         verbose=args.verbose,
         exploit_model=args.exploit_model,
         improver_model=args.improver_model,
+        pairs_file=str(DEFAULT_PAIRS),
     )
 
     print(f"\n=== Experiment complete: {len(all_trials)} total trials ===")
