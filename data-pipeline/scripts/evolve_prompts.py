@@ -24,6 +24,8 @@ from enrich_properties import BATCH_PROMPT, UsageExhaustedError
 from evaluate_mrr import evaluate, DEFAULT_PAIRS
 from prompt_templates import EXPLORATION_PROMPTS, generate_tweak, improve_prompt, load_fixture_vocabulary
 from utils import OUTPUT_DIR
+from rotation import PairPool, Subset, select_subset, compute_shared_mrr, get_failure_limit
+from bradley_terry import BradleyTerryRanker
 
 
 # --- Data structures ---------------------------------------------------------
@@ -244,11 +246,19 @@ def run_exploitation(
     exploit_model: str = "haiku",
     improver_model: str = "sonnet",
     fixture_vocab: frozenset[str] = None,
+    # v2 parameters
+    pair_pool: "PairPool | None" = None,
+    parent_eval_subset: "list[str] | None" = None,
+    ranker: "BradleyTerryRanker | None" = None,
+    survival_epsilon: float = 0.005,
 ) -> list[TrialResult]:
     """Exploit a surviving prompt with incremental tweaks.
 
     Generates targeted modifications using an LLM, keeps improvements,
     reverts regressions. Stops after max_tweaks or K consecutive failures.
+
+    v2 (when pair_pool is provided): uses rotated subsets, paired-comparison
+    survival gating, dynamic failure limits, and Bradley-Terry ranking.
     """
     if output_dir is None:
         output_dir = OUTPUT_DIR / "evolution"
@@ -259,6 +269,7 @@ def run_exploitation(
     current_prompt = survivor_prompt
     current_mrr = survivor_mrr
     current_per_pair = per_pair
+    current_eval_subset = parent_eval_subset  # Track current subset for carry-over
     parent_id = f"explore-{survivor_name}"
     consecutive_failures = 0
 
@@ -275,17 +286,31 @@ def run_exploitation(
                 fixture_vocab=fixture_vocab,
             )
             # Second stage: improve the raw tweak with a stronger model
-            improved = improve_prompt(tweak["modified_prompt"], model=improver_model)
-            tweak["modified_prompt"] = improved
+            improved_prompt = improve_prompt(tweak["modified_prompt"], model=improver_model)
+            tweak["modified_prompt"] = improved_prompt
         except (ValueError, RuntimeError) as e:
             print(f"  Tweak generation failed: {e}")
             consecutive_failures += 1
-            if consecutive_failures >= consecutive_failure_limit:
-                print(f"  Early stop: {consecutive_failure_limit} consecutive failures")
+            # v2: dynamic failure limit; v1: fixed limit
+            if pair_pool is not None:
+                fail_limit = get_failure_limit(gen)
+            else:
+                fail_limit = consecutive_failure_limit
+            if consecutive_failures >= fail_limit:
+                print(f"  Early stop: {fail_limit} consecutive failures")
                 break
             continue
 
         print(f"  Tweak: {tweak['description']}")
+
+        # v2: select rotated subset
+        eval_kwargs: dict = {}
+        subset = None
+        if pair_pool is not None:
+            seed = hash((survivor_name, gen)) & 0xFFFFFFFF
+            prev_subset = Subset(pair_ids=current_eval_subset, seed=0) if current_eval_subset else None
+            subset = select_subset(pair_pool, seed=seed, previous_subset=prev_subset)
+            eval_kwargs["eval_subset"] = subset.pair_ids
 
         result = _evaluate_with_backoff(
             prompt_template=tweak["modified_prompt"],
@@ -293,12 +318,35 @@ def run_exploitation(
             enrich_size=enrich_size,
             port=port,
             verbose=verbose,
+            **eval_kwargs,
         )
 
         trial_valid = result.get("valid", True)
         coverage = result.get("enrichment_coverage", 1.0)
-        improved = trial_valid and result["mrr"] > current_mrr
+
+        # v2: paired comparison on shared pairs
+        shared = None
+        eval_pair_ids = subset.pair_ids if subset else None
+        if pair_pool is not None and current_eval_subset is not None:
+            shared = compute_shared_mrr(
+                parent_per_pair=current_per_pair,
+                parent_subset_ids=current_eval_subset,
+                child_per_pair=result["per_pair"],
+                child_subset_ids=eval_pair_ids,
+            )
+            did_improve = trial_valid and shared["shared_delta"] > survival_epsilon
+        else:
+            # v1 fallback
+            did_improve = trial_valid and result["mrr"] > current_mrr
+
         trial_id = f"exploit-{survivor_name}-g{gen}"
+
+        # v2: Bradley-Terry update
+        elo = None
+        if ranker:
+            ranker.record_trial(trial_id, result["per_pair"])
+            elo = ranker.get_rating(trial_id)
+
         trial = TrialResult(
             trial_id=trial_id,
             prompt_name=survivor_name,
@@ -309,29 +357,47 @@ def run_exploitation(
             parent_id=parent_id,
             generation=gen,
             mutation=tweak["description"],
-            survived=improved,
+            survived=did_improve,
             timestamp=_now(),
             enrichment_coverage=coverage,
             valid=trial_valid,
+            # v2 fields
+            mrr_shared=shared["child_mrr_shared"] if shared else None,
+            parent_mrr_shared=shared["parent_mrr_shared"] if shared else None,
+            shared_delta=shared["shared_delta"] if shared else None,
+            eval_subset=eval_pair_ids,
+            shared_with_parent=shared["shared_ids"] if shared else None,
+            rotation_seed=subset.seed if subset else None,
+            pool_version=pair_pool.version if pair_pool else None,
+            elo_rating=elo,
         )
         trials.append(trial)
         _save_log(trials, log_path)
 
+        # v2: dynamic failure limit; v1: fixed limit
+        if pair_pool is not None:
+            failure_limit = get_failure_limit(gen)
+        else:
+            failure_limit = consecutive_failure_limit
+
         if not trial_valid:
             print(f"  MRR {result['mrr']:.4f} — INVALID (infra failure, not counted)")
             # Infra failures don't count toward consecutive failure limit
-        elif improved:
+        elif did_improve:
             print(f"  MRR {current_mrr:.4f} → {result['mrr']:.4f} — KEPT")
             current_prompt = tweak["modified_prompt"]
             current_mrr = result["mrr"]
             current_per_pair = result["per_pair"]
             parent_id = trial_id
             consecutive_failures = 0
+            # v2: update current eval subset for next generation's carry-over
+            if eval_pair_ids is not None:
+                current_eval_subset = eval_pair_ids
         else:
             print(f"  MRR {current_mrr:.4f} → {result['mrr']:.4f} — reverted")
             consecutive_failures += 1
-            if consecutive_failures >= consecutive_failure_limit:
-                print(f"  Early stop: {consecutive_failure_limit} consecutive failures")
+            if consecutive_failures >= failure_limit:
+                print(f"  Early stop: {failure_limit} consecutive failures")
                 break
 
     print(f"\n=== Exploitation of {survivor_name} complete: "

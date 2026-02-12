@@ -811,6 +811,113 @@ def test_trial_result_v2_fields():
     assert t.elo_rating is None
 
 
+from rotation import PairPool, Subset
+
+
+def _make_mock_pool():
+    """Create a minimal PairPool for testing."""
+    pairs = [
+        {"id": "a:b", "source": "a", "target": "b", "tier": "strong", "domain": "emotion", "register": None},
+        {"id": "c:d", "source": "c", "target": "d", "tier": "medium", "domain": "cognition", "register": None},
+        {"id": "e:f", "source": "e", "target": "f", "tier": "weak", "domain": "nature", "register": None},
+    ]
+    return PairPool(
+        pairs=pairs,
+        pair_ids=["a:b", "c:d", "e:f"],
+        by_tier={"strong": ["a:b"], "medium": ["c:d"], "weak": ["e:f"]},
+        archetypal_ids=[],
+        version="sha256:test123",
+    )
+
+
+@patch("evolve_prompts.improve_prompt")
+@patch("evolve_prompts.generate_tweak")
+@patch("evolve_prompts.evaluate")
+def test_exploitation_v2_uses_paired_comparison(mock_eval, mock_tweak, mock_improve, tmp_path):
+    """Exploitation uses shared-pair MRR delta > epsilon for survival, not raw MRR."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
+
+    # Tweak returns a modified prompt
+    mock_tweak.return_value = {"modified_prompt": "tweaked {batch_items}", "description": "test tweak"}
+
+    # Child scores better on shared pairs — delta > 0.005
+    mock_eval.return_value = {
+        "mrr": 0.5,
+        "per_pair": [
+            {"source": "a", "target": "b", "rank": 1, "reciprocal_rank": 1.0},
+            {"source": "c", "target": "d", "rank": 2, "reciprocal_rank": 0.5},
+        ],
+        "secondary": {},
+        "valid": True,
+        "enrichment_coverage": 1.0,
+    }
+
+    pool = _make_mock_pool()
+    trials = run_exploitation(
+        survivor_name="test",
+        survivor_prompt="original {batch_items}",
+        survivor_mrr=0.15,
+        per_pair=[
+            {"source": "a", "target": "b", "rank": 10, "reciprocal_rank": 0.1},
+            {"source": "c", "target": "d", "rank": 5, "reciprocal_rank": 0.2},
+        ],
+        max_tweaks=1,
+        model="haiku",
+        port=9999,
+        output_dir=tmp_path,
+        pair_pool=pool,
+        parent_eval_subset=["a:b", "c:d"],
+    )
+
+    assert len(trials) == 1
+    assert trials[0].survived is True
+    assert trials[0].mrr_shared is not None
+    assert trials[0].shared_delta > 0.005
+    assert trials[0].eval_subset is not None
+    assert trials[0].pool_version == "sha256:test123"
+
+
+@patch("evolve_prompts.improve_prompt")
+@patch("evolve_prompts.generate_tweak")
+@patch("evolve_prompts.evaluate")
+def test_exploitation_v2_dynamic_failure_limit(mock_eval, mock_tweak, mock_improve, tmp_path):
+    """Exploitation uses dynamic failure limit: gen 1-3 allows 5, gen 4-6 allows 3.
+
+    With continuous failures, gens 1-3 accumulate 3 failures (under limit 5),
+    then gen 4 (limit 3) triggers early stop because 4 >= 3.
+    """
+    mock_improve.side_effect = lambda prompt, **kw: prompt
+    mock_tweak.return_value = {"modified_prompt": "tweaked {batch_items}", "description": "test"}
+
+    # Every eval returns worse than parent on shared pairs (delta < epsilon)
+    mock_eval.return_value = {
+        "mrr": 0.0,
+        "per_pair": [{"source": "a", "target": "b", "rank": None, "reciprocal_rank": 0.0}],
+        "secondary": {},
+        "valid": True,
+        "enrichment_coverage": 1.0,
+    }
+
+    pool = _make_mock_pool()
+    trials = run_exploitation(
+        survivor_name="test",
+        survivor_prompt="original {batch_items}",
+        survivor_mrr=0.15,
+        per_pair=[{"source": "a", "target": "b", "rank": 5, "reciprocal_rank": 0.2}],
+        max_tweaks=10,
+        model="haiku",
+        port=9999,
+        output_dir=tmp_path,
+        pair_pool=pool,
+        parent_eval_subset=["a:b"],
+    )
+
+    # Dynamic limit: gen 1-3 allows 5, gen 4-6 allows 3.
+    # Failures accumulate: g1(1), g2(2), g3(3) all under limit 5.
+    # At g4, limit drops to 3: 4 failures >= 3, so early stop.
+    assert len(trials) == 4
+
+
 def test_trial_result_v2_fields_serialise(tmp_path):
     """v2 fields survive JSON round-trip."""
     t = TrialResult(
