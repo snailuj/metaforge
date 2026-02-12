@@ -54,4 +54,31 @@ describe('Fluent strings', () => {
     await initStrings()
     expect(getString('search-placeholder')).toBe('search-placeholder')
   })
+
+  it('logs parse errors for malformed FTL', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // Fluent's addResource errors are rare in practice - the parser is very tolerant.
+    // Test that console.error is called if errors array has length > 0.
+    // We'll mock FluentBundle to force an error condition.
+    const { FluentBundle } = await import('@fluent/bundle')
+    const originalAddResource = FluentBundle.prototype.addResource
+
+    FluentBundle.prototype.addResource = vi.fn(() => ['mock error'])
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('search-placeholder = Test'),
+    }))
+
+    await initStrings()
+
+    expect(consoleError).toHaveBeenCalledWith(
+      'Fluent parse errors:',
+      expect.arrayContaining(['mock error']),
+    )
+
+    FluentBundle.prototype.addResource = originalAddResource
+    consoleError.mockRestore()
+  })
 })
