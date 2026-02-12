@@ -63,8 +63,13 @@ def _exploitation_trials(trials: list[dict]) -> list[dict]:
 
 
 def _non_degenerate_trials(trials: list[dict]) -> list[dict]:
-    """Return trials with MRR > 0."""
-    return [t for t in trials if t["mrr"] > 0]
+    """Return trials with MRR > 0 and valid=True (excludes infra failures)."""
+    return [t for t in trials if t["mrr"] > 0 and t.get("valid", True)]
+
+
+def _infrastructure_failed_trials(trials: list[dict]) -> list[dict]:
+    """Return trials where valid=False (infrastructure/API failures)."""
+    return [t for t in trials if not t.get("valid", True)]
 
 
 def _best_trial(trials: list[dict]) -> dict:
@@ -203,8 +208,12 @@ def _build_briefing(trials: list[dict], pairs: list[dict]) -> dict:
             for t in lineage
         ]
 
-    # Degenerate trials
-    degenerate = [t["trial_id"] for t in trials if t["mrr"] == 0.0]
+    # Degenerate trials (MRR=0, but valid — bad prompt, not infra failure)
+    degenerate = [t["trial_id"] for t in trials
+                  if t["mrr"] == 0.0 and t.get("valid", True)]
+
+    # Infrastructure failures (valid=False)
+    infra_failed = [t["trial_id"] for t in trials if not t.get("valid", True)]
 
     return {
         "best_trial_id": best["trial_id"],
@@ -221,6 +230,7 @@ def _build_briefing(trials: list[dict], pairs: list[dict]) -> dict:
         "tier_split": _tier_mrr_split(trials),
         "lineages": lineage_data,
         "degenerate_trials": degenerate,
+        "infra_failed_trials": infra_failed,
     }
 
 
@@ -442,6 +452,8 @@ def section_exploration_results(trials: list[dict]) -> str:
     gen0 = [t for t in trials if t["generation"] == 0]
     gen0.sort(key=lambda t: t["mrr"], reverse=True)
 
+    infra_failures = [t for t in gen0 if not t.get("valid", True)]
+
     lines = [
         "## 3. Exploration Results (Gen 0)",
         "",
@@ -450,7 +462,12 @@ def section_exploration_results(trials: list[dict]) -> str:
     ]
     for t in gen0:
         sec = t.get("secondary", {})
-        survived = "Yes" if t["survived"] else "No"
+        if not t.get("valid", True):
+            survived = "Infra fail"
+        elif t["survived"]:
+            survived = "Yes"
+        else:
+            survived = "No"
         hr = _hit_rate(t)
         lines.append(
             f"| {t['prompt_name']} | {t['mrr']:.4f} "
@@ -461,6 +478,15 @@ def section_exploration_results(trials: list[dict]) -> str:
             f"| {survived} |"
         )
     lines.append("")
+
+    if infra_failures:
+        names = ", ".join(t["prompt_name"] for t in infra_failures)
+        lines.append(
+            f"**Note:** {len(infra_failures)} trial(s) had infrastructure failures "
+            f"({names}) — results are unreliable and excluded from elimination decisions."
+        )
+        lines.append("")
+
     return "\n".join(lines)
 
 

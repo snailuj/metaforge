@@ -577,3 +577,68 @@ def test_report_handles_legacy_trials():
     assert "# Evolutionary Prompt Optimisation" in report
     assert "baseline" in report
     assert "alpha" in report
+
+
+# ===========================================================================
+# 7. Infrastructure failure separation
+# ===========================================================================
+
+def test_non_degenerate_excludes_infra_failures():
+    """_non_degenerate_trials excludes trials with valid=False."""
+    from generate_evolution_report import _non_degenerate_trials
+
+    trials = [
+        _make_trial("t1", "a", 0.10),
+        {**_make_trial("t2", "b", 0.05), "valid": False},  # infra failure
+        _make_trial("t3", "c", 0.0),  # truly degenerate
+    ]
+    result = _non_degenerate_trials(trials)
+    assert len(result) == 1
+    assert result[0]["trial_id"] == "t1"
+
+
+def test_infrastructure_failed_trials():
+    """_infrastructure_failed_trials returns only valid=False trials."""
+    from generate_evolution_report import _infrastructure_failed_trials
+
+    trials = [
+        _make_trial("t1", "a", 0.10),
+        {**_make_trial("t2", "b", 0.05), "valid": False},
+        {**_make_trial("t3", "c", 0.01), "valid": False},
+    ]
+    result = _infrastructure_failed_trials(trials)
+    assert len(result) == 2
+    assert all(t["trial_id"] in ("t2", "t3") for t in result)
+
+
+def test_briefing_separates_failure_causes():
+    """_build_briefing includes separate degenerate and infra failure lists."""
+    from generate_evolution_report import _build_briefing
+
+    trials = [
+        _make_trial("baseline", "baseline", 0.08),
+        _make_trial("explore-a", "a", 0.10, survived=True),
+        {**_make_trial("explore-b", "b", 0.0), "valid": True},  # degenerate
+        {**_make_trial("explore-c", "c", 0.02), "valid": False},  # infra fail
+    ]
+    pairs = [{"source": "anger", "target": "fire", "tier": "strong"}]
+
+    briefing = _build_briefing(trials, pairs)
+    assert "explore-b" in briefing["degenerate_trials"]
+    assert "explore-c" not in briefing["degenerate_trials"]
+    assert "explore-c" in briefing["infra_failed_trials"]
+    assert "explore-b" not in briefing["infra_failed_trials"]
+
+
+def test_report_notes_infra_failures():
+    """Report exploration section notes when infra failures are present."""
+    from generate_evolution_report import section_exploration_results
+
+    trials = [
+        _make_trial("baseline", "baseline", 0.08),
+        _make_trial("explore-a", "a", 0.10, survived=True),
+        {**_make_trial("explore-b", "b", 0.02), "valid": False,
+         "enrichment_coverage": 0.3},
+    ]
+    md = section_exploration_results(trials)
+    assert "infra" in md.lower() or "infrastructure" in md.lower()
