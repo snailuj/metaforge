@@ -24,7 +24,7 @@ from enrich_properties import BATCH_PROMPT, UsageExhaustedError
 from evaluate_mrr import evaluate, DEFAULT_PAIRS
 from prompt_templates import EXPLORATION_PROMPTS, generate_tweak, improve_prompt, load_fixture_vocabulary
 from utils import OUTPUT_DIR
-from rotation import PairPool, Subset, select_subset, compute_shared_mrr, get_failure_limit
+from rotation import PairPool, Subset, load_pool, select_subset, compute_shared_mrr, get_failure_limit
 from bradley_terry import BradleyTerryRanker
 
 
@@ -142,11 +142,15 @@ def run_exploration(
     port: int = 9091,
     output_dir: Path = None,
     verbose: bool = False,
+    pair_pool: "PairPool | None" = None,
+    ranker: "BradleyTerryRanker | None" = None,
 ) -> list[TrialResult]:
     """Evaluate baseline + exploration prompts, identify survivors.
 
     Survivors = prompts with MRR > baseline MRR.
     Saves log incrementally after each trial.
+
+    v2 (when pair_pool is provided): uses rotated subsets and Bradley-Terry ranking.
     """
     if output_dir is None:
         output_dir = OUTPUT_DIR / "evolution"
@@ -157,13 +161,27 @@ def run_exploration(
 
     # Baseline
     print("=== Exploration: evaluating baseline ===")
+    eval_kwargs: dict = {}
+    baseline_subset = None
+    if pair_pool is not None:
+        seed = hash("baseline") & 0xFFFFFFFF
+        baseline_subset = select_subset(pair_pool, seed=seed)
+        eval_kwargs["eval_subset"] = baseline_subset.pair_ids
+
     result = _evaluate_with_backoff(
         prompt_template=baseline_prompt,
         model=model,
         enrich_size=enrich_size,
         port=port,
         verbose=verbose,
+        **eval_kwargs,
     )
+
+    elo = None
+    if ranker:
+        ranker.record_trial("baseline", result["per_pair"])
+        elo = ranker.get_rating("baseline")
+
     baseline_trial = TrialResult(
         trial_id="baseline",
         prompt_name="baseline",
@@ -176,6 +194,10 @@ def run_exploration(
         mutation=None,
         survived=True,
         timestamp=_now(),
+        eval_subset=baseline_subset.pair_ids if baseline_subset else None,
+        rotation_seed=baseline_subset.seed if baseline_subset else None,
+        pool_version=pair_pool.version if pair_pool else None,
+        elo_rating=elo,
     )
     trials.append(baseline_trial)
     _save_log(trials, log_path)
@@ -185,12 +207,20 @@ def run_exploration(
     # Exploration prompts
     for name, prompt in prompts.items():
         print(f"\n=== Exploration: evaluating {name} ===")
+        eval_kwargs = {}
+        subset = None
+        if pair_pool is not None:
+            seed = hash(name) & 0xFFFFFFFF
+            subset = select_subset(pair_pool, seed=seed)
+            eval_kwargs["eval_subset"] = subset.pair_ids
+
         result = _evaluate_with_backoff(
             prompt_template=prompt,
             model=model,
             enrich_size=enrich_size,
             port=port,
             verbose=verbose,
+            **eval_kwargs,
         )
         trial_valid = result.get("valid", True)
         if trial_valid:
@@ -198,8 +228,15 @@ def run_exploration(
         else:
             survived = False
         coverage = result.get("enrichment_coverage", 1.0)
+
+        trial_id = f"explore-{name}"
+        elo = None
+        if ranker:
+            ranker.record_trial(trial_id, result["per_pair"])
+            elo = ranker.get_rating(trial_id)
+
         trial = TrialResult(
-            trial_id=f"explore-{name}",
+            trial_id=trial_id,
             prompt_name=name,
             prompt_text=prompt,
             mrr=result["mrr"],
@@ -212,6 +249,10 @@ def run_exploration(
             timestamp=_now(),
             enrichment_coverage=coverage,
             valid=trial_valid,
+            eval_subset=subset.pair_ids if subset else None,
+            rotation_seed=subset.seed if subset else None,
+            pool_version=pair_pool.version if pair_pool else None,
+            elo_rating=elo,
         )
         trials.append(trial)
         _save_log(trials, log_path)
@@ -430,6 +471,13 @@ def run_experiment(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # v2: load pair pool and create ranker
+    pair_pool = None
+    ranker = None
+    if pairs_file:
+        pair_pool = load_pool(pairs_file)
+        ranker = BradleyTerryRanker()
+
     all_trials: list[TrialResult] = []
 
     # Exploration
@@ -442,6 +490,8 @@ def run_experiment(
             port=port,
             output_dir=output_dir,
             verbose=verbose,
+            pair_pool=pair_pool,
+            ranker=ranker,
         )
         all_trials.extend(explore_trials)
     elif phase == "exploit":
@@ -479,8 +529,17 @@ def run_experiment(
                 exploit_model=exploit_model,
                 improver_model=improver_model,
                 fixture_vocab=fixture_vocab,
+                pair_pool=pair_pool,
+                parent_eval_subset=survivor.eval_subset,
+                ranker=ranker,
             )
             all_trials.extend(exploit_trials)
+
+    # v2: save ranker state
+    if ranker:
+        ranker_path = output_dir / "ranker_state.json"
+        with open(ranker_path, "w") as f:
+            json.dump(ranker.to_dict(), f, indent=2)
 
     # Save complete log
     _save_log(all_trials, output_dir / "experiment_log.json")

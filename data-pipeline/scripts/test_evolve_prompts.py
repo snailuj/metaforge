@@ -942,3 +942,33 @@ def test_trial_result_v2_fields_serialise(tmp_path):
     t2 = TrialResult(**loaded)
     assert t2.mrr_shared == 0.09
     assert t2.rotation_seed == 42
+
+
+# --- Exploration v2: populates eval_subset when pool provided ----------------
+
+@patch("evolve_prompts.evaluate")
+def test_exploration_v2_populates_eval_subset(mock_eval, tmp_path):
+    """Exploration trials record eval_subset when pool is provided."""
+    mock_eval.return_value = {
+        "mrr": 0.1,
+        "per_pair": [{"source": "a", "target": "b", "rank": 5, "reciprocal_rank": 0.2}],
+        "secondary": {},
+        "valid": True,
+        "enrichment_coverage": 1.0,
+    }
+
+    pool = _make_mock_pool()
+    trials = run_exploration(
+        prompts={"test_prompt": "Test {batch_items}"},
+        baseline_prompt="Baseline {batch_items}",
+        model="haiku",
+        port=9999,
+        output_dir=tmp_path,
+        pair_pool=pool,
+    )
+
+    # Baseline + 1 prompt = 2 trials
+    assert len(trials) == 2
+    for t in trials:
+        assert t.eval_subset is not None
+        assert t.pool_version == "sha256:test123"
