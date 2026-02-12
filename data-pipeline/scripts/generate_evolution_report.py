@@ -21,7 +21,7 @@ from utils import OUTPUT_DIR, PIPELINE_DIR
 # --- Default paths -----------------------------------------------------------
 
 DEFAULT_EXPERIMENT_LOG = OUTPUT_DIR / "evolution" / "experiment_log.json"
-DEFAULT_PAIRS_FILE = PIPELINE_DIR / "fixtures" / "metaphor_pairs.json"
+DEFAULT_PAIRS_FILE = PIPELINE_DIR / "fixtures" / "metaphor_pairs_v2.json"
 DEFAULT_OUTPUT = OUTPUT_DIR / "evolution" / "evolution_report.md"
 
 

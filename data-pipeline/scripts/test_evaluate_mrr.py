@@ -699,3 +699,11 @@ def test_evaluate_filters_to_eval_subset(tmp_path):
     assert "anger" in queried_sources
     assert "time" in queried_sources
     assert len(results["per_pair"]) == 2
+
+
+# --- 20. DEFAULT_PAIRS points to v2 ------------------------------------------
+
+def test_default_pairs_points_to_v2():
+    """DEFAULT_PAIRS should reference metaphor_pairs_v2.json."""
+    from evaluate_mrr import DEFAULT_PAIRS
+    assert DEFAULT_PAIRS.name == "metaphor_pairs_v2.json"
