@@ -246,6 +246,50 @@ func TestGetLookup_SimilarRelations(t *testing.T) {
 	}
 }
 
+func TestGetLookup_RarityPresent(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	result, err := GetLookup(database, "happy")
+	if err != nil {
+		t.Fatalf("GetLookup(happy) returned error: %v", err)
+	}
+
+	if result.Rarity == "" {
+		t.Error("expected Rarity to be populated for 'happy'")
+	}
+	if result.Rarity != "common" {
+		t.Errorf("expected Rarity='common' for 'happy', got %q", result.Rarity)
+	}
+}
+
+func TestGetLookup_SynonymRarityPresent(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	result, err := GetLookup(database, "fire")
+	if err != nil {
+		t.Fatalf("GetLookup(fire) returned error: %v", err)
+	}
+
+	// Check that at least some synonyms have rarity populated
+	hasRarity := false
+	for _, sense := range result.Senses {
+		for _, syn := range sense.Synonyms {
+			if syn.Rarity != "" {
+				hasRarity = true
+				break
+			}
+		}
+		if hasRarity {
+			break
+		}
+	}
+	if !hasRarity {
+		t.Error("expected at least some synonyms to have Rarity populated")
+	}
+}
+
 func TestGetLookup_AdjectiveSatellitePOS(t *testing.T) {
 	database := openTestDB(t)
 	defer database.Close()

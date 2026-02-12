@@ -3,6 +3,7 @@ package thesaurus
 import (
 	"database/sql"
 	"errors"
+	"log/slog"
 	"strings"
 )
 
@@ -29,6 +30,7 @@ var posNames = map[string]string{
 type RelatedWord struct {
 	Word     string `json:"word"`
 	SynsetID string `json:"synset_id"`
+	Rarity   string `json:"rarity,omitempty"`
 }
 
 // Relations groups related words by relation type.
@@ -51,10 +53,11 @@ type Sense struct {
 type LookupResult struct {
 	Word   string  `json:"word"`
 	Senses []Sense `json:"senses"`
+	Rarity string  `json:"rarity,omitempty"`
 }
 
 // GetLookup returns all senses for a given lemma, grouped by synset,
-// with synonyms and relations. Uses two queries total.
+// with synonyms and relations. Uses three queries total.
 func GetLookup(database *sql.DB, lemma string) (*LookupResult, error) {
 	lemma = strings.ToLower(strings.TrimSpace(lemma))
 
@@ -80,7 +83,15 @@ func GetLookup(database *sql.DB, lemma string) (*LookupResult, error) {
 		return nil, err
 	}
 
-	return &LookupResult{Word: lemma, Senses: senses}, nil
+	result := &LookupResult{Word: lemma, Senses: senses}
+
+	// Query 3: rarity data for all words in the result
+	if err := attachRarity(database, result); err != nil {
+		// Non-fatal: rarity is optional enrichment
+		slog.Warn("attachRarity failed", "lemma", lemma, "err", err)
+	}
+
+	return result, nil
 }
 
 // querySenses fetches all synsets and their synonyms for a lemma.
@@ -180,6 +191,79 @@ func queryRelations(database *sql.DB, senses []Sense, synsetIDs []string, senseI
 		}
 	}
 	return rows.Err()
+}
+
+// attachRarity fetches rarity data for the looked-up word and all related words,
+// populating the Rarity fields in-place.
+func attachRarity(database *sql.DB, result *LookupResult) error {
+	// Collect all unique words that need rarity lookup
+	words := map[string]bool{result.Word: true}
+	for _, sense := range result.Senses {
+		for _, syn := range sense.Synonyms {
+			words[syn.Word] = true
+		}
+		for _, h := range sense.Relations.Hypernyms {
+			words[h.Word] = true
+		}
+		for _, h := range sense.Relations.Hyponyms {
+			words[h.Word] = true
+		}
+		for _, s := range sense.Relations.Similar {
+			words[s.Word] = true
+		}
+	}
+
+	// Build IN clause
+	placeholders := make([]string, 0, len(words))
+	args := make([]interface{}, 0, len(words))
+	for w := range words {
+		placeholders = append(placeholders, "?")
+		args = append(args, w)
+	}
+	if len(placeholders) == 0 {
+		return nil
+	}
+
+	query := `SELECT lemma, rarity FROM frequencies WHERE lemma IN (` +
+		strings.Join(placeholders, ",") + `)`
+
+	rows, err := database.Query(query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	rarityMap := make(map[string]string)
+	for rows.Next() {
+		var lemma, rarity string
+		if err := rows.Scan(&lemma, &rarity); err != nil {
+			continue
+		}
+		rarityMap[lemma] = rarity
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Apply rarity to result
+	result.Rarity = rarityMap[result.Word]
+
+	for i := range result.Senses {
+		for j := range result.Senses[i].Synonyms {
+			result.Senses[i].Synonyms[j].Rarity = rarityMap[result.Senses[i].Synonyms[j].Word]
+		}
+		for j := range result.Senses[i].Relations.Hypernyms {
+			result.Senses[i].Relations.Hypernyms[j].Rarity = rarityMap[result.Senses[i].Relations.Hypernyms[j].Word]
+		}
+		for j := range result.Senses[i].Relations.Hyponyms {
+			result.Senses[i].Relations.Hyponyms[j].Rarity = rarityMap[result.Senses[i].Relations.Hyponyms[j].Word]
+		}
+		for j := range result.Senses[i].Relations.Similar {
+			result.Senses[i].Relations.Similar[j].Rarity = rarityMap[result.Senses[i].Relations.Similar[j].Word]
+		}
+	}
+
+	return nil
 }
 
 func posName(code string) string {
