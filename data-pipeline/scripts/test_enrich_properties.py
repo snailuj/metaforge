@@ -447,3 +447,37 @@ def test_enrichment_output_json_includes_failed_ids(
     output = json.loads((tmp_path / "out.json").read_text())
     assert "failed_synset_ids" in output["stats"]
     assert output["stats"]["failed_synset_ids"] == ["100002"]
+
+
+# --- 20. invoke_claude verbose logs raw output --------------------------------
+
+@patch("enrich_properties.subprocess.run")
+def test_invoke_claude_verbose_logs_raw_output(mock_run, caplog):
+    """With verbose=True, invoke_claude logs the raw stdout at DEBUG level."""
+    import logging
+
+    mock_run.return_value = _make_completed_process(CANNED_RESULT)
+    with caplog.at_level(logging.DEBUG, logger="enrich_properties"):
+        invoke_claude("test prompt", model="haiku", verbose=True)
+
+    assert any("stdout" in r.message.lower() or "raw" in r.message.lower()
+               for r in caplog.records)
+
+
+# --- 21. invoke_claude verbose logs stderr on failure -------------------------
+
+@patch("enrich_properties.subprocess.run")
+def test_invoke_claude_verbose_logs_stderr_on_failure(mock_run, caplog):
+    """With verbose=True, invoke_claude logs stderr when present."""
+    import logging
+
+    fail_proc = subprocess.CompletedProcess(
+        args=["claude"], returncode=1, stdout="", stderr="error detail",
+    )
+    mock_run.return_value = fail_proc
+
+    with caplog.at_level(logging.DEBUG, logger="enrich_properties"):
+        invoke_claude("test prompt", model="haiku", verbose=True)
+
+    assert any("stderr" in r.message.lower() or "error detail" in r.message
+               for r in caplog.records)

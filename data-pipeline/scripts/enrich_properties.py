@@ -10,6 +10,7 @@ Usage:
 """
 import argparse
 import json
+import logging
 import re
 import subprocess
 import sqlite3
@@ -18,6 +19,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Optional
+
+log = logging.getLogger(__name__)
 
 from tenacity import (
     retry,
@@ -146,9 +149,11 @@ def parse_response(proc: subprocess.CompletedProcess) -> List[Dict]:
     return results
 
 
-def invoke_claude(prompt: str, model: str = "haiku") -> subprocess.CompletedProcess:
+def invoke_claude(prompt: str, model: str = "haiku", verbose: bool = False) -> subprocess.CompletedProcess:
     """Call claude -p via subprocess and return the CompletedProcess."""
-    return subprocess.run(
+    if verbose:
+        log.debug("invoke_claude prompt (first 500 chars): %s", prompt[:500])
+    proc = subprocess.run(
         [
             "claude", "-p",
             "--output-format", "json",
@@ -161,6 +166,11 @@ def invoke_claude(prompt: str, model: str = "haiku") -> subprocess.CompletedProc
         text=True,
         timeout=120,
     )
+    if verbose:
+        log.debug("invoke_claude raw stdout (first 1000 chars): %s", proc.stdout[:1000])
+        if proc.stderr:
+            log.debug("invoke_claude stderr: %s", proc.stderr[:500])
+    return proc
 
 
 def _retry_unless_usage_exhausted(retry_state):
@@ -180,9 +190,9 @@ def _retry_unless_usage_exhausted(retry_state):
         f"{retry_state.outcome.exception()}"
     ),
 )
-def _extract_batch_inner(prompt: str, synsets: List[Dict], model: str) -> List[Dict]:
+def _extract_batch_inner(prompt: str, synsets: List[Dict], model: str, verbose: bool = False) -> List[Dict]:
     """Retryable inner: invoke LLM, parse, merge."""
-    proc = invoke_claude(prompt, model=model)
+    proc = invoke_claude(prompt, model=model, verbose=verbose)
     results = parse_response(proc)
 
     local_data = {s['id']: s for s in synsets}
@@ -208,6 +218,7 @@ def extract_batch(
     synsets: List[Dict],
     model: str = "haiku",
     prompt_template: str = None,
+    verbose: bool = False,
 ) -> List[Dict]:
     """Extract properties for a batch of synsets via claude CLI.
 
@@ -219,7 +230,7 @@ def extract_batch(
         raise ValueError("prompt_template must contain {batch_items} placeholder")
     batch_items = format_batch_items(synsets)
     prompt = template.format(batch_items=batch_items)
-    return _extract_batch_inner(prompt, synsets, model)
+    return _extract_batch_inner(prompt, synsets, model, verbose=verbose)
 
 
 # --- Checkpoint ---------------------------------------------------------------
@@ -332,7 +343,8 @@ def run_enrichment(
     synset_ids_file: Path = None,
     required_synset_ids: set[str] = None,
     prompt_template: str = None,
-) -> str:
+    verbose: bool = False,
+) -> EnrichmentResult:
     """Run property enrichment on synsets using claude CLI.
 
     Returns the output file path as a string.
@@ -395,6 +407,7 @@ def run_enrichment(
         try:
             batch_results = extract_batch(
                 batch, model=model, prompt_template=prompt_template,
+                verbose=verbose,
             )
 
             for result in batch_results:
@@ -506,7 +519,14 @@ def main():
         "--synset-ids", type=str, default=None,
         help="JSON file with array of synset IDs to enrich (optional)",
     )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Enable DEBUG logging for raw LLM request/response",
+    )
     args = parser.parse_args()
+
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
 
     output_file = Path(args.output) if args.output else None
     synset_ids_file = Path(args.synset_ids) if args.synset_ids else None
@@ -518,6 +538,7 @@ def main():
         resume=args.resume,
         output_file=output_file,
         synset_ids_file=synset_ids_file,
+        verbose=args.verbose,
     )
 
 
