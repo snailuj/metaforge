@@ -519,3 +519,61 @@ def test_main_writes_output_file(tmp_path, sample_trials, sample_pairs):
     assert output_file.exists()
     content = output_file.read_text()
     assert "# Evolutionary Prompt Optimisation" in content
+
+
+# ===========================================================================
+# 6. Backward compatibility — legacy logs without new fields
+# ===========================================================================
+
+def test_report_handles_legacy_trials():
+    """Report generator handles trial dicts missing enrichment_coverage and valid."""
+    from generate_evolution_report import generate_report
+
+    legacy_trials = [
+        {
+            "trial_id": "baseline",
+            "prompt_name": "baseline",
+            "prompt_text": "B {batch_items}",
+            "mrr": 0.08,
+            "per_pair": [
+                {"source": "anger", "target": "fire", "rank": 1,
+                 "reciprocal_rank": 1.0, "tier": "strong"},
+            ],
+            "secondary": {
+                "unique_properties": 100, "hapax_count": 60,
+                "hapax_rate": 0.6, "avg_properties_per_synset": 11.0,
+            },
+            "parent_id": None,
+            "generation": 0,
+            "mutation": None,
+            "survived": True,
+            "timestamp": "2026-01-01T00:00:00",
+            # NOTE: no enrichment_coverage, no valid
+        },
+        {
+            "trial_id": "explore-alpha",
+            "prompt_name": "alpha",
+            "prompt_text": "A {batch_items}",
+            "mrr": 0.10,
+            "per_pair": [
+                {"source": "anger", "target": "fire", "rank": 2,
+                 "reciprocal_rank": 0.5, "tier": "strong"},
+            ],
+            "secondary": {
+                "unique_properties": 120, "hapax_count": 70,
+                "hapax_rate": 0.58, "avg_properties_per_synset": 12.0,
+            },
+            "parent_id": None,
+            "generation": 0,
+            "mutation": None,
+            "survived": True,
+            "timestamp": "2026-01-01T00:01:00",
+        },
+    ]
+    pairs = [{"source": "anger", "target": "fire", "tier": "strong"}]
+
+    # Should not crash
+    report = generate_report(legacy_trials, pairs, model="haiku", no_llm=True)
+    assert "# Evolutionary Prompt Optimisation" in report
+    assert "baseline" in report
+    assert "alpha" in report

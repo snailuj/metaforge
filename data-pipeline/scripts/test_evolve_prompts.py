@@ -557,3 +557,26 @@ def test_exploitation_infra_failure_not_consecutive(mock_evaluate, mock_tweak, t
     # 3 trials: 1 infra fail (not counted) + 2 real failures → early stop
     assert len(trials) == 3
     assert trials[0].valid is False  # infra failure
+
+
+# --- 17. TrialResult from legacy log (missing new fields) ---------------------
+
+def test_trial_result_from_legacy_log():
+    """TrialResult can be deserialised from a dict missing enrichment_coverage/valid."""
+    legacy = {
+        "trial_id": "explore-old",
+        "prompt_name": "old",
+        "prompt_text": "Old {batch_items}",
+        "mrr": 0.08,
+        "per_pair": [],
+        "secondary": {},
+        "parent_id": None,
+        "generation": 0,
+        "mutation": None,
+        "survived": True,
+        "timestamp": "2026-01-01T00:00:00",
+    }
+    t = TrialResult(**legacy)
+    assert t.enrichment_coverage == 1.0
+    assert t.valid is True
+    assert t.mrr == 0.08
