@@ -192,3 +192,19 @@ def compute_shared_mrr(
         "child_mrr_shared": child_mrr,
         "shared_delta": child_mrr - parent_mrr,
     }
+
+
+def get_failure_limit(generation: int) -> int:
+    """Return the consecutive failure limit for a given generation.
+
+    Dynamic schedule:
+        gen 1-3: 5 (early exploration)
+        gen 4-6: 3 (narrowing)
+        gen 7+:  2 (plateau detection)
+    """
+    if generation <= 3:
+        return 5
+    elif generation <= 6:
+        return 3
+    else:
+        return 2

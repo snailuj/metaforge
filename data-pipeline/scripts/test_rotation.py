@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from rotation import compute_shared_mrr, load_pool, select_subset, PairPool, Subset
+from rotation import compute_shared_mrr, get_failure_limit, load_pool, select_subset, PairPool, Subset
 
 
 def test_load_pool_assigns_stable_ids(tmp_path):
@@ -186,3 +186,24 @@ def test_shared_mrr_no_overlap_returns_zero():
     assert result["parent_mrr_shared"] == 0.0
     assert result["child_mrr_shared"] == 0.0
     assert result["shared_delta"] == 0.0
+
+
+def test_failure_limit_gen_1_to_3():
+    """Generations 1-3 have failure limit 5."""
+    assert get_failure_limit(1) == 5
+    assert get_failure_limit(2) == 5
+    assert get_failure_limit(3) == 5
+
+
+def test_failure_limit_gen_4_to_6():
+    """Generations 4-6 have failure limit 3."""
+    assert get_failure_limit(4) == 3
+    assert get_failure_limit(5) == 3
+    assert get_failure_limit(6) == 3
+
+
+def test_failure_limit_gen_7_to_10():
+    """Generations 7-10 have failure limit 2."""
+    assert get_failure_limit(7) == 2
+    assert get_failure_limit(8) == 2
+    assert get_failure_limit(10) == 2
