@@ -25,3 +25,9 @@ section-similar = Similar
 rarity-common = common
 rarity-unusual = unusual
 rarity-rare = rare
+
+## HUD filter toggles
+filter-common = Common
+filter-unusual = Unusual
+filter-rare = Rare
+filter-aria-label = Filter by word rarity

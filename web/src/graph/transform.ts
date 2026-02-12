@@ -25,6 +25,7 @@ export function transformLookupToGraph(
     word: result.word,
     relationType: 'central',
     val: 8,
+    rarity: result.rarity,
   })
 
   // Collect all related words by priority tier
@@ -61,6 +62,7 @@ export function transformLookupToGraph(
         synsetId: rw.synset_id,
         relationType: tier.type,
         val: tier.type === 'synonym' ? 4 : 2,
+        rarity: rw.rarity,
       })
 
       links.push({

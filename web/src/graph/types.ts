@@ -13,6 +13,7 @@ export interface GraphNode {
   synsetId?: string     // Optional synset reference for navigation
   relationType: RelationType
   val: number           // Affects node size in 3d-force-graph
+  rarity?: string       // 'common' | 'unusual' | 'rare'
 }
 
 /** A link (edge) in the force graph */

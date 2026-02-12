@@ -78,12 +78,64 @@ export class MfApp extends LitElement {
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    .rarity-filters {
+      position: absolute;
+      top: calc(var(--space-md, 1rem) + 48px);
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: var(--space-sm, 0.5rem);
+      z-index: 20;
+    }
+
+    .rarity-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.75rem;
+      color: var(--colour-text-secondary, #a89f94);
+      cursor: pointer;
+    }
+
+    .rarity-toggle input {
+      accent-color: var(--colour-accent-gold, #d4af37);
+    }
+
+    .rarity-toggle.common { color: #8bb89a; }
+    .rarity-toggle.unusual { color: #c4956a; }
+    .rarity-toggle.rare { color: #a88bc4; }
   `
 
   @state() private appState: AppState = 'idle'
   @state() private result: LookupResult | null = null
   @state() private graphData: GraphData = { nodes: [], links: [] }
   @state() private errorMessage = ''
+  @state() private showCommon = true
+  @state() private showUnusual = true
+  @state() private showRare = true
+
+  private get filteredGraphData(): GraphData {
+    if (this.showCommon && this.showUnusual && this.showRare) {
+      return this.graphData
+    }
+
+    const visibleNodes = this.graphData.nodes.filter(node => {
+      if (node.relationType === 'central') return true
+      const rarity = node.rarity ?? 'unusual'
+      if (rarity === 'common' && !this.showCommon) return false
+      if (rarity === 'unusual' && !this.showUnusual) return false
+      if (rarity === 'rare' && !this.showRare) return false
+      return true
+    })
+
+    const visibleIds = new Set(visibleNodes.map(n => n.id))
+    const visibleLinks = this.graphData.links.filter(
+      link => visibleIds.has(link.source as string) && visibleIds.has(link.target as string),
+    )
+
+    return { nodes: visibleNodes, links: visibleLinks }
+  }
 
   async connectedCallback(): Promise<void> {
     super.connectedCallback()
@@ -196,8 +248,30 @@ export class MfApp extends LitElement {
           : ''}
       </div>
 
+      ${this.appState === 'ready'
+        ? html`
+            <div class="rarity-filters" role="group" aria-label="${getString('filter-aria-label')}">
+              <label class="rarity-toggle common">
+                <input type="checkbox" .checked=${this.showCommon}
+                  @change=${(e: Event) => { this.showCommon = (e.target as HTMLInputElement).checked }}>
+                ${getString('filter-common')}
+              </label>
+              <label class="rarity-toggle unusual">
+                <input type="checkbox" .checked=${this.showUnusual}
+                  @change=${(e: Event) => { this.showUnusual = (e.target as HTMLInputElement).checked }}>
+                ${getString('filter-unusual')}
+              </label>
+              <label class="rarity-toggle rare">
+                <input type="checkbox" .checked=${this.showRare}
+                  @change=${(e: Event) => { this.showRare = (e.target as HTMLInputElement).checked }}>
+                ${getString('filter-rare')}
+              </label>
+            </div>
+          `
+        : ''}
+
       <mf-force-graph
-        .graphData=${this.graphData}
+        .graphData=${this.filteredGraphData}
         @mf-node-select=${() => {}}
         @mf-node-navigate=${this.handleNodeNavigate}
         @mf-node-copy=${this.handleCopy}

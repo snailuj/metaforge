@@ -131,4 +131,27 @@ describe('MfApp', () => {
     const status = el.shadowRoot!.querySelector('.status-message')
     expect(status?.textContent).toContain('status-idle')
   })
+
+  it('renders three rarity filter toggles when in ready state', async () => {
+    ;(el as any).appState = 'ready'
+    ;(el as any).result = { word: 'test', senses: [], rarity: 'common' }
+    ;(el as any).graphData = { nodes: [{ id: 'test', word: 'test', relationType: 'central', val: 8, rarity: 'common' }], links: [] }
+    await el.updateComplete
+
+    const toggles = el.shadowRoot!.querySelectorAll('.rarity-toggle')
+    expect(toggles.length).toBe(3)
+  })
+
+  it('all rarity filter toggles default to checked', async () => {
+    ;(el as any).appState = 'ready'
+    ;(el as any).result = { word: 'test', senses: [], rarity: 'common' }
+    ;(el as any).graphData = { nodes: [{ id: 'test', word: 'test', relationType: 'central', val: 8 }], links: [] }
+    await el.updateComplete
+
+    const checkboxes = el.shadowRoot!.querySelectorAll<HTMLInputElement>('.rarity-toggle input[type="checkbox"]')
+    expect(checkboxes.length).toBe(3)
+    for (const cb of checkboxes) {
+      expect(cb.checked).toBe(true)
+    }
+  })
 })
