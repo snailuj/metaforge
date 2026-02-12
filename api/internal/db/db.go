@@ -24,7 +24,6 @@ type Synset struct {
 	Connotation  string   `json:"connotation,omitempty"`
 	Register     string   `json:"register,omitempty"`
 	UsageExample string   `json:"usage_example,omitempty"`
-	Rarity       string   `json:"rarity,omitempty"`        // Placeholder: SUBTLEX-UK frequency data pending
 }
 
 // Open establishes a read-only connection to the lexicon SQLite database.
