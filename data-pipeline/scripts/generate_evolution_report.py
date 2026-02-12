@@ -287,6 +287,11 @@ def _llm_prose(briefing: dict, section_prompt: str, model: str = "haiku") -> str
     # Strip markdown fences if present
     text = re.sub(r'^```(?:markdown)?\s*', '', text)
     text = re.sub(r'\s*```$', '', text)
+    # Strip LLM preamble (e.g. "I'll write..." or "Here is...")
+    text = re.sub(
+        r"^(?:I'll|I will|Here is|Here's|Let me|Sure)[^\n]*\n+",
+        '', text, count=1,
+    )
     return text
 
 
