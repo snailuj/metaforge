@@ -1,26 +1,33 @@
-# MetaForge UI Strings
+## Core Thesaurus — UI strings (en-GB)
 
-# Search bar
-search-placeholder = Search for a word...
-search-aria-label = Search for a word
+search-placeholder = Search for a word…
+search-shortcut-hint = Press / to focus
 
-# Results panel
-results-aria-label = Thesaurus results
-results-synonyms = Synonyms
-results-broader = Broader terms
-results-narrower = Narrower terms
-results-similar = Similar
-word-chip-title = Double-click to navigate, right-click to copy
+results-empty = No results found.
+results-word-not-found = "{$word}" was not found in the thesaurus.
+results-error-network = Something went wrong. Please try again.
+results-error-retry = Retry
 
-# App status messages
-status-loading = Loading…
-status-idle = Search for a word to begin exploring.
-results-word-not-found = "{ $word }" was not found in the thesaurus.
-error-generic = Something went wrong. Please try again.
-toast-copied = Copied "{ $word }"
-
-# Parts of speech
 pos-noun = noun
 pos-verb = verb
 pos-adjective = adjective
 pos-adverb = adverb
+pos-adjective-satellite = adj. satellite
+
+synonym-copy-tooltip = Right-click to copy
+synonym-copied-feedback = Copied!
+
+section-hypernyms = Broader terms
+section-hyponyms = Narrower terms
+section-similar = Similar
+
+## Rarity badges
+rarity-common = common
+rarity-unusual = unusual
+rarity-rare = rare
+
+## HUD filter toggles
+filter-common = Common
+filter-unusual = Unusual
+filter-rare = Rare
+filter-aria-label = Filter by word rarity
