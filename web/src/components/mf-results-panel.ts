@@ -97,9 +97,40 @@ export class MfResultsPanel extends LitElement {
       outline: 1px solid var(--colour-accent-gold, #d4af37);
       outline-offset: 1px;
     }
+
+    .rarity-badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      padding: 1px 6px;
+      border-radius: 8px;
+      margin-left: var(--space-xs, 0.25rem);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      vertical-align: middle;
+    }
+
+    .rarity-badge.common {
+      background: rgba(106, 139, 111, 0.2);
+      color: #8bb89a;
+    }
+
+    .rarity-badge.unusual {
+      background: rgba(196, 149, 106, 0.2);
+      color: #c4956a;
+    }
+
+    .rarity-badge.rare {
+      background: rgba(122, 106, 139, 0.2);
+      color: #a88bc4;
+    }
   `
 
   @property({ type: Object }) result: LookupResult | null = null
+
+  private renderRarityBadge(rarity?: string) {
+    if (!rarity) return nothing
+    return html`<span class="rarity-badge ${rarity}">${getString(`rarity-${rarity}`)}</span>`
+  }
 
   private handleWordDblClick(word: string) {
     this.dispatchEvent(
@@ -134,6 +165,7 @@ export class MfResultsPanel extends LitElement {
       <span
         class="word-chip ${type}"
         data-word=${rw.word}
+        data-rarity=${rw.rarity ?? ''}
         tabindex="0"
         role="button"
         @dblclick=${() => this.handleWordDblClick(rw.word)}
@@ -196,7 +228,7 @@ export class MfResultsPanel extends LitElement {
 
     return html`
       <div class="panel" role="region" aria-label="${getString('results-aria-label')}" aria-live="polite">
-        <h2>${this.result.word}</h2>
+        <h2>${this.result.word} ${this.renderRarityBadge(this.result.rarity)}</h2>
         ${this.result.senses.map(s => this.renderSense(s))}
       </div>
     `

@@ -4,12 +4,15 @@ import type { LookupResult } from '@/types/api'
 
 const melancholy: LookupResult = {
   word: 'melancholy',
+  rarity: 'unusual',
   senses: [
     {
       synset_id: '72858',
       pos: 'noun',
       definition: 'a feeling of thoughtful sadness',
-      synonyms: [{ word: 'sadness', synset_id: '72855' }],
+      synonyms: [
+        { word: 'sadness', synset_id: '72855', rarity: 'common' },
+      ],
       relations: {
         hypernyms: [{ word: 'emotion', synset_id: '1' }],
         hyponyms: [{ word: 'gloom', synset_id: '2' }],
@@ -52,6 +55,49 @@ describe('MfResultsPanel', () => {
     const defs = el.shadowRoot!.querySelectorAll('.definition')
     expect(defs.length).toBeGreaterThan(0)
     expect(defs[0].textContent).toContain('thoughtful sadness')
+  })
+
+  it('renders a rarity badge for the looked-up word', async () => {
+    el.result = melancholy
+    await el.updateComplete
+
+    const badge = el.shadowRoot!.querySelector('.rarity-badge')
+    expect(badge).toBeTruthy()
+    expect(badge?.textContent?.trim()).toBe('rarity-unusual')
+  })
+
+  it('applies correct CSS class for rarity tier', async () => {
+    el.result = melancholy
+    await el.updateComplete
+
+    const badge = el.shadowRoot!.querySelector('.rarity-badge')
+    expect(badge?.classList.contains('unusual')).toBe(true)
+  })
+
+  it('renders data-rarity attribute on word chips', async () => {
+    el.result = melancholy
+    await el.updateComplete
+
+    const chip = el.shadowRoot!.querySelector('[data-word="sadness"]')
+    expect(chip?.getAttribute('data-rarity')).toBe('common')
+  })
+
+  it('does not render rarity badge when rarity is missing', async () => {
+    const noRarity: LookupResult = {
+      word: 'test',
+      senses: [{
+        synset_id: '1',
+        pos: 'noun',
+        definition: 'a test',
+        synonyms: [],
+        relations: { hypernyms: [], hyponyms: [], similar: [] },
+      }],
+    }
+    el.result = noRarity
+    await el.updateComplete
+
+    const badge = el.shadowRoot!.querySelector('.rarity-badge')
+    expect(badge).toBeNull()
   })
 
   it('fires mf-word-navigate on double-click of a related word', async () => {

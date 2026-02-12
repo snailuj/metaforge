@@ -20,3 +20,8 @@ synonym-copied-feedback = Copied!
 section-hypernyms = Broader terms
 section-hyponyms = Narrower terms
 section-similar = Similar
+
+## Rarity badges
+rarity-common = common
+rarity-unusual = unusual
+rarity-rare = rare
