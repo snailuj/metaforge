@@ -972,3 +972,48 @@ def test_exploration_v2_populates_eval_subset(mock_eval, tmp_path):
     for t in trials:
         assert t.eval_subset is not None
         assert t.pool_version == "sha256:test123"
+
+
+# --- Integration: full v2 dry run -------------------------------------------
+
+@patch("evolve_prompts.evaluate")
+def test_full_v2_experiment_mocked(mock_eval, tmp_path):
+    """Full mocked experiment exercises rotation, paired comparison, ELO."""
+    call_count = 0
+
+    def mock_eval_fn(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return {
+            "mrr": 0.1 + call_count * 0.01,
+            "per_pair": [
+                {"source": "a", "target": "b", "rank": max(1, 10 - call_count),
+                 "reciprocal_rank": 1.0 / max(1, 10 - call_count)},
+            ],
+            "secondary": {"unique_properties": 100},
+            "valid": True,
+            "enrichment_coverage": 1.0,
+        }
+
+    mock_eval.side_effect = mock_eval_fn
+
+    pool = _make_mock_pool()
+
+    # Run exploration
+    trials = run_exploration(
+        prompts={"test": "Test {batch_items}"},
+        baseline_prompt="Baseline {batch_items}",
+        model="haiku",
+        port=9999,
+        output_dir=tmp_path,
+        pair_pool=pool,
+    )
+
+    assert len(trials) == 2
+    assert all(t.pool_version is not None for t in trials)
+
+    # Verify exploration log is valid JSON
+    log_path = tmp_path / "exploration_log.json"
+    assert log_path.exists()
+    loaded = json.loads(log_path.read_text())
+    assert len(loaded) == 2
