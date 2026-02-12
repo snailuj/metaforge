@@ -281,6 +281,7 @@ def evaluate(
     prompt_template: str = None,
     coverage_threshold: float = 0.9,
     verbose: bool = False,
+    eval_subset: list[str] = None,
 ) -> dict:
     """Run full MRR evaluation.
 
@@ -312,6 +313,11 @@ def evaluate(
 
     # Step 1: Load pairs and resolve synsets from baseline
     pairs = load_metaphor_pairs(pairs_file)
+
+    # Filter to eval subset if provided
+    if eval_subset:
+        subset_set = set(eval_subset)
+        pairs = [p for p in pairs if f"{p['source']}:{p['target']}" in subset_set]
 
     # Restore baseline for synset lookup
     print("  Restoring baseline for synset resolution...")
