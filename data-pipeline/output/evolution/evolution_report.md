@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-The evolutionary optimisation of enrichment prompts across 10 trials produced a headline MRR of 0.1082 from the best variant (exploit-persona_poet-g2), nominally +25.4% over the baseline of 0.0863. However, post-hoc analysis revealed that three of the 49 evaluation pairs (hope→light, grief→anchor, age→winter) appear as explicit examples in the g2 prompt text, inflating the result. Excluding these leaked pairs, the corrected improvement is **+5.5%** (MRR 0.0931 vs baseline 0.0883) — still positive, but far more modest. Of the five exploration prompts, three survived initial screening, while two exploitation variants degenerated to MRR=0.0, indicating high sensitivity to prompt formulation. The persona_poet approach — which guides the LLM toward metaphorical associations — remains the most promising strategy, but the leakage finding means that future experiments must enforce strict separation between prompt examples and evaluation pairs.
+The evolutionary optimisation of enrichment prompts across 10 trials produced a headline MRR of 0.1082 from the best variant (exploit-persona_poet-g2), nominally +25.4% over the baseline of 0.0863. However, post-hoc analysis revealed that three of the 49 evaluation pairs (hope→light, grief→anchor, age→winter) appear as explicit examples in the g2 prompt text, inflating the result. Excluding these leaked pairs, the corrected improvement is **+5.5%** (MRR 0.0931 vs baseline 0.0883) — still positive, but far more modest. Of the five exploration prompts, three survived initial screening, while two exploitation variants recorded MRR=0.0. The persona_poet approach — which guides the LLM toward metaphorical associations — remains the most promising strategy, but two caveats apply: (1) prompt example leakage inflated the headline result, and (2) post-hoc log analysis revealed significant API failures during the experiment — the two MRR=0.0 results may reflect infrastructure failure rather than prompt quality (see Section 5).
 
 ## 2. Methodology
 
@@ -106,6 +106,34 @@ Only `hope → light` benefited materially (rank 1, RR=1.0); `grief → anchor` 
 
 The corrected +5.5% improvement is real but modest. This finding applies broadly: any exploitation prompt that mentions specific metaphor pairs as examples risks inflating its score on those pairs. Future experiments must either (a) exclude prompt-mentioned pairs from evaluation, or (b) use a held-out evaluation set that is never visible to the prompt author (human or LLM).
 
+### Infrastructure Reliability
+
+Post-hoc analysis of the experiment stdout log revealed **128 batch failures** across the 10 trials, distributed unevenly between phases:
+
+**Exploration phase (6 trials):** Scattered, recoverable failures.
+
+| Trial | Failed Batches (of 35) | Synsets Enriched (of 700) |
+|-------|----------------------|--------------------------|
+| baseline | 0 | 698 |
+| persona_poet | 6 | 580 |
+| contrastive | 4 | 620 |
+| narrative | 10 | 500 |
+| taxonomic | 0 | 700 |
+| embodied | 4 | 620 |
+
+All failures were Claude CLI response parsing errors (`Expecting value: line 1 column 1` — empty response body). The retry mechanism recovered ~30 of these, but the remaining failures mean exploration trials were scored on incomplete enrichments (as low as 500/700 synsets for narrative). This adds noise to MRR scores and may partly explain the narrow spread between survivors.
+
+**Exploitation phase (4 trials):** Cascading, unrecoverable failures.
+
+- **persona_poet g3, g4:** LLM tweak generation itself returned empty JSON — no tweak was produced, so no enrichment ran. These generations were skipped.
+- **persona_poet g5:** A tweak was generated, but then **all 35 enrichment batches failed** (100% failure rate, `'"id"` key error). Zero synsets enriched → MRR=0.0.
+- **contrastive g2:** Same pattern — tweak generated, all 35 batches failed → MRR=0.0.
+- **narrative g1–g3:** All tweak generations failed → early stop after 3 consecutive failures.
+
+**Implication for the two MRR=0.0 results:** The report's Discussion section previously attributed these to prompt overfitting. However, the log evidence shows that enrichment produced zero properties in both cases — the API never returned usable data. **These MRR=0.0 scores likely reflect infrastructure failure, not prompt quality.** It is not possible to distinguish between "the prompt was so bad the LLM couldn't respond" and "the API had a transient failure" from the available data. These trials should be treated as inconclusive rather than as evidence of prompt degeneracy.
+
+No rate limiting or usage exhaustion errors were observed — all failures were response parsing issues.
+
 ## 6. Per-Pair Analysis
 
 ### Easiest Pairs (highest avg RR)
@@ -163,13 +191,9 @@ Notably, **hit rate showed near-zero correlation** (*r* = −0.005), suggesting 
 
 The winning mutation added explicit instruction to capture *metaphorical associations and archetypal pairings*. This directly addressed the model's tendency to generate sensory descriptors divorced from symbolic intent. By guiding the model toward the *archetypal targets* of metaphors, the prompt narrowed the property space to what actually bridges the conceptual gap in weak pairs. However, the g2 prompt text includes three evaluation pairs as examples (hope→light, grief→anchor, age→winter), inflating the headline MRR. After excluding these leaked pairs, the improvement drops from +25.4% to +5.5% — still the best result, but the mechanism is partly data leakage rather than purely improved reasoning. The generation 1 predecessor (0.0815) failed because it focused too literally on "physical embodiments" without acknowledging that the test pairs demand symbolic resonance, not just sensory anchoring.
 
-**Failure: persona_poet g5 (degraded to 0.0)**
+**Failure: persona_poet g5 and contrastive g2 (both MRR=0.0)**
 
-The g5 mutation attempted to add an extra step — mapping abstract concepts to archetypal targets, *then* extracting sensory properties. This over-constrained the model. By forcing a two-stage transformation, the prompt likely produced incoherent or off-target properties, causing systematic misses across the test set. The pattern suggests that explicit multi-step instructions can backfire if they introduce logical brittleness.
-
-**Failure: contrastive g2 (degraded to 0.0)**
-
-A similar degeneracy. The mutation aimed to "surface concrete, imagistic properties and symbolic associations" but resulted in complete failure. The added specificity likely conflicted with the base contrastive framing or produced properties so constrained that they no longer generalised to the 49-pair fixture.
+Both trials recorded MRR=0.0. The Discussion section of the original LLM-authored analysis attributed this to prompt overfitting. However, post-hoc log analysis (see Section 5, Infrastructure Reliability) revealed that **all 35 enrichment batches failed in both trials** — zero synsets were enriched, zero properties generated. The API returned empty or malformed responses for every batch. These results are therefore **inconclusive**: it is not possible to distinguish between "the prompt was so bad the LLM couldn't respond" and "a transient API failure prevented enrichment" from the available data. They should not be cited as evidence of prompt degeneracy.
 
 ### Tier Performance: Strong vs. Medium Pairs
 
@@ -178,14 +202,11 @@ A similar degeneracy. The mutation aimed to "surface concrete, imagistic propert
 
 The 1.8× gap suggests that the best-performing prompt (persona_poet g2) succeeded partly by anchoring properties to culturally familiar archetypes — though some of this effect is attributable to prompt example leakage on strong-tier pairs like hope→light. Medium-tier pairs remain challenging because they demand reasoning about less-canonical or context-dependent metaphorical bridges. Even the corrected +5.5% improvement leaves substantial room for growth, indicating a ceiling where richer data, multi-stage inference, or leakage-free prompt design may be needed.
 
-### Failure Modes and Degenerate Trials
+### Failure Modes
 
-Two trials collapsed entirely (MRR = 0.0):
+**Infrastructure failures (MRR=0.0 trials):** As detailed in Section 5, both persona_poet g5 and contrastive g2 suffered 100% batch failure — the Claude CLI returned empty responses for all 35 enrichment batches. These are inconclusive results, not evidence of prompt degeneracy. Additionally, the exploration phase saw 0–10 failed batches per trial, meaning all MRR scores are based on incomplete enrichments (500–700 of 700 target synsets). This adds noise to the scores and limits confidence in small differences between prompts.
 
-1. **persona_poet g5**: Over-specification. The prompt became too prescriptive about the transformation pipeline, likely confusing the model or constraining outputs to a narrow, incorrect space.
-2. **contrastive g2**: Prompt collision. The added instruction contradicted or diluted the base contrastive framing, breaking coherence.
-
-Both failures cluster around **generation 2+**, where mutations compound. This suggests a regime where prompt drift accumulates and adaptation strategies become brittle. Three of four exploitation trials (g1, g2, g5) came from persona_poet; only g2 survived. The others (g1 at 0.0815, g5 at 0.0) illustrate diminishing returns and increased risk in deep mutation chains.
+**Exploitation brittleness:** Beyond the infrastructure failures, the exploitation phase showed a clear pattern of diminishing returns. Three of four persona_poet exploitation trials (g1, g3, g4) failed — g1 regressed, g3 and g4 couldn't even generate valid tweaks. Only g2 succeeded. The LLM tweak generator itself proved unreliable, with narrative exploitation failing to produce any valid tweaks at all (3 consecutive failures → early stop).
 
 A subtler failure mode is **prompt example leakage**: the LLM tweak generator introduced evaluation pairs as prompt examples (hope→light, grief→anchor, age→winter in g2; similar patterns in g1 and g5). This creates a perverse incentive where the evolutionary process selects for prompts that overfit to the evaluation fixture via their examples, rather than prompts that genuinely improve property extraction. The corrected improvement for g2 (+5.5% vs +25.4%) demonstrates the magnitude of this effect. Leakage is a systemic risk in any LLM-driven prompt evolution loop and must be addressed architecturally.
 
