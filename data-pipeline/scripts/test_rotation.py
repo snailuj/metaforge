@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from rotation import load_pool, select_subset, PairPool, Subset
+from rotation import compute_shared_mrr, load_pool, select_subset, PairPool, Subset
 
 
 def test_load_pool_assigns_stable_ids(tmp_path):
@@ -125,3 +125,64 @@ def test_select_subset_includes_archetypal(tmp_path):
     subset = select_subset(pool, fraction=0.65, seed=42)
     arch_in_subset = [pid for pid in subset.pair_ids if pid in set(pool.archetypal_ids)]
     assert len(arch_in_subset) >= 2
+
+
+def test_shared_mrr_filters_to_shared_pairs():
+    """Only pairs present in both subsets contribute to MRR."""
+    parent_per_pair = [
+        {"source": "a", "target": "b", "rank": 1, "reciprocal_rank": 1.0},
+        {"source": "c", "target": "d", "rank": 2, "reciprocal_rank": 0.5},
+        {"source": "e", "target": "f", "rank": None, "reciprocal_rank": 0.0},
+    ]
+    parent_subset_ids = ["a:b", "c:d", "e:f"]
+
+    child_per_pair = [
+        {"source": "a", "target": "b", "rank": 2, "reciprocal_rank": 0.5},
+        {"source": "c", "target": "d", "rank": 1, "reciprocal_rank": 1.0},
+        {"source": "g", "target": "h", "rank": 3, "reciprocal_rank": 0.333},
+    ]
+    child_subset_ids = ["a:b", "c:d", "g:h"]
+
+    result = compute_shared_mrr(
+        parent_per_pair=parent_per_pair,
+        parent_subset_ids=parent_subset_ids,
+        child_per_pair=child_per_pair,
+        child_subset_ids=child_subset_ids,
+    )
+
+    # Shared pairs: a:b and c:d
+    assert result["shared_ids"] == ["a:b", "c:d"]
+    assert result["parent_mrr_shared"] == (1.0 + 0.5) / 2  # 0.75
+    assert result["child_mrr_shared"] == (0.5 + 1.0) / 2  # 0.75
+    assert result["shared_delta"] == 0.0
+
+
+def test_shared_mrr_positive_delta():
+    """Positive delta when child outperforms parent on shared pairs."""
+    parent_per_pair = [
+        {"source": "a", "target": "b", "rank": 10, "reciprocal_rank": 0.1},
+    ]
+    child_per_pair = [
+        {"source": "a", "target": "b", "rank": 1, "reciprocal_rank": 1.0},
+    ]
+    result = compute_shared_mrr(
+        parent_per_pair=parent_per_pair,
+        parent_subset_ids=["a:b"],
+        child_per_pair=child_per_pair,
+        child_subset_ids=["a:b"],
+    )
+    assert result["shared_delta"] == pytest.approx(0.9)
+
+
+def test_shared_mrr_no_overlap_returns_zero():
+    """When no shared pairs, all MRR values are 0.0."""
+    result = compute_shared_mrr(
+        parent_per_pair=[{"source": "a", "target": "b", "rank": 1, "reciprocal_rank": 1.0}],
+        parent_subset_ids=["a:b"],
+        child_per_pair=[{"source": "c", "target": "d", "rank": 1, "reciprocal_rank": 1.0}],
+        child_subset_ids=["c:d"],
+    )
+    assert result["shared_ids"] == []
+    assert result["parent_mrr_shared"] == 0.0
+    assert result["child_mrr_shared"] == 0.0
+    assert result["shared_delta"] == 0.0

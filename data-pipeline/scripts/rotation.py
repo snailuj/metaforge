@@ -149,3 +149,46 @@ def select_subset(
         carried_from_parent=carried,
         fresh_ids=fresh,
     )
+
+
+def compute_shared_mrr(
+    parent_per_pair: list[dict],
+    parent_subset_ids: list[str],
+    child_per_pair: list[dict],
+    child_subset_ids: list[str],
+) -> dict:
+    """Compute MRR on pairs shared between parent and child subsets.
+
+    Returns dict with shared_ids, parent_mrr_shared, child_mrr_shared,
+    and shared_delta.
+    """
+    parent_set = set(parent_subset_ids)
+    child_set = set(child_subset_ids)
+    shared = sorted(parent_set & child_set)
+
+    if not shared:
+        return {
+            "shared_ids": [],
+            "parent_mrr_shared": 0.0,
+            "child_mrr_shared": 0.0,
+            "shared_delta": 0.0,
+        }
+
+    def _mrr_for_pairs(per_pair: list[dict], pair_ids: set[str]) -> float:
+        rrs = []
+        for pp in per_pair:
+            pid = f"{pp['source']}:{pp['target']}"
+            if pid in pair_ids:
+                rrs.append(pp.get("reciprocal_rank", 0.0))
+        return sum(rrs) / len(rrs) if rrs else 0.0
+
+    shared_set = set(shared)
+    parent_mrr = _mrr_for_pairs(parent_per_pair, shared_set)
+    child_mrr = _mrr_for_pairs(child_per_pair, shared_set)
+
+    return {
+        "shared_ids": shared,
+        "parent_mrr_shared": parent_mrr,
+        "child_mrr_shared": child_mrr,
+        "shared_delta": child_mrr - parent_mrr,
+    }
