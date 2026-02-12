@@ -445,3 +445,115 @@ def test_generate_report_empty_trials():
     report = generate_report([])
     assert "# Evolutionary Prompt Optimisation Report" in report
     assert "No trials" in report or "0 trials" in report.lower() or len(report) > 0
+
+
+# --- 14. TrialResult has coverage and valid fields ----------------------------
+
+def test_trial_result_has_coverage_and_valid_fields():
+    """TrialResult has enrichment_coverage and valid, serialisable round-trip."""
+    t = TrialResult(
+        trial_id="explore-test",
+        prompt_name="test",
+        prompt_text="T {batch_items}",
+        mrr=0.10,
+        per_pair=[],
+        secondary={},
+        parent_id=None,
+        generation=0,
+        mutation=None,
+        survived=True,
+        timestamp="2026-02-12T10:00:00",
+        enrichment_coverage=0.85,
+        valid=False,
+    )
+    d = asdict(t)
+    assert d["enrichment_coverage"] == 0.85
+    assert d["valid"] is False
+    # Round-trip
+    t2 = TrialResult(**d)
+    assert t2.enrichment_coverage == 0.85
+    assert t2.valid is False
+
+
+# --- 15. exploration skips invalid trial for elimination ----------------------
+
+@patch("evolve_prompts.evaluate")
+def test_exploration_skips_invalid_trial_for_elimination(mock_evaluate, tmp_path):
+    """An invalid trial (infra failure) is not used for elimination decisions."""
+    # Baseline MRR = 0.10
+    # prompt_a: MRR = 0.15 but valid=False (infra failure) → should NOT survive
+    # prompt_b: MRR = 0.12, valid=True → should survive (> baseline)
+    mock_evaluate.side_effect = [
+        {"mrr": 0.10, "per_pair": [], "secondary": {},
+         "testable_pairs": 1, "skipped_pairs": 0, "valid": True},
+        {"mrr": 0.15, "per_pair": [], "secondary": {},
+         "testable_pairs": 1, "skipped_pairs": 0, "valid": False,
+         "enrichment_coverage": 0.3, "enrichment_failed": 70},
+        {"mrr": 0.12, "per_pair": [], "secondary": {},
+         "testable_pairs": 1, "skipped_pairs": 0, "valid": True,
+         "enrichment_coverage": 0.95},
+    ]
+
+    prompts = {
+        "prompt_a": "A: {batch_items}\n[{{}}]",
+        "prompt_b": "B: {batch_items}\n[{{}}]",
+    }
+
+    trials = run_exploration(
+        prompts=prompts,
+        baseline_prompt="Baseline: {batch_items}\n[{{}}]",
+        model="haiku",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+    )
+
+    trial_a = [t for t in trials if t.trial_id == "explore-prompt_a"][0]
+    trial_b = [t for t in trials if t.trial_id == "explore-prompt_b"][0]
+
+    # prompt_a invalid → survived=False, valid=False
+    assert trial_a.valid is False
+    assert trial_a.survived is False
+    # prompt_b valid and beats baseline → survived=True
+    assert trial_b.valid is True
+    assert trial_b.survived is True
+
+
+# --- 16. exploitation infra failure doesn't count as consecutive failure ------
+
+@patch("evolve_prompts.generate_tweak")
+@patch("evolve_prompts.evaluate")
+def test_exploitation_infra_failure_not_consecutive(mock_evaluate, mock_tweak, tmp_path):
+    """Infra failures in exploitation don't increment the consecutive failure counter."""
+    mock_evaluate.side_effect = [
+        # tweak 1: infra failure (valid=False) — should NOT count
+        {"mrr": 0.01, "per_pair": [], "secondary": {},
+         "valid": False, "enrichment_coverage": 0.2},
+        # tweak 2: real regression (valid=True) — counts as failure 1
+        {"mrr": 0.10, "per_pair": [], "secondary": {},
+         "valid": True, "enrichment_coverage": 0.95},
+        # tweak 3: real regression — counts as failure 2 → early stop at K=2
+        {"mrr": 0.10, "per_pair": [], "secondary": {},
+         "valid": True, "enrichment_coverage": 0.95},
+    ]
+    mock_tweak.side_effect = [
+        {"modified_prompt": f"T{i}: {{batch_items}}\n[{{{{}}}}]", "description": f"tweak {i}"}
+        for i in range(1, 8)
+    ]
+
+    trials = run_exploitation(
+        survivor_name="test",
+        survivor_prompt="Original: {batch_items}\n[{{}}]",
+        survivor_mrr=0.15,
+        per_pair=[],
+        max_tweaks=7,
+        consecutive_failure_limit=2,
+        model="haiku",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+    )
+
+    # 3 trials: 1 infra fail (not counted) + 2 real failures → early stop
+    assert len(trials) == 3
+    assert trials[0].valid is False  # infra failure

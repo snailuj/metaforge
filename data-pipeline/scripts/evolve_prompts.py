@@ -42,6 +42,8 @@ class TrialResult:
     mutation: Optional[str]
     survived: bool
     timestamp: str
+    enrichment_coverage: float = 1.0
+    valid: bool = True
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -174,7 +176,12 @@ def run_exploration(
             enrich_size=enrich_size,
             port=port,
         )
-        survived = result["mrr"] > baseline_mrr
+        trial_valid = result.get("valid", True)
+        if trial_valid:
+            survived = result["mrr"] > baseline_mrr
+        else:
+            survived = False
+        coverage = result.get("enrichment_coverage", 1.0)
         trial = TrialResult(
             trial_id=f"explore-{name}",
             prompt_name=name,
@@ -187,10 +194,17 @@ def run_exploration(
             mutation=None,
             survived=survived,
             timestamp=_now(),
+            enrichment_coverage=coverage,
+            valid=trial_valid,
         )
         trials.append(trial)
         _save_log(trials, log_path)
-        status = "SURVIVED" if survived else "eliminated"
+        if not trial_valid:
+            status = "INVALID (infra failure)"
+        elif survived:
+            status = "SURVIVED"
+        else:
+            status = "eliminated"
         print(f"  {name}: MRR = {result['mrr']:.4f} ({status})")
 
     survivors = [t for t in trials if t.survived and t.trial_id != "baseline"]
@@ -258,7 +272,9 @@ def run_exploitation(
             port=port,
         )
 
-        improved = result["mrr"] > current_mrr
+        trial_valid = result.get("valid", True)
+        coverage = result.get("enrichment_coverage", 1.0)
+        improved = trial_valid and result["mrr"] > current_mrr
         trial_id = f"exploit-{survivor_name}-g{gen}"
         trial = TrialResult(
             trial_id=trial_id,
@@ -272,11 +288,16 @@ def run_exploitation(
             mutation=tweak["description"],
             survived=improved,
             timestamp=_now(),
+            enrichment_coverage=coverage,
+            valid=trial_valid,
         )
         trials.append(trial)
         _save_log(trials, log_path)
 
-        if improved:
+        if not trial_valid:
+            print(f"  MRR {result['mrr']:.4f} — INVALID (infra failure, not counted)")
+            # Infra failures don't count toward consecutive failure limit
+        elif improved:
             print(f"  MRR {current_mrr:.4f} → {result['mrr']:.4f} — KEPT")
             current_prompt = tweak["modified_prompt"]
             current_mrr = result["mrr"]
