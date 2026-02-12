@@ -19,10 +19,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 def _make_trial(
     trial_id, prompt_name, mrr, generation=0, survived=True,
     parent_id=None, mutation=None, prompt_text="P {batch_items}",
-    per_pair=None, secondary=None,
+    per_pair=None, secondary=None, **kwargs,
 ):
-    """Build a trial dict matching experiment_log.json schema."""
-    return {
+    """Build a trial dict matching experiment_log.json schema.
+
+    Extra keyword arguments (e.g. v2 fields like shared_delta, elo_rating,
+    eval_subset) are merged into the returned dict for forward compatibility.
+    """
+    d = {
         "trial_id": trial_id,
         "prompt_name": prompt_name,
         "prompt_text": prompt_text,
@@ -45,6 +49,8 @@ def _make_trial(
         "survived": survived,
         "timestamp": "2026-02-12T10:00:00+00:00",
     }
+    d.update(kwargs)
+    return d
 
 
 @pytest.fixture
@@ -642,3 +648,51 @@ def test_report_notes_infra_failures():
     ]
     md = section_exploration_results(trials)
     assert "infra" in md.lower() or "infrastructure" in md.lower()
+
+
+# ===========================================================================
+# 8. v2 fields — shared delta, ELO ratings, rotation stats
+# ===========================================================================
+
+def test_exploitation_table_shows_shared_delta():
+    """Exploitation table shows shared_delta when present in trial data."""
+    from generate_evolution_report import section_exploitation_results
+
+    trials = [
+        _make_trial("baseline", "baseline", 0.08),
+        _make_trial("explore-alpha", "alpha", 0.10, survived=True),
+        _make_trial(
+            "exploit-alpha-g1", "alpha", 0.12,
+            generation=1, survived=True,
+            parent_id="explore-alpha", mutation="test tweak",
+            shared_delta=0.015, mrr_shared=0.11, parent_mrr_shared=0.095,
+        ),
+    ]
+    md = section_exploitation_results(trials, no_llm=True)
+    # Should show shared delta column header and value
+    assert "Shared" in md
+    assert "0.015" in md
+
+
+def test_elo_section_present_when_ratings_exist():
+    """Cross-generation analysis includes ELO table when ratings present."""
+    from generate_evolution_report import section_cross_generation_analysis
+
+    trials = [
+        _make_trial("t1", "alpha", 0.10, elo_rating=1550.0, secondary={
+            "unique_properties": 100, "hapax_count": 60,
+            "hapax_rate": 0.6, "avg_properties_per_synset": 11.0,
+        }),
+        _make_trial("t2", "beta", 0.08, elo_rating=1480.0, secondary={
+            "unique_properties": 90, "hapax_count": 55,
+            "hapax_rate": 0.61, "avg_properties_per_synset": 10.0,
+        }),
+        _make_trial("t3", "gamma", 0.12, elo_rating=1520.0, secondary={
+            "unique_properties": 110, "hapax_count": 65,
+            "hapax_rate": 0.59, "avg_properties_per_synset": 12.0,
+        }),
+    ]
+    md = section_cross_generation_analysis(trials)
+    assert "ELO" in md or "Elo" in md
+    assert "1550" in md
+    assert "1480" in md
