@@ -2,6 +2,7 @@
 export interface RelatedWord {
   word: string
   synset_id: string
+  rarity?: string
 }
 
 /** Mirrors Go thesaurus.Relations */
@@ -24,4 +25,5 @@ export interface Sense {
 export interface LookupResult {
   word: string
   senses: Sense[]
+  rarity?: string
 }
