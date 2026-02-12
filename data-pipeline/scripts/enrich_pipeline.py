@@ -28,6 +28,9 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import EMBEDDING_DIM, FASTTEXT_VEC, normalise
 
+MAX_PROPERTIES_PER_SYNSET = 15
+SIMILARITY_CHUNK_SIZE = 2048
+
 
 # =============================================================================
 # 1. Curate properties (from curate_properties.py)
@@ -104,7 +107,7 @@ def curate_properties(
     """
     all_props = set()
     for synset in enrichment_data.get("synsets", []):
-        for prop in synset.get("properties", []):
+        for prop in synset.get("properties", [])[:MAX_PROPERTIES_PER_SYNSET]:
             all_props.add(normalise(prop))
 
     count = 0
@@ -153,7 +156,7 @@ def populate_synset_properties(
             (synset_id, model_used),
         )
 
-        for prop in synset.get("properties", []):
+        for prop in synset.get("properties", [])[:MAX_PROPERTIES_PER_SYNSET]:
             prop_norm = normalise(prop)
             if prop_norm in prop_ids:
                 conn.execute(
@@ -216,13 +219,21 @@ def compute_idf(conn: sqlite3.Connection) -> None:
 # =============================================================================
 
 def compute_property_similarity(
-    conn: sqlite3.Connection, threshold: float = 0.5
+    conn: sqlite3.Connection,
+    threshold: float = 0.5,
+    chunk_size: Optional[int] = None,
 ) -> int:
     """Compute pairwise cosine similarity and store pairs above threshold.
 
+    Uses block-wise processing to avoid allocating a full n×n matrix.
+    Peak memory: O(n × 300) for embeddings + O(chunk_size²) per sub-matrix.
+
     Returns the number of unique pairs stored.
     """
-    # Drop and recreate table
+    if chunk_size is None:
+        chunk_size = SIMILARITY_CHUNK_SIZE
+
+    # Drop and recreate table (without indexes — bulk insert first)
     conn.executescript("""
         DROP TABLE IF EXISTS property_similarity;
         CREATE TABLE property_similarity (
@@ -231,9 +242,6 @@ def compute_property_similarity(
             similarity REAL NOT NULL,
             PRIMARY KEY (property_id_a, property_id_b)
         );
-        CREATE INDEX idx_property_similarity_a ON property_similarity(property_id_a);
-        CREATE INDEX idx_property_similarity_b ON property_similarity(property_id_b);
-        CREATE INDEX idx_property_similarity_score ON property_similarity(similarity);
     """)
 
     cursor = conn.execute(
@@ -246,7 +254,8 @@ def compute_property_similarity(
         property_ids.append(prop_id)
         embeddings.append(vec)
 
-    if len(property_ids) < 2:
+    n = len(property_ids)
+    if n < 2:
         print("  <2 properties with embeddings — skipping similarity")
         return 0
 
@@ -254,23 +263,47 @@ def compute_property_similarity(
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     norms[norms == 0] = 1
     normalised = matrix / norms
-    sim = np.dot(normalised, normalised.T)
 
-    pairs = []
-    n = len(property_ids)
-    for i in range(n):
-        for j in range(i + 1, n):
-            s = float(sim[i, j])
-            if s >= threshold:
-                pairs.append((property_ids[i], property_ids[j], s))
-                pairs.append((property_ids[j], property_ids[i], s))
+    unique_count = 0
+    for ci in range(0, n, chunk_size):
+        ci_end = min(ci + chunk_size, n)
+        for cj in range(ci, n, chunk_size):
+            cj_end = min(cj + chunk_size, n)
 
-    conn.executemany(
-        "INSERT INTO property_similarity (property_id_a, property_id_b, similarity) VALUES (?, ?, ?)",
-        pairs,
-    )
+            sub_sim = np.dot(normalised[ci:ci_end], normalised[cj:cj_end].T)
+            pairs = []
+
+            if ci == cj:
+                # Diagonal chunk — upper triangle only (i < j)
+                for li in range(ci_end - ci):
+                    for lj in range(li + 1, cj_end - cj):
+                        s = float(sub_sim[li, lj])
+                        if s >= threshold:
+                            pairs.append((property_ids[ci + li], property_ids[cj + lj], s))
+                            pairs.append((property_ids[cj + lj], property_ids[ci + li], s))
+            else:
+                # Off-diagonal chunk — all pairs (ci < cj guaranteed)
+                for li in range(ci_end - ci):
+                    for lj in range(cj_end - cj):
+                        s = float(sub_sim[li, lj])
+                        if s >= threshold:
+                            pairs.append((property_ids[ci + li], property_ids[cj + lj], s))
+                            pairs.append((property_ids[cj + lj], property_ids[ci + li], s))
+
+            if pairs:
+                conn.executemany(
+                    "INSERT INTO property_similarity (property_id_a, property_id_b, similarity) VALUES (?, ?, ?)",
+                    pairs,
+                )
+                unique_count += len(pairs) // 2
+
+    # Create indexes after bulk insert
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_property_similarity_a ON property_similarity(property_id_a);
+        CREATE INDEX IF NOT EXISTS idx_property_similarity_b ON property_similarity(property_id_b);
+        CREATE INDEX IF NOT EXISTS idx_property_similarity_score ON property_similarity(similarity);
+    """)
     conn.commit()
-    unique_count = len(pairs) // 2
     print(f"  Stored {unique_count} unique similar property pairs (threshold={threshold})")
     return unique_count
 
