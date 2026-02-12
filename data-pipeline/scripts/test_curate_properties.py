@@ -1,9 +1,14 @@
 """Test property vocabulary curation."""
 import sqlite3
 import struct
+import sys
+from pathlib import Path
+
 import pytest
 
-from utils import LEXICON_V2
+sys.path.insert(0, str(Path(__file__).parent))
+from utils import LEXICON_V2, EMBEDDING_DIM
+import curate_properties
 
 
 def test_properties_imported():
@@ -63,3 +68,67 @@ def test_normalisation():
 
     for (text,) in rows:
         assert text == text.lower().strip(), f"Property not normalised: '{text}'"
+
+
+# Unit tests for get_embedding and get_compound_embedding functions
+
+
+def test_get_embedding_known_word():
+    """Verify get_embedding returns correct struct-packed bytes for known word."""
+    # Create synthetic vectors dict (no FastText file needed)
+    vectors = {"test": tuple(float(i) for i in range(EMBEDDING_DIM))}
+
+    result = curate_properties.get_embedding("test", vectors)
+
+    assert result is not None, "Expected embedding bytes for known word"
+    assert len(result) == EMBEDDING_DIM * 4, f"Expected {EMBEDDING_DIM * 4} bytes"
+
+    # Unpack and verify
+    unpacked = struct.unpack(f"{EMBEDDING_DIM}f", result)
+    assert unpacked == vectors["test"]
+
+
+def test_get_embedding_oov():
+    """Verify get_embedding returns None for unknown word."""
+    vectors = {"test": tuple(float(i) for i in range(EMBEDDING_DIM))}
+
+    result = curate_properties.get_embedding("xyzzy", vectors)
+
+    assert result is None, "Expected None for OOV word"
+
+
+def test_get_compound_embedding_averages():
+    """Verify get_compound_embedding averages both parts."""
+    vectors = {
+        "hot": tuple(1.0 for _ in range(EMBEDDING_DIM)),
+        "cold": tuple(2.0 for _ in range(EMBEDDING_DIM)),
+    }
+
+    result = curate_properties.get_compound_embedding("hot-cold", vectors)
+
+    assert result is not None, "Expected embedding for compound word"
+    assert len(result) == EMBEDDING_DIM * 4
+
+    # Unpack and verify average
+    unpacked = struct.unpack(f"{EMBEDDING_DIM}f", result)
+    expected = tuple(1.5 for _ in range(EMBEDDING_DIM))  # Average of 1.0 and 2.0
+    for i in range(EMBEDDING_DIM):
+        assert unpacked[i] == pytest.approx(expected[i], abs=1e-6)
+
+
+def test_get_compound_embedding_partial_oov():
+    """Verify get_compound_embedding uses only known part when one is OOV."""
+    vectors = {
+        "cold": tuple(2.0 for _ in range(EMBEDDING_DIM)),
+    }
+
+    result = curate_properties.get_compound_embedding("xyzzy-cold", vectors)
+
+    assert result is not None, "Expected embedding using only 'cold'"
+    assert len(result) == EMBEDDING_DIM * 4
+
+    # Unpack and verify it's just the "cold" vector
+    unpacked = struct.unpack(f"{EMBEDDING_DIM}f", result)
+    expected = vectors["cold"]
+    for i in range(EMBEDDING_DIM):
+        assert unpacked[i] == pytest.approx(expected[i], abs=1e-6)
