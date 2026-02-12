@@ -34,5 +34,8 @@ coverage/
 coverage.out
 coverage.html
 
+# Deploy generated files
+*.active
+
 # OS
 .DS_Store

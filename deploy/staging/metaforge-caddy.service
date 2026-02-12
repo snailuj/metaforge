@@ -1,0 +1,22 @@
+[Unit]
+Description=Metaforge Caddy Reverse Proxy
+After=network.target metaforge-api.service
+Wants=metaforge-api.service
+
+[Service]
+Type=simple
+User=agent
+ExecStart=/usr/bin/caddy run --config __WORKTREE__/deploy/staging/Caddyfile.active --adapter caddyfile
+ExecReload=/usr/bin/caddy reload --config __WORKTREE__/deploy/staging/Caddyfile.active --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=metaforge-caddy
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=__WORKTREE__
+
+[Install]
+WantedBy=multi-user.target
