@@ -217,3 +217,90 @@ def test_improve_prompt_rejects_response_without_placeholder(mock_invoke):
 
     with pytest.raises(ValueError, match="batch_items"):
         improve_prompt("Raw: {batch_items}", model="sonnet")
+
+
+# --- 12. Tweak meta-prompt contains no fixture words -------------------------
+
+@patch("prompt_templates.invoke_claude")
+def test_tweak_meta_prompt_no_fixture_words(mock_invoke):
+    """The tweak meta-prompt sent to the LLM contains no concrete fixture words."""
+    import json
+    import subprocess
+
+    tweak_response = {
+        "modified_prompt": "Tweaked: {batch_items}\nJSON: [{{}}]",
+        "description": "some change",
+    }
+    events = [
+        {"type": "result", "subtype": "success", "is_error": False,
+         "result": json.dumps(tweak_response)},
+    ]
+    mock_invoke.return_value = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+
+    per_pair = [
+        {"source": "anger", "target": "fire", "rank": 1, "reciprocal_rank": 1.0,
+         "tier": "strong"},
+        {"source": "grief", "target": "anchor", "rank": None, "reciprocal_rank": 0.0,
+         "tier": "medium"},
+    ]
+
+    generate_tweak(
+        current_prompt="Original: {batch_items}\n[{{}}]",
+        per_pair=per_pair,
+        mrr=0.5,
+        model="haiku",
+    )
+
+    # Inspect the prompt that was sent to invoke_claude
+    sent_prompt = mock_invoke.call_args[0][0]
+    # Should NOT contain concrete source/target words
+    assert "anger" not in sent_prompt
+    assert "fire" not in sent_prompt
+    assert "grief" not in sent_prompt
+    assert "anchor" not in sent_prompt
+
+
+# --- 13. Tweak meta-prompt has aggregate stats --------------------------------
+
+@patch("prompt_templates.invoke_claude")
+def test_tweak_meta_prompt_has_aggregate_stats(mock_invoke):
+    """The tweak meta-prompt includes aggregate stats instead of concrete pairs."""
+    import json
+    import subprocess
+
+    tweak_response = {
+        "modified_prompt": "Tweaked: {batch_items}\nJSON: [{{}}]",
+        "description": "some change",
+    }
+    events = [
+        {"type": "result", "subtype": "success", "is_error": False,
+         "result": json.dumps(tweak_response)},
+    ]
+    mock_invoke.return_value = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+
+    per_pair = [
+        {"source": "anger", "target": "fire", "rank": 1, "reciprocal_rank": 1.0,
+         "tier": "strong"},
+        {"source": "joy", "target": "fountain", "rank": 5, "reciprocal_rank": 0.2,
+         "tier": "medium"},
+        {"source": "grief", "target": "anchor", "rank": None, "reciprocal_rank": 0.0,
+         "tier": "strong"},
+    ]
+
+    generate_tweak(
+        current_prompt="Original: {batch_items}\n[{{}}]",
+        per_pair=per_pair,
+        mrr=0.4,
+        model="haiku",
+    )
+
+    sent_prompt = mock_invoke.call_args[0][0]
+    # Should contain aggregate stats
+    assert "MRR" in sent_prompt
+    assert "0.4" in sent_prompt
+    # Should mention hit count or pair count
+    assert "3" in sent_prompt or "pair" in sent_prompt.lower()

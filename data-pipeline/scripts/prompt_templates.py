@@ -96,13 +96,14 @@ Output ONLY a valid JSON array (no markdown, no explanation):
 
 _TWEAK_META_PROMPT = """You are an expert prompt engineer optimising a prompt that extracts sensory/behavioural properties from word senses.
 
-The current prompt achieves MRR = {mrr:.4f}. Here are the per-pair results:
+The current prompt achieves MRR = {mrr:.4f}.
 
-STRONG PAIRS (high reciprocal rank):
-{strong_pairs}
-
-WEAK PAIRS (low or zero reciprocal rank):
-{weak_pairs}
+Performance summary:
+- {hit_count}/{total_count} pairs found in suggestions
+- {strong_count} with reciprocal rank > 0.5
+- {weak_count} not found at all
+- Strong-tier hit rate: {strong_rate:.0%}
+- Medium-tier hit rate: {medium_rate:.0%}
 
 The current prompt is:
 ---
@@ -129,17 +130,31 @@ def generate_tweak(
     Returns dict with 'modified_prompt' and 'description' keys.
     Raises ValueError if the LLM response is unparseable or invalid.
     """
-    sorted_pairs = sorted(per_pair, key=lambda p: p.get("reciprocal_rank", 0), reverse=True)
+    total_count = len(per_pair)
+    hit_count = sum(1 for p in per_pair if p.get("reciprocal_rank", 0) > 0)
+    strong_count = sum(1 for p in per_pair if p.get("reciprocal_rank", 0) > 0.5)
+    weak_count = sum(1 for p in per_pair if p.get("reciprocal_rank", 0) == 0)
 
-    strong = [f"  {p['source']} → {p['target']}: rank={p['rank']}, rr={p['reciprocal_rank']:.3f}"
-              for p in sorted_pairs if p.get("reciprocal_rank", 0) > 0]
-    weak = [f"  {p['source']} → {p['target']}: not found"
-            for p in sorted_pairs if p.get("reciprocal_rank", 0) == 0]
+    # Tier-level hit rates
+    strong_tier = [p for p in per_pair if p.get("tier") == "strong"]
+    medium_tier = [p for p in per_pair if p.get("tier") == "medium"]
+    strong_rate = (
+        sum(1 for p in strong_tier if p.get("reciprocal_rank", 0) > 0) / len(strong_tier)
+        if strong_tier else 0.0
+    )
+    medium_rate = (
+        sum(1 for p in medium_tier if p.get("reciprocal_rank", 0) > 0) / len(medium_tier)
+        if medium_tier else 0.0
+    )
 
     meta_prompt = _TWEAK_META_PROMPT.format(
         mrr=mrr,
-        strong_pairs="\n".join(strong[:10]) or "  (none)",
-        weak_pairs="\n".join(weak[:10]) or "  (none)",
+        hit_count=hit_count,
+        total_count=total_count,
+        strong_count=strong_count,
+        weak_count=weak_count,
+        strong_rate=strong_rate,
+        medium_rate=medium_rate,
         current_prompt=current_prompt,
     )
 
