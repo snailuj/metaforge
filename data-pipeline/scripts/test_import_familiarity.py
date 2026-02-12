@@ -118,3 +118,31 @@ def test_rarity_distribution_reasonable():
     assert "common" in dist, "Missing 'common' tier"
     assert "unusual" in dist, "Missing 'unusual' tier"
     assert "rare" in dist, "Missing 'rare' tier"
+
+
+def test_subtlex_zipf_backfill():
+    """Verify SUBTLEX Zipf is used when Multilex Zipf was NULL."""
+    conn = sqlite3.connect(LEXICON_V2)
+    try:
+        # Count rows with non-null zipf
+        count = conn.execute(
+            "SELECT COUNT(*) FROM frequencies WHERE zipf IS NOT NULL"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    # SUBTLEX should add Zipf data beyond what Multilex provided (~50k)
+    assert count > 50000, f"Expected 50k+ rows with Zipf, got {count}"
+
+
+def test_subtlex_source_recorded():
+    """Verify SUBTLEX source is recorded for backfilled rows."""
+    conn = sqlite3.connect(LEXICON_V2)
+    try:
+        sources = conn.execute(
+            "SELECT DISTINCT source FROM frequencies WHERE source IS NOT NULL"
+        ).fetchall()
+        sources = [s[0] for s in sources]
+    finally:
+        conn.close()
+    assert "subtlex" in sources or "brysbaert+subtlex" in sources, \
+        f"Expected 'subtlex' or 'brysbaert+subtlex' in sources, got {sources}"
