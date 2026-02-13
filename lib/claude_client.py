@@ -6,6 +6,7 @@ with the Claude CLI, with built-in retries and error handling.
 import json
 import logging
 import re
+import subprocess
 
 log = logging.getLogger(__name__)
 
@@ -65,3 +66,28 @@ def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
             f"(keys: {sorted(result_event.keys())})"
         )
     return _strip_fences(text.strip())
+
+
+def _invoke(prompt: str, model: str, verbose: bool = False) -> str:
+    """Call claude CLI and return the parsed result text."""
+    if verbose:
+        log.debug("claude_client prompt (first 500 chars): %s", prompt[:500])
+    proc = subprocess.run(
+        [
+            "claude", "-p",
+            "--output-format", "json",
+            "--model", model,
+            "--max-turns", "1",
+            "--no-session-persistence",
+        ],
+        input=prompt,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if verbose:
+        log.debug("claude_client raw stdout (last 2000 chars): %s",
+                  proc.stdout[-2000:] if proc.stdout else "<empty>")
+        if proc.stderr:
+            log.debug("claude_client stderr: %s", proc.stderr[:500])
+    return _parse_events(proc.stdout, proc.returncode, proc.stderr)

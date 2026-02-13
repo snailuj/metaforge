@@ -99,3 +99,50 @@ def test_parse_events_non_rate_limit_error():
 def test_parse_events_strips_fences():
     stdout = _make_stdout("```json\n[1,2]\n```")
     assert _parse_events(stdout, 0, "") == "[1,2]"
+
+
+# --- _invoke -----------------------------------------------------------------
+
+from unittest.mock import patch, MagicMock
+from claude_client import _invoke
+
+
+def _make_proc(result_text="ok", returncode=0, stderr=""):
+    proc = MagicMock()
+    proc.stdout = json.dumps([
+        {"type": "result", "is_error": False, "result": result_text},
+    ])
+    proc.returncode = returncode
+    proc.stderr = stderr
+    return proc
+
+
+@patch("claude_client.subprocess.run")
+def test_invoke_command_shape(mock_run):
+    mock_run.return_value = _make_proc()
+    _invoke("test prompt", model="haiku")
+    cmd = mock_run.call_args[0][0]
+    assert cmd == [
+        "claude", "-p", "--output-format", "json",
+        "--model", "haiku", "--max-turns", "1",
+        "--no-session-persistence",
+    ]
+    assert mock_run.call_args[1]["input"] == "test prompt"
+    assert mock_run.call_args[1]["capture_output"] is True
+    assert mock_run.call_args[1]["text"] is True
+    assert mock_run.call_args[1]["timeout"] == 120
+
+
+@patch("claude_client.subprocess.run")
+def test_invoke_returns_parsed_text(mock_run):
+    mock_run.return_value = _make_proc(result_text="the answer")
+    assert _invoke("prompt", model="sonnet") == "the answer"
+
+
+@patch("claude_client.subprocess.run")
+def test_invoke_verbose_logging(mock_run, caplog):
+    mock_run.return_value = _make_proc(result_text="ok")
+    import logging
+    with caplog.at_level(logging.DEBUG, logger="claude_client"):
+        _invoke("test prompt", model="haiku", verbose=True)
+    assert any("test prompt" in r.message for r in caplog.records)
