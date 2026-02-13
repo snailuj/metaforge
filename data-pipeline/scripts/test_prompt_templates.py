@@ -62,25 +62,13 @@ def test_prompts_format_with_batch_items():
 
 # --- 6. Tweak generator returns modified prompt with {batch_items} -----------
 
-@patch("prompt_templates.invoke_claude")
-def test_generate_tweak_returns_modified_prompt(mock_invoke):
+@patch("prompt_templates.prompt_json")
+def test_generate_tweak_returns_modified_prompt(mock_prompt_json):
     """generate_tweak returns a dict with modified prompt containing {batch_items}."""
-    import json
-    import subprocess
-
-    # The LLM returns a JSON object with the tweaked prompt and description
-    tweak_response = {
-        "modified_prompt": "Tweaked version: {batch_items}\nJSON: [{{}}]",
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Tweaked version: {batch_items}\nJSON: [{}]",
         "description": "Added emphasis on tactile properties",
     }
-    events = [
-        {"type": "system", "subtype": "init", "session_id": "test"},
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": json.dumps(tweak_response)},
-    ]
-    mock_invoke.return_value = subprocess.CompletedProcess(
-        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
-    )
 
     per_pair = [
         {"source": "anger", "target": "fire", "rank": 1, "reciprocal_rank": 1.0},
@@ -88,7 +76,7 @@ def test_generate_tweak_returns_modified_prompt(mock_invoke):
     ]
 
     result = generate_tweak(
-        current_prompt="Original: {batch_items}\nJSON: [{{}}]",
+        current_prompt="Original: {batch_items}\nJSON: [{}]",
         per_pair=per_pair,
         mrr=0.5,
         model="haiku",
@@ -96,29 +84,20 @@ def test_generate_tweak_returns_modified_prompt(mock_invoke):
 
     assert "{batch_items}" in result["modified_prompt"]
     assert result["description"]  # non-empty
-    mock_invoke.assert_called_once()
+    mock_prompt_json.assert_called_once()
 
 
 # --- 7. Tweak generator falls back if LLM returns invalid JSON ---------------
 
-@patch("prompt_templates.invoke_claude")
-def test_generate_tweak_raises_on_invalid_response(mock_invoke):
+@patch("prompt_templates.prompt_json")
+def test_generate_tweak_raises_on_invalid_response(mock_prompt_json):
     """generate_tweak raises ValueError if LLM returns unparseable response."""
-    import json
-    import subprocess
+    from claude_client import ParseError
+    mock_prompt_json.side_effect = ParseError("Failed to parse JSON")
 
-    events = [
-        {"type": "system", "subtype": "init", "session_id": "test"},
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": "This is not valid JSON at all"},
-    ]
-    mock_invoke.return_value = subprocess.CompletedProcess(
-        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
-    )
-
-    with pytest.raises(ValueError, match="tweak"):
+    with pytest.raises(ValueError, match="generate_tweak"):
         generate_tweak(
-            current_prompt="Prompt: {batch_items}\n[{{}}]",
+            current_prompt="Prompt: {batch_items}\n[{}]",
             per_pair=[],
             mrr=0.5,
             model="haiku",
@@ -127,24 +106,13 @@ def test_generate_tweak_raises_on_invalid_response(mock_invoke):
 
 # --- 8. Tweak generator rejects response missing {batch_items} ---------------
 
-@patch("prompt_templates.invoke_claude")
-def test_generate_tweak_rejects_missing_placeholder(mock_invoke):
+@patch("prompt_templates.prompt_json")
+def test_generate_tweak_rejects_missing_placeholder(mock_prompt_json):
     """generate_tweak raises ValueError if tweaked prompt lacks {batch_items}."""
-    import json
-    import subprocess
-
-    tweak_response = {
+    mock_prompt_json.return_value = {
         "modified_prompt": "No placeholder here",
         "description": "Removed the placeholder accidentally",
     }
-    events = [
-        {"type": "system", "subtype": "init", "session_id": "test"},
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": json.dumps(tweak_response)},
-    ]
-    mock_invoke.return_value = subprocess.CompletedProcess(
-        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
-    )
 
     with pytest.raises(ValueError, match="batch_items"):
         generate_tweak(
@@ -157,20 +125,10 @@ def test_generate_tweak_rejects_missing_placeholder(mock_invoke):
 
 # --- 9. improve_prompt preserves {batch_items} placeholder --------------------
 
-@patch("prompt_templates.invoke_claude")
-def test_improve_prompt_preserves_batch_items_placeholder(mock_invoke):
+@patch("prompt_templates.prompt_text")
+def test_improve_prompt_preserves_batch_items_placeholder(mock_prompt):
     """improve_prompt returns a prompt that still contains {batch_items}."""
-    import json
-    import subprocess
-
-    improved_text = "Improved prompt with {batch_items} placeholder."
-    events = [
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": improved_text},
-    ]
-    mock_invoke.return_value = subprocess.CompletedProcess(
-        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
-    )
+    mock_prompt.return_value = "Improved prompt with {batch_items} placeholder."
 
     result = improve_prompt("Raw prompt: {batch_items}", model="sonnet")
     assert "{batch_items}" in result
@@ -178,45 +136,21 @@ def test_improve_prompt_preserves_batch_items_placeholder(mock_invoke):
 
 # --- 10. improve_prompt uses the specified model ------------------------------
 
-@patch("prompt_templates.invoke_claude")
-def test_improve_prompt_called_with_stronger_model(mock_invoke):
-    """improve_prompt calls invoke_claude with the specified model."""
-    import json
-    import subprocess
-
-    events = [
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": "Improved: {batch_items}"},
-    ]
-    mock_invoke.return_value = subprocess.CompletedProcess(
-        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
-    )
+@patch("prompt_templates.prompt_text")
+def test_improve_prompt_called_with_stronger_model(mock_prompt):
+    """improve_prompt calls prompt_text with the specified model."""
+    mock_prompt.return_value = "Improved: {batch_items}"
 
     improve_prompt("Raw: {batch_items}", model="sonnet")
-    call_kwargs = mock_invoke.call_args[1] if mock_invoke.call_args[1] else {}
-    call_args = mock_invoke.call_args[0] if mock_invoke.call_args[0] else []
-    # model should be "sonnet"
-    if "model" in call_kwargs:
-        assert call_kwargs["model"] == "sonnet"
-    else:
-        assert call_args[1] == "sonnet"
+    assert mock_prompt.call_args[1]["model"] == "sonnet" or mock_prompt.call_args[0][1] == "sonnet"
 
 
 # --- 11. improve_prompt rejects response without {batch_items} ----------------
 
-@patch("prompt_templates.invoke_claude")
-def test_improve_prompt_rejects_response_without_placeholder(mock_invoke):
+@patch("prompt_templates.prompt_text")
+def test_improve_prompt_rejects_response_without_placeholder(mock_prompt):
     """improve_prompt raises ValueError if LLM drops the {batch_items} placeholder."""
-    import json
-    import subprocess
-
-    events = [
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": "Improved prompt without placeholder"},
-    ]
-    mock_invoke.return_value = subprocess.CompletedProcess(
-        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
-    )
+    mock_prompt.return_value = "Improved prompt without placeholder"
 
     with pytest.raises(ValueError, match="batch_items"):
         improve_prompt("Raw: {batch_items}", model="sonnet")
@@ -224,23 +158,13 @@ def test_improve_prompt_rejects_response_without_placeholder(mock_invoke):
 
 # --- 12. Tweak meta-prompt contains no fixture words -------------------------
 
-@patch("prompt_templates.invoke_claude")
-def test_tweak_meta_prompt_no_fixture_words(mock_invoke):
+@patch("prompt_templates.prompt_json")
+def test_tweak_meta_prompt_no_fixture_words(mock_prompt_json):
     """The tweak meta-prompt sent to the LLM contains no concrete fixture words."""
-    import json
-    import subprocess
-
-    tweak_response = {
-        "modified_prompt": "Tweaked: {batch_items}\nJSON: [{{}}]",
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Tweaked: {batch_items}\nJSON: [{}]",
         "description": "some change",
     }
-    events = [
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": json.dumps(tweak_response)},
-    ]
-    mock_invoke.return_value = subprocess.CompletedProcess(
-        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
-    )
 
     per_pair = [
         {"source": "anger", "target": "fire", "rank": 1, "reciprocal_rank": 1.0,
@@ -250,14 +174,14 @@ def test_tweak_meta_prompt_no_fixture_words(mock_invoke):
     ]
 
     generate_tweak(
-        current_prompt="Original: {batch_items}\n[{{}}]",
+        current_prompt="Original: {batch_items}\n[{}]",
         per_pair=per_pair,
         mrr=0.5,
         model="haiku",
     )
 
-    # Inspect the prompt that was sent to invoke_claude
-    sent_prompt = mock_invoke.call_args[0][0]
+    # Inspect the prompt that was sent to prompt_json
+    sent_prompt = mock_prompt_json.call_args[0][0]
     # Should NOT contain concrete source/target words
     assert "anger" not in sent_prompt
     assert "fire" not in sent_prompt
@@ -267,23 +191,13 @@ def test_tweak_meta_prompt_no_fixture_words(mock_invoke):
 
 # --- 13. Tweak meta-prompt has aggregate stats --------------------------------
 
-@patch("prompt_templates.invoke_claude")
-def test_tweak_meta_prompt_has_aggregate_stats(mock_invoke):
+@patch("prompt_templates.prompt_json")
+def test_tweak_meta_prompt_has_aggregate_stats(mock_prompt_json):
     """The tweak meta-prompt includes aggregate stats instead of concrete pairs."""
-    import json
-    import subprocess
-
-    tweak_response = {
-        "modified_prompt": "Tweaked: {batch_items}\nJSON: [{{}}]",
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Tweaked: {batch_items}\nJSON: [{}]",
         "description": "some change",
     }
-    events = [
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": json.dumps(tweak_response)},
-    ]
-    mock_invoke.return_value = subprocess.CompletedProcess(
-        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
-    )
 
     per_pair = [
         {"source": "anger", "target": "fire", "rank": 1, "reciprocal_rank": 1.0,
@@ -295,13 +209,13 @@ def test_tweak_meta_prompt_has_aggregate_stats(mock_invoke):
     ]
 
     generate_tweak(
-        current_prompt="Original: {batch_items}\n[{{}}]",
+        current_prompt="Original: {batch_items}\n[{}]",
         per_pair=per_pair,
         mrr=0.4,
         model="haiku",
     )
 
-    sent_prompt = mock_invoke.call_args[0][0]
+    sent_prompt = mock_prompt_json.call_args[0][0]
     # Should contain aggregate stats
     assert "MRR" in sent_prompt
     assert "0.4" in sent_prompt
@@ -326,30 +240,19 @@ def test_load_fixture_vocabulary(tmp_path):
 
 # --- 15. generate_tweak rejects contaminated prompt --------------------------
 
-@patch("prompt_templates.invoke_claude")
-def test_generate_tweak_rejects_contaminated_prompt(mock_invoke):
+@patch("prompt_templates.prompt_json")
+def test_generate_tweak_rejects_contaminated_prompt(mock_prompt_json):
     """generate_tweak raises ValueError when LLM embeds fixture words."""
-    import json
-    import subprocess
-
-    # Modified prompt contains "anger" which is a fixture word
-    tweak_response = {
-        "modified_prompt": "Think about anger when extracting: {batch_items}\n[{{}}]",
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Think about anger when extracting: {batch_items}\n[{}]",
         "description": "added anger reference",
     }
-    events = [
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": json.dumps(tweak_response)},
-    ]
-    mock_invoke.return_value = subprocess.CompletedProcess(
-        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
-    )
 
     fixture_vocab = frozenset({"anger", "fire", "hope", "light"})
 
     with pytest.raises(ValueError, match="fixture"):
         generate_tweak(
-            current_prompt="Original: {batch_items}\n[{{}}]",
+            current_prompt="Original: {batch_items}\n[{}]",
             per_pair=[],
             mrr=0.5,
             model="haiku",
@@ -359,28 +262,18 @@ def test_generate_tweak_rejects_contaminated_prompt(mock_invoke):
 
 # --- 16. generate_tweak allows clean prompt ----------------------------------
 
-@patch("prompt_templates.invoke_claude")
-def test_generate_tweak_allows_clean_prompt(mock_invoke):
+@patch("prompt_templates.prompt_json")
+def test_generate_tweak_allows_clean_prompt(mock_prompt_json):
     """generate_tweak succeeds when modified prompt has no fixture words."""
-    import json
-    import subprocess
-
-    tweak_response = {
-        "modified_prompt": "Better extraction: {batch_items}\nJSON: [{{}}]",
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Better extraction: {batch_items}\nJSON: [{}]",
         "description": "improved structure",
     }
-    events = [
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": json.dumps(tweak_response)},
-    ]
-    mock_invoke.return_value = subprocess.CompletedProcess(
-        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
-    )
 
     fixture_vocab = frozenset({"anger", "fire", "hope", "light"})
 
     result = generate_tweak(
-        current_prompt="Original: {batch_items}\n[{{}}]",
+        current_prompt="Original: {batch_items}\n[{}]",
         per_pair=[],
         mrr=0.5,
         model="haiku",
@@ -391,30 +284,19 @@ def test_generate_tweak_allows_clean_prompt(mock_invoke):
 
 # --- 17. fixture words already in base prompt are OK --------------------------
 
-@patch("prompt_templates.invoke_claude")
-def test_fixture_words_already_in_base_prompt_ok(mock_invoke):
+@patch("prompt_templates.prompt_json")
+def test_fixture_words_already_in_base_prompt_ok(mock_prompt_json):
     """Words in both current and modified prompt don't trigger guard."""
-    import json
-    import subprocess
-
-    # "light" is in both current and modified prompt
-    tweak_response = {
-        "modified_prompt": "Focus on light properties: {batch_items}\n[{{}}]",
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Focus on light properties: {batch_items}\n[{}]",
         "description": "added light emphasis",
     }
-    events = [
-        {"type": "result", "subtype": "success", "is_error": False,
-         "result": json.dumps(tweak_response)},
-    ]
-    mock_invoke.return_value = subprocess.CompletedProcess(
-        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
-    )
 
     fixture_vocab = frozenset({"anger", "fire", "hope", "light"})
 
     # "light" already in current prompt — should be allowed
     result = generate_tweak(
-        current_prompt="Extract light and sensory: {batch_items}\n[{{}}]",
+        current_prompt="Extract light and sensory: {batch_items}\n[{}]",
         per_pair=[],
         mrr=0.5,
         model="haiku",

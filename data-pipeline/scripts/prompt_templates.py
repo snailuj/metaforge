@@ -6,87 +6,148 @@ properties per sense, JSON output format, and {batch_items} placeholder.
 """
 import json
 import re
+import sys
+from pathlib import Path
 
-from enrich_properties import invoke_claude
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
+from claude_client import prompt_text, prompt_json, ClaudeError, ParseError
 
 # --- Exploration prompts ------------------------------------------------------
 
 EXPLORATION_PROMPTS: dict[str, str] = {
-    "persona_poet": """You are a poet cataloguing the sensory qualities of every concept you encounter.
-For each word sense below, write 10-15 short (1-2 word) properties that capture its
-experiential essence — how it feels, sounds, looks, moves, or affects the body.
+    "persona_poet": """You are a poet cataloguing the sensory and experiential qualities of concepts.
 
-Think like a poet: prioritise vivid, evocative, sensory language over abstract categories.
+For each word sense below, extract 10-15 properties that capture its experiential essence. Focus on:
+- Sensory qualities: how it looks, sounds, feels, smells, tastes, moves
+- Behavioural qualities: what it does, how it acts, how it affects
+- Emotional or metaphorical associations: the feeling or experience it evokes
 
-CRITICAL: The definition tells you WHICH sense of the word to analyse. Focus ONLY on that sense.
+Think like a poet: prioritise vivid, evocative, concrete descriptors over abstract categories or definitions.
+
+CRITICAL CONSTRAINTS:
+1. Each property MUST be 1-2 words maximum. No exceptions.
+2. Use terse, active forms: "flickering" not "has a flickering quality", "bitter" not "slightly bitter taste"
+3. The definition specifies WHICH sense of the word to analyse. Focus ONLY on that sense.
+4. Process each word sense independently using only the information provided.
+5. Use present tense, active voice, minimal words.
 
 {batch_items}
 
-Output ONLY a valid JSON array (no markdown, no explanation):
+Output ONLY a valid JSON array with no markdown fences, no explanatory text, no preamble:
 [{{"id": "...", "properties": [...]}}, ...]
 """,
 
-    "contrastive": """For each word sense below, list 10-15 short (1-2 word) properties that DISTINGUISH
+    "contrastive": """For each word sense below, extract 10-15 short, evocative properties that DISTINGUISH
 this specific sense from other meanings of the same word and from similar concepts.
 
 Focus on what makes this sense unique:
-- What properties does THIS sense have that other senses lack?
-- What sensory or behavioural qualities set it apart?
+- What sensory properties does THIS sense have that other senses lack?
+- What behavioural or functional qualities set it apart?
+- What emotional or metaphorical associations are specific to this sense?
 
-CRITICAL: The definition tells you WHICH sense of the word to analyse. Focus ONLY on that sense.
+Go beyond simple definitions — capture the experiential essence that makes this sense distinctive.
+
+CRITICAL CONSTRAINTS:
+1. Every property MUST be 1-2 words maximum. No exceptions.
+   - GOOD: "flickering", "bitter", "upward motion"
+   - BAD: "has a flickering quality", "slightly bitter taste"
+2. The definition specifies WHICH sense of the word to analyse. Focus ONLY on that sense.
+3. Use present tense, active voice, concrete language.
+4. Favour vivid, experiential descriptors over taxonomic labels.
+5. Process each word sense independently using only the information provided.
 
 {batch_items}
 
-Output ONLY a valid JSON array (no markdown, no explanation):
+Output ONLY a valid JSON array with no markdown fences, no explanatory text, no preamble:
 [{{"id": "...", "properties": [...]}}, ...]
 """,
 
-    "narrative": """Imagine encountering each concept below in real life. Describe your experience
-using 10-15 single words or short (1-2 word) phrases.
+    "narrative": """You are an expert at extracting experiential properties from word senses. Your task is to generate vivid, evocative descriptors that capture the sensory, emotional, and behavioural essence of each concept.
 
-What would you see, hear, feel, smell, or taste? How would it move? What would
-it remind you of? Capture the lived, embodied experience.
+For each word sense below, produce 10-15 descriptors that answer: What would you see, hear, feel, smell, taste, or emotionally experience? How does it move or behave? What does it evoke or remind you of?
 
-CRITICAL: The definition tells you WHICH sense of the word to analyse. Focus ONLY on that sense.
+CRITICAL CONSTRAINTS:
+
+1. Every property MUST be 1-2 words maximum. Use terse, concrete descriptors:
+   - GOOD: "flickering", "acrid", "smooth", "spiraling", "cold metal"
+   - BAD: "has a flickering quality", "slightly bitter taste", "moves in circles"
+
+2. Focus ONLY on the specific sense defined. The definition disambiguates which meaning to analyse. Ignore other senses of the word.
+
+3. Prioritise experiential and sensory details. Capture how it feels, not just what category it belongs to. Favour evocative, metaphorical, and subjective descriptors over dry taxonomic labels.
+
+4. Use present tense, active voice, minimal words. Prefer "hums" over "is humming", "jagged" over "has jagged edges".
+
+5. Each word sense is independent. Do not rely on knowledge beyond the provided description.
 
 {batch_items}
 
-Output ONLY a valid JSON array (no markdown, no explanation):
+Output ONLY a valid JSON array with no markdown fences, no preamble, no explanation:
 [{{"id": "...", "properties": [...]}}, ...]
 """,
 
-    "taxonomic": """Systematically classify each word sense below along every perceptible dimension.
-For each sense, provide 10-15 short (1-2 word) properties covering as many of
-these dimensions as apply:
+    "taxonomic": """You are a systematic sensory analyst extracting experiential and behavioural properties from word senses for computational similarity analysis.
 
-- Visual (colour, shape, size, luminosity, texture)
-- Auditory (pitch, volume, timbre, rhythm)
-- Tactile (temperature, weight, hardness, moisture)
-- Olfactory/Gustatory (scent, taste, pungency)
-- Kinetic (speed, direction, force, pattern)
-- Temporal (duration, frequency, regularity)
-- Affective (emotional tone, intensity, valence)
+For each word sense below, generate 10-15 short descriptors (1-2 words maximum) capturing how the sense is perceived, experienced, or behaves. Cover as many applicable dimensions as possible:
 
-CRITICAL: The definition tells you WHICH sense of the word to analyse. Focus ONLY on that sense.
+- Visual: colour, shape, size, brightness, texture, pattern
+- Auditory: pitch, volume, timbre, rhythm, tone
+- Tactile: temperature, weight, hardness, softness, moisture, texture
+- Olfactory/Gustatory: scent, taste, flavour, pungency
+- Kinetic: speed, direction, force, motion, pattern
+- Temporal: duration, frequency, rhythm, regularity
+- Affective: emotional tone, intensity, valence, mood
+- Behavioural: actions, functions, typical interactions
+
+CRITICAL CONSTRAINTS:
+
+1. Every property must be 1-2 words maximum. Use terse descriptors:
+   - "flickering" not "has a flickering quality"
+   - "bitter" not "slightly bitter taste"
+   - "upward" not "moves in an upward direction"
+
+2. The definition specifies WHICH sense of the word to analyse. Focus ONLY on that sense. Ignore other meanings.
+
+3. Favour vivid, concrete, experiential descriptors over abstract taxonomic labels. Evocative and metaphorical properties capture experiential essence.
+
+4. Use present tense, active voice, minimal words. Each descriptor should stand alone.
+
+5. Process each sense independently using only the provided definition.
 
 {batch_items}
 
-Output ONLY a valid JSON array (no markdown, no explanation):
+Output ONLY valid JSON (no markdown fences, no explanation, no preamble):
 [{{"id": "...", "properties": [...]}}, ...]
 """,
 
-    "embodied": """Describe each word sense below to someone who experiences the world primarily
-through touch, smell, and sound (not sight). Use 10-15 short (1-2 word) properties
-that convey how each concept feels physically, sounds, smells, weighs, or moves.
+    "embodied": """You are extracting experiential and behavioural properties from word senses to enable computational similarity analysis. Each property must capture the sensory, emotional, or functional essence of the concept.
 
-Avoid visual-only properties. Prioritise tactile, auditory, olfactory, and
-kinaesthetic qualities.
+Task: For each word sense provided, generate 10-15 properties that describe how someone would experience this concept primarily through touch, smell, sound, weight, movement, and emotional resonance. Avoid visual-only descriptors. Focus on tactile, auditory, olfactory, kinaesthetic, and affective qualities.
 
-CRITICAL: The definition tells you WHICH sense of the word to analyse. Focus ONLY on that sense.
+Property requirements:
+- Length: EVERY property must be 1-2 words maximum. This is non-negotiable.
+- Format: Use present tense, active voice, minimal words
+- Quality: Vivid, concrete, experiential descriptors
+- GOOD: "flickering", "bitter", "rough", "metallic", "whispers", "cold", "dense", "sharp", "hollow", "pulsing"
+- BAD: "has a flickering quality" (too long), "slightly bitter taste" (too long), "is cold" (unnecessary verb)
+
+Sensory and behavioural focus:
+- Tactile: texture, temperature, weight, pressure, resistance
+- Auditory: sounds it makes, acoustic qualities, rhythm, pitch
+- Olfactory: smells, scent associations
+- Kinaesthetic: movement, motion, dynamic qualities
+- Emotional/metaphorical: feelings evoked, affective associations
+- Behavioural: actions, functions, typical interactions
+
+Critical instructions:
+1. Each input includes a definition specifying WHICH sense of the word to analyse. Focus EXCLUSIVELY on that sense.
+2. Process each word sense independently. Do not rely on external knowledge.
+3. Prioritise evocative and experiential properties over taxonomic labels.
+4. Every property must be 1-2 words. No exceptions.
 
 {batch_items}
 
-Output ONLY a valid JSON array (no markdown, no explanation):
+Output ONLY a valid JSON array with no markdown fences, no explanatory text, no preamble:
 [{{"id": "...", "properties": [...]}}, ...]
 """,
 }
@@ -170,24 +231,10 @@ def generate_tweak(
         current_prompt=current_prompt,
     )
 
-    proc = invoke_claude(meta_prompt, model=model)
-
-    # Parse the LLM response
-    events = json.loads(proc.stdout)
-    result_event = next(
-        (e for e in reversed(events) if e.get("type") == "result"), None
-    )
-    if result_event is None or result_event.get("is_error"):
-        raise ValueError("Failed to generate tweak: no valid result from LLM")
-
-    text = result_event["result"].strip()
-    text = re.sub(r'^```json\s*', '', text)
-    text = re.sub(r'\s*```$', '', text)
-
     try:
-        tweak = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse tweak response as JSON: {e}") from e
+        tweak = prompt_json(meta_prompt, model=model, expect=dict)
+    except ParseError as e:
+        raise ValueError(f"generate_tweak: {e}") from e
 
     if "modified_prompt" not in tweak:
         raise ValueError("Tweak response missing 'modified_prompt' key")
@@ -213,24 +260,36 @@ def generate_tweak(
 
 # --- Second-stage prompt improver --------------------------------------------
 
-_IMPROVER_META_PROMPT = """You are a prompt engineering expert. Your task is to improve the quality of the following prompt that extracts sensory/behavioural properties from word senses.
+_IMPROVER_META_PROMPT = """As a prompt engineering expert, your task is to refine the following prompt that guides an LLM in extracting sensory and behavioural properties from word senses. The goal is to obtain short, evocative descriptors suitable for computational similarity analysis between concepts.
 
-Apply prompt engineering best practices:
-- Ensure clear, unambiguous instructions
-- Structure for optimal LLM comprehension
-- Remove redundancy or contradictions
-- Improve instruction ordering and flow
-- Do NOT add example words or specific domain content
-- Do NOT add concrete word examples (like "candle", "whisper", etc.)
+The refined prompt must preserve the original prompt's distinctive angle or persona — if it adopts a poet's voice, a contrastive lens, or a non-visual constraint, that framing is intentional and must be retained. Your job is to sharpen clarity and structure, not to flatten the approach.
 
-CRITICAL: The improved prompt MUST contain the literal text {{batch_items}} (with curly braces) as a placeholder — this is where word senses get inserted at runtime. Do not remove or alter this placeholder.
+**What we mean by properties:**
 
-Here is the prompt to improve:
+"Experiential properties" are those relating to sensory modalities (e.g., visual, auditory, tactile, olfactory, gustatory) and emotional or metaphorical associations. "Behavioural properties" are actions, functions, or typical interactions associated with the word sense. The prompt should emphasise the importance of including subjective and evocative properties, going beyond simple definitions to capture the feeling or experience associated with the word sense.
+
+**Guidelines for the refined prompt:**
+
+1. **Output format**: The prompt must instruct the LLM to return a JSON array where each element has an "id" (matching the input) and a "properties" list of 10-15 short descriptors. No markdown fences, no explanatory text, no preamble — JSON only.
+
+2. **Property length**: The prompt MUST explicitly instruct that every property must be 1-2 words maximum. This is a hard constraint — multi-word expressions degrade downstream analysis. The prompt should reinforce this with examples showing terse descriptors (e.g., "flickering" not "has a flickering quality", "bitter" not "slightly bitter taste").
+
+3. **Property quality**: Descriptors should be vivid, concrete, and experiential. Sensory properties (how something looks, sounds, feels, smells, tastes, moves) and behavioural properties (how it acts, what it does, how it affects) are both valuable. Evocative and metaphorical descriptors are encouraged — they capture experiential essence better than dry taxonomic labels.
+
+4. **Sense disambiguation**: The prompt must clearly instruct the LLM that each input includes a definition specifying WHICH sense of the word to analyse, and to focus exclusively on that sense.
+
+5. **Independence**: Each word sense should be processed independently. The LLM must not rely on external knowledge beyond what is present in the word sense descriptions.
+
+6. **Conciseness**: Descriptors should use present tense, active voice, and minimal words. Favour "flickering" over "has a flickering quality".
+
+The prompt MUST contain the literal placeholder {{batch_items}} (with curly braces) — this is where word senses are inserted at runtime. Do not remove, rename, or reformat this placeholder.
+
+Here is the prompt to refine:
 ---
 {raw_prompt}
 ---
 
-Return ONLY the improved prompt text. No explanation, no markdown fences, no preamble."""
+Return ONLY the refined prompt text. No explanation, no markdown fences, no preamble."""
 
 
 def improve_prompt(
@@ -247,19 +306,7 @@ def improve_prompt(
     Raises ValueError if the improved prompt lacks {batch_items}.
     """
     meta = _IMPROVER_META_PROMPT.format(raw_prompt=raw_prompt)
-    proc = invoke_claude(meta, model=model)
-
-    events = json.loads(proc.stdout)
-    result_event = next(
-        (e for e in reversed(events) if e.get("type") == "result"), None
-    )
-    if result_event is None or result_event.get("is_error"):
-        raise ValueError("Failed to improve prompt: no valid result from LLM")
-
-    text = result_event["result"].strip()
-    # Strip markdown fences if present
-    text = re.sub(r'^```(?:markdown)?\s*', '', text)
-    text = re.sub(r'\s*```$', '', text)
+    text = prompt_text(meta, model=model)
 
     if "{batch_items}" not in text:
         raise ValueError("Improved prompt missing {batch_items} placeholder")
