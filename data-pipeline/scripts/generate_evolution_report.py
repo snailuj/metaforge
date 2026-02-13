@@ -12,9 +12,11 @@ Usage:
 import json
 import math
 import re
+import sys
 from pathlib import Path
 
-from enrich_properties import invoke_claude
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
+from claude_client import prompt_text, ClaudeError
 from utils import OUTPUT_DIR, PIPELINE_DIR
 
 
@@ -302,21 +304,10 @@ def _discussion_prompt(briefing: dict) -> str:
 
 def _llm_prose(briefing: dict, section_prompt: str, model: str = "haiku") -> str:
     """Invoke Claude CLI and extract the result text."""
-    proc = invoke_claude(section_prompt, model=model)
-
-    events = json.loads(proc.stdout)
-    result_event = next(
-        (e for e in reversed(events) if e.get("type") == "result"), None
-    )
-    if result_event is None:
+    try:
+        text = prompt_text(section_prompt, model=model)
+    except ClaudeError:
         return "*[LLM returned no result]*"
-    if result_event.get("is_error"):
-        return f"*[LLM error: {result_event.get('result', 'unknown')}]*"
-
-    text = result_event["result"].strip()
-    # Strip markdown fences if present
-    text = re.sub(r'^```(?:markdown)?\s*', '', text)
-    text = re.sub(r'\s*```$', '', text)
     # Strip LLM preamble (e.g. "I'll write..." or "Here is...")
     text = re.sub(
         r"^(?:I'll|I will|Here is|Here's|Let me|Sure)[^\n]*\n+",

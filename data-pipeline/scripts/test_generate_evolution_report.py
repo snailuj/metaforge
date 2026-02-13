@@ -431,35 +431,23 @@ def test_discussion_prompt_includes_briefing_data(sample_trials, sample_pairs):
     assert "tier_split" in prompt
 
 
-def _mock_invoke_result(text):
-    """Build a mock CompletedProcess mimicking claude CLI JSON output."""
-    events = [
-        {"type": "result", "result": text, "is_error": False},
-    ]
-    proc = MagicMock()
-    proc.returncode = 0
-    proc.stdout = json.dumps(events)
-    proc.stderr = ""
-    return proc
-
-
-@patch("generate_evolution_report.invoke_claude")
-def test_llm_prose_calls_invoke_claude_and_extracts_text(mock_invoke):
-    """_llm_prose calls invoke_claude and returns the result text."""
+@patch("generate_evolution_report.prompt_text")
+def test_llm_prose_calls_prompt_text_and_extracts_text(mock_prompt):
+    """_llm_prose calls prompt_text and returns the result text."""
     from generate_evolution_report import _llm_prose
 
-    mock_invoke.return_value = _mock_invoke_result("This is the analysis.")
+    mock_prompt.return_value = "This is the analysis."
     result = _llm_prose({"key": "value"}, "Write analysis.", model="haiku")
     assert result == "This is the analysis."
-    mock_invoke.assert_called_once()
+    mock_prompt.assert_called_once()
 
 
-@patch("generate_evolution_report.invoke_claude")
-def test_section_executive_summary_with_llm(mock_invoke, sample_trials):
+@patch("generate_evolution_report.prompt_text")
+def test_section_executive_summary_with_llm(mock_prompt, sample_trials):
     """section_executive_summary calls LLM and includes the returned prose."""
     from generate_evolution_report import section_executive_summary
 
-    mock_invoke.return_value = _mock_invoke_result("The experiment showed promising results.")
+    mock_prompt.return_value = "The experiment showed promising results."
     md = section_executive_summary(sample_trials, model="haiku")
     assert "## 1. Executive Summary" in md
     assert "promising results" in md
