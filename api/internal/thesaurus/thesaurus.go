@@ -266,6 +266,80 @@ func attachRarity(database *sql.DB, result *LookupResult) error {
 	return nil
 }
 
+// AutocompleteSuggestion represents a single autocomplete result with
+// the dominant sense definition and total sense count for the lemma.
+type AutocompleteSuggestion struct {
+	Word       string `json:"word"`
+	Definition string `json:"definition"`
+	SenseCount int    `json:"sense_count"`
+	Rarity     string `json:"rarity,omitempty"`
+}
+
+// AutocompletePrefix returns lemmas matching a prefix, each with its dominant
+// sense definition (preferring enriched synsets), total sense count, and rarity.
+// Returns an error if prefix is empty. No-match returns an empty slice, not an error.
+func AutocompletePrefix(database *sql.DB, prefix string, limit int) ([]AutocompleteSuggestion, error) {
+	prefix = strings.ToLower(strings.TrimSpace(prefix))
+	if prefix == "" {
+		return nil, errors.New("prefix must not be empty")
+	}
+
+	rows, err := database.Query(`
+		WITH matching_lemmas AS (
+			SELECT DISTINCT lemma
+			FROM lemmas
+			WHERE lemma LIKE ? || '%'
+			ORDER BY lemma
+			LIMIT ?
+		)
+		SELECT ml.lemma,
+		       (SELECT s.definition
+		        FROM lemmas l
+		        JOIN synsets s ON s.synset_id = l.synset_id
+		        LEFT JOIN synset_properties sp ON sp.synset_id = s.synset_id
+		        WHERE l.lemma = ml.lemma
+		        ORDER BY (sp.synset_id IS NOT NULL) DESC, s.synset_id
+		        LIMIT 1) as definition,
+		       (SELECT COUNT(DISTINCT l2.synset_id)
+		        FROM lemmas l2
+		        WHERE l2.lemma = ml.lemma) as sense_count,
+		       f.rarity
+		FROM matching_lemmas ml
+		LEFT JOIN frequencies f ON f.lemma = ml.lemma
+		ORDER BY ml.lemma
+	`, prefix, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var suggestions []AutocompleteSuggestion
+	for rows.Next() {
+		var s AutocompleteSuggestion
+		var definition sql.NullString
+		var rarity sql.NullString
+		if err := rows.Scan(&s.Word, &definition, &s.SenseCount, &rarity); err != nil {
+			slog.Warn("scan autocomplete row failed", "prefix", prefix, "err", err)
+			continue
+		}
+		if definition.Valid {
+			s.Definition = definition.String
+		}
+		if rarity.Valid {
+			s.Rarity = rarity.String
+		}
+		suggestions = append(suggestions, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if suggestions == nil {
+		suggestions = []AutocompleteSuggestion{}
+	}
+	return suggestions, nil
+}
+
 func posName(code string) string {
 	if name, ok := posNames[code]; ok {
 		return name

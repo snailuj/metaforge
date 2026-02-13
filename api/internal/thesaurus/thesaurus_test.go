@@ -362,3 +362,116 @@ func TestGetLookupWhitespaceOnly(t *testing.T) {
 		t.Errorf("Expected ErrWordNotFound for whitespace, got %v", err)
 	}
 }
+
+func TestAutocompletePrefix_Fire(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	suggestions, err := AutocompletePrefix(database, "fir", 10)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('fir', 10) returned error: %v", err)
+	}
+
+	if len(suggestions) == 0 {
+		t.Fatal("expected at least one suggestion for prefix 'fir'")
+	}
+
+	// "fire" should be among the results
+	found := false
+	for _, s := range suggestions {
+		if s.Word == "fire" {
+			found = true
+			if s.Definition == "" {
+				t.Error("expected non-empty definition for 'fire'")
+			}
+			if s.SenseCount != 21 {
+				t.Errorf("expected SenseCount=21 for 'fire', got %d", s.SenseCount)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected 'fire' among suggestions for prefix 'fir'")
+	}
+}
+
+func TestAutocompletePrefix_WithRarity(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	suggestions, err := AutocompletePrefix(database, "happ", 10)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('happ', 10) returned error: %v", err)
+	}
+
+	// "happy" should have rarity populated
+	for _, s := range suggestions {
+		if s.Word == "happy" {
+			if s.Rarity == "" {
+				t.Error("expected Rarity to be populated for 'happy'")
+			}
+			return
+		}
+	}
+	t.Error("expected 'happy' among suggestions for prefix 'happ'")
+}
+
+func TestAutocompletePrefix_EmptyPrefix(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	_, err := AutocompletePrefix(database, "", 10)
+	if err == nil {
+		t.Fatal("expected error for empty prefix, got nil")
+	}
+}
+
+func TestAutocompletePrefix_NoMatch(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	suggestions, err := AutocompletePrefix(database, "xyzzyplugh", 10)
+	if err != nil {
+		t.Fatalf("expected nil error for no-match prefix, got: %v", err)
+	}
+	if len(suggestions) != 0 {
+		t.Errorf("expected empty suggestions for no-match prefix, got %d", len(suggestions))
+	}
+}
+
+func TestAutocompletePrefix_Limit(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	suggestions, err := AutocompletePrefix(database, "a", 5)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('a', 5) returned error: %v", err)
+	}
+	if len(suggestions) > 5 {
+		t.Errorf("expected at most 5 suggestions, got %d", len(suggestions))
+	}
+	if len(suggestions) < 5 {
+		t.Errorf("expected 5 suggestions for prefix 'a' (many words start with a), got %d", len(suggestions))
+	}
+}
+
+func TestAutocompletePrefix_CaseInsensitive(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	suggestions, err := AutocompletePrefix(database, "FIR", 10)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('FIR', 10) returned error: %v", err)
+	}
+
+	found := false
+	for _, s := range suggestions {
+		if s.Word == "fire" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected 'fire' among suggestions for uppercase prefix 'FIR'")
+	}
+}
