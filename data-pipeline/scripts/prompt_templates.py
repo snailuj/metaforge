@@ -5,7 +5,6 @@ properties from WordNet synsets. All share the controlled variable: 10-15
 properties per sense, JSON output format, and {batch_items} placeholder.
 """
 import json
-import re
 import sys
 from pathlib import Path
 
