@@ -118,3 +118,15 @@ def _invoke_with_retries(
                 log.warning("Retry %d/%d after error: %s", attempt + 1, max_retries, e)
                 time.sleep(backoff)
     raise last_error
+
+
+# --- Public API --------------------------------------------------------------
+
+def prompt_text(
+    prompt: str,
+    model: str = "sonnet",
+    max_retries: int = 5,
+    verbose: bool = False,
+) -> str:
+    """Send a prompt, get text back."""
+    return _invoke_with_retries(prompt, model=model, max_retries=max_retries, verbose=verbose)

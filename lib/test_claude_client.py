@@ -195,3 +195,22 @@ def test_exponential_backoff(mock_invoke, mock_sleep):
     sleeps = [call[0][0] for call in mock_sleep.call_args_list]
     assert sleeps[0] == 4   # min(4 * 2^0, 120)
     assert sleeps[1] == 8   # min(4 * 2^1, 120)
+
+
+# --- prompt_text -------------------------------------------------------------
+
+from claude_client import prompt_text
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_text_returns_text(mock_invoke):
+    mock_invoke.return_value = "Analysis text here"
+    result = prompt_text("Write analysis", model="haiku")
+    assert result == "Analysis text here"
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_text_passes_params(mock_invoke):
+    mock_invoke.return_value = "ok"
+    prompt_text("p", model="sonnet", max_retries=3, verbose=True)
+    mock_invoke.assert_called_once_with("p", model="sonnet", max_retries=3, verbose=True)
