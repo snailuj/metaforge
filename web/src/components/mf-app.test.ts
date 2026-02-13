@@ -198,4 +198,37 @@ describe('MfApp', () => {
     expect(error).not.toBeNull()
     expect(error?.textContent).toContain('Something went wrong')
   })
+
+  describe('rarity filter', () => {
+    it('passes hiddenRarities to mf-force-graph', async () => {
+      await el.updateComplete
+      const graph = el.shadowRoot!.querySelector('mf-force-graph')!
+      // By default all toggles are on, so hiddenRarities should be empty
+      expect((graph as unknown as { hiddenRarities: Set<string> }).hiddenRarities.size).toBe(0)
+    })
+
+    it('adds rarity to hiddenRarities when toggle is unchecked', async () => {
+      // Access internal state to toggle off 'rare'
+      ;(el as unknown as { showRare: boolean }).showRare = false
+      await el.updateComplete
+
+      const graph = el.shadowRoot!.querySelector('mf-force-graph')!
+      const hidden = (graph as unknown as { hiddenRarities: Set<string> }).hiddenRarities
+      expect(hidden.has('rare')).toBe(true)
+      expect(hidden.has('common')).toBe(false)
+      expect(hidden.has('unusual')).toBe(false)
+    })
+
+    it('includes multiple rarities when multiple toggles are off', async () => {
+      ;(el as unknown as { showCommon: boolean }).showCommon = false
+      ;(el as unknown as { showRare: boolean }).showRare = false
+      await el.updateComplete
+
+      const graph = el.shadowRoot!.querySelector('mf-force-graph')!
+      const hidden = (graph as unknown as { hiddenRarities: Set<string> }).hiddenRarities
+      expect(hidden.has('common')).toBe(true)
+      expect(hidden.has('rare')).toBe(true)
+      expect(hidden.has('unusual')).toBe(false)
+    })
+  })
 })

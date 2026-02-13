@@ -4,7 +4,7 @@ import { lookupWord, ApiError } from '@/api/client'
 import { transformLookupToGraph } from '@/graph/transform'
 import { initStrings, getString } from '@/lib/strings'
 import type { LookupResult } from '@/types/api'
-import type { GraphData } from '@/graph/types'
+import type { GraphData, Rarity } from '@/graph/types'
 import type { MfToast } from './mf-toast'
 
 // Import components so they register
@@ -111,30 +111,16 @@ export class MfApp extends LitElement {
   @state() private result: LookupResult | null = null
   @state() private graphData: GraphData = { nodes: [], links: [] }
   @state() private errorMessage = ''
-  @state() private showCommon = true
-  @state() private showUnusual = true
-  @state() private showRare = true
+  @state() showCommon = true
+  @state() showUnusual = true
+  @state() showRare = true
 
-  private get filteredGraphData(): GraphData {
-    if (this.showCommon && this.showUnusual && this.showRare) {
-      return this.graphData
-    }
-
-    const visibleNodes = this.graphData.nodes.filter(node => {
-      if (node.relationType === 'central') return true
-      const rarity = node.rarity ?? 'unusual'
-      if (rarity === 'common' && !this.showCommon) return false
-      if (rarity === 'unusual' && !this.showUnusual) return false
-      if (rarity === 'rare' && !this.showRare) return false
-      return true
-    })
-
-    const visibleIds = new Set(visibleNodes.map(n => n.id))
-    const visibleLinks = this.graphData.links.filter(
-      link => visibleIds.has(link.source as string) && visibleIds.has(link.target as string),
-    )
-
-    return { nodes: visibleNodes, links: visibleLinks }
+  private get hiddenRarities(): Set<Rarity> {
+    const hidden = new Set<Rarity>()
+    if (!this.showCommon) hidden.add('common')
+    if (!this.showUnusual) hidden.add('unusual')
+    if (!this.showRare) hidden.add('rare')
+    return hidden
   }
 
   async connectedCallback(): Promise<void> {
@@ -267,7 +253,8 @@ export class MfApp extends LitElement {
         : ''}
 
       <mf-force-graph
-        .graphData=${this.filteredGraphData}
+        .graphData=${this.graphData}
+        .hiddenRarities=${this.hiddenRarities}
         @mf-node-select=${() => {}}
         @mf-node-navigate=${this.handleNodeNavigate}
         @mf-node-copy=${this.handleCopy}
