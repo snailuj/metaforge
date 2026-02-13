@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit'
+import { LitElement, html, css, type PropertyValues } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { lookupWord, ApiError } from '@/api/client'
 import { transformLookupToGraph } from '@/graph/transform'
@@ -117,12 +117,16 @@ export class MfApp extends LitElement {
   private currentWord = ''
   private lookupId = 0
 
-  private get hiddenRarities(): Set<Rarity> {
-    const hidden = new Set<Rarity>()
-    if (!this.showCommon) hidden.add('common')
-    if (!this.showUnusual) hidden.add('unusual')
-    if (!this.showRare) hidden.add('rare')
-    return hidden
+  private hiddenRarities: Set<Rarity> = new Set()
+
+  protected willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has('showCommon' as keyof this) || changed.has('showUnusual' as keyof this) || changed.has('showRare' as keyof this)) {
+      const hidden = new Set<Rarity>()
+      if (!this.showCommon) hidden.add('common')
+      if (!this.showUnusual) hidden.add('unusual')
+      if (!this.showRare) hidden.add('rare')
+      this.hiddenRarities = hidden
+    }
   }
 
   async connectedCallback(): Promise<void> {
