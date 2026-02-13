@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -186,6 +187,7 @@ func (h *Handler) HandleLookup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		slog.Error("lookup failed", "word", word, "err", err)
 		http.Error(w, `{"error": "lookup failed"}`, http.StatusInternalServerError)
 		return
 	}

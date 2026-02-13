@@ -28,8 +28,10 @@ type Synset struct {
 
 // Open establishes a read-only connection to the lexicon SQLite database.
 // The path parameter should point to the lexicon.db file.
+// Uses immutable=1 so SQLite skips journal/WAL/shm files entirely,
+// which is required when the DB lives on a read-only filesystem.
 func Open(path string) (*sql.DB, error) {
-	return sql.Open("sqlite3", path+"?mode=ro")
+	return sql.Open("sqlite3", path+"?mode=ro&immutable=1")
 }
 
 // GetSynset retrieves a single synset by ID, including enrichment data.
