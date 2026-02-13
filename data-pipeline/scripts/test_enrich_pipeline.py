@@ -20,6 +20,7 @@ from enrich_pipeline import (
     SIMILARITY_CHUNK_SIZE,
     _fasttext_cache,
     curate_properties,
+    filter_mwe,
     load_fasttext_vectors,
     populate_synset_properties,
     compute_idf,
@@ -509,3 +510,99 @@ def test_load_fasttext_vectors_caches(tmp_path):
     assert v1 is v2
 
     _fasttext_cache.clear()
+
+
+# --- 14. filter_mwe — pure function tests ------------------------------------
+
+def test_filter_mwe_single_word_unchanged():
+    """Single-token property passes through unchanged."""
+    assert filter_mwe("warm") == "warm"
+
+
+def test_filter_mwe_strips_adjective():
+    """Adjective stripped from 2-word MWE, leaving the noun."""
+    assert filter_mwe("sluggish seep") == "seep"
+
+
+def test_filter_mwe_strips_adverb():
+    """Both adverb + adjective stripped → 0 remain → None."""
+    assert filter_mwe("very likely") is None
+
+
+def test_filter_mwe_discards_two_nouns():
+    """Two nouns remain after stripping → discard (not exactly 1)."""
+    assert filter_mwe("ghost outline") is None
+
+
+def test_filter_mwe_keeps_hyphenated():
+    """Hyphenated compound is 1 token → keep as-is."""
+    assert filter_mwe("blood-red") == "blood-red"
+
+
+def test_filter_mwe_strips_to_single_noun():
+    """Adjective stripped from 'bright glow' → 'glow'."""
+    assert filter_mwe("bright glow") == "glow"
+
+
+# --- 15. curate_properties MWE filtering integration -------------------------
+
+def test_curate_properties_filters_mwe():
+    """MWE properties are filtered: 'sluggish seep' → 'seep', 'ghost outline' discarded."""
+    conn = _make_db()
+    data = {
+        "synsets": [
+            {
+                "id": "s1",
+                "properties": ["sluggish seep", "ghost outline", "warm"],
+            },
+        ],
+    }
+    vectors = {
+        "seep": _make_vec(0.5, 0.5, 0.0),
+        "warm": _make_vec(1.0, 0.0, 0.0),
+        "ghost": _make_vec(0.0, 0.0, 1.0),
+        "outline": _make_vec(0.0, 1.0, 0.0),
+    }
+
+    curate_properties(conn, data, vectors)
+
+    texts = {r[0] for r in conn.execute("SELECT text FROM property_vocabulary").fetchall()}
+    assert "seep" in texts        # sluggish (JJ) stripped → seep kept
+    assert "warm" in texts        # single word kept
+    assert "sluggish seep" not in texts  # MWE not stored raw
+    assert "ghost outline" not in texts  # NN+NN → discarded
+
+
+# --- 16. populate_synset_properties MWE filtering integration ----------------
+
+def test_populate_applies_mwe_filter():
+    """'sluggish seep' links to property_id for 'seep', not 'sluggish seep'."""
+    conn = _make_db()
+    data = {
+        "synsets": [
+            {
+                "id": "s1",
+                "properties": ["sluggish seep", "warm"],
+            },
+        ],
+    }
+    vectors = {
+        "seep": _make_vec(0.5, 0.5, 0.0),
+        "warm": _make_vec(1.0, 0.0, 0.0),
+    }
+
+    curate_properties(conn, data, vectors)
+    links = populate_synset_properties(conn, data, "test-model")
+
+    # Should have 2 links: seep + warm
+    assert links == 2
+
+    # Verify "seep" property_id is linked to s1
+    seep_id = conn.execute(
+        "SELECT property_id FROM property_vocabulary WHERE text = 'seep'"
+    ).fetchone()[0]
+    link = conn.execute(
+        "SELECT * FROM synset_properties WHERE synset_id = 's1' AND property_id = ?",
+        (seep_id,),
+    ).fetchone()
+    assert link is not None

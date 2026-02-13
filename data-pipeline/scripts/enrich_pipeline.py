@@ -23,13 +23,43 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import nltk
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import EMBEDDING_DIM, FASTTEXT_VEC, normalise
 
+# Lazy-download NLTK tagger data on first import
+try:
+    nltk.data.find("taggers/averaged_perceptron_tagger_eng")
+except LookupError:
+    nltk.download("averaged_perceptron_tagger_eng", quiet=True)
+
 MAX_PROPERTIES_PER_SYNSET = 15
 SIMILARITY_CHUNK_SIZE = 2048
+
+
+# =============================================================================
+# MWE filter — strip adjectives/adverbs from multi-word properties
+# =============================================================================
+
+_STRIP_PREFIXES = ("JJ", "RB")
+
+
+def filter_mwe(text: str) -> str | None:
+    """Filter multi-word expressions by stripping adjectives/adverbs.
+
+    Single tokens pass through unchanged. For multi-word inputs, POS-tag
+    and remove JJ*/RB* words. Keep only if exactly 1 word remains.
+    """
+    tokens = text.split()
+    if len(tokens) <= 1:
+        return text
+    tagged = nltk.pos_tag(tokens)
+    kept = [word for word, tag in tagged if not tag.startswith(_STRIP_PREFIXES)]
+    if len(kept) == 1:
+        return kept[0]
+    return None
 
 
 # =============================================================================
@@ -119,7 +149,9 @@ def curate_properties(
     all_props = set()
     for synset in enrichment_data.get("synsets", []):
         for prop in synset.get("properties", [])[:MAX_PROPERTIES_PER_SYNSET]:
-            all_props.add(normalise(prop))
+            filtered = filter_mwe(normalise(prop))
+            if filtered is not None:
+                all_props.add(filtered)
 
     count = 0
     for prop in sorted(all_props):
@@ -168,11 +200,13 @@ def populate_synset_properties(
         )
 
         for prop in synset.get("properties", [])[:MAX_PROPERTIES_PER_SYNSET]:
-            prop_norm = normalise(prop)
-            if prop_norm in prop_ids:
+            prop_filtered = filter_mwe(normalise(prop))
+            if prop_filtered is None:
+                continue
+            if prop_filtered in prop_ids:
                 conn.execute(
                     "INSERT OR IGNORE INTO synset_properties (synset_id, property_id) VALUES (?, ?)",
-                    (synset_id, prop_ids[prop_norm]),
+                    (synset_id, prop_ids[prop_filtered]),
                 )
                 links += 1
 
