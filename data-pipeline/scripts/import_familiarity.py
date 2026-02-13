@@ -52,11 +52,22 @@ def load_familiarity(xlsx_path: Path) -> dict[str, tuple[float, int, float | Non
     wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
     ws = wb.active
 
-    rows = ws.iter_rows(min_row=2, values_only=True)
+    # Find column indices from header row
+    headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+    word_idx = headers.index("Word")
+    fam_dom_idx = headers.index("Dom_Pos")
+    fam_probs_idx = headers.index("Freq_Dom")
+    multilex_idx = headers.index("MultLex_Percent")
+    entry_type_idx = headers.index("EntryType")
+
     data: dict[str, tuple[float, int, float | None]] = {}
 
-    for row in rows:
-        word, fam_dom, fam_probs, multilex, entry_type, _ = row
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        word = row[word_idx]
+        fam_dom = row[fam_dom_idx]
+        fam_probs = row[fam_probs_idx]
+        multilex = row[multilex_idx]
+        entry_type = row[entry_type_idx]
 
         # Skip nulls and non-single-words
         if word is None or not isinstance(word, str):
