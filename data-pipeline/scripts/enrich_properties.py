@@ -123,6 +123,11 @@ def parse_response(proc: subprocess.CompletedProcess) -> List[Dict]:
             f"claude CLI failed (exit {proc.returncode}): {proc.stderr}"
         )
 
+    if not proc.stdout or not proc.stdout.strip():
+        raise RuntimeError(
+            f"claude CLI returned empty stdout (exit {proc.returncode})"
+        )
+
     events = json.loads(proc.stdout)
     # claude -p --output-format json returns an array of events.
     # The final event (type=result) contains the text in its "result" field.
@@ -136,7 +141,15 @@ def parse_response(proc: subprocess.CompletedProcess) -> List[Dict]:
         if any(ind in error_text.lower() for ind in _RATE_LIMIT_INDICATORS):
             raise UsageExhaustedError(f"Usage exhausted: {error_text}")
         raise RuntimeError(f"claude returned error: {error_text}")
-    text = result_event["result"].strip()
+    text = result_event.get("result")
+    if not text:
+        log.warning("Result event missing 'result' field: %s",
+                     json.dumps(result_event)[:500])
+        raise RuntimeError(
+            f"Result event missing 'result' field "
+            f"(keys: {sorted(result_event.keys())})"
+        )
+    text = text.strip()
 
     # Strip markdown fences if present
     text = re.sub(r'^```json\s*', '', text)
@@ -195,7 +208,12 @@ def _retry_unless_usage_exhausted(retry_state):
 def _extract_batch_inner(prompt: str, synsets: List[Dict], model: str, verbose: bool = False) -> List[Dict]:
     """Retryable inner: invoke LLM, parse, merge."""
     proc = invoke_claude(prompt, model=model, verbose=verbose)
-    results = parse_response(proc)
+    try:
+        results = parse_response(proc)
+    except Exception:
+        log.warning("parse_response failed — raw stdout (first 1000 chars): %s",
+                     proc.stdout[:1000] if proc.stdout else "<empty>")
+        raise
 
     local_data = {s['id']: s for s in synsets}
 

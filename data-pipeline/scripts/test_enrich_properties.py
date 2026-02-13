@@ -101,6 +101,28 @@ def test_parse_response_cli_error():
         parse_response(proc)
 
 
+def test_parse_response_missing_result_field():
+    """Result event present but missing 'result' key — should raise RuntimeError."""
+    events = [
+        {"type": "system", "subtype": "init", "session_id": "test"},
+        {"type": "result", "subtype": "success", "is_error": False},
+    ]
+    proc = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout=json.dumps(events), stderr="",
+    )
+    with pytest.raises(RuntimeError, match="missing 'result' field"):
+        parse_response(proc)
+
+
+def test_parse_response_empty_stdout():
+    """Empty stdout from CLI — should raise RuntimeError, not JSONDecodeError."""
+    proc = subprocess.CompletedProcess(
+        args=["claude"], returncode=0, stdout="", stderr="",
+    )
+    with pytest.raises(RuntimeError, match="empty stdout"):
+        parse_response(proc)
+
+
 # --- 5. invoke_claude command shape -------------------------------------------
 
 @patch("enrich_properties.subprocess.run")
