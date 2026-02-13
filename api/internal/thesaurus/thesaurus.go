@@ -284,11 +284,15 @@ func AutocompletePrefix(database *sql.DB, prefix string, limit int) ([]Autocompl
 		return nil, errors.New("prefix must not be empty")
 	}
 
+	// Escape LIKE metacharacters so user input is treated literally.
+	likeEscaper := strings.NewReplacer(`%`, `\%`, `_`, `\_`)
+	escapedPrefix := likeEscaper.Replace(prefix)
+
 	rows, err := database.Query(`
 		WITH matching_lemmas AS (
 			SELECT DISTINCT lemma
 			FROM lemmas
-			WHERE lemma LIKE ? || '%'
+			WHERE lemma LIKE ? || '%' ESCAPE '\'
 			ORDER BY lemma
 			LIMIT ?
 		)
@@ -307,7 +311,7 @@ func AutocompletePrefix(database *sql.DB, prefix string, limit int) ([]Autocompl
 		FROM matching_lemmas ml
 		LEFT JOIN frequencies f ON f.lemma = ml.lemma
 		ORDER BY ml.lemma
-	`, prefix, limit)
+	`, escapedPrefix, limit)
 	if err != nil {
 		return nil, err
 	}

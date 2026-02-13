@@ -455,6 +455,31 @@ func TestAutocompletePrefix_Limit(t *testing.T) {
 	}
 }
 
+func TestAutocompletePrefix_LIKEMetacharacterEscaped(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	// "%" is a LIKE wildcard — without escaping it would match all lemmas.
+	// With proper escaping it should match nothing (no lemma starts with "%").
+	suggestions, err := AutocompletePrefix(database, "%%", 10)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('%%%%', 10) returned error: %v", err)
+	}
+	if len(suggestions) != 0 {
+		t.Errorf("expected 0 suggestions for metacharacter prefix '%%%%', got %d", len(suggestions))
+	}
+
+	// "_a" without escaping would match any two-char prefix + "a" — lots of results.
+	// With escaping it should match nothing (no lemma starts with literal "_a").
+	suggestions, err = AutocompletePrefix(database, "_a", 10)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('_a', 10) returned error: %v", err)
+	}
+	if len(suggestions) != 0 {
+		t.Errorf("expected 0 suggestions for metacharacter prefix '_a', got %d", len(suggestions))
+	}
+}
+
 func TestAutocompletePrefix_CaseInsensitive(t *testing.T) {
 	database := openTestDB(t)
 	defer database.Close()
