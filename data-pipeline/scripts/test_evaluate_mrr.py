@@ -605,3 +605,105 @@ def test_evaluate_high_coverage_is_valid(tmp_path):
         )
 
     assert results["valid"] is True
+
+
+# --- 19. evaluate filters to eval_subset when provided -----------------------
+
+def test_evaluate_filters_to_eval_subset(tmp_path):
+    """When eval_subset is provided, only those pairs are queried."""
+    from evaluate_mrr import evaluate
+
+    # Write 3 pairs
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps([
+        {"source": "anger", "target": "fire", "tier": "strong"},
+        {"source": "hope", "target": "light", "tier": "strong"},
+        {"source": "time", "target": "river", "tier": "strong"},
+    ]))
+
+    baseline_sql = tmp_path / "baseline.sql"
+    baseline_sql.write_text(
+        "CREATE TABLE lemmas (lemma TEXT, synset_id TEXT, PRIMARY KEY (lemma, synset_id));\n"
+        "INSERT INTO lemmas VALUES ('anger', 'syn-anger-01');\n"
+        "INSERT INTO lemmas VALUES ('fire', 'syn-fire-01');\n"
+        "INSERT INTO lemmas VALUES ('hope', 'syn-hope-01');\n"
+        "INSERT INTO lemmas VALUES ('light', 'syn-light-01');\n"
+        "INSERT INTO lemmas VALUES ('time', 'syn-time-01');\n"
+        "INSERT INTO lemmas VALUES ('river', 'syn-river-01');\n"
+        "CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, definition TEXT);\n"
+        "INSERT INTO synsets VALUES ('syn-anger-01', 'emotion');\n"
+        "INSERT INTO synsets VALUES ('syn-fire-01', 'combustion');\n"
+        "INSERT INTO synsets VALUES ('syn-hope-01', 'optimism');\n"
+        "INSERT INTO synsets VALUES ('syn-light-01', 'illumination');\n"
+        "INSERT INTO synsets VALUES ('syn-time-01', 'duration');\n"
+        "INSERT INTO synsets VALUES ('syn-river-01', 'flowing water');\n"
+    )
+
+    fake_enrichment = {
+        "synsets": [
+            {"id": "syn-anger-01", "lemma": "anger", "definition": "emotion",
+             "pos": "n", "properties": ["hot"]},
+            {"id": "syn-fire-01", "lemma": "fire", "definition": "combustion",
+             "pos": "n", "properties": ["hot"]},
+            {"id": "syn-time-01", "lemma": "time", "definition": "duration",
+             "pos": "n", "properties": ["passing"]},
+            {"id": "syn-river-01", "lemma": "river", "definition": "water",
+             "pos": "n", "properties": ["flowing"]},
+        ],
+        "config": {"model": "haiku"},
+    }
+    fake_enrichment_path = tmp_path / "enrichment.json"
+    fake_enrichment_path.write_text(json.dumps(fake_enrichment))
+
+    def mock_run_enrichment(**kwargs):
+        output_path = kwargs.get("output_file")
+        if output_path:
+            Path(output_path).write_text(json.dumps(fake_enrichment))
+        return EnrichmentResult(
+            output_file=str(fake_enrichment_path),
+            requested=4, succeeded=4, failed=0, failed_ids=[],
+        )
+
+    mock_secondary = {"unique_properties": 2, "hapax_count": 1,
+                       "hapax_rate": 0.5, "avg_properties_per_synset": 2.0}
+
+    queried_sources = []
+
+    def mock_query_forge_rank(source_word, **kwargs):
+        queried_sources.append(source_word)
+        return 1  # rank 1 for all
+
+    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+         patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
+         patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
+         patch("evaluate_mrr.run_enrichment", mock_run_enrichment), \
+         patch("evaluate_mrr.run_pipeline"), \
+         patch("evaluate_mrr.compute_secondary_metrics", return_value=mock_secondary), \
+         patch("evaluate_mrr.start_server") as mock_server, \
+         patch("evaluate_mrr.wait_for_health"), \
+         patch("evaluate_mrr.stop_server"), \
+         patch("evaluate_mrr.query_forge_rank", side_effect=mock_query_forge_rank):
+
+        mock_server.return_value = MagicMock()
+
+        results = evaluate(
+            enrichment_file=None,
+            pairs_file=str(pairs_file),
+            enrich_size=500,
+            enrich_model="haiku",
+            eval_subset=["anger:fire", "time:river"],
+        )
+
+    # Should only have queried 2 pairs, not 3
+    assert "hope" not in queried_sources
+    assert "anger" in queried_sources
+    assert "time" in queried_sources
+    assert len(results["per_pair"]) == 2
+
+
+# --- 20. DEFAULT_PAIRS points to v2 ------------------------------------------
+
+def test_default_pairs_points_to_v2():
+    """DEFAULT_PAIRS should reference metaphor_pairs_v2.json."""
+    from evaluate_mrr import DEFAULT_PAIRS
+    assert DEFAULT_PAIRS.name == "metaphor_pairs_v2.json"

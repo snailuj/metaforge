@@ -16,7 +16,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 
 from enrich_pipeline import (
+    MAX_PROPERTIES_PER_SYNSET,
+    SIMILARITY_CHUNK_SIZE,
+    _fasttext_cache,
     curate_properties,
+    filter_mwe,
+    load_fasttext_vectors,
     populate_synset_properties,
     compute_idf,
     compute_property_similarity,
@@ -360,3 +365,244 @@ def test_run_pipeline_end_to_end(tmp_path):
     assert prop_count > 0
     assert sp_count > 0
     assert centroid_count == 2
+
+
+# --- 9. curate_properties caps per synset ------------------------------------
+
+def test_curate_properties_caps_per_synset():
+    """Only MAX_PROPERTIES_PER_SYNSET properties per synset enter vocabulary."""
+    conn = _make_db()
+    # Generate 20 unique properties — all single words so they get embeddings
+    props_20 = [f"prop{i}" for i in range(20)]
+    data = {
+        "synsets": [
+            {"id": "s1", "properties": props_20},
+        ],
+    }
+    # All 20 words in vectors so none are filtered by OOV
+    vectors = {p: _make_vec(float(i)) for i, p in enumerate(props_20)}
+
+    count = curate_properties(conn, data, vectors)
+
+    assert count == MAX_PROPERTIES_PER_SYNSET
+
+
+# --- 10. populate_synset_properties caps per synset --------------------------
+
+def test_populate_synset_properties_caps_per_synset():
+    """Junction table has at most MAX_PROPERTIES_PER_SYNSET rows per synset."""
+    conn = _make_db()
+    props_20 = [f"prop{i}" for i in range(20)]
+    data = {
+        "synsets": [
+            {"id": "s1", "properties": props_20},
+        ],
+    }
+    vectors = {p: _make_vec(float(i)) for i, p in enumerate(props_20)}
+
+    curate_properties(conn, data, vectors)
+    links = populate_synset_properties(conn, data, "test-model")
+
+    row_count = conn.execute(
+        "SELECT COUNT(*) FROM synset_properties WHERE synset_id = 's1'"
+    ).fetchone()[0]
+
+    assert links == MAX_PROPERTIES_PER_SYNSET
+    assert row_count == MAX_PROPERTIES_PER_SYNSET
+
+
+# --- 11. chunked similarity matches naive -----------------------------------
+
+def _get_sim_pairs(conn):
+    """Return set of ((id_a, id_b), similarity) from property_similarity."""
+    rows = conn.execute(
+        "SELECT property_id_a, property_id_b, similarity FROM property_similarity"
+    ).fetchall()
+    return {(a, b): round(s, 6) for a, b, s in rows}
+
+
+def test_similarity_chunked_matches_naive():
+    """Chunked computation (chunk_size=2) produces identical pairs to naive."""
+    # Set up 5 properties with known embeddings
+    conn = _make_db()
+    props = ["alpha", "beta", "gamma", "delta", "epsilon"]
+    vecs = {
+        "alpha": _make_vec(1.0, 0.0, 0.0),
+        "beta": _make_vec(0.9, 0.1, 0.0),
+        "gamma": _make_vec(0.0, 1.0, 0.0),
+        "delta": _make_vec(0.0, 0.9, 0.1),
+        "epsilon": _make_vec(0.0, 0.0, 1.0),
+    }
+    data = {"synsets": [{"id": "s1", "properties": props}]}
+
+    curate_properties(conn, data, vecs)
+
+    # Run with default (large) chunk_size — effectively naive
+    naive_count = compute_property_similarity(conn, threshold=0.5)
+    naive_pairs = _get_sim_pairs(conn)
+
+    # Run again with chunk_size=2 — forces multiple chunks
+    chunked_count = compute_property_similarity(conn, threshold=0.5, chunk_size=2)
+    chunked_pairs = _get_sim_pairs(conn)
+
+    assert naive_count == chunked_count
+    assert naive_pairs == chunked_pairs
+
+
+# --- 12. similarity with chunk_size=1 (edge case) ---------------------------
+
+def test_similarity_chunk_size_one():
+    """chunk_size=1 is the extreme edge case — still produces correct pairs."""
+    conn = _make_db()
+    props = ["hot", "warm", "cold"]
+    vecs = {
+        "hot": _make_vec(1.0, 0.0, 0.0),
+        "warm": _make_vec(0.9, 0.1, 0.0),
+        "cold": _make_vec(-1.0, 0.0, 0.0),
+    }
+    data = {"synsets": [{"id": "s1", "properties": props}]}
+
+    curate_properties(conn, data, vecs)
+
+    # Run with chunk_size=1
+    count = compute_property_similarity(conn, threshold=0.5, chunk_size=1)
+    pairs = _get_sim_pairs(conn)
+
+    # hot and warm should be similar (cosine > 0.5)
+    hot_id = conn.execute(
+        "SELECT property_id FROM property_vocabulary WHERE text = 'hot'"
+    ).fetchone()[0]
+    warm_id = conn.execute(
+        "SELECT property_id FROM property_vocabulary WHERE text = 'warm'"
+    ).fetchone()[0]
+
+    assert (hot_id, warm_id) in pairs
+    assert (warm_id, hot_id) in pairs
+    assert pairs[(hot_id, warm_id)] > 0.5
+
+    # cold should not be similar to hot or warm (cosine < 0.5)
+    cold_id = conn.execute(
+        "SELECT property_id FROM property_vocabulary WHERE text = 'cold'"
+    ).fetchone()[0]
+    assert (hot_id, cold_id) not in pairs
+    assert (warm_id, cold_id) not in pairs
+
+    assert count > 0
+
+
+# --- 13. FastText vector caching ---------------------------------------------
+
+def test_load_fasttext_vectors_caches(tmp_path):
+    """Second call with same path returns cached vectors without re-reading."""
+    vec_file = tmp_path / "test.vec"
+    vec_file.write_text("2 3\nhello 1.0 0.0 0.0\nworld 0.0 1.0 0.0\n")
+
+    # Clear any prior cache state
+    _fasttext_cache.clear()
+
+    v1 = load_fasttext_vectors(str(vec_file))
+    assert "hello" in v1
+
+    # Delete the file — second call must use cache, not disk
+    vec_file.unlink()
+
+    v2 = load_fasttext_vectors(str(vec_file))
+    assert v1 is v2
+
+    _fasttext_cache.clear()
+
+
+# --- 14. filter_mwe — pure function tests ------------------------------------
+
+def test_filter_mwe_single_word_unchanged():
+    """Single-token property passes through unchanged."""
+    assert filter_mwe("warm") == "warm"
+
+
+def test_filter_mwe_strips_adjective():
+    """Adjective stripped from 2-word MWE, leaving the noun."""
+    assert filter_mwe("sluggish seep") == "seep"
+
+
+def test_filter_mwe_strips_adverb():
+    """Both adverb + adjective stripped → 0 remain → None."""
+    assert filter_mwe("very likely") is None
+
+
+def test_filter_mwe_discards_two_nouns():
+    """Two nouns remain after stripping → discard (not exactly 1)."""
+    assert filter_mwe("ghost outline") is None
+
+
+def test_filter_mwe_keeps_hyphenated():
+    """Hyphenated compound is 1 token → keep as-is."""
+    assert filter_mwe("blood-red") == "blood-red"
+
+
+def test_filter_mwe_strips_to_single_noun():
+    """Adjective stripped from 'bright glow' → 'glow'."""
+    assert filter_mwe("bright glow") == "glow"
+
+
+# --- 15. curate_properties MWE filtering integration -------------------------
+
+def test_curate_properties_filters_mwe():
+    """MWE properties are filtered: 'sluggish seep' → 'seep', 'ghost outline' discarded."""
+    conn = _make_db()
+    data = {
+        "synsets": [
+            {
+                "id": "s1",
+                "properties": ["sluggish seep", "ghost outline", "warm"],
+            },
+        ],
+    }
+    vectors = {
+        "seep": _make_vec(0.5, 0.5, 0.0),
+        "warm": _make_vec(1.0, 0.0, 0.0),
+        "ghost": _make_vec(0.0, 0.0, 1.0),
+        "outline": _make_vec(0.0, 1.0, 0.0),
+    }
+
+    curate_properties(conn, data, vectors)
+
+    texts = {r[0] for r in conn.execute("SELECT text FROM property_vocabulary").fetchall()}
+    assert "seep" in texts        # sluggish (JJ) stripped → seep kept
+    assert "warm" in texts        # single word kept
+    assert "sluggish seep" not in texts  # MWE not stored raw
+    assert "ghost outline" not in texts  # NN+NN → discarded
+
+
+# --- 16. populate_synset_properties MWE filtering integration ----------------
+
+def test_populate_applies_mwe_filter():
+    """'sluggish seep' links to property_id for 'seep', not 'sluggish seep'."""
+    conn = _make_db()
+    data = {
+        "synsets": [
+            {
+                "id": "s1",
+                "properties": ["sluggish seep", "warm"],
+            },
+        ],
+    }
+    vectors = {
+        "seep": _make_vec(0.5, 0.5, 0.0),
+        "warm": _make_vec(1.0, 0.0, 0.0),
+    }
+
+    curate_properties(conn, data, vectors)
+    links = populate_synset_properties(conn, data, "test-model")
+
+    # Should have 2 links: seep + warm
+    assert links == 2
+
+    # Verify "seep" property_id is linked to s1
+    seep_id = conn.execute(
+        "SELECT property_id FROM property_vocabulary WHERE text = 'seep'"
+    ).fetchone()[0]
+    link = conn.execute(
+        "SELECT * FROM synset_properties WHERE synset_id = 's1' AND property_id = ?",
+        (seep_id,),
+    ).fetchone()
+    assert link is not None

@@ -24,6 +24,8 @@ from enrich_properties import BATCH_PROMPT, UsageExhaustedError
 from evaluate_mrr import evaluate, DEFAULT_PAIRS
 from prompt_templates import EXPLORATION_PROMPTS, generate_tweak, improve_prompt, load_fixture_vocabulary
 from utils import OUTPUT_DIR
+from rotation import PairPool, Subset, load_pool, select_subset, compute_shared_mrr, get_failure_limit
+from bradley_terry import BradleyTerryRanker
 
 
 # --- Data structures ---------------------------------------------------------
@@ -44,9 +46,60 @@ class TrialResult:
     timestamp: str
     enrichment_coverage: float = 1.0
     valid: bool = True
+    # v2 instrumentation
+    mrr_shared: Optional[float] = None
+    parent_mrr_shared: Optional[float] = None
+    shared_delta: Optional[float] = None
+    eval_subset: Optional[list[str]] = None
+    shared_with_parent: Optional[list[str]] = None
+    rotation_seed: Optional[int] = None
+    pool_version: Optional[str] = None
+    elo_rating: Optional[float] = None
 
 
 # --- Helpers -----------------------------------------------------------------
+
+def _load_exploration_log(log_path: Path) -> list[TrialResult]:
+    """Load exploration log from disk, returning [] if missing."""
+    if not log_path.exists():
+        return []
+    with open(log_path) as f:
+        return [TrialResult(**d) for d in json.load(f)]
+
+
+def is_exploitation_complete(
+    log_path: Path,
+    max_tweaks: int,
+    consecutive_failure_limit: int = 3,
+) -> bool:
+    """Check if an exploitation run is complete (all tweaks or early-stopped).
+
+    Returns True if:
+    - max generation >= max_tweaks (all tweaks exhausted), or
+    - trailing consecutive valid non-survived entries >= failure limit
+    """
+    if not log_path.exists():
+        return False
+    with open(log_path) as f:
+        entries = json.load(f)
+    if not entries:
+        return False
+
+    # Check max generation
+    max_gen = max(e["generation"] for e in entries)
+    if max_gen >= max_tweaks:
+        return True
+
+    # Check trailing consecutive valid failures
+    consecutive = 0
+    for entry in reversed(entries):
+        if not entry.get("valid", True):
+            continue  # skip infra failures
+        if entry.get("survived", False):
+            break
+        consecutive += 1
+    return consecutive >= consecutive_failure_limit
+
 
 def _save_log(trials: list[TrialResult], path: Path) -> None:
     """Save trial log to JSON (crash-safe: write after each trial)."""
@@ -131,28 +184,128 @@ def run_exploration(
     port: int = 9091,
     output_dir: Path = None,
     verbose: bool = False,
+    pair_pool: "PairPool | None" = None,
+    ranker: "BradleyTerryRanker | None" = None,
+    resume: bool = False,
 ) -> list[TrialResult]:
     """Evaluate baseline + exploration prompts, identify survivors.
 
     Survivors = prompts with MRR > baseline MRR.
     Saves log incrementally after each trial.
+
+    When resume=True: loads existing log, skips already-completed prompts,
+    uses baseline MRR from log.
+
+    v2 (when pair_pool is provided): uses rotated subsets and Bradley-Terry ranking.
     """
     if output_dir is None:
         output_dir = OUTPUT_DIR / "evolution"
     output_dir = Path(output_dir)
     log_path = output_dir / "exploration_log.json"
 
+    # Resume: load existing log and filter remaining prompts
+    if resume:
+        existing = _load_exploration_log(log_path)
+        if existing:
+            completed_names = {t.prompt_name for t in existing}
+            remaining = {k: v for k, v in prompts.items() if k not in completed_names}
+            if not remaining:
+                print("=== Exploration resume: all prompts already evaluated ===")
+                return existing
+            baseline_entry = next((t for t in existing if t.trial_id == "baseline"), None)
+            baseline_mrr = baseline_entry.mrr if baseline_entry else 0.0
+            trials = list(existing)
+            print(f"=== Exploration resume: {len(completed_names)} done, "
+                  f"{len(remaining)} remaining (baseline MRR = {baseline_mrr:.4f}) ===")
+            # Jump to prompt loop with remaining prompts
+            for name, prompt in remaining.items():
+                print(f"\n=== Exploration: evaluating {name} ===")
+                eval_kwargs = {}
+                subset = None
+                if pair_pool is not None:
+                    seed = hash(name) & 0xFFFFFFFF
+                    subset = select_subset(pair_pool, seed=seed)
+                    eval_kwargs["eval_subset"] = subset.pair_ids
+
+                result = _evaluate_with_backoff(
+                    prompt_template=prompt,
+                    model=model,
+                    enrich_size=enrich_size,
+                    port=port,
+                    verbose=verbose,
+                    **eval_kwargs,
+                )
+                trial_valid = result.get("valid", True)
+                if trial_valid:
+                    survived = result["mrr"] > baseline_mrr
+                else:
+                    survived = False
+                coverage = result.get("enrichment_coverage", 1.0)
+
+                trial_id = f"explore-{name}"
+                elo = None
+                if ranker:
+                    ranker.record_trial(trial_id, result["per_pair"])
+                    elo = ranker.get_rating(trial_id)
+
+                trial = TrialResult(
+                    trial_id=trial_id,
+                    prompt_name=name,
+                    prompt_text=prompt,
+                    mrr=result["mrr"],
+                    per_pair=result["per_pair"],
+                    secondary=result["secondary"],
+                    parent_id=None,
+                    generation=0,
+                    mutation=None,
+                    survived=survived,
+                    timestamp=_now(),
+                    enrichment_coverage=coverage,
+                    valid=trial_valid,
+                    eval_subset=subset.pair_ids if subset else None,
+                    rotation_seed=subset.seed if subset else None,
+                    pool_version=pair_pool.version if pair_pool else None,
+                    elo_rating=elo,
+                )
+                trials.append(trial)
+                _save_log(trials, log_path)
+                if not trial_valid:
+                    status = "INVALID (infra failure)"
+                elif survived:
+                    status = "SURVIVED"
+                else:
+                    status = "eliminated"
+                print(f"  {name}: MRR = {result['mrr']:.4f} ({status})")
+
+            survivors = [t for t in trials if t.survived and t.trial_id != "baseline"]
+            print(f"\n=== Exploration complete: {len(survivors)} survivors ===")
+            return trials
+
     trials: list[TrialResult] = []
 
     # Baseline
     print("=== Exploration: evaluating baseline ===")
+    eval_kwargs: dict = {}
+    baseline_subset = None
+    if pair_pool is not None:
+        seed = hash("baseline") & 0xFFFFFFFF
+        baseline_subset = select_subset(pair_pool, seed=seed)
+        eval_kwargs["eval_subset"] = baseline_subset.pair_ids
+
     result = _evaluate_with_backoff(
         prompt_template=baseline_prompt,
         model=model,
         enrich_size=enrich_size,
         port=port,
         verbose=verbose,
+        **eval_kwargs,
     )
+
+    elo = None
+    if ranker:
+        ranker.record_trial("baseline", result["per_pair"])
+        elo = ranker.get_rating("baseline")
+
     baseline_trial = TrialResult(
         trial_id="baseline",
         prompt_name="baseline",
@@ -165,6 +318,10 @@ def run_exploration(
         mutation=None,
         survived=True,
         timestamp=_now(),
+        eval_subset=baseline_subset.pair_ids if baseline_subset else None,
+        rotation_seed=baseline_subset.seed if baseline_subset else None,
+        pool_version=pair_pool.version if pair_pool else None,
+        elo_rating=elo,
     )
     trials.append(baseline_trial)
     _save_log(trials, log_path)
@@ -174,12 +331,20 @@ def run_exploration(
     # Exploration prompts
     for name, prompt in prompts.items():
         print(f"\n=== Exploration: evaluating {name} ===")
+        eval_kwargs = {}
+        subset = None
+        if pair_pool is not None:
+            seed = hash(name) & 0xFFFFFFFF
+            subset = select_subset(pair_pool, seed=seed)
+            eval_kwargs["eval_subset"] = subset.pair_ids
+
         result = _evaluate_with_backoff(
             prompt_template=prompt,
             model=model,
             enrich_size=enrich_size,
             port=port,
             verbose=verbose,
+            **eval_kwargs,
         )
         trial_valid = result.get("valid", True)
         if trial_valid:
@@ -187,8 +352,15 @@ def run_exploration(
         else:
             survived = False
         coverage = result.get("enrichment_coverage", 1.0)
+
+        trial_id = f"explore-{name}"
+        elo = None
+        if ranker:
+            ranker.record_trial(trial_id, result["per_pair"])
+            elo = ranker.get_rating(trial_id)
+
         trial = TrialResult(
-            trial_id=f"explore-{name}",
+            trial_id=trial_id,
             prompt_name=name,
             prompt_text=prompt,
             mrr=result["mrr"],
@@ -201,6 +373,10 @@ def run_exploration(
             timestamp=_now(),
             enrichment_coverage=coverage,
             valid=trial_valid,
+            eval_subset=subset.pair_ids if subset else None,
+            rotation_seed=subset.seed if subset else None,
+            pool_version=pair_pool.version if pair_pool else None,
+            elo_rating=elo,
         )
         trials.append(trial)
         _save_log(trials, log_path)
@@ -235,11 +411,24 @@ def run_exploitation(
     exploit_model: str = "haiku",
     improver_model: str = "sonnet",
     fixture_vocab: frozenset[str] = None,
+    # v2 parameters
+    pair_pool: "PairPool | None" = None,
+    parent_eval_subset: "list[str] | None" = None,
+    ranker: "BradleyTerryRanker | None" = None,
+    survival_epsilon: float = 0.005,
+    # Resume support
+    resume_from: "list[TrialResult] | None" = None,
 ) -> list[TrialResult]:
     """Exploit a surviving prompt with incremental tweaks.
 
     Generates targeted modifications using an LLM, keeps improvements,
     reverts regressions. Stops after max_tweaks or K consecutive failures.
+
+    When resume_from is provided: continues from last generation, using the
+    last survived trial's prompt and MRR as the current state.
+
+    v2 (when pair_pool is provided): uses rotated subsets, paired-comparison
+    survival gating, dynamic failure limits, and Bradley-Terry ranking.
     """
     if output_dir is None:
         output_dir = OUTPUT_DIR / "evolution"
@@ -250,10 +439,41 @@ def run_exploitation(
     current_prompt = survivor_prompt
     current_mrr = survivor_mrr
     current_per_pair = per_pair
+    current_eval_subset = parent_eval_subset  # Track current subset for carry-over
     parent_id = f"explore-{survivor_name}"
     consecutive_failures = 0
+    start_gen = 1
 
-    for tweak_num in range(1, max_tweaks + 1):
+    # Resume: reconstruct state from existing trials
+    if resume_from:
+        trials = list(resume_from)
+        last_gen = max(t.generation for t in trials)
+        start_gen = last_gen + 1
+
+        # Find last survived trial to reconstruct current state
+        survived_trials = [t for t in trials if t.survived]
+        if survived_trials:
+            best = max(survived_trials, key=lambda t: t.generation)
+            current_prompt = best.prompt_text
+            current_mrr = best.mrr
+            current_per_pair = best.per_pair
+            parent_id = best.trial_id
+            if best.eval_subset is not None:
+                current_eval_subset = best.eval_subset
+
+        # Reconstruct consecutive failures from trailing valid non-survived entries
+        consecutive_failures = 0
+        for t in reversed(trials):
+            if not t.valid:
+                continue
+            if t.survived:
+                break
+            consecutive_failures += 1
+
+        print(f"=== Exploit {survivor_name} resume: continuing from g{start_gen} "
+              f"(best MRR = {current_mrr:.4f}, {consecutive_failures} consecutive failures) ===")
+
+    for tweak_num in range(start_gen, max_tweaks + 1):
         gen = tweak_num
         print(f"\n=== Exploit {survivor_name} g{gen}: generating tweak ===")
 
@@ -266,17 +486,31 @@ def run_exploitation(
                 fixture_vocab=fixture_vocab,
             )
             # Second stage: improve the raw tweak with a stronger model
-            improved = improve_prompt(tweak["modified_prompt"], model=improver_model)
-            tweak["modified_prompt"] = improved
+            improved_prompt = improve_prompt(tweak["modified_prompt"], model=improver_model)
+            tweak["modified_prompt"] = improved_prompt
         except (ValueError, RuntimeError) as e:
             print(f"  Tweak generation failed: {e}")
             consecutive_failures += 1
-            if consecutive_failures >= consecutive_failure_limit:
-                print(f"  Early stop: {consecutive_failure_limit} consecutive failures")
+            # v2: dynamic failure limit; v1: fixed limit
+            if pair_pool is not None:
+                fail_limit = get_failure_limit(gen)
+            else:
+                fail_limit = consecutive_failure_limit
+            if consecutive_failures >= fail_limit:
+                print(f"  Early stop: {fail_limit} consecutive failures")
                 break
             continue
 
         print(f"  Tweak: {tweak['description']}")
+
+        # v2: select rotated subset
+        eval_kwargs: dict = {}
+        subset = None
+        if pair_pool is not None:
+            seed = hash((survivor_name, gen)) & 0xFFFFFFFF
+            prev_subset = Subset(pair_ids=current_eval_subset, seed=0) if current_eval_subset else None
+            subset = select_subset(pair_pool, seed=seed, previous_subset=prev_subset)
+            eval_kwargs["eval_subset"] = subset.pair_ids
 
         result = _evaluate_with_backoff(
             prompt_template=tweak["modified_prompt"],
@@ -284,12 +518,35 @@ def run_exploitation(
             enrich_size=enrich_size,
             port=port,
             verbose=verbose,
+            **eval_kwargs,
         )
 
         trial_valid = result.get("valid", True)
         coverage = result.get("enrichment_coverage", 1.0)
-        improved = trial_valid and result["mrr"] > current_mrr
+
+        # v2: paired comparison on shared pairs
+        shared = None
+        eval_pair_ids = subset.pair_ids if subset else None
+        if pair_pool is not None and current_eval_subset is not None:
+            shared = compute_shared_mrr(
+                parent_per_pair=current_per_pair,
+                parent_subset_ids=current_eval_subset,
+                child_per_pair=result["per_pair"],
+                child_subset_ids=eval_pair_ids,
+            )
+            did_improve = trial_valid and shared["shared_delta"] > survival_epsilon
+        else:
+            # v1 fallback
+            did_improve = trial_valid and result["mrr"] > current_mrr
+
         trial_id = f"exploit-{survivor_name}-g{gen}"
+
+        # v2: Bradley-Terry update
+        elo = None
+        if ranker:
+            ranker.record_trial(trial_id, result["per_pair"])
+            elo = ranker.get_rating(trial_id)
+
         trial = TrialResult(
             trial_id=trial_id,
             prompt_name=survivor_name,
@@ -300,29 +557,47 @@ def run_exploitation(
             parent_id=parent_id,
             generation=gen,
             mutation=tweak["description"],
-            survived=improved,
+            survived=did_improve,
             timestamp=_now(),
             enrichment_coverage=coverage,
             valid=trial_valid,
+            # v2 fields
+            mrr_shared=shared["child_mrr_shared"] if shared else None,
+            parent_mrr_shared=shared["parent_mrr_shared"] if shared else None,
+            shared_delta=shared["shared_delta"] if shared else None,
+            eval_subset=eval_pair_ids,
+            shared_with_parent=shared["shared_ids"] if shared else None,
+            rotation_seed=subset.seed if subset else None,
+            pool_version=pair_pool.version if pair_pool else None,
+            elo_rating=elo,
         )
         trials.append(trial)
         _save_log(trials, log_path)
 
+        # v2: dynamic failure limit; v1: fixed limit
+        if pair_pool is not None:
+            failure_limit = get_failure_limit(gen)
+        else:
+            failure_limit = consecutive_failure_limit
+
         if not trial_valid:
             print(f"  MRR {result['mrr']:.4f} — INVALID (infra failure, not counted)")
             # Infra failures don't count toward consecutive failure limit
-        elif improved:
+        elif did_improve:
             print(f"  MRR {current_mrr:.4f} → {result['mrr']:.4f} — KEPT")
             current_prompt = tweak["modified_prompt"]
             current_mrr = result["mrr"]
             current_per_pair = result["per_pair"]
             parent_id = trial_id
             consecutive_failures = 0
+            # v2: update current eval subset for next generation's carry-over
+            if eval_pair_ids is not None:
+                current_eval_subset = eval_pair_ids
         else:
             print(f"  MRR {current_mrr:.4f} → {result['mrr']:.4f} — reverted")
             consecutive_failures += 1
-            if consecutive_failures >= consecutive_failure_limit:
-                print(f"  Early stop: {consecutive_failure_limit} consecutive failures")
+            if consecutive_failures >= failure_limit:
+                print(f"  Early stop: {failure_limit} consecutive failures")
                 break
 
     print(f"\n=== Exploitation of {survivor_name} complete: "
@@ -345,15 +620,24 @@ def run_experiment(
     exploit_model: str = "haiku",
     improver_model: str = "sonnet",
     pairs_file: str = None,
+    resume: bool = False,
 ) -> list[TrialResult]:
     """Run full evolutionary prompt experiment: exploration → exploitation.
 
     phase: "both", "explore", or "exploit" (exploit reads explore log).
+    When resume=True: skips completed exploration prompts and completed exploitation runs.
     """
     if output_dir is None:
         output_dir = OUTPUT_DIR / "evolution"
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # v2: load pair pool and create ranker
+    pair_pool = None
+    ranker = None
+    if pairs_file:
+        pair_pool = load_pool(pairs_file)
+        ranker = BradleyTerryRanker()
 
     all_trials: list[TrialResult] = []
 
@@ -367,6 +651,9 @@ def run_experiment(
             port=port,
             output_dir=output_dir,
             verbose=verbose,
+            pair_pool=pair_pool,
+            ranker=ranker,
+            resume=resume,
         )
         all_trials.extend(explore_trials)
     elif phase == "exploit":
@@ -389,6 +676,25 @@ def run_experiment(
             fixture_vocab = load_fixture_vocabulary(pairs_file)
         survivors = [t for t in all_trials if t.survived and t.trial_id != "baseline"]
         for survivor in survivors:
+            exploit_log_path = output_dir / f"exploitation_{survivor.prompt_name}_log.json"
+
+            # Resume: skip completed exploitation runs, resume partial ones
+            if resume and is_exploitation_complete(
+                exploit_log_path, max_tweaks, consecutive_failure_limit
+            ):
+                # Load completed trials and add to all_trials
+                with open(exploit_log_path) as f:
+                    completed = [TrialResult(**d) for d in json.load(f)]
+                all_trials.extend(completed)
+                print(f"=== Skipping {survivor.prompt_name}: exploitation complete ===")
+                continue
+
+            # Check for partial exploitation log to resume from
+            resume_from = None
+            if resume and exploit_log_path.exists():
+                with open(exploit_log_path) as f:
+                    resume_from = [TrialResult(**d) for d in json.load(f)]
+
             exploit_trials = run_exploitation(
                 survivor_name=survivor.prompt_name,
                 survivor_prompt=survivor.prompt_text,
@@ -404,8 +710,18 @@ def run_experiment(
                 exploit_model=exploit_model,
                 improver_model=improver_model,
                 fixture_vocab=fixture_vocab,
+                pair_pool=pair_pool,
+                parent_eval_subset=survivor.eval_subset,
+                ranker=ranker,
+                resume_from=resume_from,
             )
             all_trials.extend(exploit_trials)
+
+    # v2: save ranker state
+    if ranker:
+        ranker_path = output_dir / "ranker_state.json"
+        with open(ranker_path, "w") as f:
+            json.dump(ranker.to_dict(), f, indent=2)
 
     # Save complete log
     _save_log(all_trials, output_dir / "experiment_log.json")
@@ -562,6 +878,10 @@ def main():
         "--verbose", action="store_true",
         help="Enable DEBUG logging for raw LLM request/response",
     )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="Resume from last checkpoint (skip completed prompts/exploitations)",
+    )
     args = parser.parse_args()
 
     if args.dry_run:
@@ -593,6 +913,7 @@ def main():
         exploit_model=args.exploit_model,
         improver_model=args.improver_model,
         pairs_file=str(DEFAULT_PAIRS),
+        resume=args.resume,
     )
 
     print(f"\n=== Experiment complete: {len(all_trials)} total trials ===")

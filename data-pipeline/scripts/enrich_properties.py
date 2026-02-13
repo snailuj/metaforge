@@ -11,9 +11,8 @@ Usage:
 import argparse
 import json
 import logging
-import re
-import subprocess
 import sqlite3
+import sys
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -22,23 +21,16 @@ from typing import List, Dict, Optional
 
 log = logging.getLogger(__name__)
 
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
+from claude_client import prompt_json, RateLimitError
 
 from utils import SQLUNET_DB, OUTPUT_DIR
 
 
 # --- Errors ------------------------------------------------------------------
 
-class UsageExhaustedError(RuntimeError):
-    """Raised when the LLM API returns a rate-limit or quota error."""
-    pass
-
-
-_RATE_LIMIT_INDICATORS = ("rate limit", "usage limit", "quota", "overloaded", "429")
+# Backward-compatible alias for callers that catch UsageExhaustedError
+UsageExhaustedError = RateLimitError
 
 
 @dataclass
@@ -116,87 +108,26 @@ def format_batch_items(synsets: List[Dict]) -> str:
     return "\n".join(lines)
 
 
-def parse_response(proc: subprocess.CompletedProcess) -> List[Dict]:
-    """Parse claude CLI JSON output into a list of {id, properties} dicts."""
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"claude CLI failed (exit {proc.returncode}): {proc.stderr}"
-        )
+def extract_batch(
+    synsets: List[Dict],
+    model: str = "haiku",
+    prompt_template: str = None,
+    verbose: bool = False,
+) -> List[Dict]:
+    """Extract properties for a batch of synsets via Claude CLI.
 
-    events = json.loads(proc.stdout)
-    # claude -p --output-format json returns an array of events.
-    # The final event (type=result) contains the text in its "result" field.
-    result_event = next(
-        (e for e in reversed(events) if e.get("type") == "result"), None
-    )
-    if result_event is None:
-        raise RuntimeError("No result event in claude output")
-    if result_event.get("is_error"):
-        error_text = result_event.get("result", "")
-        if any(ind in error_text.lower() for ind in _RATE_LIMIT_INDICATORS):
-            raise UsageExhaustedError(f"Usage exhausted: {error_text}")
-        raise RuntimeError(f"claude returned error: {error_text}")
-    text = result_event["result"].strip()
+    Returns merged results with local data (lemma, definition, pos).
+    Retries up to 5 times on failure via claude_client.
+    """
+    template = prompt_template or BATCH_PROMPT
+    if "{batch_items}" not in template:
+        raise ValueError("prompt_template must contain {batch_items} placeholder")
+    batch_items = format_batch_items(synsets)
+    prompt = template.format(batch_items=batch_items)
 
-    # Strip markdown fences if present
-    text = re.sub(r'^```json\s*', '', text)
-    text = re.sub(r'\s*```$', '', text)
-
-    results = json.loads(text)
-    if not isinstance(results, list):
-        raise ValueError(f"Expected list, got {type(results)}")
-
-    return results
-
-
-def invoke_claude(prompt: str, model: str = "haiku", verbose: bool = False) -> subprocess.CompletedProcess:
-    """Call claude -p via subprocess and return the CompletedProcess."""
-    if verbose:
-        log.debug("invoke_claude prompt (first 500 chars): %s", prompt[:500])
-    proc = subprocess.run(
-        [
-            "claude", "-p",
-            "--output-format", "json",
-            "--model", model,
-            "--max-turns", "1",
-            "--no-session-persistence",
-        ],
-        input=prompt,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    if verbose:
-        log.debug("invoke_claude raw stdout (first 1000 chars): %s", proc.stdout[:1000])
-        if proc.stderr:
-            log.debug("invoke_claude stderr: %s", proc.stderr[:500])
-    return proc
-
-
-def _retry_unless_usage_exhausted(retry_state):
-    """Retry on transient errors but surface UsageExhaustedError immediately."""
-    exc = retry_state.outcome.exception()
-    if isinstance(exc, UsageExhaustedError):
-        return False
-    return isinstance(exc, (RuntimeError, json.JSONDecodeError, ValueError))
-
-
-@retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=2, min=4, max=120),
-    retry=_retry_unless_usage_exhausted,
-    before_sleep=lambda retry_state: print(
-        f"    Retry {retry_state.attempt_number}/5 after error: "
-        f"{retry_state.outcome.exception()}"
-    ),
-)
-def _extract_batch_inner(prompt: str, synsets: List[Dict], model: str, verbose: bool = False) -> List[Dict]:
-    """Retryable inner: invoke LLM, parse, merge."""
-    proc = invoke_claude(prompt, model=model, verbose=verbose)
-    results = parse_response(proc)
+    results = prompt_json(prompt, model=model, expect=list, verbose=verbose)
 
     local_data = {s['id']: s for s in synsets}
-
     merged = []
     for r in results:
         rid = str(r.get('id', ''))
@@ -209,28 +140,8 @@ def _extract_batch_inner(prompt: str, synsets: List[Dict], model: str, verbose: 
                 "properties": r.get('properties', []),
             })
         else:
-            print(f"    Warning: LLM returned unknown ID {rid}")
-
+            log.warning("LLM returned unknown ID %s", rid)
     return merged
-
-
-def extract_batch(
-    synsets: List[Dict],
-    model: str = "haiku",
-    prompt_template: str = None,
-    verbose: bool = False,
-) -> List[Dict]:
-    """Extract properties for a batch of synsets via claude CLI.
-
-    Returns merged results with local data (lemma, definition, pos).
-    Retries up to 5 times on failure.
-    """
-    template = prompt_template or BATCH_PROMPT
-    if "{batch_items}" not in template:
-        raise ValueError("prompt_template must contain {batch_items} placeholder")
-    batch_items = format_batch_items(synsets)
-    prompt = template.format(batch_items=batch_items)
-    return _extract_batch_inner(prompt, synsets, model, verbose=verbose)
 
 
 # --- Checkpoint ---------------------------------------------------------------

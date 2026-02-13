@@ -23,18 +23,61 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import nltk
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import EMBEDDING_DIM, FASTTEXT_VEC, normalise
+
+# Lazy-download NLTK tagger data on first import
+try:
+    nltk.data.find("taggers/averaged_perceptron_tagger_eng")
+except LookupError:
+    nltk.download("averaged_perceptron_tagger_eng", quiet=True)
+
+MAX_PROPERTIES_PER_SYNSET = 15
+SIMILARITY_CHUNK_SIZE = 2048
+
+
+# =============================================================================
+# MWE filter — strip adjectives/adverbs from multi-word properties
+# =============================================================================
+
+_STRIP_PREFIXES = ("JJ", "RB")
+
+
+def filter_mwe(text: str) -> str | None:
+    """Filter multi-word expressions by stripping adjectives/adverbs.
+
+    Single tokens pass through unchanged. For multi-word inputs, POS-tag
+    and remove JJ*/RB* words. Keep only if exactly 1 word remains.
+    """
+    tokens = text.split()
+    if len(tokens) <= 1:
+        return text
+    tagged = nltk.pos_tag(tokens)
+    kept = [word for word, tag in tagged if not tag.startswith(_STRIP_PREFIXES)]
+    if len(kept) == 1:
+        return kept[0]
+    return None
 
 
 # =============================================================================
 # 1. Curate properties (from curate_properties.py)
 # =============================================================================
 
+_fasttext_cache: dict[str, dict[str, tuple[float, ...]]] = {}
+
+
 def load_fasttext_vectors(vec_path: str) -> dict[str, tuple[float, ...]]:
-    """Load FastText vectors from .vec file into memory."""
+    """Load FastText vectors from .vec file into memory.
+
+    Results are cached by path — subsequent calls return the same dict.
+    """
+    if vec_path in _fasttext_cache:
+        print(f"  Using cached vectors for {vec_path}")
+        return _fasttext_cache[vec_path]
+
     vectors = {}
     print(f"  Loading {vec_path}...")
 
@@ -57,6 +100,7 @@ def load_fasttext_vectors(vec_path: str) -> dict[str, tuple[float, ...]]:
                 print(f"    Loaded {i + 1} words...")
 
     print(f"  Loaded {len(vectors)} vectors")
+    _fasttext_cache[vec_path] = vectors
     return vectors
 
 
@@ -104,8 +148,10 @@ def curate_properties(
     """
     all_props = set()
     for synset in enrichment_data.get("synsets", []):
-        for prop in synset.get("properties", []):
-            all_props.add(normalise(prop))
+        for prop in synset.get("properties", [])[:MAX_PROPERTIES_PER_SYNSET]:
+            filtered = filter_mwe(normalise(prop))
+            if filtered is not None:
+                all_props.add(filtered)
 
     count = 0
     for prop in sorted(all_props):
@@ -153,12 +199,14 @@ def populate_synset_properties(
             (synset_id, model_used),
         )
 
-        for prop in synset.get("properties", []):
-            prop_norm = normalise(prop)
-            if prop_norm in prop_ids:
+        for prop in synset.get("properties", [])[:MAX_PROPERTIES_PER_SYNSET]:
+            prop_filtered = filter_mwe(normalise(prop))
+            if prop_filtered is None:
+                continue
+            if prop_filtered in prop_ids:
                 conn.execute(
                     "INSERT OR IGNORE INTO synset_properties (synset_id, property_id) VALUES (?, ?)",
-                    (synset_id, prop_ids[prop_norm]),
+                    (synset_id, prop_ids[prop_filtered]),
                 )
                 links += 1
 
@@ -216,13 +264,21 @@ def compute_idf(conn: sqlite3.Connection) -> None:
 # =============================================================================
 
 def compute_property_similarity(
-    conn: sqlite3.Connection, threshold: float = 0.5
+    conn: sqlite3.Connection,
+    threshold: float = 0.5,
+    chunk_size: Optional[int] = None,
 ) -> int:
     """Compute pairwise cosine similarity and store pairs above threshold.
 
+    Uses block-wise processing to avoid allocating a full n×n matrix.
+    Peak memory: O(n × 300) for embeddings + O(chunk_size²) per sub-matrix.
+
     Returns the number of unique pairs stored.
     """
-    # Drop and recreate table
+    if chunk_size is None:
+        chunk_size = SIMILARITY_CHUNK_SIZE
+
+    # Drop and recreate table (without indexes — bulk insert first)
     conn.executescript("""
         DROP TABLE IF EXISTS property_similarity;
         CREATE TABLE property_similarity (
@@ -231,9 +287,6 @@ def compute_property_similarity(
             similarity REAL NOT NULL,
             PRIMARY KEY (property_id_a, property_id_b)
         );
-        CREATE INDEX idx_property_similarity_a ON property_similarity(property_id_a);
-        CREATE INDEX idx_property_similarity_b ON property_similarity(property_id_b);
-        CREATE INDEX idx_property_similarity_score ON property_similarity(similarity);
     """)
 
     cursor = conn.execute(
@@ -246,7 +299,8 @@ def compute_property_similarity(
         property_ids.append(prop_id)
         embeddings.append(vec)
 
-    if len(property_ids) < 2:
+    n = len(property_ids)
+    if n < 2:
         print("  <2 properties with embeddings — skipping similarity")
         return 0
 
@@ -254,23 +308,47 @@ def compute_property_similarity(
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     norms[norms == 0] = 1
     normalised = matrix / norms
-    sim = np.dot(normalised, normalised.T)
 
-    pairs = []
-    n = len(property_ids)
-    for i in range(n):
-        for j in range(i + 1, n):
-            s = float(sim[i, j])
-            if s >= threshold:
-                pairs.append((property_ids[i], property_ids[j], s))
-                pairs.append((property_ids[j], property_ids[i], s))
+    unique_count = 0
+    for ci in range(0, n, chunk_size):
+        ci_end = min(ci + chunk_size, n)
+        for cj in range(ci, n, chunk_size):
+            cj_end = min(cj + chunk_size, n)
 
-    conn.executemany(
-        "INSERT INTO property_similarity (property_id_a, property_id_b, similarity) VALUES (?, ?, ?)",
-        pairs,
-    )
+            sub_sim = np.dot(normalised[ci:ci_end], normalised[cj:cj_end].T)
+            pairs = []
+
+            if ci == cj:
+                # Diagonal chunk — upper triangle only (i < j)
+                for li in range(ci_end - ci):
+                    for lj in range(li + 1, cj_end - cj):
+                        s = float(sub_sim[li, lj])
+                        if s >= threshold:
+                            pairs.append((property_ids[ci + li], property_ids[cj + lj], s))
+                            pairs.append((property_ids[cj + lj], property_ids[ci + li], s))
+            else:
+                # Off-diagonal chunk — all pairs (ci < cj guaranteed)
+                for li in range(ci_end - ci):
+                    for lj in range(cj_end - cj):
+                        s = float(sub_sim[li, lj])
+                        if s >= threshold:
+                            pairs.append((property_ids[ci + li], property_ids[cj + lj], s))
+                            pairs.append((property_ids[cj + lj], property_ids[ci + li], s))
+
+            if pairs:
+                conn.executemany(
+                    "INSERT INTO property_similarity (property_id_a, property_id_b, similarity) VALUES (?, ?, ?)",
+                    pairs,
+                )
+                unique_count += len(pairs) // 2
+
+    # Create indexes after bulk insert
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_property_similarity_a ON property_similarity(property_id_a);
+        CREATE INDEX IF NOT EXISTS idx_property_similarity_b ON property_similarity(property_id_b);
+        CREATE INDEX IF NOT EXISTS idx_property_similarity_score ON property_similarity(similarity);
+    """)
     conn.commit()
-    unique_count = len(pairs) // 2
     print(f"  Stored {unique_count} unique similar property pairs (threshold={threshold})")
     return unique_count
 

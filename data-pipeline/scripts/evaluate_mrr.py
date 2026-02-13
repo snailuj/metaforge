@@ -36,7 +36,7 @@ from utils import OUTPUT_DIR, FASTTEXT_VEC
 
 PIPELINE_DIR = Path(__file__).parent.parent
 FIXTURES_DIR = PIPELINE_DIR / "fixtures"
-DEFAULT_PAIRS = FIXTURES_DIR / "metaphor_pairs.json"
+DEFAULT_PAIRS = FIXTURES_DIR / "metaphor_pairs_v2.json"
 BASELINE_SQL = OUTPUT_DIR / "baseline_lexicon.sql"
 EVAL_WORK_DB = OUTPUT_DIR / "eval_work.db"
 API_DIR = PIPELINE_DIR.parent / "api"
@@ -281,6 +281,7 @@ def evaluate(
     prompt_template: str = None,
     coverage_threshold: float = 0.9,
     verbose: bool = False,
+    eval_subset: list[str] = None,
 ) -> dict:
     """Run full MRR evaluation.
 
@@ -312,6 +313,11 @@ def evaluate(
 
     # Step 1: Load pairs and resolve synsets from baseline
     pairs = load_metaphor_pairs(pairs_file)
+
+    # Filter to eval subset if provided
+    if eval_subset:
+        subset_set = set(eval_subset)
+        pairs = [p for p in pairs if f"{p['source']}:{p['target']}" in subset_set]
 
     # Restore baseline for synset lookup
     print("  Restoring baseline for synset resolution...")

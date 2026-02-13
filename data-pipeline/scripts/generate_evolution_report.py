@@ -12,16 +12,18 @@ Usage:
 import json
 import math
 import re
+import sys
 from pathlib import Path
 
-from enrich_properties import invoke_claude
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
+from claude_client import prompt_text, ClaudeError
 from utils import OUTPUT_DIR, PIPELINE_DIR
 
 
 # --- Default paths -----------------------------------------------------------
 
 DEFAULT_EXPERIMENT_LOG = OUTPUT_DIR / "evolution" / "experiment_log.json"
-DEFAULT_PAIRS_FILE = PIPELINE_DIR / "fixtures" / "metaphor_pairs.json"
+DEFAULT_PAIRS_FILE = PIPELINE_DIR / "fixtures" / "metaphor_pairs_v2.json"
 DEFAULT_OUTPUT = OUTPUT_DIR / "evolution" / "evolution_report.md"
 
 
@@ -215,6 +217,22 @@ def _build_briefing(trials: list[dict], pairs: list[dict]) -> dict:
     # Infrastructure failures (valid=False)
     infra_failed = [t["trial_id"] for t in trials if not t.get("valid", True)]
 
+    # v2 rotation stats
+    trials_with_subset = [t for t in trials if t.get("eval_subset")]
+    rotation_enabled = len(trials_with_subset) > 0
+    pool_version = next(
+        (t.get("pool_version") for t in trials if t.get("pool_version")),
+        None,
+    )
+    unique_pair_ids: set[str] = set()
+    for t in trials_with_subset:
+        unique_pair_ids.update(t["eval_subset"])
+    avg_subset_size = (
+        sum(len(t["eval_subset"]) for t in trials_with_subset)
+        / len(trials_with_subset)
+        if trials_with_subset else 0.0
+    )
+
     return {
         "best_trial_id": best["trial_id"],
         "best_mrr": best["mrr"],
@@ -231,6 +249,10 @@ def _build_briefing(trials: list[dict], pairs: list[dict]) -> dict:
         "lineages": lineage_data,
         "degenerate_trials": degenerate,
         "infra_failed_trials": infra_failed,
+        "rotation_enabled": rotation_enabled,
+        "pool_version": pool_version,
+        "unique_pairs_tested": len(unique_pair_ids),
+        "avg_subset_size": round(avg_subset_size, 1),
     }
 
 
@@ -282,21 +304,10 @@ def _discussion_prompt(briefing: dict) -> str:
 
 def _llm_prose(briefing: dict, section_prompt: str, model: str = "haiku") -> str:
     """Invoke Claude CLI and extract the result text."""
-    proc = invoke_claude(section_prompt, model=model)
-
-    events = json.loads(proc.stdout)
-    result_event = next(
-        (e for e in reversed(events) if e.get("type") == "result"), None
-    )
-    if result_event is None:
+    try:
+        text = prompt_text(section_prompt, model=model)
+    except ClaudeError:
         return "*[LLM returned no result]*"
-    if result_event.get("is_error"):
-        return f"*[LLM error: {result_event.get('result', 'unknown')}]*"
-
-    text = result_event["result"].strip()
-    # Strip markdown fences if present
-    text = re.sub(r'^```(?:markdown)?\s*', '', text)
-    text = re.sub(r'\s*```$', '', text)
     # Strip LLM preamble (e.g. "I'll write..." or "Here is...")
     text = re.sub(
         r"^(?:I'll|I will|Here is|Here's|Let me|Sure)[^\n]*\n+",
@@ -350,6 +361,12 @@ def section_exploitation_results(
         lines.append("")
         return "\n".join(lines)
 
+    # Detect whether any exploitation trial has v2 shared_delta
+    has_shared = any(
+        t.get("shared_delta") is not None
+        for t in exploit
+    )
+
     # Per-lineage tables
     for name, lineage in all_lineages.items():
         if name == "baseline":
@@ -361,21 +378,43 @@ def section_exploitation_results(
         gen0 = next((t for t in lineage if t["generation"] == 0), None)
         lines.append(f"### {name}")
         lines.append("")
-        lines.append("| Gen | Parent MRR | MRR | Delta | Mutation | Kept? |")
-        lines.append("|-----|-----------|-----|-------|----------|-------|")
+
+        if has_shared:
+            lines.append(
+                "| Gen | Parent MRR | MRR | Shared \u0394 | Mutation | Kept? |"
+            )
+            lines.append(
+                "|-----|-----------|-----|----------|----------|-------|"
+            )
+        else:
+            lines.append("| Gen | Parent MRR | MRR | Delta | Mutation | Kept? |")
+            lines.append("|-----|-----------|-----|-------|----------|-------|")
 
         parent_mrr = gen0["mrr"] if gen0 else 0.0
         for t in exploit_in_lineage:
-            delta = t["mrr"] - parent_mrr
+            raw_delta = t["mrr"] - parent_mrr
             kept = "Yes" if t["survived"] else "No"
             mutation = t.get("mutation", "-") or "-"
             # Truncate long mutations for table
             if len(mutation) > 80:
                 mutation = mutation[:77] + "..."
-            lines.append(
-                f"| {t['generation']} | {parent_mrr:.4f} | {t['mrr']:.4f} "
-                f"| {delta:+.4f} | {mutation} | {kept} |"
-            )
+
+            if has_shared:
+                shared_delta = t.get("shared_delta")
+                delta_str = (
+                    f"{shared_delta:+.4f}"
+                    if shared_delta is not None
+                    else f"{raw_delta:+.4f}"
+                )
+                lines.append(
+                    f"| {t['generation']} | {parent_mrr:.4f} | {t['mrr']:.4f} "
+                    f"| {delta_str} | {mutation} | {kept} |"
+                )
+            else:
+                lines.append(
+                    f"| {t['generation']} | {parent_mrr:.4f} | {t['mrr']:.4f} "
+                    f"| {raw_delta:+.4f} | {mutation} | {kept} |"
+                )
             if t["survived"]:
                 parent_mrr = t["mrr"]
 
@@ -423,6 +462,9 @@ def section_methodology(trials: list[dict]) -> str:
     pair_count = len(baseline["per_pair"]) if baseline["per_pair"] else 0
     exploit = _exploitation_trials(trials)
 
+    # Detect v2 rotation
+    has_rotation = any(t.get("eval_subset") for t in trials)
+
     lines = [
         "## 2. Methodology",
         "",
@@ -440,10 +482,20 @@ def section_methodology(trials: list[dict]) -> str:
         "improvements were kept, regressions reverted. Early stopping after consecutive "
         "failures prevented wasted budget.",
         "",
-        f"Total trials: **{len(trials)}** "
-        f"({1 + len(explore)} exploration, {len(exploit)} exploitation).",
-        "",
     ]
+
+    if has_rotation:
+        lines.append(
+            "Each trial evaluated a rotated subset of the pair pool, with controlled "
+            "overlap between generations to enable paired comparison."
+        )
+        lines.append("")
+
+    lines.append(
+        f"Total trials: **{len(trials)}** "
+        f"({1 + len(explore)} exploration, {len(exploit)} exploitation)."
+    )
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -535,6 +587,21 @@ def section_cross_generation_analysis(trials: list[dict]) -> str:
     for t in sorted(nd, key=lambda t: t["mrr"], reverse=True):
         lines.append(f"| {t['trial_id']} | {t['mrr']:.4f} | {_hit_rate(t):.3f} |")
     lines.append("")
+
+    # ELO ratings table (v2) — only when any trial has an elo_rating
+    trials_with_elo = [t for t in trials if t.get("elo_rating") is not None]
+    if trials_with_elo:
+        trials_with_elo.sort(key=lambda t: t["elo_rating"], reverse=True)
+        lines.append("### ELO Ratings")
+        lines.append("")
+        lines.append("| Trial | Prompt | ELO Rating |")
+        lines.append("|-------|--------|------------|")
+        for t in trials_with_elo:
+            lines.append(
+                f"| {t['trial_id']} | {t['prompt_name']} "
+                f"| {t['elo_rating']:.1f} |"
+            )
+        lines.append("")
 
     return "\n".join(lines)
 

@@ -256,4 +256,68 @@ describe('MfApp', () => {
       expect(hidden.has('unusual')).toBe(false)
     })
   })
+
+  it('handles mf-node-navigate by looking up the word', async () => {
+    vi.mocked(lookupWord).mockResolvedValue(mockResult)
+
+    const graph = el.shadowRoot!.querySelector('mf-force-graph')
+    graph?.dispatchEvent(new CustomEvent('mf-node-navigate', {
+      detail: { word: 'navigate-test' },
+      bubbles: true,
+      composed: true,
+    }))
+
+    await new Promise(r => setTimeout(r, 100))
+    await el.updateComplete
+
+    expect(lookupWord).toHaveBeenCalledWith('navigate-test')
+  })
+
+  it('handles mf-word-navigate by looking up the word', async () => {
+    vi.mocked(lookupWord).mockResolvedValue(mockResult)
+
+    const resultsPanel = el.shadowRoot!.querySelector('mf-results-panel')
+    resultsPanel?.dispatchEvent(new CustomEvent('mf-word-navigate', {
+      detail: { word: 'panel-word' },
+      bubbles: true,
+      composed: true,
+    }))
+
+    await new Promise(r => setTimeout(r, 100))
+    await el.updateComplete
+
+    expect(lookupWord).toHaveBeenCalledWith('panel-word')
+  })
+
+  it('shows toast on mf-word-copy event', async () => {
+    const resultsPanel = el.shadowRoot!.querySelector('mf-results-panel')
+    resultsPanel?.dispatchEvent(new CustomEvent('mf-word-copy', {
+      detail: { word: 'copied-word' },
+      bubbles: true,
+      composed: true,
+    }))
+
+    await el.updateComplete
+
+    const toast = el.shadowRoot!.querySelector('mf-toast')
+    expect(toast).not.toBeNull()
+  })
+
+  it('shows generic error for non-404 failures', async () => {
+    vi.mocked(lookupWord).mockRejectedValueOnce(new Error('network error'))
+
+    const searchBar = el.shadowRoot!.querySelector('mf-search-bar')
+    searchBar?.dispatchEvent(new CustomEvent('mf-search', {
+      detail: { word: 'fail-word' },
+      bubbles: true,
+      composed: true,
+    }))
+
+    await new Promise(r => setTimeout(r, 50))
+    await el.updateComplete
+
+    const error = el.shadowRoot!.querySelector('.error-message')
+    expect(error).not.toBeNull()
+    expect(error?.textContent).toContain('Something went wrong')
+  })
 })

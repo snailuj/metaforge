@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from evolve_prompts import (
     TrialResult, run_exploration, run_exploitation,
     run_experiment, dry_run_estimate, generate_report, improve_prompt,
+    _load_exploration_log, is_exploitation_complete,
 )
 
 
@@ -238,10 +239,12 @@ def test_run_exploration_usage_exhaustion_backoff(
 
 # --- 7. run_exploitation keeps improvements -----------------------------------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_run_exploitation_keeps_improvements(mock_evaluate, mock_tweak, tmp_path):
+def test_run_exploitation_keeps_improvements(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """Exploitation keeps tweaks that improve MRR."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     # Each tweak improves MRR
     mock_evaluate.side_effect = [
         _make_eval_result(0.20),  # tweak 1 improves from 0.15
@@ -274,10 +277,12 @@ def test_run_exploitation_keeps_improvements(mock_evaluate, mock_tweak, tmp_path
 
 # --- 8. run_exploitation reverts regressions ----------------------------------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_run_exploitation_reverts_regressions(mock_evaluate, mock_tweak, tmp_path):
+def test_run_exploitation_reverts_regressions(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """Exploitation reverts tweaks that worsen MRR."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     mock_evaluate.side_effect = [
         _make_eval_result(0.10),  # tweak 1 regresses from 0.15
         _make_eval_result(0.12),  # tweak 2 also regresses
@@ -309,10 +314,12 @@ def test_run_exploitation_reverts_regressions(mock_evaluate, mock_tweak, tmp_pat
 
 # --- 9. run_exploitation early stops on K consecutive failures ----------------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_run_exploitation_early_stops(mock_evaluate, mock_tweak, tmp_path):
+def test_run_exploitation_early_stops(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """Exploitation stops after K consecutive failures."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     mock_evaluate.side_effect = [
         _make_eval_result(0.20),  # tweak 1 improves
         _make_eval_result(0.18),  # tweak 2 regresses (1 consecutive fail)
@@ -518,10 +525,12 @@ def test_exploration_skips_invalid_trial_for_elimination(mock_evaluate, tmp_path
 
 # --- 16. exploitation infra failure doesn't count as consecutive failure ------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_exploitation_infra_failure_not_consecutive(mock_evaluate, mock_tweak, tmp_path):
+def test_exploitation_infra_failure_not_consecutive(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """Infra failures in exploitation don't increment the consecutive failure counter."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     mock_evaluate.side_effect = [
         # tweak 1: infra failure (valid=False) — should NOT count
         {"mrr": 0.01, "per_pair": [], "secondary": {},
@@ -657,10 +666,12 @@ def test_evolve_cli_verbose_flag():
 
 # --- 20. exploitation uses exploit_model for tweak generation -----------------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_exploitation_uses_exploit_model_for_tweak(mock_evaluate, mock_tweak, tmp_path):
+def test_exploitation_uses_exploit_model_for_tweak(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """run_exploitation passes exploit_model to generate_tweak, not main model."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     mock_evaluate.side_effect = [
         _make_eval_result(0.20),  # tweak 1 improves
     ]
@@ -688,10 +699,12 @@ def test_exploitation_uses_exploit_model_for_tweak(mock_evaluate, mock_tweak, tm
 
 # --- 21. exploitation uses main model for enrichment -------------------------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_exploitation_uses_main_model_for_enrichment(mock_evaluate, mock_tweak, tmp_path):
+def test_exploitation_uses_main_model_for_enrichment(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """run_exploitation uses the main model for evaluate (enrichment), not exploit_model."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     mock_evaluate.side_effect = [
         _make_eval_result(0.20),
     ]
@@ -785,3 +798,515 @@ def test_exploitation_passes_fixture_vocab_to_tweak(mock_evaluate, mock_tweak, m
 
     tweak_kwargs = mock_tweak.call_args[1]
     assert tweak_kwargs["fixture_vocab"] == vocab
+
+
+# --- TrialResult v2 instrumentation fields ------------------------------------
+
+def test_trial_result_v2_fields():
+    """TrialResult has v2 instrumentation fields with defaults."""
+    t = TrialResult(
+        trial_id="test", prompt_name="test", prompt_text="x",
+        mrr=0.1, per_pair=[], secondary={}, parent_id=None,
+        generation=0, mutation=None, survived=True,
+        timestamp="2026-01-01",
+    )
+    # v1 defaults
+    assert t.enrichment_coverage == 1.0
+    assert t.valid is True
+    # v2 defaults
+    assert t.mrr_shared is None
+    assert t.parent_mrr_shared is None
+    assert t.shared_delta is None
+    assert t.eval_subset is None
+    assert t.shared_with_parent is None
+    assert t.rotation_seed is None
+    assert t.pool_version is None
+    assert t.elo_rating is None
+
+
+from rotation import PairPool, Subset
+
+
+def _make_mock_pool():
+    """Create a minimal PairPool for testing."""
+    pairs = [
+        {"id": "a:b", "source": "a", "target": "b", "tier": "strong", "domain": "emotion", "register": None},
+        {"id": "c:d", "source": "c", "target": "d", "tier": "medium", "domain": "cognition", "register": None},
+        {"id": "e:f", "source": "e", "target": "f", "tier": "weak", "domain": "nature", "register": None},
+    ]
+    return PairPool(
+        pairs=pairs,
+        pair_ids=["a:b", "c:d", "e:f"],
+        by_tier={"strong": ["a:b"], "medium": ["c:d"], "weak": ["e:f"]},
+        archetypal_ids=[],
+        version="sha256:test123",
+    )
+
+
+@patch("evolve_prompts.improve_prompt")
+@patch("evolve_prompts.generate_tweak")
+@patch("evolve_prompts.evaluate")
+def test_exploitation_v2_uses_paired_comparison(mock_eval, mock_tweak, mock_improve, tmp_path):
+    """Exploitation uses shared-pair MRR delta > epsilon for survival, not raw MRR."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
+
+    # Tweak returns a modified prompt
+    mock_tweak.return_value = {"modified_prompt": "tweaked {batch_items}", "description": "test tweak"}
+
+    # Child scores better on shared pairs — delta > 0.005
+    mock_eval.return_value = {
+        "mrr": 0.5,
+        "per_pair": [
+            {"source": "a", "target": "b", "rank": 1, "reciprocal_rank": 1.0},
+            {"source": "c", "target": "d", "rank": 2, "reciprocal_rank": 0.5},
+        ],
+        "secondary": {},
+        "valid": True,
+        "enrichment_coverage": 1.0,
+    }
+
+    pool = _make_mock_pool()
+    trials = run_exploitation(
+        survivor_name="test",
+        survivor_prompt="original {batch_items}",
+        survivor_mrr=0.15,
+        per_pair=[
+            {"source": "a", "target": "b", "rank": 10, "reciprocal_rank": 0.1},
+            {"source": "c", "target": "d", "rank": 5, "reciprocal_rank": 0.2},
+        ],
+        max_tweaks=1,
+        model="haiku",
+        port=9999,
+        output_dir=tmp_path,
+        pair_pool=pool,
+        parent_eval_subset=["a:b", "c:d"],
+    )
+
+    assert len(trials) == 1
+    assert trials[0].survived is True
+    assert trials[0].mrr_shared is not None
+    assert trials[0].shared_delta > 0.005
+    assert trials[0].eval_subset is not None
+    assert trials[0].pool_version == "sha256:test123"
+
+
+@patch("evolve_prompts.improve_prompt")
+@patch("evolve_prompts.generate_tweak")
+@patch("evolve_prompts.evaluate")
+def test_exploitation_v2_dynamic_failure_limit(mock_eval, mock_tweak, mock_improve, tmp_path):
+    """Exploitation uses dynamic failure limit: gen 1-3 allows 5, gen 4-6 allows 3.
+
+    With continuous failures, gens 1-3 accumulate 3 failures (under limit 5),
+    then gen 4 (limit 3) triggers early stop because 4 >= 3.
+    """
+    mock_improve.side_effect = lambda prompt, **kw: prompt
+    mock_tweak.return_value = {"modified_prompt": "tweaked {batch_items}", "description": "test"}
+
+    # Every eval returns worse than parent on shared pairs (delta < epsilon)
+    mock_eval.return_value = {
+        "mrr": 0.0,
+        "per_pair": [{"source": "a", "target": "b", "rank": None, "reciprocal_rank": 0.0}],
+        "secondary": {},
+        "valid": True,
+        "enrichment_coverage": 1.0,
+    }
+
+    pool = _make_mock_pool()
+    trials = run_exploitation(
+        survivor_name="test",
+        survivor_prompt="original {batch_items}",
+        survivor_mrr=0.15,
+        per_pair=[{"source": "a", "target": "b", "rank": 5, "reciprocal_rank": 0.2}],
+        max_tweaks=10,
+        model="haiku",
+        port=9999,
+        output_dir=tmp_path,
+        pair_pool=pool,
+        parent_eval_subset=["a:b"],
+    )
+
+    # Dynamic limit: gen 1-3 allows 5, gen 4-6 allows 3.
+    # Failures accumulate: g1(1), g2(2), g3(3) all under limit 5.
+    # At g4, limit drops to 3: 4 failures >= 3, so early stop.
+    assert len(trials) == 4
+
+
+def test_trial_result_v2_fields_serialise(tmp_path):
+    """v2 fields survive JSON round-trip."""
+    t = TrialResult(
+        trial_id="test", prompt_name="test", prompt_text="x",
+        mrr=0.1, per_pair=[], secondary={}, parent_id=None,
+        generation=0, mutation=None, survived=True,
+        timestamp="2026-01-01",
+        mrr_shared=0.09, parent_mrr_shared=0.08,
+        shared_delta=0.01, eval_subset=["a:b", "c:d"],
+        shared_with_parent=["a:b"], rotation_seed=42,
+        pool_version="sha256:abc123", elo_rating=1523.4,
+    )
+    d = asdict(t)
+    assert d["mrr_shared"] == 0.09
+    assert d["eval_subset"] == ["a:b", "c:d"]
+    assert d["elo_rating"] == 1523.4
+
+    # Round-trip via JSON
+    out = tmp_path / "t.json"
+    out.write_text(json.dumps(d))
+    loaded = json.loads(out.read_text())
+    t2 = TrialResult(**loaded)
+    assert t2.mrr_shared == 0.09
+    assert t2.rotation_seed == 42
+
+
+# --- Exploration v2: populates eval_subset when pool provided ----------------
+
+@patch("evolve_prompts.evaluate")
+def test_exploration_v2_populates_eval_subset(mock_eval, tmp_path):
+    """Exploration trials record eval_subset when pool is provided."""
+    mock_eval.return_value = {
+        "mrr": 0.1,
+        "per_pair": [{"source": "a", "target": "b", "rank": 5, "reciprocal_rank": 0.2}],
+        "secondary": {},
+        "valid": True,
+        "enrichment_coverage": 1.0,
+    }
+
+    pool = _make_mock_pool()
+    trials = run_exploration(
+        prompts={"test_prompt": "Test {batch_items}"},
+        baseline_prompt="Baseline {batch_items}",
+        model="haiku",
+        port=9999,
+        output_dir=tmp_path,
+        pair_pool=pool,
+    )
+
+    # Baseline + 1 prompt = 2 trials
+    assert len(trials) == 2
+    for t in trials:
+        assert t.eval_subset is not None
+        assert t.pool_version == "sha256:test123"
+
+
+# --- Integration: full v2 dry run -------------------------------------------
+
+@patch("evolve_prompts.evaluate")
+def test_full_v2_experiment_mocked(mock_eval, tmp_path):
+    """Full mocked experiment exercises rotation, paired comparison, ELO."""
+    call_count = 0
+
+    def mock_eval_fn(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return {
+            "mrr": 0.1 + call_count * 0.01,
+            "per_pair": [
+                {"source": "a", "target": "b", "rank": max(1, 10 - call_count),
+                 "reciprocal_rank": 1.0 / max(1, 10 - call_count)},
+            ],
+            "secondary": {"unique_properties": 100},
+            "valid": True,
+            "enrichment_coverage": 1.0,
+        }
+
+    mock_eval.side_effect = mock_eval_fn
+
+    pool = _make_mock_pool()
+
+    # Run exploration
+    trials = run_exploration(
+        prompts={"test": "Test {batch_items}"},
+        baseline_prompt="Baseline {batch_items}",
+        model="haiku",
+        port=9999,
+        output_dir=tmp_path,
+        pair_pool=pool,
+    )
+
+    assert len(trials) == 2
+    assert all(t.pool_version is not None for t in trials)
+
+    # Verify exploration log is valid JSON
+    log_path = tmp_path / "exploration_log.json"
+    assert log_path.exists()
+    loaded = json.loads(log_path.read_text())
+    assert len(loaded) == 2
+
+
+# --- Phase B: Resume-aware exploration tests ---------------------------------
+
+def test_load_exploration_log_missing_file(tmp_path):
+    """_load_exploration_log returns [] when the log file doesn't exist."""
+    result = _load_exploration_log(tmp_path / "nonexistent.json")
+    assert result == []
+
+
+def test_load_exploration_log_existing(tmp_path):
+    """_load_exploration_log deserialises existing log into TrialResult list."""
+    log_path = tmp_path / "exploration_log.json"
+    data = [asdict(TrialResult(
+        trial_id="baseline", prompt_name="baseline", prompt_text="B",
+        mrr=0.08, per_pair=[], secondary={}, parent_id=None,
+        generation=0, mutation=None, survived=True, timestamp="2026-01-01",
+    ))]
+    log_path.write_text(json.dumps(data))
+
+    result = _load_exploration_log(log_path)
+    assert len(result) == 1
+    assert isinstance(result[0], TrialResult)
+    assert result[0].trial_id == "baseline"
+
+
+@patch("evolve_prompts.evaluate")
+def test_exploration_resume_skips_completed(mock_evaluate, tmp_path):
+    """With resume=True, exploration skips prompts already in the log."""
+    # Pre-populate log with baseline + persona_poet
+    log_path = tmp_path / "exploration_log.json"
+    existing = [
+        asdict(TrialResult(
+            trial_id="baseline", prompt_name="baseline", prompt_text="B {batch_items}",
+            mrr=0.08, per_pair=[], secondary={}, parent_id=None,
+            generation=0, mutation=None, survived=True, timestamp="2026-01-01",
+        )),
+        asdict(TrialResult(
+            trial_id="explore-persona_poet", prompt_name="persona_poet",
+            prompt_text="P {batch_items}", mrr=0.09, per_pair=[], secondary={},
+            parent_id=None, generation=0, mutation=None, survived=True,
+            timestamp="2026-01-01",
+        )),
+    ]
+    log_path.write_text(json.dumps(existing))
+
+    # 4 remaining prompts need evaluation (not baseline, not persona_poet)
+    mock_evaluate.side_effect = [
+        _make_eval_result(0.07),  # contrastive
+        _make_eval_result(0.06),  # narrative
+        _make_eval_result(0.04),  # taxonomic
+        _make_eval_result(0.05),  # embodied
+    ]
+
+    prompts = {
+        "persona_poet": "P {batch_items}",
+        "contrastive": "C {batch_items}",
+        "narrative": "N {batch_items}",
+        "taxonomic": "T {batch_items}",
+        "embodied": "E {batch_items}",
+    }
+
+    trials = run_exploration(
+        prompts=prompts,
+        baseline_prompt="B {batch_items}",
+        model="haiku",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+        resume=True,
+    )
+
+    # Should have 6 total: 2 loaded + 4 newly evaluated
+    assert len(trials) == 6
+    # evaluate called only 4 times (not 6 = baseline + 5 prompts)
+    assert mock_evaluate.call_count == 4
+
+
+@patch("evolve_prompts.evaluate")
+def test_exploration_resume_all_done(mock_evaluate, tmp_path):
+    """When all prompts already in log, resume returns immediately."""
+    log_path = tmp_path / "exploration_log.json"
+    existing = [
+        asdict(TrialResult(
+            trial_id="baseline", prompt_name="baseline", prompt_text="B {batch_items}",
+            mrr=0.08, per_pair=[], secondary={}, parent_id=None,
+            generation=0, mutation=None, survived=True, timestamp="2026-01-01",
+        )),
+        asdict(TrialResult(
+            trial_id="explore-only_prompt", prompt_name="only_prompt",
+            prompt_text="O {batch_items}", mrr=0.09, per_pair=[], secondary={},
+            parent_id=None, generation=0, mutation=None, survived=True,
+            timestamp="2026-01-01",
+        )),
+    ]
+    log_path.write_text(json.dumps(existing))
+
+    trials = run_exploration(
+        prompts={"only_prompt": "O {batch_items}"},
+        baseline_prompt="B {batch_items}",
+        model="haiku",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+        resume=True,
+    )
+
+    # All done — returned from log, no evaluations
+    assert len(trials) == 2
+    assert mock_evaluate.call_count == 0
+
+
+# --- Phase C: Resume-aware exploitation tests --------------------------------
+
+def test_is_exploitation_complete_all_tweaks(tmp_path):
+    """is_exploitation_complete returns True when max_tweaks exhausted."""
+    log_path = tmp_path / "exploitation_test_log.json"
+    trials = [
+        asdict(TrialResult(
+            trial_id=f"exploit-test-g{i}", prompt_name="test",
+            prompt_text=f"T{i}", mrr=0.1 + i * 0.01, per_pair=[], secondary={},
+            parent_id=f"exploit-test-g{i-1}" if i > 1 else "explore-test",
+            generation=i, mutation=f"tweak {i}", survived=True,
+            timestamp="2026-01-01", valid=True,
+        ))
+        for i in range(1, 4)  # 3 tweaks
+    ]
+    log_path.write_text(json.dumps(trials))
+
+    assert is_exploitation_complete(log_path, max_tweaks=3) is True
+    assert is_exploitation_complete(log_path, max_tweaks=5) is False
+
+
+def test_is_exploitation_complete_early_stop(tmp_path):
+    """is_exploitation_complete returns True when trailing failures >= limit."""
+    log_path = tmp_path / "exploitation_test_log.json"
+    trials = [
+        asdict(TrialResult(
+            trial_id="exploit-test-g1", prompt_name="test",
+            prompt_text="T1", mrr=0.15, per_pair=[], secondary={},
+            parent_id="explore-test", generation=1, mutation="tweak 1",
+            survived=True, timestamp="2026-01-01", valid=True,
+        )),
+        asdict(TrialResult(
+            trial_id="exploit-test-g2", prompt_name="test",
+            prompt_text="T2", mrr=0.10, per_pair=[], secondary={},
+            parent_id="exploit-test-g1", generation=2, mutation="tweak 2",
+            survived=False, timestamp="2026-01-01", valid=True,
+        )),
+        asdict(TrialResult(
+            trial_id="exploit-test-g3", prompt_name="test",
+            prompt_text="T3", mrr=0.09, per_pair=[], secondary={},
+            parent_id="exploit-test-g1", generation=3, mutation="tweak 3",
+            survived=False, timestamp="2026-01-01", valid=True,
+        )),
+    ]
+    log_path.write_text(json.dumps(trials))
+
+    # 2 trailing valid failures with limit=2 → complete
+    assert is_exploitation_complete(log_path, max_tweaks=7, consecutive_failure_limit=2) is True
+    # But not with limit=3
+    assert is_exploitation_complete(log_path, max_tweaks=7, consecutive_failure_limit=3) is False
+
+
+def test_is_exploitation_complete_partial(tmp_path):
+    """is_exploitation_complete returns False when still in progress."""
+    log_path = tmp_path / "exploitation_test_log.json"
+    trials = [
+        asdict(TrialResult(
+            trial_id="exploit-test-g1", prompt_name="test",
+            prompt_text="T1", mrr=0.15, per_pair=[], secondary={},
+            parent_id="explore-test", generation=1, mutation="tweak 1",
+            survived=True, timestamp="2026-01-01", valid=True,
+        )),
+    ]
+    log_path.write_text(json.dumps(trials))
+
+    assert is_exploitation_complete(log_path, max_tweaks=3) is False
+
+
+@patch("evolve_prompts.improve_prompt")
+@patch("evolve_prompts.generate_tweak")
+@patch("evolve_prompts.evaluate")
+def test_exploitation_resume_continues_from_last_gen(mock_eval, mock_tweak, mock_improve, tmp_path):
+    """With resume_from, exploitation continues from last generation."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
+
+    # Pre-existing 2 trials in log
+    existing_trials = [
+        TrialResult(
+            trial_id="exploit-test-g1", prompt_name="test",
+            prompt_text="T1 {batch_items}", mrr=0.20, per_pair=[],
+            secondary={}, parent_id="explore-test", generation=1,
+            mutation="tweak 1", survived=True, timestamp="2026-01-01",
+        ),
+        TrialResult(
+            trial_id="exploit-test-g2", prompt_name="test",
+            prompt_text="T2 {batch_items}", mrr=0.25, per_pair=[],
+            secondary={}, parent_id="exploit-test-g1", generation=2,
+            mutation="tweak 2", survived=True, timestamp="2026-01-01",
+        ),
+    ]
+
+    mock_tweak.return_value = {
+        "modified_prompt": "T3 {batch_items}", "description": "tweak 3",
+    }
+    mock_eval.return_value = _make_eval_result(0.30)
+
+    trials = run_exploitation(
+        survivor_name="test",
+        survivor_prompt="Original {batch_items}",
+        survivor_mrr=0.15,
+        per_pair=[],
+        max_tweaks=3,
+        model="haiku",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+        resume_from=existing_trials,
+    )
+
+    # 2 existing + 1 new = 3 total
+    assert len(trials) == 3
+    assert trials[2].generation == 3
+    assert trials[2].parent_id == "exploit-test-g2"
+    # Only 1 evaluation call (gen 3), not 3
+    assert mock_eval.call_count == 1
+
+
+@patch("evolve_prompts.run_exploitation")
+@patch("evolve_prompts.run_exploration")
+def test_experiment_resume_skips_completed_survivors(mock_explore, mock_exploit, tmp_path):
+    """With resume=True, run_experiment skips survivors whose exploitation is complete."""
+    # Exploration log pre-populated
+    log_path = tmp_path / "exploration_log.json"
+    explore_trials = [
+        TrialResult("baseline", "baseline", "B {batch_items}", 0.10, [], {},
+                    None, 0, None, True, "2026-01-01"),
+        TrialResult("explore-done", "done", "D {batch_items}", 0.15, [], {},
+                    None, 0, None, True, "2026-01-01"),
+        TrialResult("explore-pending", "pending", "P {batch_items}", 0.12, [], {},
+                    None, 0, None, True, "2026-01-01"),
+    ]
+    log_path.write_text(json.dumps([asdict(t) for t in explore_trials]))
+
+    # "done" survivor has a complete exploitation log
+    exploit_done_path = tmp_path / "exploitation_done_log.json"
+    exploit_done_trials = [
+        asdict(TrialResult(
+            trial_id=f"exploit-done-g{i}", prompt_name="done",
+            prompt_text=f"T{i}", mrr=0.15 + i * 0.01, per_pair=[], secondary={},
+            parent_id=f"exploit-done-g{i-1}" if i > 1 else "explore-done",
+            generation=i, mutation=f"tweak {i}", survived=(i < 3),
+            timestamp="2026-01-01", valid=True,
+        ))
+        for i in range(1, 4)  # 3 tweaks = max_tweaks
+    ]
+    exploit_done_path.write_text(json.dumps(exploit_done_trials))
+
+    mock_explore.return_value = explore_trials
+
+    # Exploitation of "pending" returns new trials
+    mock_exploit.return_value = [
+        TrialResult("exploit-pending-g1", "pending", "P2 {batch_items}", 0.18,
+                    [], {}, "explore-pending", 1, "tweak", True, "2026-01-01"),
+    ]
+
+    all_trials = run_experiment(
+        model="haiku",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+        max_tweaks=3,
+        resume=True,
+    )
+
+    # Exploitation should only be called for "pending", not "done"
+    assert mock_exploit.call_count == 1
+    exploit_kwargs = mock_exploit.call_args[1]
+    assert exploit_kwargs["survivor_name"] == "pending"
