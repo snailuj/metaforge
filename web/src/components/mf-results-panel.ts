@@ -132,7 +132,7 @@ export class MfResultsPanel extends LitElement {
     return html`<span class="rarity-badge ${rarity}">${getString(`rarity-${rarity}`)}</span>`
   }
 
-  private handleWordDblClick(word: string) {
+  private handleWordClick(word: string) {
     this.dispatchEvent(
       new CustomEvent('mf-word-navigate', {
         detail: { word },
@@ -156,7 +156,7 @@ export class MfResultsPanel extends LitElement {
 
   private handleWordKeydown(e: KeyboardEvent, word: string) {
     if (e.key === 'Enter') {
-      this.handleWordDblClick(word)
+      this.handleWordClick(word)
     }
   }
 
@@ -168,7 +168,7 @@ export class MfResultsPanel extends LitElement {
         data-rarity=${rw.rarity ?? ''}
         tabindex="0"
         role="button"
-        @dblclick=${() => this.handleWordDblClick(rw.word)}
+        @click=${() => this.handleWordClick(rw.word)}
         @contextmenu=${(e: MouseEvent) => this.handleWordRightClick(e, rw.word)}
         @keydown=${(e: KeyboardEvent) => this.handleWordKeydown(e, rw.word)}
         title="${getString('word-chip-title')}"

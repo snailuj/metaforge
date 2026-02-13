@@ -100,7 +100,7 @@ describe('MfResultsPanel', () => {
     expect(badge).toBeNull()
   })
 
-  it('fires mf-word-navigate on double-click of a related word', async () => {
+  it('fires mf-word-navigate on single click of a related word', async () => {
     el.result = melancholy
     await el.updateComplete
 
@@ -108,9 +108,10 @@ describe('MfResultsPanel', () => {
     el.addEventListener('mf-word-navigate', handler)
 
     const wordEl = el.shadowRoot!.querySelector('[data-word]')
-    wordEl?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    wordEl?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 
     expect(handler).toHaveBeenCalledOnce()
+    expect(handler.mock.calls[0][0].detail.word).toBe('sadness')
   })
 
   it('fires mf-word-copy on right-click', async () => {
