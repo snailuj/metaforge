@@ -146,3 +146,52 @@ def test_invoke_verbose_logging(mock_run, caplog):
     with caplog.at_level(logging.DEBUG, logger="claude_client"):
         _invoke("test prompt", model="haiku", verbose=True)
     assert any("test prompt" in r.message for r in caplog.records)
+
+
+# --- _invoke_with_retries ----------------------------------------------------
+
+from claude_client import _invoke_with_retries, ParseError
+
+
+@patch("claude_client.time.sleep")
+@patch("claude_client._invoke")
+def test_retries_on_transient_failure(mock_invoke, mock_sleep):
+    mock_invoke.side_effect = [EmptyResponseError("empty"), "success"]
+    result = _invoke_with_retries("prompt", model="haiku", max_retries=3)
+    assert result == "success"
+    assert mock_invoke.call_count == 2
+
+
+@patch("claude_client.time.sleep")
+@patch("claude_client._invoke")
+def test_retries_on_parse_error(mock_invoke, mock_sleep):
+    mock_invoke.side_effect = [ParseError("bad json"), "ok"]
+    result = _invoke_with_retries("prompt", model="haiku", max_retries=3)
+    assert result == "ok"
+
+
+@patch("claude_client._invoke")
+def test_no_retry_on_rate_limit(mock_invoke):
+    mock_invoke.side_effect = RateLimitError("limit")
+    with pytest.raises(RateLimitError):
+        _invoke_with_retries("prompt", model="haiku", max_retries=5)
+    assert mock_invoke.call_count == 1
+
+
+@patch("claude_client.time.sleep")
+@patch("claude_client._invoke")
+def test_exhausts_retries(mock_invoke, mock_sleep):
+    mock_invoke.side_effect = EmptyResponseError("always empty")
+    with pytest.raises(EmptyResponseError):
+        _invoke_with_retries("prompt", model="haiku", max_retries=3)
+    assert mock_invoke.call_count == 3
+
+
+@patch("claude_client.time.sleep")
+@patch("claude_client._invoke")
+def test_exponential_backoff(mock_invoke, mock_sleep):
+    mock_invoke.side_effect = [EmptyResponseError("e1"), EmptyResponseError("e2"), "ok"]
+    _invoke_with_retries("prompt", model="haiku", max_retries=5)
+    sleeps = [call[0][0] for call in mock_sleep.call_args_list]
+    assert sleeps[0] == 4   # min(4 * 2^0, 120)
+    assert sleeps[1] == 8   # min(4 * 2^1, 120)

@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import subprocess
+import time
 
 log = logging.getLogger(__name__)
 
@@ -91,3 +92,29 @@ def _invoke(prompt: str, model: str, verbose: bool = False) -> str:
         if proc.stderr:
             log.debug("claude_client stderr: %s", proc.stderr[:500])
     return _parse_events(proc.stdout, proc.returncode, proc.stderr)
+
+
+def _invoke_with_retries(
+    prompt: str,
+    model: str,
+    max_retries: int = 5,
+    verbose: bool = False,
+) -> str:
+    """Call _invoke with exponential backoff retries.
+
+    Retries on EmptyResponseError, ParseError, and generic ClaudeError.
+    Does NOT retry on RateLimitError (surfaces immediately).
+    """
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            return _invoke(prompt, model=model, verbose=verbose)
+        except RateLimitError:
+            raise
+        except ClaudeError as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                backoff = min(4 * 2 ** attempt, 120)
+                log.warning("Retry %d/%d after error: %s", attempt + 1, max_retries, e)
+                time.sleep(backoff)
+    raise last_error
