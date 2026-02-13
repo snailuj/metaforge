@@ -16,3 +16,24 @@ def test_error_hierarchy():
     assert issubclass(EmptyResponseError, ClaudeError)
     assert issubclass(ParseError, ClaudeError)
     assert not issubclass(RateLimitError, EmptyResponseError)
+
+
+# --- _strip_fences -----------------------------------------------------------
+
+from claude_client import _strip_fences
+
+
+def test_strip_fences_json():
+    assert _strip_fences("```json\n[1,2]\n```") == "[1,2]"
+
+
+def test_strip_fences_markdown():
+    assert _strip_fences("```markdown\nsome text\n```") == "some text"
+
+
+def test_strip_fences_noop():
+    assert _strip_fences("[1,2,3]") == "[1,2,3]"
+
+
+def test_strip_fences_whitespace():
+    assert _strip_fences("```json\n  data  \n```") == "  data  "
