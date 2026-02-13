@@ -317,6 +317,7 @@ export class MfSearchBar extends LitElement {
       <ul class="suggestions" role="listbox">
         ${this.suggestions.map((s, i) => html`
           <li
+            id="suggestion-${i}"
             class="suggestion-item ${i === this.selectedIndex ? 'selected' : ''}"
             role="option"
             aria-selected=${i === this.selectedIndex}
@@ -347,6 +348,7 @@ export class MfSearchBar extends LitElement {
           aria-label=${this.searchLabel}
           aria-expanded=${this.suggestions.length > 0}
           aria-autocomplete="list"
+          aria-activedescendant=${this.selectedIndex >= 0 ? `suggestion-${this.selectedIndex}` : ''}
         />
         <span class="shortcut-hint">/</span>
       </div>

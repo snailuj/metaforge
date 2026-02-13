@@ -291,6 +291,43 @@ describe('MfSearchBar', () => {
     expect(el.shadowRoot!.querySelectorAll('.suggestion-item').length).toBe(0)
   })
 
+  it('sets aria-activedescendant on input when arrowing through suggestions', async () => {
+    mockAutocomplete.mockResolvedValue(TEST_SUGGESTIONS)
+
+    await typeAndDebounce(el, 'fir')
+
+    const input = el.shadowRoot!.querySelector('input')!
+
+    // Initially no active descendant
+    expect(input.getAttribute('aria-activedescendant')).toBeFalsy()
+
+    // Arrow down to first item
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }))
+    await el.updateComplete
+    expect(input.getAttribute('aria-activedescendant')).toBe('suggestion-0')
+
+    // Arrow down to second item
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }))
+    await el.updateComplete
+    expect(input.getAttribute('aria-activedescendant')).toBe('suggestion-1')
+
+    // Escape clears it
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await el.updateComplete
+    expect(input.getAttribute('aria-activedescendant')).toBeFalsy()
+  })
+
+  it('assigns id attributes to suggestion list items', async () => {
+    mockAutocomplete.mockResolvedValue(TEST_SUGGESTIONS)
+
+    await typeAndDebounce(el, 'fir')
+
+    const items = el.shadowRoot!.querySelectorAll('.suggestion-item')
+    expect(items[0].id).toBe('suggestion-0')
+    expect(items[1].id).toBe('suggestion-1')
+    expect(items[2].id).toBe('suggestion-2')
+  })
+
   it('closes dropdown on focusout from the search wrapper', async () => {
     mockAutocomplete.mockResolvedValue(TEST_SUGGESTIONS)
 
