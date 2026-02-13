@@ -114,6 +114,8 @@ export class MfApp extends LitElement {
   @state() showUnusual = true
   @state() showRare = true
 
+  private currentWord = ''
+
   private get hiddenRarities(): Set<Rarity> {
     const hidden = new Set<Rarity>()
     if (!this.showCommon) hidden.add('common')
@@ -143,7 +145,7 @@ export class MfApp extends LitElement {
 
   private handleHashChange = () => {
     const word = this.getWordFromHash()
-    if (word) {
+    if (word && word !== this.currentWord) {
       this.doLookup(word)
     }
   }
@@ -181,6 +183,7 @@ export class MfApp extends LitElement {
   }
 
   private async doLookup(word: string) {
+    this.currentWord = word
     this.appState = 'loading'
     this.errorMessage = ''
 

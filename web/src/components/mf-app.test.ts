@@ -74,7 +74,6 @@ describe('MfApp', () => {
   })
 
   it('transitions to ready state on successful lookup', async () => {
-    // Use mockResolvedValue (not Once) — setWordHash triggers hashchange → second doLookup
     vi.mocked(lookupWord).mockResolvedValue(mockResult)
 
     const searchBar = el.shadowRoot!.querySelector('mf-search-bar')
@@ -84,7 +83,6 @@ describe('MfApp', () => {
       composed: true,
     }))
 
-    // Wait for the async lookup + hashchange re-lookup to complete
     await new Promise(r => setTimeout(r, 100))
     await el.updateComplete
 
@@ -179,6 +177,33 @@ describe('MfApp', () => {
 
     const toast = el.shadowRoot!.querySelector('mf-toast')
     expect(toast).not.toBeNull()
+  })
+
+  it('does not double-lookup when hash matches current word', async () => {
+    vi.mocked(lookupWord).mockResolvedValue(mockResult)
+
+    // Perform initial lookup
+    const searchBar = el.shadowRoot!.querySelector('mf-search-bar')
+    searchBar?.dispatchEvent(new CustomEvent('mf-search', {
+      detail: { word: 'fire' },
+      bubbles: true,
+      composed: true,
+    }))
+
+    await new Promise(r => setTimeout(r, 100))
+    await el.updateComplete
+
+    // lookupWord called once for the search, plus once from hashchange = 2 calls
+    // (without fix; with fix it should be exactly 1)
+    const callsBefore = vi.mocked(lookupWord).mock.calls.length
+    vi.mocked(lookupWord).mockClear()
+
+    // Manually fire hashchange with the same word already looked up
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    await new Promise(r => setTimeout(r, 100))
+
+    // Should NOT have called lookupWord again — word hasn't changed
+    expect(vi.mocked(lookupWord)).not.toHaveBeenCalled()
   })
 
   it('shows generic error for non-404 failures', async () => {
