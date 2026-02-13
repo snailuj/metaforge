@@ -112,26 +112,6 @@ describe('MfApp', () => {
     expect(error?.textContent).toContain('Not found')
   })
 
-  it('ignores errors silently for suggest searches', async () => {
-    vi.mocked(lookupWord).mockRejectedValueOnce(new Error('fail'))
-
-    const searchBar = el.shadowRoot!.querySelector('mf-search-bar')
-    searchBar?.dispatchEvent(new CustomEvent('mf-search', {
-      detail: { word: 'xyz', suggest: true },
-      bubbles: true,
-      composed: true,
-    }))
-
-    await new Promise(r => setTimeout(r, 50))
-    await el.updateComplete
-
-    // Should stay in idle, not show error
-    const error = el.shadowRoot!.querySelector('.error-message')
-    expect(error).toBeNull()
-    const status = el.shadowRoot!.querySelector('.status-message')
-    expect(status?.textContent).toContain('status-idle')
-  })
-
   it('renders three rarity filter toggles when in ready state', async () => {
     ;(el as any).appState = 'ready'
     ;(el as any).result = { word: 'test', senses: [], rarity: 'common' }

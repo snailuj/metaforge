@@ -175,8 +175,8 @@ export class MfApp extends LitElement {
     }
   }
 
-  private async handleSearch(e: CustomEvent<{ word: string; suggest?: boolean }>) {
-    this.doLookup(e.detail.word, e.detail.suggest)
+  private async handleSearch(e: CustomEvent<{ word: string }>) {
+    this.doLookup(e.detail.word)
   }
 
   private async handleNodeNavigate(e: CustomEvent<{ word: string }>) {
@@ -195,11 +195,9 @@ export class MfApp extends LitElement {
     toast?.show(getString('toast-copied', { word: e.detail.word }))
   }
 
-  private async doLookup(word: string, suggest = false) {
-    if (!suggest) {
-      this.appState = 'loading'
-      this.errorMessage = ''
-    }
+  private async doLookup(word: string) {
+    this.appState = 'loading'
+    this.errorMessage = ''
 
     try {
       const result = await lookupWord(word)
@@ -208,8 +206,6 @@ export class MfApp extends LitElement {
       this.appState = 'ready'
       this.setWordHash(word)
     } catch (err) {
-      // Suggest searches fail silently — don't disrupt current state
-      if (suggest) return
       this.appState = 'error'
       if (err instanceof ApiError && err.status === 404) {
         this.errorMessage = getString('results-word-not-found', { word })
