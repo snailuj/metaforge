@@ -110,9 +110,9 @@ export class MfApp extends LitElement {
   @state() private result: LookupResult | null = null
   @state() private graphData: GraphData = { nodes: [], links: [] }
   @state() private errorMessage = ''
-  @state() showCommon = true
-  @state() showUnusual = true
-  @state() showRare = true
+  @state() private showCommon = true
+  @state() private showUnusual = true
+  @state() private showRare = true
 
   private currentWord = ''
   private lookupId = 0
