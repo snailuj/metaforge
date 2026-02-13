@@ -170,7 +170,9 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Error("failed to encode suggest response", "word", word, "err", err)
+	}
 }
 
 // HandleLookup handles GET /thesaurus/lookup?word=<word>
@@ -193,7 +195,9 @@ func (h *Handler) HandleLookup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		slog.Error("failed to encode lookup response", "word", word, "err", err)
+	}
 }
 
 // AutocompleteResponse is the JSON response for /thesaurus/autocomplete.
@@ -234,7 +238,9 @@ func (h *Handler) HandleAutocomplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(AutocompleteResponse{Suggestions: suggestions})
+	if err := json.NewEncoder(w).Encode(AutocompleteResponse{Suggestions: suggestions}); err != nil {
+		slog.Error("failed to encode autocomplete response", "prefix", prefix, "err", err)
+	}
 }
 
 // HandleStrings serves Fluent .ftl string files.
