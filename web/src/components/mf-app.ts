@@ -98,13 +98,12 @@ export class MfApp extends LitElement {
       cursor: pointer;
     }
 
-    .rarity-toggle input {
-      accent-color: var(--colour-accent-gold, #d4af37);
-    }
-
     .rarity-toggle.common { color: #8bb89a; }
+    .rarity-toggle.common input { accent-color: #8bb89a; }
     .rarity-toggle.unusual { color: #c4956a; }
+    .rarity-toggle.unusual input { accent-color: #c4956a; }
     .rarity-toggle.rare { color: #a88bc4; }
+    .rarity-toggle.rare input { accent-color: #a88bc4; }
   `
 
   @state() private appState: AppState = 'idle'

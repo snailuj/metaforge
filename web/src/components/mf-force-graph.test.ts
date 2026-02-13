@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { GraphData } from '@/graph/types'
+import { RARITY_COLOURS } from '@/graph/colours'
 
 // Capture the accessor functions passed to the graph instance
 let capturedNodeVisibility: ((node: unknown) => boolean) | null = null
 let capturedLinkVisibility: ((link: unknown) => boolean) | null = null
+let capturedNodeColor: ((node: unknown) => string) | null = null
 
 const chainable: Record<string, unknown> = new Proxy({}, {
   get: (_t, prop) => {
@@ -16,6 +18,12 @@ const chainable: Record<string, unknown> = new Proxy({}, {
     if (prop === 'linkVisibility') {
       return (fn: (link: unknown) => boolean) => {
         capturedLinkVisibility = fn
+        return chainable
+      }
+    }
+    if (prop === 'nodeColor') {
+      return (fn: (node: unknown) => string) => {
+        capturedNodeColor = fn
         return chainable
       }
     }
@@ -48,6 +56,7 @@ describe('MfForceGraph', () => {
   beforeEach(async () => {
     capturedNodeVisibility = null
     capturedLinkVisibility = null
+    capturedNodeColor = null
     el = new MfForceGraph()
     el.graphData = testData
     document.body.appendChild(el)
@@ -102,6 +111,25 @@ describe('MfForceGraph', () => {
 
     const noRarity = testData.nodes.find(n => n.id === 'flame')!
     expect(capturedNodeVisibility!(noRarity)).toBe(false)
+  })
+
+  it('colours central node gold', () => {
+    expect(capturedNodeColor).not.toBeNull()
+    const central = testData.nodes.find(n => n.relationType === 'central')!
+    expect(capturedNodeColor!(central)).toBe('#d4af37')
+  })
+
+  it('colours nodes by rarity, not relation type', () => {
+    const common = testData.nodes.find(n => n.id === 'blaze')!
+    expect(capturedNodeColor!(common)).toBe(RARITY_COLOURS.common)
+
+    const rare = testData.nodes.find(n => n.id === 'conflagration')!
+    expect(capturedNodeColor!(rare)).toBe(RARITY_COLOURS.rare)
+  })
+
+  it('defaults missing rarity to unusual colour', () => {
+    const noRarity = testData.nodes.find(n => n.id === 'flame')!
+    expect(capturedNodeColor!(noRarity)).toBe(RARITY_COLOURS.unusual)
   })
 
   it('hides links when either endpoint is hidden', async () => {

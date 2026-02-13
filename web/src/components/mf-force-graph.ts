@@ -5,7 +5,7 @@ import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
 import SpriteText from 'three-spritetext'
 import type { GraphData, GraphNode, Rarity } from '@/graph/types'
-import { NODE_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
+import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
 const LABEL_FONT = 'Georgia, "Times New Roman", serif'
@@ -53,14 +53,20 @@ export class MfForceGraph extends LitElement {
 
     this.graph = ForceGraph3D({ controlType: 'fly' })(this.container)
       .backgroundColor('#1a1a2e')
-      .nodeColor((n: unknown) => NODE_COLOURS[(n as GraphNode).relationType] || DEFAULT_NODE_COLOUR)
+      .nodeColor((n: unknown) => {
+        const node = n as GraphNode
+        if (node.relationType === 'central') return NODE_COLOURS.central
+        return RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
+      })
       .nodeVal((n: unknown) => (n as GraphNode).val)
       .nodeOpacity(0.9)
       .nodeRelSize(0.5)
       .nodeThreeObjectExtend(true)
       .nodeThreeObject((n: unknown) => {
         const node = n as GraphNode
-        const colour = NODE_COLOURS[node.relationType] || '#e8e0d4'
+        const colour = node.relationType === 'central'
+          ? NODE_COLOURS.central
+          : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
         const sprite = new SpriteText(node.word, 3, colour)
         sprite.fontFace = LABEL_FONT
         // three-spritetext accepts `false` to disable background, but types only declare `string`
