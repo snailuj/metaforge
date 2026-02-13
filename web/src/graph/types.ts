@@ -6,6 +6,9 @@ export type RelationType =
   | 'hyponym'
   | 'similar'
 
+/** Frequency-based rarity bucket for visibility filtering */
+export type Rarity = 'common' | 'unusual' | 'rare'
+
 /** A node in the force graph */
 export interface GraphNode {
   id: string            // Unique: word or word__synsetId for disambiguation
@@ -13,7 +16,7 @@ export interface GraphNode {
   synsetId?: string     // Optional synset reference for navigation
   relationType: RelationType
   val: number           // Affects node size in 3d-force-graph
-  rarity?: string       // 'common' | 'unusual' | 'rare'
+  rarity?: Rarity       // Frequency bucket; defaults to 'unusual' when absent
 }
 
 /** A link (edge) in the force graph */

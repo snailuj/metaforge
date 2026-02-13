@@ -4,7 +4,7 @@ import type { PropertyValues } from 'lit'
 import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
 import SpriteText from 'three-spritetext'
-import type { GraphData, GraphNode } from '@/graph/types'
+import type { GraphData, GraphNode, Rarity } from '@/graph/types'
 import { NODE_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
@@ -33,6 +33,19 @@ export class MfForceGraph extends LitElement {
   private resizeObserver: ResizeObserver | null = null
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
+  @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
+
+  private isNodeVisible = (n: unknown): boolean => {
+    const node = n as GraphNode
+    if (node.relationType === 'central') return true
+    const rarity = node.rarity ?? 'unusual'
+    return !this.hiddenRarities.has(rarity)
+  }
+
+  private isLinkVisible = (l: unknown): boolean => {
+    const link = l as { source: unknown; target: unknown }
+    return this.isNodeVisible(link.source) && this.isNodeVisible(link.target)
+  }
 
   protected firstUpdated(): void {
     this.container = this.renderRoot.querySelector('#graph-container') as HTMLDivElement
@@ -110,6 +123,9 @@ export class MfForceGraph extends LitElement {
     this.resizeObserver = new ResizeObserver(() => this.syncDimensions())
     this.resizeObserver.observe(this.container)
 
+    this.graph.nodeVisibility(this.isNodeVisible)
+    this.graph.linkVisibility(this.isLinkVisible)
+
     if (this.graphData.nodes.length) {
       this.graph.graphData(this.graphData)
     }
@@ -126,6 +142,10 @@ export class MfForceGraph extends LitElement {
   updated(changed: PropertyValues<this>): void {
     if (changed.has('graphData') && this.graph) {
       this.graph.graphData(this.graphData)
+    }
+    if (changed.has('hiddenRarities') && this.graph) {
+      this.graph.nodeVisibility(this.isNodeVisible)
+      this.graph.linkVisibility(this.isLinkVisible)
     }
   }
 
