@@ -1,5 +1,7 @@
-import { LitElement, html, css } from 'lit'
+import { LitElement, html, css, nothing } from 'lit'
 import { customElement, property, state } from 'lit/decorators.js'
+import { autocompleteWord, type AutocompleteSuggestion } from '@/api/client'
+import { SUGGEST_MODE } from '@/config'
 
 const DEBOUNCE_MS = 200
 const MIN_SUGGEST_LENGTH = 3
@@ -43,12 +45,100 @@ export class MfSearchBar extends LitElement {
       font-size: 0.75rem;
       font-family: var(--font-mono, monospace);
     }
+
+    .suggestions {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      background: var(--colour-bg-hud, rgba(22, 33, 62, 0.95));
+      border: var(--hud-border, 1px solid rgba(212, 175, 55, 0.2));
+      border-top: none;
+      border-radius: 0 0 var(--hud-radius, 4px) var(--hud-radius, 4px);
+      backdrop-filter: blur(8px);
+      max-height: 20rem;
+      overflow-y: auto;
+    }
+
+    .suggestion-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(212, 175, 55, 0.08);
+    }
+
+    .suggestion-item:last-child {
+      border-bottom: none;
+    }
+
+    .suggestion-item:hover,
+    .suggestion-item.selected {
+      background: rgba(212, 175, 55, 0.12);
+    }
+
+    .suggestion-top {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .suggestion-word {
+      color: var(--colour-text-primary, #e8e0d4);
+      font-weight: 600;
+      font-size: 1rem;
+    }
+
+    .sense-badge {
+      color: var(--colour-text-muted, #6b6560);
+      font-size: 0.7rem;
+      background: rgba(212, 175, 55, 0.1);
+      padding: 0.05rem 0.35rem;
+      border-radius: 3px;
+    }
+
+    .rarity-badge {
+      font-size: 0.65rem;
+      padding: 0.05rem 0.35rem;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .rarity-badge[data-rarity="common"] {
+      color: #7ec97e;
+      background: rgba(126, 201, 126, 0.15);
+    }
+
+    .rarity-badge[data-rarity="unusual"] {
+      color: #d4af37;
+      background: rgba(212, 175, 55, 0.15);
+    }
+
+    .rarity-badge[data-rarity="rare"] {
+      color: #c97e7e;
+      background: rgba(201, 126, 126, 0.15);
+    }
+
+    .suggestion-definition {
+      color: var(--colour-text-muted, #6b6560);
+      font-size: 0.8rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   `
 
   @property() placeholder = 'Search for a word...'
   @property() searchLabel = 'Search for a word'
 
   @state() private value = ''
+  @state() private suggestions: AutocompleteSuggestion[] = []
+  @state() private selectedIndex = -1
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -87,6 +177,14 @@ export class MfSearchBar extends LitElement {
 
   private handleInput(e: Event) {
     this.value = (e.target as HTMLInputElement).value
+    const word = this.value.trim().toLowerCase()
+
+    // Clear suggestions if input drops below threshold
+    if (word.length < MIN_SUGGEST_LENGTH) {
+      this.suggestions = []
+      this.selectedIndex = -1
+    }
+
     this.scheduleDebounce()
   }
 
@@ -98,26 +196,77 @@ export class MfSearchBar extends LitElement {
 
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null
-      this.emitSearch(word, true)
+      this.fetchSuggestions(word)
     }, DEBOUNCE_MS)
+  }
+
+  private async fetchSuggestions(prefix: string) {
+    if (SUGGEST_MODE === 'dropdown') {
+      try {
+        this.suggestions = await autocompleteWord(prefix)
+        this.selectedIndex = -1
+      } catch {
+        // Autocomplete errors are non-fatal — don't disrupt UX
+        this.suggestions = []
+      }
+    } else if (SUGGEST_MODE === 'auto-load') {
+      try {
+        const suggestions = await autocompleteWord(prefix)
+        if (suggestions.length > 0) {
+          this.emitSearch(suggestions[0].word)
+        }
+      } catch {
+        // Silent failure
+      }
+    }
+    // 'inline' mode: TODO — ghost text completion
+  }
+
+  private closeSuggestions() {
+    this.suggestions = []
+    this.selectedIndex = -1
   }
 
   private handleKeydown(e: KeyboardEvent) {
     // Stop all key events from propagating to FlyControls on window
     e.stopPropagation()
 
+    if (e.key === 'ArrowDown' && this.suggestions.length > 0) {
+      e.preventDefault()
+      this.selectedIndex = (this.selectedIndex + 1) % this.suggestions.length
+      return
+    }
+    if (e.key === 'ArrowUp' && this.suggestions.length > 0) {
+      e.preventDefault()
+      this.selectedIndex = this.selectedIndex <= 0
+        ? this.suggestions.length - 1
+        : this.selectedIndex - 1
+      return
+    }
+
     if (e.key === 'Enter') {
       if (this.debounceTimer) {
         clearTimeout(this.debounceTimer)
         this.debounceTimer = null
       }
-      this.submit()
+      if (this.selectedIndex >= 0 && this.selectedIndex < this.suggestions.length) {
+        // Submit the selected suggestion
+        const word = this.suggestions[this.selectedIndex].word
+        this.closeSuggestions()
+        this.emitSearch(word)
+      } else {
+        this.closeSuggestions()
+        this.submit()
+      }
+      return
     }
+
     if (e.key === 'Escape') {
       if (this.debounceTimer) {
         clearTimeout(this.debounceTimer)
         this.debounceTimer = null
       }
+      this.closeSuggestions()
       this.value = ''
       if (this.inputEl) this.inputEl.value = ''
       this.inputEl?.blur()
@@ -128,20 +277,49 @@ export class MfSearchBar extends LitElement {
     e.stopPropagation()
   }
 
+  private handleSuggestionClick(word: string) {
+    this.closeSuggestions()
+    this.emitSearch(word)
+  }
+
   private submit() {
     const word = this.value.trim().toLowerCase()
     if (!word) return
-    this.emitSearch(word, false)
+    this.emitSearch(word)
   }
 
-  private emitSearch(word: string, suggest: boolean) {
+  private emitSearch(word: string) {
     this.dispatchEvent(
       new CustomEvent('mf-search', {
-        detail: { word, suggest },
+        detail: { word },
         bubbles: true,
         composed: true,
       }),
     )
+  }
+
+  private renderSuggestions() {
+    if (this.suggestions.length === 0) return nothing
+
+    return html`
+      <ul class="suggestions" role="listbox">
+        ${this.suggestions.map((s, i) => html`
+          <li
+            class="suggestion-item ${i === this.selectedIndex ? 'selected' : ''}"
+            role="option"
+            aria-selected=${i === this.selectedIndex}
+            @click=${() => this.handleSuggestionClick(s.word)}
+          >
+            <div class="suggestion-top">
+              <span class="suggestion-word">${s.word}</span>
+              ${s.sense_count > 1 ? html`<span class="sense-badge">${s.sense_count} senses</span>` : nothing}
+              ${s.rarity ? html`<span class="rarity-badge" data-rarity=${s.rarity}>${s.rarity}</span>` : nothing}
+            </div>
+            <div class="suggestion-definition">${s.definition}</div>
+          </li>
+        `)}
+      </ul>
+    `
   }
 
   render() {
@@ -155,9 +333,12 @@ export class MfSearchBar extends LitElement {
           @keydown=${this.handleKeydown}
           @keyup=${this.handleKeyup}
           aria-label=${this.searchLabel}
+          aria-expanded=${this.suggestions.length > 0}
+          aria-autocomplete="list"
         />
         <span class="shortcut-hint">/</span>
       </div>
+      ${this.renderSuggestions()}
     `
   }
 }
