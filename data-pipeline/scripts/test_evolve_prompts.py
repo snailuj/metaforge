@@ -254,6 +254,7 @@ def test_run_exploitation_keeps_improvements(mock_evaluate, mock_tweak, mock_imp
         {"modified_prompt": "Tweak1: {batch_items}\n[{{}}]", "description": "tweak 1"},
         {"modified_prompt": "Tweak2: {batch_items}\n[{{}}]", "description": "tweak 2"},
     ]
+    mock_improve.side_effect = lambda raw, **kw: raw
 
     trials = run_exploitation(
         survivor_name="contrastive",
@@ -293,6 +294,7 @@ def test_run_exploitation_reverts_regressions(mock_evaluate, mock_tweak, mock_im
         {"modified_prompt": "T2: {batch_items}\n[{{}}]", "description": "tweak 2"},
         {"modified_prompt": "T3: {batch_items}\n[{{}}]", "description": "tweak 3"},
     ]
+    mock_improve.side_effect = lambda raw, **kw: raw
 
     trials = run_exploitation(
         survivor_name="test",
@@ -329,6 +331,7 @@ def test_run_exploitation_early_stops(mock_evaluate, mock_tweak, mock_improve, t
         {"modified_prompt": f"T{i}: {{batch_items}}\n[{{{{}}}}]", "description": f"tweak {i}"}
         for i in range(1, 8)
     ]
+    mock_improve.side_effect = lambda raw, **kw: raw
 
     trials = run_exploitation(
         survivor_name="test",
@@ -546,6 +549,7 @@ def test_exploitation_infra_failure_not_consecutive(mock_evaluate, mock_tweak, m
         {"modified_prompt": f"T{i}: {{batch_items}}\n[{{{{}}}}]", "description": f"tweak {i}"}
         for i in range(1, 8)
     ]
+    mock_improve.side_effect = lambda raw, **kw: raw
 
     trials = run_exploitation(
         survivor_name="test",
@@ -678,6 +682,7 @@ def test_exploitation_uses_exploit_model_for_tweak(mock_evaluate, mock_tweak, mo
     mock_tweak.return_value = {
         "modified_prompt": "Tweak: {batch_items}\n[{{}}]", "description": "tweak 1",
     }
+    mock_improve.side_effect = lambda raw, **kw: raw
 
     run_exploitation(
         survivor_name="test",
@@ -711,6 +716,7 @@ def test_exploitation_uses_main_model_for_enrichment(mock_evaluate, mock_tweak, 
     mock_tweak.return_value = {
         "modified_prompt": "Tweak: {batch_items}\n[{{}}]", "description": "tweak 1",
     }
+    mock_improve.side_effect = lambda raw, **kw: raw
 
     run_exploitation(
         survivor_name="test",
