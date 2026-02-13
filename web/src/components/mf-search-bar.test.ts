@@ -147,4 +147,22 @@ describe('MfSearchBar', () => {
     vi.advanceTimersByTime(500)
     expect(handler).not.toHaveBeenCalled()
   })
+
+  it('Escape clears input and cancels pending debounce', async () => {
+    const handler = vi.fn()
+    el.addEventListener('mf-search', handler)
+
+    const input = el.shadowRoot!.querySelector('input')!
+    input.value = 'ephemeral'
+    input.dispatchEvent(new Event('input'))
+
+    vi.advanceTimersByTime(100)
+    expect(handler).not.toHaveBeenCalled()
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+
+    expect(input.value).toBe('')
+    vi.advanceTimersByTime(500)
+    expect(handler).not.toHaveBeenCalled()
+  })
 })

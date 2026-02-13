@@ -311,3 +311,54 @@ func TestGetLookup_AdjectiveSatellitePOS(t *testing.T) {
 		t.Error("Expected 'abandoned' to have at least one 'adjective satellite' sense")
 	}
 }
+
+func TestPosNameUnknownCode(t *testing.T) {
+	// posName should return the code itself if unknown
+	result := posName("x")
+	if result != "x" {
+		t.Errorf("Expected posName('x') = 'x', got '%s'", result)
+	}
+}
+
+func TestPosNameAllKnown(t *testing.T) {
+	// All 5 known codes should map correctly
+	tests := []struct {
+		code     string
+		expected string
+	}{
+		{"n", "noun"},
+		{"v", "verb"},
+		{"a", "adjective"},
+		{"r", "adverb"},
+		{"s", "adjective satellite"},
+	}
+
+	for _, tt := range tests {
+		result := posName(tt.code)
+		if result != tt.expected {
+			t.Errorf("posName(%q) = %q, expected %q", tt.code, result, tt.expected)
+		}
+	}
+}
+
+func TestGetLookupEmptyString(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	// Empty string should return ErrWordNotFound
+	_, err := GetLookup(database, "")
+	if err != ErrWordNotFound {
+		t.Errorf("Expected ErrWordNotFound for empty string, got %v", err)
+	}
+}
+
+func TestGetLookupWhitespaceOnly(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	// Whitespace-only string should return ErrWordNotFound
+	_, err := GetLookup(database, "   ")
+	if err != ErrWordNotFound {
+		t.Errorf("Expected ErrWordNotFound for whitespace, got %v", err)
+	}
+}

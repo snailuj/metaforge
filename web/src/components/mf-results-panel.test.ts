@@ -112,4 +112,71 @@ describe('MfResultsPanel', () => {
 
     expect(handler).toHaveBeenCalledOnce()
   })
+
+  it('fires mf-word-copy on right-click', async () => {
+    el.result = melancholy
+    await el.updateComplete
+
+    const handler = vi.fn()
+    el.addEventListener('mf-word-copy', handler)
+
+    const wordEl = el.shadowRoot!.querySelector('[data-word]')
+    const contextMenuEvent = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    wordEl?.dispatchEvent(contextMenuEvent)
+
+    expect(handler).toHaveBeenCalledOnce()
+    expect(handler.mock.calls[0][0].detail.word).toBe('sadness')
+  })
+
+  it('fires mf-word-navigate on Enter keydown', async () => {
+    el.result = melancholy
+    await el.updateComplete
+
+    const handler = vi.fn()
+    el.addEventListener('mf-word-navigate', handler)
+
+    const wordEl = el.shadowRoot!.querySelector('[data-word]')
+    wordEl?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+    expect(handler).toHaveBeenCalledOnce()
+    expect(handler.mock.calls[0][0].detail.word).toBe('sadness')
+  })
+
+  it('renders nothing when result is null', async () => {
+    el.result = null
+    await el.updateComplete
+
+    const panel = el.shadowRoot!.querySelector('.panel')
+    expect(panel).toBeNull()
+  })
+
+  it('renders multiple senses', async () => {
+    const multiSense: LookupResult = {
+      word: 'bank',
+      senses: [
+        {
+          synset_id: '1',
+          pos: 'noun',
+          definition: 'financial institution',
+          synonyms: [],
+          relations: { hypernyms: [], hyponyms: [], similar: [] },
+        },
+        {
+          synset_id: '2',
+          pos: 'noun',
+          definition: 'sloping land beside a river',
+          synonyms: [],
+          relations: { hypernyms: [], hyponyms: [], similar: [] },
+        },
+      ],
+    }
+
+    el.result = multiSense
+    await el.updateComplete
+
+    const senses = el.shadowRoot!.querySelectorAll('.sense')
+    expect(senses.length).toBe(2)
+    expect(senses[0].textContent).toContain('financial institution')
+    expect(senses[1].textContent).toContain('sloping land')
+  })
 })
