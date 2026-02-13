@@ -10,7 +10,7 @@ ExecStart=__WORKTREE__/api/metaforge \
     -port 8080 \
     -db __WORKTREE__/data-pipeline/output/lexicon_v2.db \
     -strings __WORKTREE__/strings \
-    -cors-origin http://45.32.60.40:3000
+    -cors-origin https://metaforge.julianit.me
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

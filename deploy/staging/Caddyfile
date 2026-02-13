@@ -1,8 +1,8 @@
 {
-    auto_https off
+    storage file_system /var/lib/caddy
 }
 
-:3000 {
+metaforge.julianit.me {
     handle /thesaurus/* {
         reverse_proxy 127.0.0.1:8080
     }
