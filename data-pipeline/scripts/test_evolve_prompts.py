@@ -666,10 +666,12 @@ def test_evolve_cli_verbose_flag():
 
 # --- 20. exploitation uses exploit_model for tweak generation -----------------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_exploitation_uses_exploit_model_for_tweak(mock_evaluate, mock_tweak, tmp_path):
+def test_exploitation_uses_exploit_model_for_tweak(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """run_exploitation passes exploit_model to generate_tweak, not main model."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     mock_evaluate.side_effect = [
         _make_eval_result(0.20),  # tweak 1 improves
     ]
