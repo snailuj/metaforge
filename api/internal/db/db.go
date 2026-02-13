@@ -11,7 +11,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/snailuj/metaforge/internal/embeddings"
+	"github.com/snailuj/metaforge/internal/blobconv"
 )
 
 // Synset represents a WordNet synset with enrichment
@@ -268,7 +268,7 @@ type SynsetMatch struct {
 
 // SynsetMatchFull contains all data needed to classify and display a match,
 // retrieved in a single query. Replaces the N+1 pattern of GetSynset +
-// GetLemmaForSynset + ComputeSynsetDistance per candidate.
+// GetLemmaForSynset + per-candidate distance computation.
 type SynsetMatchFull struct {
 	SynsetID         string    `json:"synset_id"`
 	Word             string    `json:"word"`
@@ -373,8 +373,8 @@ func GetForgeMatches(db *sql.DB, sourceID string, threshold float64, limit int) 
 		}
 
 		// Decode centroid BLOBs
-		m.SourceCentroid = embeddings.BlobToFloats(srcBlob)
-		m.TargetCentroid = embeddings.BlobToFloats(tgtBlob)
+		m.SourceCentroid = blobconv.BlobToFloats(srcBlob)
+		m.TargetCentroid = blobconv.BlobToFloats(tgtBlob)
 
 		matches = append(matches, m)
 	}
