@@ -35,6 +35,7 @@ func main() {
 
 	r.Get("/forge/suggest", h.HandleSuggest)
 	r.Get("/thesaurus/lookup", h.HandleLookup)
+	r.Get("/thesaurus/autocomplete", h.HandleAutocomplete)
 	r.Get("/strings/*", h.HandleStrings)
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

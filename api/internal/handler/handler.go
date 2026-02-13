@@ -196,6 +196,47 @@ func (h *Handler) HandleLookup(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// AutocompleteResponse is the JSON response for /thesaurus/autocomplete.
+type AutocompleteResponse struct {
+	Suggestions []thesaurus.AutocompleteSuggestion `json:"suggestions"`
+}
+
+// Autocomplete defaults
+const (
+	DefaultAutocompleteLimit = 10
+	MaxAutocompleteLimit     = 50
+	MinPrefixLength          = 2
+)
+
+// HandleAutocomplete handles GET /thesaurus/autocomplete?prefix=<prefix>&limit=<n>
+func (h *Handler) HandleAutocomplete(w http.ResponseWriter, r *http.Request) {
+	prefix := r.URL.Query().Get("prefix")
+	if len(strings.TrimSpace(prefix)) < MinPrefixLength {
+		http.Error(w, `{"error": "prefix must be at least 2 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	limit := DefaultAutocompleteLimit
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	if limit > MaxAutocompleteLimit {
+		limit = MaxAutocompleteLimit
+	}
+
+	suggestions, err := thesaurus.AutocompletePrefix(h.database, prefix, limit)
+	if err != nil {
+		slog.Error("autocomplete failed", "prefix", prefix, "err", err)
+		http.Error(w, `{"error": "autocomplete failed"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(AutocompleteResponse{Suggestions: suggestions})
+}
+
 // HandleStrings serves Fluent .ftl string files.
 // Route: GET /strings/v1/{filename}.ftl
 func (h *Handler) HandleStrings(w http.ResponseWriter, r *http.Request) {

@@ -325,3 +325,157 @@ func TestForgeSuggestZeroLimit(t *testing.T) {
 		t.Errorf("Expected <= %d suggestions (default), got %d", DefaultLimit, len(resp.Suggestions))
 	}
 }
+
+// --- Autocomplete endpoint tests ---
+
+func TestAutocompleteEndpoint(t *testing.T) {
+	h, err := NewHandler(testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create handler: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/thesaurus/autocomplete?prefix=fir", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleAutocomplete(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp AutocompleteResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if len(resp.Suggestions) == 0 {
+		t.Fatal("expected at least one suggestion for prefix 'fir'")
+	}
+
+	// Check that suggestions have required fields
+	for i, s := range resp.Suggestions {
+		if s.Word == "" {
+			t.Errorf("suggestion[%d] has empty Word", i)
+		}
+		if s.Definition == "" {
+			t.Errorf("suggestion[%d] has empty Definition", i)
+		}
+		if s.SenseCount < 1 {
+			t.Errorf("suggestion[%d] has SenseCount < 1: %d", i, s.SenseCount)
+		}
+	}
+}
+
+func TestAutocompleteEndpointMissingPrefix(t *testing.T) {
+	h, err := NewHandler(testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create handler: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/thesaurus/autocomplete", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleAutocomplete(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400 for missing prefix, got %d", w.Code)
+	}
+}
+
+func TestAutocompleteEndpointShortPrefix(t *testing.T) {
+	h, err := NewHandler(testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create handler: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/thesaurus/autocomplete?prefix=a", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleAutocomplete(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400 for single-char prefix, got %d", w.Code)
+	}
+}
+
+func TestAutocompleteEndpointNoMatch(t *testing.T) {
+	h, err := NewHandler(testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create handler: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/thesaurus/autocomplete?prefix=xyzzyplugh", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleAutocomplete(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for no-match prefix (empty array, not 404), got %d", w.Code)
+	}
+
+	var resp AutocompleteResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if len(resp.Suggestions) != 0 {
+		t.Errorf("Expected empty suggestions for no-match prefix, got %d", len(resp.Suggestions))
+	}
+}
+
+func TestAutocompleteEndpointLimit(t *testing.T) {
+	h, err := NewHandler(testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create handler: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/thesaurus/autocomplete?prefix=fi&limit=3", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleAutocomplete(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp AutocompleteResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if len(resp.Suggestions) > 3 {
+		t.Errorf("Expected at most 3 suggestions with limit=3, got %d", len(resp.Suggestions))
+	}
+}
+
+func TestAutocompleteEndpointLimitCap(t *testing.T) {
+	h, err := NewHandler(testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create handler: %v", err)
+	}
+	defer h.Close()
+
+	// Limit > 50 should be capped at 50
+	req := httptest.NewRequest("GET", "/thesaurus/autocomplete?prefix=fi&limit=999", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleAutocomplete(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp AutocompleteResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if len(resp.Suggestions) > 50 {
+		t.Errorf("Expected at most 50 suggestions (cap), got %d", len(resp.Suggestions))
+	}
+}
