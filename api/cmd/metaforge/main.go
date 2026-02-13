@@ -41,7 +41,7 @@ func main() {
 		w.Write([]byte(`{"status": "ok"}`))
 	})
 
-	addr := fmt.Sprintf(":%s", *port)
+	addr := fmt.Sprintf("127.0.0.1:%s", *port)
 	slog.Info("Metaforge API starting", "addr", addr, "db", *dbPath, "strings", *stringsDir, "cors", *corsOrigin)
 
 	srv := &http.Server{
