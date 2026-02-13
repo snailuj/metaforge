@@ -61,6 +61,8 @@ export class MfSearchBar extends LitElement {
       backdrop-filter: blur(8px);
       max-height: 20rem;
       overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--colour-accent-gold-dim, rgba(212, 175, 55, 0.3)) transparent;
     }
 
     .suggestion-item {
