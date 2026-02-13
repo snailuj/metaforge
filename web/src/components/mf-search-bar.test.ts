@@ -291,6 +291,23 @@ describe('MfSearchBar', () => {
     expect(el.shadowRoot!.querySelectorAll('.suggestion-item').length).toBe(0)
   })
 
+  it('closes dropdown on focusout from the search wrapper', async () => {
+    mockAutocomplete.mockResolvedValue(TEST_SUGGESTIONS)
+
+    await typeAndDebounce(el, 'fir')
+    expect(el.shadowRoot!.querySelectorAll('.suggestion-item').length).toBe(3)
+
+    // Simulate focusout from the wrapper (user clicked outside)
+    const wrapper = el.shadowRoot!.querySelector('.search-wrapper')!
+    wrapper.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+
+    // Allow requestAnimationFrame callback to run
+    vi.advanceTimersByTime(20)
+    await el.updateComplete
+
+    expect(el.shadowRoot!.querySelectorAll('.suggestion-item').length).toBe(0)
+  })
+
   it('clears dropdown when input drops below 3 chars', async () => {
     mockAutocomplete.mockResolvedValue(TEST_SUGGESTIONS)
 

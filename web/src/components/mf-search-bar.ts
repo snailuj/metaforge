@@ -224,6 +224,16 @@ export class MfSearchBar extends LitElement {
     // 'inline' mode: TODO — ghost text completion
   }
 
+  private handleFocusOut = () => {
+    // Delay closing so that click events on suggestions fire first
+    requestAnimationFrame(() => {
+      const active = this.shadowRoot?.activeElement
+      if (!active) {
+        this.closeSuggestions()
+      }
+    })
+  }
+
   private closeSuggestions() {
     this.suggestions = []
     this.selectedIndex = -1
@@ -326,7 +336,7 @@ export class MfSearchBar extends LitElement {
 
   render() {
     return html`
-      <div class="search-wrapper" role="search">
+      <div class="search-wrapper" role="search" @focusout=${this.handleFocusOut}>
         <input
           type="text"
           placeholder=${this.placeholder}
