@@ -180,7 +180,8 @@ def invoke_claude(prompt: str, model: str = "haiku", verbose: bool = False) -> s
         timeout=120,
     )
     if verbose:
-        log.debug("invoke_claude raw stdout (first 1000 chars): %s", proc.stdout[:1000])
+        log.debug("invoke_claude raw stdout (last 2000 chars): %s",
+                   proc.stdout[-2000:] if proc.stdout else "<empty>")
         if proc.stderr:
             log.debug("invoke_claude stderr: %s", proc.stderr[:500])
     return proc
@@ -211,8 +212,8 @@ def _extract_batch_inner(prompt: str, synsets: List[Dict], model: str, verbose: 
     try:
         results = parse_response(proc)
     except Exception:
-        log.warning("parse_response failed — raw stdout (first 1000 chars): %s",
-                     proc.stdout[:1000] if proc.stdout else "<empty>")
+        log.warning("parse_response failed — raw stdout (last 2000 chars): %s",
+                     proc.stdout[-2000:] if proc.stdout else "<empty>")
         raise
 
     local_data = {s['id']: s for s in synsets}

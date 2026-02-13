@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from evolve_prompts import (
     TrialResult, run_exploration, run_exploitation,
     run_experiment, dry_run_estimate, generate_report, improve_prompt,
+    _load_exploration_log, is_exploitation_complete,
 )
 
 
@@ -238,10 +239,12 @@ def test_run_exploration_usage_exhaustion_backoff(
 
 # --- 7. run_exploitation keeps improvements -----------------------------------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_run_exploitation_keeps_improvements(mock_evaluate, mock_tweak, tmp_path):
+def test_run_exploitation_keeps_improvements(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """Exploitation keeps tweaks that improve MRR."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     # Each tweak improves MRR
     mock_evaluate.side_effect = [
         _make_eval_result(0.20),  # tweak 1 improves from 0.15
@@ -274,10 +277,12 @@ def test_run_exploitation_keeps_improvements(mock_evaluate, mock_tweak, tmp_path
 
 # --- 8. run_exploitation reverts regressions ----------------------------------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_run_exploitation_reverts_regressions(mock_evaluate, mock_tweak, tmp_path):
+def test_run_exploitation_reverts_regressions(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """Exploitation reverts tweaks that worsen MRR."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     mock_evaluate.side_effect = [
         _make_eval_result(0.10),  # tweak 1 regresses from 0.15
         _make_eval_result(0.12),  # tweak 2 also regresses
@@ -309,10 +314,12 @@ def test_run_exploitation_reverts_regressions(mock_evaluate, mock_tweak, tmp_pat
 
 # --- 9. run_exploitation early stops on K consecutive failures ----------------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_run_exploitation_early_stops(mock_evaluate, mock_tweak, tmp_path):
+def test_run_exploitation_early_stops(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """Exploitation stops after K consecutive failures."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     mock_evaluate.side_effect = [
         _make_eval_result(0.20),  # tweak 1 improves
         _make_eval_result(0.18),  # tweak 2 regresses (1 consecutive fail)
@@ -518,10 +525,12 @@ def test_exploration_skips_invalid_trial_for_elimination(mock_evaluate, tmp_path
 
 # --- 16. exploitation infra failure doesn't count as consecutive failure ------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_exploitation_infra_failure_not_consecutive(mock_evaluate, mock_tweak, tmp_path):
+def test_exploitation_infra_failure_not_consecutive(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """Infra failures in exploitation don't increment the consecutive failure counter."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     mock_evaluate.side_effect = [
         # tweak 1: infra failure (valid=False) — should NOT count
         {"mrr": 0.01, "per_pair": [], "secondary": {},
@@ -688,10 +697,12 @@ def test_exploitation_uses_exploit_model_for_tweak(mock_evaluate, mock_tweak, tm
 
 # --- 21. exploitation uses main model for enrichment -------------------------
 
+@patch("evolve_prompts.improve_prompt")
 @patch("evolve_prompts.generate_tweak")
 @patch("evolve_prompts.evaluate")
-def test_exploitation_uses_main_model_for_enrichment(mock_evaluate, mock_tweak, tmp_path):
+def test_exploitation_uses_main_model_for_enrichment(mock_evaluate, mock_tweak, mock_improve, tmp_path):
     """run_exploitation uses the main model for evaluate (enrichment), not exploit_model."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
     mock_evaluate.side_effect = [
         _make_eval_result(0.20),
     ]
@@ -1017,3 +1028,283 @@ def test_full_v2_experiment_mocked(mock_eval, tmp_path):
     assert log_path.exists()
     loaded = json.loads(log_path.read_text())
     assert len(loaded) == 2
+
+
+# --- Phase B: Resume-aware exploration tests ---------------------------------
+
+def test_load_exploration_log_missing_file(tmp_path):
+    """_load_exploration_log returns [] when the log file doesn't exist."""
+    result = _load_exploration_log(tmp_path / "nonexistent.json")
+    assert result == []
+
+
+def test_load_exploration_log_existing(tmp_path):
+    """_load_exploration_log deserialises existing log into TrialResult list."""
+    log_path = tmp_path / "exploration_log.json"
+    data = [asdict(TrialResult(
+        trial_id="baseline", prompt_name="baseline", prompt_text="B",
+        mrr=0.08, per_pair=[], secondary={}, parent_id=None,
+        generation=0, mutation=None, survived=True, timestamp="2026-01-01",
+    ))]
+    log_path.write_text(json.dumps(data))
+
+    result = _load_exploration_log(log_path)
+    assert len(result) == 1
+    assert isinstance(result[0], TrialResult)
+    assert result[0].trial_id == "baseline"
+
+
+@patch("evolve_prompts.evaluate")
+def test_exploration_resume_skips_completed(mock_evaluate, tmp_path):
+    """With resume=True, exploration skips prompts already in the log."""
+    # Pre-populate log with baseline + persona_poet
+    log_path = tmp_path / "exploration_log.json"
+    existing = [
+        asdict(TrialResult(
+            trial_id="baseline", prompt_name="baseline", prompt_text="B {batch_items}",
+            mrr=0.08, per_pair=[], secondary={}, parent_id=None,
+            generation=0, mutation=None, survived=True, timestamp="2026-01-01",
+        )),
+        asdict(TrialResult(
+            trial_id="explore-persona_poet", prompt_name="persona_poet",
+            prompt_text="P {batch_items}", mrr=0.09, per_pair=[], secondary={},
+            parent_id=None, generation=0, mutation=None, survived=True,
+            timestamp="2026-01-01",
+        )),
+    ]
+    log_path.write_text(json.dumps(existing))
+
+    # 4 remaining prompts need evaluation (not baseline, not persona_poet)
+    mock_evaluate.side_effect = [
+        _make_eval_result(0.07),  # contrastive
+        _make_eval_result(0.06),  # narrative
+        _make_eval_result(0.04),  # taxonomic
+        _make_eval_result(0.05),  # embodied
+    ]
+
+    prompts = {
+        "persona_poet": "P {batch_items}",
+        "contrastive": "C {batch_items}",
+        "narrative": "N {batch_items}",
+        "taxonomic": "T {batch_items}",
+        "embodied": "E {batch_items}",
+    }
+
+    trials = run_exploration(
+        prompts=prompts,
+        baseline_prompt="B {batch_items}",
+        model="haiku",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+        resume=True,
+    )
+
+    # Should have 6 total: 2 loaded + 4 newly evaluated
+    assert len(trials) == 6
+    # evaluate called only 4 times (not 6 = baseline + 5 prompts)
+    assert mock_evaluate.call_count == 4
+
+
+@patch("evolve_prompts.evaluate")
+def test_exploration_resume_all_done(mock_evaluate, tmp_path):
+    """When all prompts already in log, resume returns immediately."""
+    log_path = tmp_path / "exploration_log.json"
+    existing = [
+        asdict(TrialResult(
+            trial_id="baseline", prompt_name="baseline", prompt_text="B {batch_items}",
+            mrr=0.08, per_pair=[], secondary={}, parent_id=None,
+            generation=0, mutation=None, survived=True, timestamp="2026-01-01",
+        )),
+        asdict(TrialResult(
+            trial_id="explore-only_prompt", prompt_name="only_prompt",
+            prompt_text="O {batch_items}", mrr=0.09, per_pair=[], secondary={},
+            parent_id=None, generation=0, mutation=None, survived=True,
+            timestamp="2026-01-01",
+        )),
+    ]
+    log_path.write_text(json.dumps(existing))
+
+    trials = run_exploration(
+        prompts={"only_prompt": "O {batch_items}"},
+        baseline_prompt="B {batch_items}",
+        model="haiku",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+        resume=True,
+    )
+
+    # All done — returned from log, no evaluations
+    assert len(trials) == 2
+    assert mock_evaluate.call_count == 0
+
+
+# --- Phase C: Resume-aware exploitation tests --------------------------------
+
+def test_is_exploitation_complete_all_tweaks(tmp_path):
+    """is_exploitation_complete returns True when max_tweaks exhausted."""
+    log_path = tmp_path / "exploitation_test_log.json"
+    trials = [
+        asdict(TrialResult(
+            trial_id=f"exploit-test-g{i}", prompt_name="test",
+            prompt_text=f"T{i}", mrr=0.1 + i * 0.01, per_pair=[], secondary={},
+            parent_id=f"exploit-test-g{i-1}" if i > 1 else "explore-test",
+            generation=i, mutation=f"tweak {i}", survived=True,
+            timestamp="2026-01-01", valid=True,
+        ))
+        for i in range(1, 4)  # 3 tweaks
+    ]
+    log_path.write_text(json.dumps(trials))
+
+    assert is_exploitation_complete(log_path, max_tweaks=3) is True
+    assert is_exploitation_complete(log_path, max_tweaks=5) is False
+
+
+def test_is_exploitation_complete_early_stop(tmp_path):
+    """is_exploitation_complete returns True when trailing failures >= limit."""
+    log_path = tmp_path / "exploitation_test_log.json"
+    trials = [
+        asdict(TrialResult(
+            trial_id="exploit-test-g1", prompt_name="test",
+            prompt_text="T1", mrr=0.15, per_pair=[], secondary={},
+            parent_id="explore-test", generation=1, mutation="tweak 1",
+            survived=True, timestamp="2026-01-01", valid=True,
+        )),
+        asdict(TrialResult(
+            trial_id="exploit-test-g2", prompt_name="test",
+            prompt_text="T2", mrr=0.10, per_pair=[], secondary={},
+            parent_id="exploit-test-g1", generation=2, mutation="tweak 2",
+            survived=False, timestamp="2026-01-01", valid=True,
+        )),
+        asdict(TrialResult(
+            trial_id="exploit-test-g3", prompt_name="test",
+            prompt_text="T3", mrr=0.09, per_pair=[], secondary={},
+            parent_id="exploit-test-g1", generation=3, mutation="tweak 3",
+            survived=False, timestamp="2026-01-01", valid=True,
+        )),
+    ]
+    log_path.write_text(json.dumps(trials))
+
+    # 2 trailing valid failures with limit=2 → complete
+    assert is_exploitation_complete(log_path, max_tweaks=7, consecutive_failure_limit=2) is True
+    # But not with limit=3
+    assert is_exploitation_complete(log_path, max_tweaks=7, consecutive_failure_limit=3) is False
+
+
+def test_is_exploitation_complete_partial(tmp_path):
+    """is_exploitation_complete returns False when still in progress."""
+    log_path = tmp_path / "exploitation_test_log.json"
+    trials = [
+        asdict(TrialResult(
+            trial_id="exploit-test-g1", prompt_name="test",
+            prompt_text="T1", mrr=0.15, per_pair=[], secondary={},
+            parent_id="explore-test", generation=1, mutation="tweak 1",
+            survived=True, timestamp="2026-01-01", valid=True,
+        )),
+    ]
+    log_path.write_text(json.dumps(trials))
+
+    assert is_exploitation_complete(log_path, max_tweaks=3) is False
+
+
+@patch("evolve_prompts.improve_prompt")
+@patch("evolve_prompts.generate_tweak")
+@patch("evolve_prompts.evaluate")
+def test_exploitation_resume_continues_from_last_gen(mock_eval, mock_tweak, mock_improve, tmp_path):
+    """With resume_from, exploitation continues from last generation."""
+    mock_improve.side_effect = lambda prompt, **kw: prompt
+
+    # Pre-existing 2 trials in log
+    existing_trials = [
+        TrialResult(
+            trial_id="exploit-test-g1", prompt_name="test",
+            prompt_text="T1 {batch_items}", mrr=0.20, per_pair=[],
+            secondary={}, parent_id="explore-test", generation=1,
+            mutation="tweak 1", survived=True, timestamp="2026-01-01",
+        ),
+        TrialResult(
+            trial_id="exploit-test-g2", prompt_name="test",
+            prompt_text="T2 {batch_items}", mrr=0.25, per_pair=[],
+            secondary={}, parent_id="exploit-test-g1", generation=2,
+            mutation="tweak 2", survived=True, timestamp="2026-01-01",
+        ),
+    ]
+
+    mock_tweak.return_value = {
+        "modified_prompt": "T3 {batch_items}", "description": "tweak 3",
+    }
+    mock_eval.return_value = _make_eval_result(0.30)
+
+    trials = run_exploitation(
+        survivor_name="test",
+        survivor_prompt="Original {batch_items}",
+        survivor_mrr=0.15,
+        per_pair=[],
+        max_tweaks=3,
+        model="haiku",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+        resume_from=existing_trials,
+    )
+
+    # 2 existing + 1 new = 3 total
+    assert len(trials) == 3
+    assert trials[2].generation == 3
+    assert trials[2].parent_id == "exploit-test-g2"
+    # Only 1 evaluation call (gen 3), not 3
+    assert mock_eval.call_count == 1
+
+
+@patch("evolve_prompts.run_exploitation")
+@patch("evolve_prompts.run_exploration")
+def test_experiment_resume_skips_completed_survivors(mock_explore, mock_exploit, tmp_path):
+    """With resume=True, run_experiment skips survivors whose exploitation is complete."""
+    # Exploration log pre-populated
+    log_path = tmp_path / "exploration_log.json"
+    explore_trials = [
+        TrialResult("baseline", "baseline", "B {batch_items}", 0.10, [], {},
+                    None, 0, None, True, "2026-01-01"),
+        TrialResult("explore-done", "done", "D {batch_items}", 0.15, [], {},
+                    None, 0, None, True, "2026-01-01"),
+        TrialResult("explore-pending", "pending", "P {batch_items}", 0.12, [], {},
+                    None, 0, None, True, "2026-01-01"),
+    ]
+    log_path.write_text(json.dumps([asdict(t) for t in explore_trials]))
+
+    # "done" survivor has a complete exploitation log
+    exploit_done_path = tmp_path / "exploitation_done_log.json"
+    exploit_done_trials = [
+        asdict(TrialResult(
+            trial_id=f"exploit-done-g{i}", prompt_name="done",
+            prompt_text=f"T{i}", mrr=0.15 + i * 0.01, per_pair=[], secondary={},
+            parent_id=f"exploit-done-g{i-1}" if i > 1 else "explore-done",
+            generation=i, mutation=f"tweak {i}", survived=(i < 3),
+            timestamp="2026-01-01", valid=True,
+        ))
+        for i in range(1, 4)  # 3 tweaks = max_tweaks
+    ]
+    exploit_done_path.write_text(json.dumps(exploit_done_trials))
+
+    mock_explore.return_value = explore_trials
+
+    # Exploitation of "pending" returns new trials
+    mock_exploit.return_value = [
+        TrialResult("exploit-pending-g1", "pending", "P2 {batch_items}", 0.18,
+                    [], {}, "explore-pending", 1, "tweak", True, "2026-01-01"),
+    ]
+
+    all_trials = run_experiment(
+        model="haiku",
+        enrich_size=100,
+        port=9091,
+        output_dir=tmp_path,
+        max_tweaks=3,
+        resume=True,
+    )
+
+    # Exploitation should only be called for "pending", not "done"
+    assert mock_exploit.call_count == 1
+    exploit_kwargs = mock_exploit.call_args[1]
+    assert exploit_kwargs["survivor_name"] == "pending"
