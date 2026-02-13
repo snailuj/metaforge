@@ -9,14 +9,25 @@ export class MfResultsPanel extends LitElement {
     :host {
       display: block;
       position: absolute;
-      top: var(--space-xl, 2rem);
+      top: calc(var(--space-md, 1rem) + 3.5rem);
       left: var(--space-md, 1rem);
       bottom: var(--space-xl, 2rem);
       width: var(--hud-width, 320px);
       z-index: 10;
+      overflow: visible;
+    }
+
+    .panel-track {
+      height: 100%;
       overflow-y: auto;
       scrollbar-width: thin;
       scrollbar-color: var(--colour-accent-gold-dim) transparent;
+      transition: transform 200ms cubic-bezier(0, 0, 0.08, 1);
+    }
+
+    :host([collapsed]) .panel-track {
+      transform: translateX(calc(-100% - var(--space-md, 1rem)));
+      pointer-events: none;
     }
 
     .panel {
@@ -25,6 +36,36 @@ export class MfResultsPanel extends LitElement {
       border-radius: var(--hud-radius, 4px);
       backdrop-filter: blur(8px);
       padding: var(--space-md, 1rem);
+    }
+
+    .toggle-btn {
+      display: none;
+      position: absolute;
+      background: var(--colour-bg-hud, rgba(22, 33, 62, 0.6));
+      border: var(--hud-border, 1px solid rgba(212, 175, 55, 0.2));
+      border-radius: var(--hud-radius, 4px);
+      color: var(--colour-accent-gold, #d4af37);
+      font-size: 0.8rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      z-index: 1;
+    }
+
+    :host(:not([collapsed])) .toggle-btn {
+      left: auto;
+      right: 0;
+      top: 0.25rem;
+    }
+
+    :host([collapsed]) .toggle-btn {
+      left: 0;
+      top: 0;
+    }
+
+    @media (max-width: 768px) {
+      .toggle-btn {
+        display: block;
+      }
     }
 
     h2 {
@@ -126,6 +167,29 @@ export class MfResultsPanel extends LitElement {
   `
 
   @property({ type: Object }) result: LookupResult | null = null
+  @property({ type: Boolean, reflect: true }) collapsed = false
+
+  private mediaQuery: MediaQueryList | null = null
+
+  connectedCallback(): void {
+    super.connectedCallback()
+    this.mediaQuery = window.matchMedia('(max-width: 768px)')
+    if (this.mediaQuery.matches) this.collapsed = true
+    this.mediaQuery.addEventListener('change', this.handleMediaChange)
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback()
+    this.mediaQuery?.removeEventListener('change', this.handleMediaChange)
+  }
+
+  private handleMediaChange = (e: MediaQueryListEvent) => {
+    this.collapsed = e.matches
+  }
+
+  private toggleCollapsed() {
+    this.collapsed = !this.collapsed
+  }
 
   private renderRarityBadge(rarity?: string) {
     if (!rarity) return nothing
@@ -227,9 +291,17 @@ export class MfResultsPanel extends LitElement {
     }
 
     return html`
-      <div class="panel" role="region" aria-label="${getString('results-aria-label')}" aria-live="polite">
-        <h2>${this.result.word} ${this.renderRarityBadge(this.result.rarity)}</h2>
-        ${this.result.senses.map(s => this.renderSense(s))}
+      <button
+        class="toggle-btn"
+        aria-expanded=${this.collapsed ? 'false' : 'true'}
+        aria-label=${getString('panel-collapse-label')}
+        @click=${this.toggleCollapsed}
+      >${this.collapsed ? getString('panel-expand') : '\u00AB'}</button>
+      <div class="panel-track">
+        <div class="panel" role="region" aria-label="${getString('results-aria-label')}" aria-live="polite">
+          <h2>${this.result.word} ${this.renderRarityBadge(this.result.rarity)}</h2>
+          ${this.result.senses.map(s => this.renderSense(s))}
+        </div>
       </div>
     `
   }

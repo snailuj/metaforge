@@ -22,6 +22,10 @@ rarity-common = common
 rarity-unusual = unusual
 rarity-rare = rare
 
+## Collapsible results panel
+panel-expand = Explore »
+panel-collapse-label = Collapse results panel
+
 ## HUD filter toggles
 filter-common = Common
 filter-unusual = Unusual

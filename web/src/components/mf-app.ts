@@ -46,7 +46,7 @@ export class MfApp extends LitElement {
     }
 
     mf-results-panel {
-      z-index: 10;
+      z-index: 20;
     }
 
     .status-message {
@@ -86,7 +86,7 @@ export class MfApp extends LitElement {
       transform: translateX(-50%);
       display: flex;
       gap: var(--space-sm, 0.5rem);
-      z-index: 20;
+      z-index: 15;
     }
 
     .rarity-toggle {
