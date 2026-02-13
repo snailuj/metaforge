@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -38,7 +39,7 @@ func NewHandler(dbPath string) (*Handler, error) {
 	}
 
 	// Validate required tables exist
-	requiredTables := []string{"synsets", "lemmas", "synset_properties", "property_vocabulary", "synset_centroids"}
+	requiredTables := []string{"synsets", "lemmas", "synset_properties", "property_vocabulary", "synset_centroids", "frequencies"}
 	for _, table := range requiredTables {
 		var count int
 		err := database.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)
@@ -169,7 +170,9 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Error("failed to encode suggest response", "word", word, "err", err)
+	}
 }
 
 // HandleLookup handles GET /thesaurus/lookup?word=<word>
@@ -186,12 +189,58 @@ func (h *Handler) HandleLookup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		slog.Error("lookup failed", "word", word, "err", err)
 		http.Error(w, `{"error": "lookup failed"}`, http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		slog.Error("failed to encode lookup response", "word", word, "err", err)
+	}
+}
+
+// AutocompleteResponse is the JSON response for /thesaurus/autocomplete.
+type AutocompleteResponse struct {
+	Suggestions []thesaurus.AutocompleteSuggestion `json:"suggestions"`
+}
+
+// Autocomplete defaults
+const (
+	DefaultAutocompleteLimit = 10
+	MaxAutocompleteLimit     = 50
+	MinPrefixLength          = 2
+)
+
+// HandleAutocomplete handles GET /thesaurus/autocomplete?prefix=<prefix>&limit=<n>
+func (h *Handler) HandleAutocomplete(w http.ResponseWriter, r *http.Request) {
+	prefix := r.URL.Query().Get("prefix")
+	if len(strings.TrimSpace(prefix)) < MinPrefixLength {
+		http.Error(w, `{"error": "prefix must be at least 2 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	limit := DefaultAutocompleteLimit
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	if limit > MaxAutocompleteLimit {
+		limit = MaxAutocompleteLimit
+	}
+
+	suggestions, err := thesaurus.AutocompletePrefix(h.database, prefix, limit)
+	if err != nil {
+		slog.Error("autocomplete failed", "prefix", prefix, "err", err)
+		http.Error(w, `{"error": "autocomplete failed"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(AutocompleteResponse{Suggestions: suggestions}); err != nil {
+		slog.Error("failed to encode autocomplete response", "prefix", prefix, "err", err)
+	}
 }
 
 // HandleStrings serves Fluent .ftl string files.

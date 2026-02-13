@@ -11,7 +11,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/snailuj/metaforge/internal/embeddings"
+	"github.com/snailuj/metaforge/internal/blobconv"
 )
 
 // Synset represents a WordNet synset with enrichment
@@ -24,13 +24,14 @@ type Synset struct {
 	Connotation  string   `json:"connotation,omitempty"`
 	Register     string   `json:"register,omitempty"`
 	UsageExample string   `json:"usage_example,omitempty"`
-	Rarity       string   `json:"rarity,omitempty"`        // Placeholder: SUBTLEX-UK frequency data pending
 }
 
 // Open establishes a read-only connection to the lexicon SQLite database.
 // The path parameter should point to the lexicon.db file.
+// Uses immutable=1 so SQLite skips journal/WAL/shm files entirely,
+// which is required when the DB lives on a read-only filesystem.
 func Open(path string) (*sql.DB, error) {
-	return sql.Open("sqlite3", path+"?mode=ro")
+	return sql.Open("sqlite3", path+"?mode=ro&immutable=1")
 }
 
 // GetSynset retrieves a single synset by ID, including enrichment data.
@@ -267,7 +268,7 @@ type SynsetMatch struct {
 
 // SynsetMatchFull contains all data needed to classify and display a match,
 // retrieved in a single query. Replaces the N+1 pattern of GetSynset +
-// GetLemmaForSynset + ComputeSynsetDistance per candidate.
+// GetLemmaForSynset + per-candidate distance computation.
 type SynsetMatchFull struct {
 	SynsetID         string    `json:"synset_id"`
 	Word             string    `json:"word"`
@@ -372,8 +373,8 @@ func GetForgeMatches(db *sql.DB, sourceID string, threshold float64, limit int) 
 		}
 
 		// Decode centroid BLOBs
-		m.SourceCentroid = embeddings.BlobToFloats(srcBlob)
-		m.TargetCentroid = embeddings.BlobToFloats(tgtBlob)
+		m.SourceCentroid = blobconv.BlobToFloats(srcBlob)
+		m.TargetCentroid = blobconv.BlobToFloats(tgtBlob)
 
 		matches = append(matches, m)
 	}

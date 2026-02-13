@@ -4,8 +4,8 @@ import type { PropertyValues } from 'lit'
 import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
 import SpriteText from 'three-spritetext'
-import type { GraphData, GraphNode } from '@/graph/types'
-import { NODE_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
+import type { GraphData, GraphNode, Rarity } from '@/graph/types'
+import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
 const LABEL_FONT = 'Georgia, "Times New Roman", serif'
@@ -33,6 +33,19 @@ export class MfForceGraph extends LitElement {
   private resizeObserver: ResizeObserver | null = null
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
+  @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
+
+  private isNodeVisible = (n: unknown): boolean => {
+    const node = n as GraphNode
+    if (node.relationType === 'central') return true
+    const rarity = node.rarity ?? 'unusual'
+    return !this.hiddenRarities.has(rarity)
+  }
+
+  private isLinkVisible = (l: unknown): boolean => {
+    const link = l as { source: unknown; target: unknown }
+    return this.isNodeVisible(link.source) && this.isNodeVisible(link.target)
+  }
 
   protected firstUpdated(): void {
     this.container = this.renderRoot.querySelector('#graph-container') as HTMLDivElement
@@ -40,14 +53,20 @@ export class MfForceGraph extends LitElement {
 
     this.graph = ForceGraph3D({ controlType: 'fly' })(this.container)
       .backgroundColor('#1a1a2e')
-      .nodeColor((n: unknown) => NODE_COLOURS[(n as GraphNode).relationType] || DEFAULT_NODE_COLOUR)
+      .nodeColor((n: unknown) => {
+        const node = n as GraphNode
+        if (node.relationType === 'central') return NODE_COLOURS.central
+        return RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
+      })
       .nodeVal((n: unknown) => (n as GraphNode).val)
       .nodeOpacity(0.9)
       .nodeRelSize(0.5)
       .nodeThreeObjectExtend(true)
       .nodeThreeObject((n: unknown) => {
         const node = n as GraphNode
-        const colour = NODE_COLOURS[node.relationType] || '#e8e0d4'
+        const colour = node.relationType === 'central'
+          ? NODE_COLOURS.central
+          : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
         const sprite = new SpriteText(node.word, 3, colour)
         sprite.fontFace = LABEL_FONT
         // three-spritetext accepts `false` to disable background, but types only declare `string`
@@ -110,6 +129,9 @@ export class MfForceGraph extends LitElement {
     this.resizeObserver = new ResizeObserver(() => this.syncDimensions())
     this.resizeObserver.observe(this.container)
 
+    this.graph.nodeVisibility(this.isNodeVisible)
+    this.graph.linkVisibility(this.isLinkVisible)
+
     if (this.graphData.nodes.length) {
       this.graph.graphData(this.graphData)
     }
@@ -126,6 +148,10 @@ export class MfForceGraph extends LitElement {
   updated(changed: PropertyValues<this>): void {
     if (changed.has('graphData') && this.graph) {
       this.graph.graphData(this.graphData)
+    }
+    if (changed.has('hiddenRarities') && this.graph) {
+      this.graph.nodeVisibility(this.isNodeVisible)
+      this.graph.linkVisibility(this.isLinkVisible)
     }
   }
 

@@ -246,6 +246,50 @@ func TestGetLookup_SimilarRelations(t *testing.T) {
 	}
 }
 
+func TestGetLookup_RarityPresent(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	result, err := GetLookup(database, "happy")
+	if err != nil {
+		t.Fatalf("GetLookup(happy) returned error: %v", err)
+	}
+
+	if result.Rarity == "" {
+		t.Error("expected Rarity to be populated for 'happy'")
+	}
+	if result.Rarity != "common" {
+		t.Errorf("expected Rarity='common' for 'happy', got %q", result.Rarity)
+	}
+}
+
+func TestGetLookup_SynonymRarityPresent(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	result, err := GetLookup(database, "fire")
+	if err != nil {
+		t.Fatalf("GetLookup(fire) returned error: %v", err)
+	}
+
+	// Check that at least some synonyms have rarity populated
+	hasRarity := false
+	for _, sense := range result.Senses {
+		for _, syn := range sense.Synonyms {
+			if syn.Rarity != "" {
+				hasRarity = true
+				break
+			}
+		}
+		if hasRarity {
+			break
+		}
+	}
+	if !hasRarity {
+		t.Error("expected at least some synonyms to have Rarity populated")
+	}
+}
+
 func TestGetLookup_AdjectiveSatellitePOS(t *testing.T) {
 	database := openTestDB(t)
 	defer database.Close()
@@ -316,5 +360,143 @@ func TestGetLookupWhitespaceOnly(t *testing.T) {
 	_, err := GetLookup(database, "   ")
 	if err != ErrWordNotFound {
 		t.Errorf("Expected ErrWordNotFound for whitespace, got %v", err)
+	}
+}
+
+func TestAutocompletePrefix_Fire(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	suggestions, err := AutocompletePrefix(database, "fir", 10)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('fir', 10) returned error: %v", err)
+	}
+
+	if len(suggestions) == 0 {
+		t.Fatal("expected at least one suggestion for prefix 'fir'")
+	}
+
+	// "fire" should be among the results
+	found := false
+	for _, s := range suggestions {
+		if s.Word == "fire" {
+			found = true
+			if s.Definition == "" {
+				t.Error("expected non-empty definition for 'fire'")
+			}
+			if s.SenseCount != 21 {
+				t.Errorf("expected SenseCount=21 for 'fire', got %d", s.SenseCount)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected 'fire' among suggestions for prefix 'fir'")
+	}
+}
+
+func TestAutocompletePrefix_WithRarity(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	suggestions, err := AutocompletePrefix(database, "happ", 10)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('happ', 10) returned error: %v", err)
+	}
+
+	// "happy" should have rarity populated
+	for _, s := range suggestions {
+		if s.Word == "happy" {
+			if s.Rarity == "" {
+				t.Error("expected Rarity to be populated for 'happy'")
+			}
+			return
+		}
+	}
+	t.Error("expected 'happy' among suggestions for prefix 'happ'")
+}
+
+func TestAutocompletePrefix_EmptyPrefix(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	_, err := AutocompletePrefix(database, "", 10)
+	if err == nil {
+		t.Fatal("expected error for empty prefix, got nil")
+	}
+}
+
+func TestAutocompletePrefix_NoMatch(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	suggestions, err := AutocompletePrefix(database, "xyzzyplugh", 10)
+	if err != nil {
+		t.Fatalf("expected nil error for no-match prefix, got: %v", err)
+	}
+	if len(suggestions) != 0 {
+		t.Errorf("expected empty suggestions for no-match prefix, got %d", len(suggestions))
+	}
+}
+
+func TestAutocompletePrefix_Limit(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	suggestions, err := AutocompletePrefix(database, "a", 5)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('a', 5) returned error: %v", err)
+	}
+	if len(suggestions) > 5 {
+		t.Errorf("expected at most 5 suggestions, got %d", len(suggestions))
+	}
+	if len(suggestions) < 5 {
+		t.Errorf("expected 5 suggestions for prefix 'a' (many words start with a), got %d", len(suggestions))
+	}
+}
+
+func TestAutocompletePrefix_LIKEMetacharacterEscaped(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	// "%" is a LIKE wildcard — without escaping it would match all lemmas.
+	// With proper escaping it should match nothing (no lemma starts with "%").
+	suggestions, err := AutocompletePrefix(database, "%%", 10)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('%%%%', 10) returned error: %v", err)
+	}
+	if len(suggestions) != 0 {
+		t.Errorf("expected 0 suggestions for metacharacter prefix '%%%%', got %d", len(suggestions))
+	}
+
+	// "_a" without escaping would match any two-char prefix + "a" — lots of results.
+	// With escaping it should match nothing (no lemma starts with literal "_a").
+	suggestions, err = AutocompletePrefix(database, "_a", 10)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('_a', 10) returned error: %v", err)
+	}
+	if len(suggestions) != 0 {
+		t.Errorf("expected 0 suggestions for metacharacter prefix '_a', got %d", len(suggestions))
+	}
+}
+
+func TestAutocompletePrefix_CaseInsensitive(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	suggestions, err := AutocompletePrefix(database, "FIR", 10)
+	if err != nil {
+		t.Fatalf("AutocompletePrefix('FIR', 10) returned error: %v", err)
+	}
+
+	found := false
+	for _, s := range suggestions {
+		if s.Word == "fire" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected 'fire' among suggestions for uppercase prefix 'FIR'")
 	}
 }

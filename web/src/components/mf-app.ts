@@ -1,10 +1,10 @@
-import { LitElement, html, css } from 'lit'
+import { LitElement, html, css, type PropertyValues } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { lookupWord, ApiError } from '@/api/client'
 import { transformLookupToGraph } from '@/graph/transform'
 import { initStrings, getString } from '@/lib/strings'
 import type { LookupResult } from '@/types/api'
-import type { GraphData } from '@/graph/types'
+import type { GraphData, Rarity } from '@/graph/types'
 import type { MfToast } from './mf-toast'
 
 // Import components so they register
@@ -33,7 +33,7 @@ export class MfApp extends LitElement {
       left: 50%;
       transform: translateX(-50%);
       width: min(480px, calc(100% - 2rem));
-      z-index: 20;
+      z-index: 30;
     }
 
     mf-force-graph {
@@ -78,12 +78,56 @@ export class MfApp extends LitElement {
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    .rarity-filters {
+      position: absolute;
+      top: calc(var(--space-md, 1rem) + 48px);
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: var(--space-sm, 0.5rem);
+      z-index: 20;
+    }
+
+    .rarity-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.75rem;
+      color: var(--colour-text-secondary, #a89f94);
+      cursor: pointer;
+    }
+
+    .rarity-toggle.common { color: #8bb89a; }
+    .rarity-toggle.common input { accent-color: #8bb89a; }
+    .rarity-toggle.unusual { color: #c4956a; }
+    .rarity-toggle.unusual input { accent-color: #c4956a; }
+    .rarity-toggle.rare { color: #a88bc4; }
+    .rarity-toggle.rare input { accent-color: #a88bc4; }
   `
 
   @state() private appState: AppState = 'idle'
   @state() private result: LookupResult | null = null
   @state() private graphData: GraphData = { nodes: [], links: [] }
   @state() private errorMessage = ''
+  @state() private showCommon = true
+  @state() private showUnusual = true
+  @state() private showRare = true
+
+  private currentWord = ''
+  private lookupId = 0
+
+  private hiddenRarities: Set<Rarity> = new Set()
+
+  protected willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has('showCommon' as keyof this) || changed.has('showUnusual' as keyof this) || changed.has('showRare' as keyof this)) {
+      const hidden = new Set<Rarity>()
+      if (!this.showCommon) hidden.add('common')
+      if (!this.showUnusual) hidden.add('unusual')
+      if (!this.showRare) hidden.add('rare')
+      this.hiddenRarities = hidden
+    }
+  }
 
   async connectedCallback(): Promise<void> {
     super.connectedCallback()
@@ -106,7 +150,7 @@ export class MfApp extends LitElement {
 
   private handleHashChange = () => {
     const word = this.getWordFromHash()
-    if (word) {
+    if (word && word !== this.currentWord) {
       this.doLookup(word)
     }
   }
@@ -123,8 +167,8 @@ export class MfApp extends LitElement {
     }
   }
 
-  private async handleSearch(e: CustomEvent<{ word: string; suggest?: boolean }>) {
-    this.doLookup(e.detail.word, e.detail.suggest)
+  private async handleSearch(e: CustomEvent<{ word: string }>) {
+    this.doLookup(e.detail.word)
   }
 
   private async handleNodeNavigate(e: CustomEvent<{ word: string }>) {
@@ -143,21 +187,21 @@ export class MfApp extends LitElement {
     toast?.show(getString('toast-copied', { word: e.detail.word }))
   }
 
-  private async doLookup(word: string, suggest = false) {
-    if (!suggest) {
-      this.appState = 'loading'
-      this.errorMessage = ''
-    }
+  private async doLookup(word: string) {
+    const id = ++this.lookupId
+    this.currentWord = word
+    this.appState = 'loading'
+    this.errorMessage = ''
 
     try {
       const result = await lookupWord(word)
+      if (id !== this.lookupId) return // stale — a newer lookup superseded this one
       this.result = result
       this.graphData = transformLookupToGraph(result)
       this.appState = 'ready'
       this.setWordHash(word)
     } catch (err) {
-      // Suggest searches fail silently — don't disrupt current state
-      if (suggest) return
+      if (id !== this.lookupId) return // stale
       this.appState = 'error'
       if (err instanceof ApiError && err.status === 404) {
         this.errorMessage = getString('results-word-not-found', { word })
@@ -196,8 +240,31 @@ export class MfApp extends LitElement {
           : ''}
       </div>
 
+      ${this.appState === 'ready'
+        ? html`
+            <div class="rarity-filters" role="group" aria-label="${getString('filter-aria-label')}">
+              <label class="rarity-toggle common">
+                <input type="checkbox" .checked=${this.showCommon}
+                  @change=${(e: Event) => { this.showCommon = (e.target as HTMLInputElement).checked }}>
+                ${getString('filter-common')}
+              </label>
+              <label class="rarity-toggle unusual">
+                <input type="checkbox" .checked=${this.showUnusual}
+                  @change=${(e: Event) => { this.showUnusual = (e.target as HTMLInputElement).checked }}>
+                ${getString('filter-unusual')}
+              </label>
+              <label class="rarity-toggle rare">
+                <input type="checkbox" .checked=${this.showRare}
+                  @change=${(e: Event) => { this.showRare = (e.target as HTMLInputElement).checked }}>
+                ${getString('filter-rare')}
+              </label>
+            </div>
+          `
+        : ''}
+
       <mf-force-graph
         .graphData=${this.graphData}
+        .hiddenRarities=${this.hiddenRarities}
         @mf-node-select=${() => {}}
         @mf-node-navigate=${this.handleNodeNavigate}
         @mf-node-copy=${this.handleCopy}

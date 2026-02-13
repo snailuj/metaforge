@@ -49,6 +49,20 @@ func TestTierString(t *testing.T) {
 	}
 }
 
+func TestTierStringOutOfRange(t *testing.T) {
+	// Out-of-range tier should return "unknown", not panic
+	result := Tier(99).String()
+	if result != "unknown" {
+		t.Errorf("Tier(99).String() = %q, want %q", result, "unknown")
+	}
+
+	// Negative value
+	result = Tier(-1).String()
+	if result != "unknown" {
+		t.Errorf("Tier(-1).String() = %q, want %q", result, "unknown")
+	}
+}
+
 func TestNormaliseDistances(t *testing.T) {
 	// Simulates real data: distances clustered 0.06-0.30
 	distances := []float64{0.06, 0.10, 0.15, 0.20, 0.30}

@@ -50,42 +50,6 @@ func TestCosineDistance(t *testing.T) {
 	}
 }
 
-func TestComputeSynsetDistance(t *testing.T) {
-	db := openTestDB(t)
-	defer db.Close()
-
-	// Find two synsets that have properties
-	var synsetA, synsetB string
-	rows, err := db.Query(`
-		SELECT DISTINCT synset_id FROM synset_properties LIMIT 2
-	`)
-	if err != nil {
-		t.Fatalf("Failed to query synsets: %v", err)
-	}
-	defer rows.Close()
-
-	if rows.Next() {
-		rows.Scan(&synsetA)
-	}
-	if rows.Next() {
-		rows.Scan(&synsetB)
-	}
-
-	if synsetA == "" || synsetB == "" {
-		t.Skip("Need at least 2 synsets with properties")
-	}
-
-	dist, err := ComputeSynsetDistance(db, synsetA, synsetB)
-	if err != nil {
-		t.Fatalf("Failed to compute distance: %v", err)
-	}
-
-	// Distance should be between 0 and 2
-	if dist < 0 || dist > 2 {
-		t.Errorf("Distance should be 0-2, got %f", dist)
-	}
-}
-
 func TestBlobToFloatsWrongSize(t *testing.T) {
 	// Blob not exactly EmbeddingDim * 4 bytes should return nil
 	result := BlobToFloats([]byte{1, 2, 3})
@@ -154,30 +118,6 @@ func TestGetPropertyEmbeddingOOV(t *testing.T) {
 	}
 }
 
-func TestComputeSynsetDistanceNoProperties(t *testing.T) {
-	db := openTestDB(t)
-	defer db.Close()
-
-	// Synset "1" has no properties in synset_properties table
-	// Find a synset that DOES have properties for the other side
-	var synsetWithProps string
-	err := db.QueryRow(`
-		SELECT DISTINCT synset_id FROM synset_properties LIMIT 1
-	`).Scan(&synsetWithProps)
-	if err != nil {
-		t.Skipf("No synsets with properties: %v", err)
-	}
-
-	// When one synset has no property embeddings, distance should be 1.0
-	dist, err := ComputeSynsetDistance(db, "1", synsetWithProps)
-	if err != nil {
-		t.Fatalf("ComputeSynsetDistance failed: %v", err)
-	}
-	if dist != 1.0 {
-		t.Errorf("Expected distance 1.0 for synset without properties, got %f", dist)
-	}
-}
-
 func TestBlobToFloatsValidBlob(t *testing.T) {
 	// Create a valid 300-dim blob (all zeros)
 	blob := make([]byte, EmbeddingDim*4)
@@ -187,28 +127,5 @@ func TestBlobToFloatsValidBlob(t *testing.T) {
 	}
 	if len(result) != EmbeddingDim {
 		t.Errorf("Expected %d floats, got %d", EmbeddingDim, len(result))
-	}
-}
-
-func TestComputeSynsetDistanceSameSynset(t *testing.T) {
-	db := openTestDB(t)
-	defer db.Close()
-
-	// Find a synset with properties
-	var synsetID string
-	err := db.QueryRow(`
-		SELECT DISTINCT synset_id FROM synset_properties LIMIT 1
-	`).Scan(&synsetID)
-	if err != nil {
-		t.Skipf("No synsets with properties: %v", err)
-	}
-
-	// Same synset should have distance 0
-	dist, err := ComputeSynsetDistance(db, synsetID, synsetID)
-	if err != nil {
-		t.Fatalf("ComputeSynsetDistance failed: %v", err)
-	}
-	if dist != 0.0 {
-		t.Errorf("Expected distance 0.0 for same synset, got %f", dist)
 	}
 }

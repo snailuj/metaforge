@@ -3,6 +3,7 @@ package thesaurus
 import (
 	"database/sql"
 	"errors"
+	"log/slog"
 	"strings"
 )
 
@@ -29,6 +30,7 @@ var posNames = map[string]string{
 type RelatedWord struct {
 	Word     string `json:"word"`
 	SynsetID string `json:"synset_id"`
+	Rarity   string `json:"rarity,omitempty"`
 }
 
 // Relations groups related words by relation type.
@@ -51,10 +53,11 @@ type Sense struct {
 type LookupResult struct {
 	Word   string  `json:"word"`
 	Senses []Sense `json:"senses"`
+	Rarity string  `json:"rarity,omitempty"`
 }
 
 // GetLookup returns all senses for a given lemma, grouped by synset,
-// with synonyms and relations. Uses two queries total.
+// with synonyms and relations. Uses three queries total.
 func GetLookup(database *sql.DB, lemma string) (*LookupResult, error) {
 	lemma = strings.ToLower(strings.TrimSpace(lemma))
 
@@ -80,7 +83,15 @@ func GetLookup(database *sql.DB, lemma string) (*LookupResult, error) {
 		return nil, err
 	}
 
-	return &LookupResult{Word: lemma, Senses: senses}, nil
+	result := &LookupResult{Word: lemma, Senses: senses}
+
+	// Query 3: rarity data for all words in the result
+	if err := attachRarity(database, result); err != nil {
+		// Non-fatal: rarity is optional enrichment
+		slog.Warn("attachRarity failed", "lemma", lemma, "err", err)
+	}
+
+	return result, nil
 }
 
 // querySenses fetches all synsets and their synonyms for a lemma.
@@ -180,6 +191,157 @@ func queryRelations(database *sql.DB, senses []Sense, synsetIDs []string, senseI
 		}
 	}
 	return rows.Err()
+}
+
+// attachRarity fetches rarity data for the looked-up word and all related words,
+// populating the Rarity fields in-place.
+func attachRarity(database *sql.DB, result *LookupResult) error {
+	// Collect all unique words that need rarity lookup
+	words := map[string]bool{result.Word: true}
+	for _, sense := range result.Senses {
+		for _, syn := range sense.Synonyms {
+			words[syn.Word] = true
+		}
+		for _, h := range sense.Relations.Hypernyms {
+			words[h.Word] = true
+		}
+		for _, h := range sense.Relations.Hyponyms {
+			words[h.Word] = true
+		}
+		for _, s := range sense.Relations.Similar {
+			words[s.Word] = true
+		}
+	}
+
+	// Build IN clause
+	placeholders := make([]string, 0, len(words))
+	args := make([]interface{}, 0, len(words))
+	for w := range words {
+		placeholders = append(placeholders, "?")
+		args = append(args, w)
+	}
+	if len(placeholders) == 0 {
+		return nil
+	}
+
+	query := `SELECT lemma, rarity FROM frequencies WHERE lemma IN (` +
+		strings.Join(placeholders, ",") + `)`
+
+	rows, err := database.Query(query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	rarityMap := make(map[string]string)
+	for rows.Next() {
+		var lemma, rarity string
+		if err := rows.Scan(&lemma, &rarity); err != nil {
+			continue
+		}
+		rarityMap[lemma] = rarity
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Apply rarity to result
+	result.Rarity = rarityMap[result.Word]
+
+	for i := range result.Senses {
+		for j := range result.Senses[i].Synonyms {
+			result.Senses[i].Synonyms[j].Rarity = rarityMap[result.Senses[i].Synonyms[j].Word]
+		}
+		for j := range result.Senses[i].Relations.Hypernyms {
+			result.Senses[i].Relations.Hypernyms[j].Rarity = rarityMap[result.Senses[i].Relations.Hypernyms[j].Word]
+		}
+		for j := range result.Senses[i].Relations.Hyponyms {
+			result.Senses[i].Relations.Hyponyms[j].Rarity = rarityMap[result.Senses[i].Relations.Hyponyms[j].Word]
+		}
+		for j := range result.Senses[i].Relations.Similar {
+			result.Senses[i].Relations.Similar[j].Rarity = rarityMap[result.Senses[i].Relations.Similar[j].Word]
+		}
+	}
+
+	return nil
+}
+
+// AutocompleteSuggestion represents a single autocomplete result with
+// the dominant sense definition and total sense count for the lemma.
+type AutocompleteSuggestion struct {
+	Word       string `json:"word"`
+	Definition string `json:"definition"`
+	SenseCount int    `json:"sense_count"`
+	Rarity     string `json:"rarity,omitempty"`
+}
+
+// AutocompletePrefix returns lemmas matching a prefix, each with its dominant
+// sense definition (preferring enriched synsets), total sense count, and rarity.
+// Returns an error if prefix is empty. No-match returns an empty slice, not an error.
+func AutocompletePrefix(database *sql.DB, prefix string, limit int) ([]AutocompleteSuggestion, error) {
+	prefix = strings.ToLower(strings.TrimSpace(prefix))
+	if prefix == "" {
+		return nil, errors.New("prefix must not be empty")
+	}
+
+	// Escape LIKE metacharacters so user input is treated literally.
+	likeEscaper := strings.NewReplacer(`%`, `\%`, `_`, `\_`)
+	escapedPrefix := likeEscaper.Replace(prefix)
+
+	rows, err := database.Query(`
+		WITH matching_lemmas AS (
+			SELECT DISTINCT lemma
+			FROM lemmas
+			WHERE lemma LIKE ? || '%' ESCAPE '\'
+			ORDER BY lemma
+			LIMIT ?
+		)
+		SELECT ml.lemma,
+		       (SELECT s.definition
+		        FROM lemmas l
+		        JOIN synsets s ON s.synset_id = l.synset_id
+		        LEFT JOIN synset_properties sp ON sp.synset_id = s.synset_id
+		        WHERE l.lemma = ml.lemma
+		        ORDER BY (sp.synset_id IS NOT NULL) DESC, s.synset_id
+		        LIMIT 1) as definition,
+		       (SELECT COUNT(DISTINCT l2.synset_id)
+		        FROM lemmas l2
+		        WHERE l2.lemma = ml.lemma) as sense_count,
+		       f.rarity
+		FROM matching_lemmas ml
+		LEFT JOIN frequencies f ON f.lemma = ml.lemma
+		ORDER BY ml.lemma
+	`, escapedPrefix, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var suggestions []AutocompleteSuggestion
+	for rows.Next() {
+		var s AutocompleteSuggestion
+		var definition sql.NullString
+		var rarity sql.NullString
+		if err := rows.Scan(&s.Word, &definition, &s.SenseCount, &rarity); err != nil {
+			slog.Warn("scan autocomplete row failed", "prefix", prefix, "err", err)
+			continue
+		}
+		if definition.Valid {
+			s.Definition = definition.String
+		}
+		if rarity.Valid {
+			s.Rarity = rarity.String
+		}
+		suggestions = append(suggestions, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if suggestions == nil {
+		suggestions = []AutocompleteSuggestion{}
+	}
+	return suggestions, nil
 }
 
 func posName(code string) string {

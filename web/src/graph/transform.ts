@@ -1,5 +1,5 @@
 import type { LookupResult, RelatedWord } from '@/types/api'
-import type { GraphData, GraphLink, GraphNode, RelationType } from './types'
+import type { GraphData, GraphLink, GraphNode, Rarity, RelationType } from './types'
 
 const DEFAULT_MAX_NODES = 80
 
@@ -25,6 +25,7 @@ export function transformLookupToGraph(
     word: result.word,
     relationType: 'central',
     val: 8,
+    rarity: result.rarity as Rarity | undefined,
   })
 
   // Collect all related words by priority tier
@@ -61,6 +62,7 @@ export function transformLookupToGraph(
         synsetId: rw.synset_id,
         relationType: tier.type,
         val: tier.type === 'synonym' ? 4 : 2,
+        rarity: rw.rarity as Rarity | undefined,
       })
 
       links.push({

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { lookupWord, ApiError } from './client'
+import { lookupWord, autocompleteWord, ApiError } from './client'
 
 beforeEach(() => {
   vi.restoreAllMocks()
@@ -56,5 +56,55 @@ describe('lookupWord', () => {
       json: () => Promise.resolve({ unexpected: 'data' }),
     }))
     await expect(lookupWord('test')).rejects.toThrow(ApiError)
+  })
+})
+
+describe('autocompleteWord', () => {
+  it('returns suggestions on success', async () => {
+    const mockSuggestions = [
+      { word: 'fire', definition: 'the event of something burning', sense_count: 21, rarity: 'common' },
+      { word: 'firearm', definition: 'a portable gun', sense_count: 1, rarity: 'unusual' },
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ suggestions: mockSuggestions }),
+    }))
+    const result = await autocompleteWord('fir')
+    expect(result).toEqual(mockSuggestions)
+  })
+
+  it('trims and lowercases the prefix before fetching', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ suggestions: [] }),
+    }))
+    await autocompleteWord('  FIR  ')
+    expect(fetch).toHaveBeenCalledWith('/thesaurus/autocomplete?prefix=fir&limit=10')
+  })
+
+  it('returns empty array when no matches', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ suggestions: [] }),
+    }))
+    const result = await autocompleteWord('xyzzy')
+    expect(result).toEqual([])
+  })
+
+  it('throws ApiError on HTTP error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ error: 'prefix must be at least 2 characters' }),
+    }))
+    await expect(autocompleteWord('a')).rejects.toThrow(ApiError)
+  })
+
+  it('throws ApiError on invalid response shape', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ unexpected: 'data' }),
+    }))
+    await expect(autocompleteWord('fir')).rejects.toThrow(ApiError)
   })
 })

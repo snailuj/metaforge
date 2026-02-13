@@ -16,7 +16,11 @@ const (
 )
 
 func (t Tier) String() string {
-	return [...]string{"legendary", "interesting", "strong", "obvious", "unlikely"}[t]
+	names := [...]string{"legendary", "interesting", "strong", "obvious", "unlikely"}
+	if int(t) < 0 || int(t) >= len(names) {
+		return "unknown"
+	}
+	return names[t]
 }
 
 // Thresholds for tier classification

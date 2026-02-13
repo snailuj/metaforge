@@ -14,6 +14,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -296,6 +297,12 @@ def evaluate(
       --enrich --size N  Run LLM enrichment, guaranteeing metaphor pair
                          synsets are included in the enrichment set
     """
+    if shutil.which("sqlite3") is None:
+        raise RuntimeError(
+            "sqlite3 CLI not found on PATH. "
+            "Install it (e.g. apt install sqlite3) before running evaluation."
+        )
+
     if enrichment_file is None and enrich_size is None:
         raise ValueError("Provide --enrichment FILE or --enrich --size N")
 

@@ -11,6 +11,8 @@ declare module '3d-force-graph' {
     linkColor(fn: () => string): ForceGraph3DInstance
     linkWidth(width: number): ForceGraph3DInstance
     linkOpacity(opacity: number): ForceGraph3DInstance
+    nodeVisibility(fn: (node: unknown) => boolean): ForceGraph3DInstance
+    linkVisibility(fn: (link: unknown) => boolean): ForceGraph3DInstance
     onNodeClick(fn: (node: unknown, event: MouseEvent) => void): ForceGraph3DInstance
     onNodeRightClick(fn: (node: unknown, event: MouseEvent) => void): ForceGraph3DInstance
     onNodeHover(fn: (node: unknown | null) => void): ForceGraph3DInstance

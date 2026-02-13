@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 1: Build baseline lexicon from raw sources (OEWN + SyntagNet + VerbNet).
+# Phase 1: Build baseline lexicon from raw sources (OEWN + SyntagNet + VerbNet + Familiarity).
 #
 # Run only when raw data sources update. For normal enrichment, use enrich.sh.
 #
@@ -75,6 +75,12 @@ run_step "Import SyntagNet collocations" \
 
 run_step "Import VerbNet classes and roles" \
     python "$SCRIPTS_DIR/import_verbnet.py"
+
+run_step "Import Brysbaert GPT familiarity" \
+    python "$SCRIPTS_DIR/import_familiarity.py"
+
+run_step "Backfill SUBTLEX-UK frequency data" \
+    python "$SCRIPTS_DIR/import_subtlex.py"
 
 # --- Optional dump --------------------------------------------------------
 
