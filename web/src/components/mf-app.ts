@@ -119,8 +119,8 @@ export class MfApp extends LitElement {
 
   private hiddenRarities: Set<Rarity> = new Set()
 
-  protected willUpdate(changed: PropertyValues<this>): void {
-    if (changed.has('showCommon' as keyof this) || changed.has('showUnusual' as keyof this) || changed.has('showRare' as keyof this)) {
+  protected willUpdate(changed: PropertyValues): void {
+    if (changed.has('showCommon') || changed.has('showUnusual') || changed.has('showRare')) {
       const hidden = new Set<Rarity>()
       if (!this.showCommon) hidden.add('common')
       if (!this.showUnusual) hidden.add('unusual')
