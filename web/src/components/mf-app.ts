@@ -115,6 +115,7 @@ export class MfApp extends LitElement {
   @state() showRare = true
 
   private currentWord = ''
+  private lookupId = 0
 
   private get hiddenRarities(): Set<Rarity> {
     const hidden = new Set<Rarity>()
@@ -183,17 +184,20 @@ export class MfApp extends LitElement {
   }
 
   private async doLookup(word: string) {
+    const id = ++this.lookupId
     this.currentWord = word
     this.appState = 'loading'
     this.errorMessage = ''
 
     try {
       const result = await lookupWord(word)
+      if (id !== this.lookupId) return // stale — a newer lookup superseded this one
       this.result = result
       this.graphData = transformLookupToGraph(result)
       this.appState = 'ready'
       this.setWordHash(word)
     } catch (err) {
+      if (id !== this.lookupId) return // stale
       this.appState = 'error'
       if (err instanceof ApiError && err.status === 404) {
         this.errorMessage = getString('results-word-not-found', { word })

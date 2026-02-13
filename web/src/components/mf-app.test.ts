@@ -224,6 +224,55 @@ describe('MfApp', () => {
     expect(error?.textContent).toContain('Something went wrong')
   })
 
+  it('discards stale response when a newer lookup overtakes it', async () => {
+    const slowResult: LookupResult = {
+      word: 'slow',
+      senses: [{
+        synset_id: '1',
+        pos: 'adjective',
+        definition: 'not fast',
+        synonyms: [],
+        relations: { hypernyms: [], hyponyms: [], similar: [] },
+      }],
+    }
+    const fastResult: LookupResult = {
+      word: 'fast',
+      senses: [{
+        synset_id: '2',
+        pos: 'adjective',
+        definition: 'moving quickly',
+        synonyms: [],
+        relations: { hypernyms: [], hyponyms: [], similar: [] },
+      }],
+    }
+
+    // First lookup resolves slowly, second resolves immediately
+    let resolveFirst!: (v: LookupResult) => void
+    const firstPromise = new Promise<LookupResult>(r => { resolveFirst = r })
+    vi.mocked(lookupWord)
+      .mockReturnValueOnce(firstPromise)
+      .mockResolvedValueOnce(fastResult)
+
+    // Call doLookup directly to avoid event propagation issues
+    ;(el as any).doLookup('slow')
+    // Immediately start second lookup (before first resolves)
+    ;(el as any).doLookup('fast')
+
+    // Let the fast result resolve and all hashchange events settle
+    await new Promise(r => setTimeout(r, 100))
+    await el.updateComplete
+
+    // Now the slow result resolves after the fast one
+    resolveFirst(slowResult)
+    await new Promise(r => setTimeout(r, 100))
+    await el.updateComplete
+
+    // The staleness guard should discard the slow result.
+    // The app should show the FAST result (latest request).
+    expect((el as any).result.word).toBe('fast')
+    expect((el as any).appState).toBe('ready')
+  })
+
   describe('rarity filter', () => {
     it('passes hiddenRarities to mf-force-graph', async () => {
       await el.updateComplete
