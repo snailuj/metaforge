@@ -214,3 +214,43 @@ def test_prompt_text_passes_params(mock_invoke):
     mock_invoke.return_value = "ok"
     prompt_text("p", model="sonnet", max_retries=3, verbose=True)
     mock_invoke.assert_called_once_with("p", model="sonnet", max_retries=3, verbose=True)
+
+
+# --- prompt_json -------------------------------------------------------------
+
+from claude_client import prompt_json
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_json_list(mock_invoke):
+    mock_invoke.return_value = '[{"id": "1"}]'
+    result = prompt_json("prompt", model="haiku", expect=list)
+    assert result == [{"id": "1"}]
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_json_dict(mock_invoke):
+    mock_invoke.return_value = '{"key": "val"}'
+    result = prompt_json("prompt", model="haiku", expect=dict)
+    assert result == {"key": "val"}
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_json_wrong_type(mock_invoke):
+    mock_invoke.return_value = '{"key": "val"}'
+    with pytest.raises(ParseError, match="Expected list"):
+        prompt_json("prompt", model="haiku", expect=list)
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_json_invalid_json(mock_invoke):
+    mock_invoke.return_value = "not json at all"
+    with pytest.raises(ParseError, match="Failed to parse JSON"):
+        prompt_json("prompt", model="haiku")
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_json_no_type_check(mock_invoke):
+    mock_invoke.return_value = '{"key": "val"}'
+    result = prompt_json("prompt", model="haiku")  # no expect
+    assert result == {"key": "val"}

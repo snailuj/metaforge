@@ -130,3 +130,21 @@ def prompt_text(
 ) -> str:
     """Send a prompt, get text back."""
     return _invoke_with_retries(prompt, model=model, max_retries=max_retries, verbose=verbose)
+
+
+def prompt_json(
+    prompt: str,
+    model: str = "sonnet",
+    expect: type = None,
+    max_retries: int = 5,
+    verbose: bool = False,
+) -> list | dict:
+    """Send a prompt, get parsed JSON back."""
+    raw = _invoke_with_retries(prompt, model=model, max_retries=max_retries, verbose=verbose)
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ParseError(f"Failed to parse JSON: {e}") from e
+    if expect is not None and not isinstance(result, expect):
+        raise ParseError(f"Expected {expect.__name__}, got {type(result).__name__}")
+    return result
