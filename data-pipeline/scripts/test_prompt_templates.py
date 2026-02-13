@@ -1,0 +1,305 @@
+"""Tests for prompt_templates.py — exploration prompts and tweak generator."""
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from unittest.mock import patch
+from prompt_templates import (
+    EXPLORATION_PROMPTS, generate_tweak, improve_prompt,
+    load_fixture_vocabulary,
+)
+
+
+# --- 1. All exploration prompts have {batch_items} placeholder ----------------
+
+def test_all_prompts_have_batch_items_placeholder():
+    """Every exploration prompt must contain {batch_items}."""
+    assert len(EXPLORATION_PROMPTS) == 5
+    for name, prompt in EXPLORATION_PROMPTS.items():
+        assert "{batch_items}" in prompt, f"{name} missing {{batch_items}}"
+
+
+# --- 2. All exploration prompts request JSON output ---------------------------
+
+def test_all_prompts_request_json():
+    """Every prompt must instruct the model to return JSON."""
+    for name, prompt in EXPLORATION_PROMPTS.items():
+        assert "JSON" in prompt or "json" in prompt, (
+            f"{name} does not mention JSON output format"
+        )
+
+
+# --- 3. All exploration prompts request 10-15 properties ----------------------
+
+def test_all_prompts_request_property_count():
+    """Every prompt must mention 10-15 properties."""
+    for name, prompt in EXPLORATION_PROMPTS.items():
+        assert "10" in prompt and "15" in prompt, (
+            f"{name} does not specify 10-15 property count"
+        )
+
+
+# --- 4. Each prompt has a distinct name ---------------------------------------
+
+def test_prompt_names():
+    """Expected prompt names are present."""
+    expected = {"persona_poet", "contrastive", "narrative", "taxonomic", "embodied"}
+    assert set(EXPLORATION_PROMPTS.keys()) == expected
+
+
+# --- 5. Prompts can be formatted with batch_items ----------------------------
+
+def test_prompts_format_with_batch_items():
+    """Each prompt can .format(batch_items=...) without error."""
+    sample = "ID: 100001\nWord: candle\nDefinition: stick of wax\n"
+    for name, prompt in EXPLORATION_PROMPTS.items():
+        formatted = prompt.format(batch_items=sample)
+        assert "candle" in formatted, f"{name} did not interpolate batch_items"
+
+
+# --- 6. Tweak generator returns modified prompt with {batch_items} -----------
+
+@patch("prompt_templates.prompt_json")
+def test_generate_tweak_returns_modified_prompt(mock_prompt_json):
+    """generate_tweak returns a dict with modified prompt containing {batch_items}."""
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Tweaked version: {batch_items}\nJSON: [{}]",
+        "description": "Added emphasis on tactile properties",
+    }
+
+    per_pair = [
+        {"source": "anger", "target": "fire", "rank": 1, "reciprocal_rank": 1.0},
+        {"source": "grief", "target": "anchor", "rank": None, "reciprocal_rank": 0.0},
+    ]
+
+    result = generate_tweak(
+        current_prompt="Original: {batch_items}\nJSON: [{}]",
+        per_pair=per_pair,
+        mrr=0.5,
+        model="haiku",
+    )
+
+    assert "{batch_items}" in result["modified_prompt"]
+    assert result["description"]  # non-empty
+    mock_prompt_json.assert_called_once()
+
+
+# --- 7. Tweak generator falls back if LLM returns invalid JSON ---------------
+
+@patch("prompt_templates.prompt_json")
+def test_generate_tweak_raises_on_invalid_response(mock_prompt_json):
+    """generate_tweak raises ValueError if LLM returns unparseable response."""
+    from claude_client import ParseError
+    mock_prompt_json.side_effect = ParseError("Failed to parse JSON")
+
+    with pytest.raises(ValueError, match="generate_tweak"):
+        generate_tweak(
+            current_prompt="Prompt: {batch_items}\n[{}]",
+            per_pair=[],
+            mrr=0.5,
+            model="haiku",
+        )
+
+
+# --- 8. Tweak generator rejects response missing {batch_items} ---------------
+
+@patch("prompt_templates.prompt_json")
+def test_generate_tweak_rejects_missing_placeholder(mock_prompt_json):
+    """generate_tweak raises ValueError if tweaked prompt lacks {batch_items}."""
+    mock_prompt_json.return_value = {
+        "modified_prompt": "No placeholder here",
+        "description": "Removed the placeholder accidentally",
+    }
+
+    with pytest.raises(ValueError, match="batch_items"):
+        generate_tweak(
+            current_prompt="Prompt: {batch_items}\n[{{}}]",
+            per_pair=[],
+            mrr=0.5,
+            model="haiku",
+        )
+
+
+# --- 9. improve_prompt preserves {batch_items} placeholder --------------------
+
+@patch("prompt_templates.prompt_text")
+def test_improve_prompt_preserves_batch_items_placeholder(mock_prompt):
+    """improve_prompt returns a prompt that still contains {batch_items}."""
+    mock_prompt.return_value = "Improved prompt with {batch_items} placeholder."
+
+    result = improve_prompt("Raw prompt: {batch_items}", model="sonnet")
+    assert "{batch_items}" in result
+
+
+# --- 10. improve_prompt uses the specified model ------------------------------
+
+@patch("prompt_templates.prompt_text")
+def test_improve_prompt_called_with_stronger_model(mock_prompt):
+    """improve_prompt calls prompt_text with the specified model."""
+    mock_prompt.return_value = "Improved: {batch_items}"
+
+    improve_prompt("Raw: {batch_items}", model="sonnet")
+    assert mock_prompt.call_args[1]["model"] == "sonnet" or mock_prompt.call_args[0][1] == "sonnet"
+
+
+# --- 11. improve_prompt rejects response without {batch_items} ----------------
+
+@patch("prompt_templates.prompt_text")
+def test_improve_prompt_rejects_response_without_placeholder(mock_prompt):
+    """improve_prompt raises ValueError if LLM drops the {batch_items} placeholder."""
+    mock_prompt.return_value = "Improved prompt without placeholder"
+
+    with pytest.raises(ValueError, match="batch_items"):
+        improve_prompt("Raw: {batch_items}", model="sonnet")
+
+
+# --- 12. Tweak meta-prompt contains no fixture words -------------------------
+
+@patch("prompt_templates.prompt_json")
+def test_tweak_meta_prompt_no_fixture_words(mock_prompt_json):
+    """The tweak meta-prompt sent to the LLM contains no concrete fixture words."""
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Tweaked: {batch_items}\nJSON: [{}]",
+        "description": "some change",
+    }
+
+    per_pair = [
+        {"source": "anger", "target": "fire", "rank": 1, "reciprocal_rank": 1.0,
+         "tier": "strong"},
+        {"source": "grief", "target": "anchor", "rank": None, "reciprocal_rank": 0.0,
+         "tier": "medium"},
+    ]
+
+    generate_tweak(
+        current_prompt="Original: {batch_items}\n[{}]",
+        per_pair=per_pair,
+        mrr=0.5,
+        model="haiku",
+    )
+
+    # Inspect the prompt that was sent to prompt_json
+    sent_prompt = mock_prompt_json.call_args[0][0]
+    # Should NOT contain concrete source/target words
+    assert "anger" not in sent_prompt
+    assert "fire" not in sent_prompt
+    assert "grief" not in sent_prompt
+    assert "anchor" not in sent_prompt
+
+
+# --- 13. Tweak meta-prompt has aggregate stats --------------------------------
+
+@patch("prompt_templates.prompt_json")
+def test_tweak_meta_prompt_has_aggregate_stats(mock_prompt_json):
+    """The tweak meta-prompt includes aggregate stats instead of concrete pairs."""
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Tweaked: {batch_items}\nJSON: [{}]",
+        "description": "some change",
+    }
+
+    per_pair = [
+        {"source": "anger", "target": "fire", "rank": 1, "reciprocal_rank": 1.0,
+         "tier": "strong"},
+        {"source": "joy", "target": "fountain", "rank": 5, "reciprocal_rank": 0.2,
+         "tier": "medium"},
+        {"source": "grief", "target": "anchor", "rank": None, "reciprocal_rank": 0.0,
+         "tier": "strong"},
+    ]
+
+    generate_tweak(
+        current_prompt="Original: {batch_items}\n[{}]",
+        per_pair=per_pair,
+        mrr=0.4,
+        model="haiku",
+    )
+
+    sent_prompt = mock_prompt_json.call_args[0][0]
+    # Should contain aggregate stats
+    assert "MRR" in sent_prompt
+    assert "0.4" in sent_prompt
+    # Should mention hit count or pair count
+    assert "3" in sent_prompt or "pair" in sent_prompt.lower()
+
+
+# --- 14. load_fixture_vocabulary extracts words from pairs --------------------
+
+def test_load_fixture_vocabulary(tmp_path):
+    """load_fixture_vocabulary returns frozenset of source+target words."""
+    import json
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps([
+        {"source": "anger", "target": "fire"},
+        {"source": "hope", "target": "light"},
+    ]))
+    vocab = load_fixture_vocabulary(str(pairs_file))
+    assert isinstance(vocab, frozenset)
+    assert vocab == frozenset({"anger", "fire", "hope", "light"})
+
+
+# --- 15. generate_tweak rejects contaminated prompt --------------------------
+
+@patch("prompt_templates.prompt_json")
+def test_generate_tweak_rejects_contaminated_prompt(mock_prompt_json):
+    """generate_tweak raises ValueError when LLM embeds fixture words."""
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Think about anger when extracting: {batch_items}\n[{}]",
+        "description": "added anger reference",
+    }
+
+    fixture_vocab = frozenset({"anger", "fire", "hope", "light"})
+
+    with pytest.raises(ValueError, match="fixture"):
+        generate_tweak(
+            current_prompt="Original: {batch_items}\n[{}]",
+            per_pair=[],
+            mrr=0.5,
+            model="haiku",
+            fixture_vocab=fixture_vocab,
+        )
+
+
+# --- 16. generate_tweak allows clean prompt ----------------------------------
+
+@patch("prompt_templates.prompt_json")
+def test_generate_tweak_allows_clean_prompt(mock_prompt_json):
+    """generate_tweak succeeds when modified prompt has no fixture words."""
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Better extraction: {batch_items}\nJSON: [{}]",
+        "description": "improved structure",
+    }
+
+    fixture_vocab = frozenset({"anger", "fire", "hope", "light"})
+
+    result = generate_tweak(
+        current_prompt="Original: {batch_items}\n[{}]",
+        per_pair=[],
+        mrr=0.5,
+        model="haiku",
+        fixture_vocab=fixture_vocab,
+    )
+    assert "{batch_items}" in result["modified_prompt"]
+
+
+# --- 17. fixture words already in base prompt are OK --------------------------
+
+@patch("prompt_templates.prompt_json")
+def test_fixture_words_already_in_base_prompt_ok(mock_prompt_json):
+    """Words in both current and modified prompt don't trigger guard."""
+    mock_prompt_json.return_value = {
+        "modified_prompt": "Focus on light properties: {batch_items}\n[{}]",
+        "description": "added light emphasis",
+    }
+
+    fixture_vocab = frozenset({"anger", "fire", "hope", "light"})
+
+    # "light" already in current prompt — should be allowed
+    result = generate_tweak(
+        current_prompt="Extract light and sensory: {batch_items}\n[{}]",
+        per_pair=[],
+        mrr=0.5,
+        model="haiku",
+        fixture_vocab=fixture_vocab,
+    )
+    assert "light" in result["modified_prompt"]

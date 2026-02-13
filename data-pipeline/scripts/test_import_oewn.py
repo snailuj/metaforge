@@ -1,7 +1,11 @@
 """Test OEWN import to lexicon_v2.db."""
 import sqlite3
+import sys
+from pathlib import Path
+
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parent))
 from utils import LEXICON_V2
 
 

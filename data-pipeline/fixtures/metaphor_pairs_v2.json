@@ -1,0 +1,1920 @@
+[
+  {
+    "source": "anger",
+    "target": "fire",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "grief",
+    "target": "anchor",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "love",
+    "target": "journey",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "fear",
+    "target": "shadow",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "hope",
+    "target": "light",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "joy",
+    "target": "fountain",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "sorrow",
+    "target": "ocean",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "rage",
+    "target": "storm",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "despair",
+    "target": "pit",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "anxiety",
+    "target": "knot",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "time",
+    "target": "river",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "life",
+    "target": "stage",
+    "tier": "strong",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "death",
+    "target": "sleep",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "memory",
+    "target": "palace",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "childhood",
+    "target": "garden",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "age",
+    "target": "winter",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "youth",
+    "target": "spring",
+    "tier": "strong",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "dawn",
+    "target": "beginning",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "knowledge",
+    "target": "light",
+    "tier": "strong",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "ignorance",
+    "target": "darkness",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "idea",
+    "target": "seed",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "argument",
+    "target": "war",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "theory",
+    "target": "building",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "mind",
+    "target": "machine",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "thought",
+    "target": "thread",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "wisdom",
+    "target": "treasure",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "power",
+    "target": "muscle",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "freedom",
+    "target": "bird",
+    "tier": "strong",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "law",
+    "target": "chain",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "corruption",
+    "target": "disease",
+    "tier": "weak",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "revolution",
+    "target": "fire",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "justice",
+    "target": "scales",
+    "tier": "weak",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "democracy",
+    "target": "foundation",
+    "tier": "weak",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "heart",
+    "target": "engine",
+    "tier": "weak",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "blood",
+    "target": "river",
+    "tier": "weak",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "breath",
+    "target": "wind",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "bone",
+    "target": "stone",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "skin",
+    "target": "armour",
+    "tier": "weak",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "eye",
+    "target": "window",
+    "tier": "weak",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "silence",
+    "target": "blanket",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "loneliness",
+    "target": "desert",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "chaos",
+    "target": "storm",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "peace",
+    "target": "harbour",
+    "tier": "medium",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "truth",
+    "target": "mirror",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "jealousy",
+    "target": "poison",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "ambition",
+    "target": "ladder",
+    "tier": "strong",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "conscience",
+    "target": "compass",
+    "tier": "strong",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "imagination",
+    "target": "wings",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "fate",
+    "target": "wheel",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "grief",
+    "target": "weight",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "fury",
+    "target": "volcano",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "contentment",
+    "target": "hearth",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "shame",
+    "target": "stain",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "melancholy",
+    "target": "fog",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "resentment",
+    "target": "ember",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "elation",
+    "target": "balloon",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "dread",
+    "target": "abyss",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "envy",
+    "target": "acid",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "bliss",
+    "target": "sunshine",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "bitterness",
+    "target": "vinegar",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "tenderness",
+    "target": "silk",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "nostalgia",
+    "target": "amber",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "euphoria",
+    "target": "firework",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "apathy",
+    "target": "ash",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "remorse",
+    "target": "scar",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "ecstasy",
+    "target": "lightning",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "serenity",
+    "target": "lake",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "panic",
+    "target": "earthquake",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "wrath",
+    "target": "wildfire",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": "archetypal"
+  },
+  {
+    "source": "pity",
+    "target": "rain",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "frustration",
+    "target": "wall",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "humiliation",
+    "target": "cage",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "yearning",
+    "target": "tide",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "gloom",
+    "target": "overcast",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "delight",
+    "target": "sparkle",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "agony",
+    "target": "blade",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "compassion",
+    "target": "balm",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "indignation",
+    "target": "boiling",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "torment",
+    "target": "rack",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "rapture",
+    "target": "flood",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": "archetypal"
+  },
+  {
+    "source": "irritation",
+    "target": "splinter",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "courage",
+    "target": "steel",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "vulnerability",
+    "target": "glass",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "numbness",
+    "target": "ice",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "passion",
+    "target": "flame",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "longing",
+    "target": "horizon",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "gratitude",
+    "target": "well",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "spite",
+    "target": "venom",
+    "tier": "strong",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "awe",
+    "target": "precipice",
+    "tier": "weak",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "disgust",
+    "target": "rot",
+    "tier": "medium",
+    "domain": "emotion",
+    "register": null
+  },
+  {
+    "source": "mortality",
+    "target": "candle",
+    "tier": "strong",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "eternity",
+    "target": "circle",
+    "tier": "strong",
+    "domain": "time",
+    "register": "archetypal"
+  },
+  {
+    "source": "ageing",
+    "target": "rust",
+    "tier": "strong",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "transience",
+    "target": "dew",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "decay",
+    "target": "mould",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "maturity",
+    "target": "harvest",
+    "tier": "strong",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "infancy",
+    "target": "bud",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "brevity",
+    "target": "smoke",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "legacy",
+    "target": "footprint",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "rebirth",
+    "target": "phoenix",
+    "tier": "strong",
+    "domain": "time",
+    "register": "archetypal"
+  },
+  {
+    "source": "patience",
+    "target": "root",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "urgency",
+    "target": "drumbeat",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "impermanence",
+    "target": "sand",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "decline",
+    "target": "sunset",
+    "tier": "strong",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "epoch",
+    "target": "glacier",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "routine",
+    "target": "treadmill",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "procrastination",
+    "target": "quicksand",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "haste",
+    "target": "rapids",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "endurance",
+    "target": "oak",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "obsolescence",
+    "target": "fossil",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "permanence",
+    "target": "granite",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "anticipation",
+    "target": "threshold",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "stagnation",
+    "target": "swamp",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "senescence",
+    "target": "autumn",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "resurrection",
+    "target": "dawn",
+    "tier": "strong",
+    "domain": "time",
+    "register": "archetypal"
+  },
+  {
+    "source": "ephemera",
+    "target": "butterfly",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "heritage",
+    "target": "tapestry",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "deadline",
+    "target": "guillotine",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "momentum",
+    "target": "avalanche",
+    "tier": "medium",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "perpetuity",
+    "target": "diamond",
+    "tier": "weak",
+    "domain": "time",
+    "register": null
+  },
+  {
+    "source": "confusion",
+    "target": "labyrinth",
+    "tier": "strong",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "understanding",
+    "target": "key",
+    "tier": "strong",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "curiosity",
+    "target": "spark",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "delusion",
+    "target": "mirage",
+    "tier": "strong",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "insight",
+    "target": "lens",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "reason",
+    "target": "scaffold",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "intuition",
+    "target": "compass",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "obsession",
+    "target": "whirlpool",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "clarity",
+    "target": "crystal",
+    "tier": "strong",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "doubt",
+    "target": "crack",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "concentration",
+    "target": "beam",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "perception",
+    "target": "prism",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "epiphany",
+    "target": "thunderbolt",
+    "tier": "strong",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "prejudice",
+    "target": "filter",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "logic",
+    "target": "chain",
+    "tier": "strong",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "stupidity",
+    "target": "blindfold",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "genius",
+    "target": "furnace",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "abstraction",
+    "target": "cloud",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "focus",
+    "target": "arrow",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "revelation",
+    "target": "veil",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": "archetypal"
+  },
+  {
+    "source": "hypothesis",
+    "target": "bridge",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "forgetfulness",
+    "target": "sieve",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "learning",
+    "target": "climb",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "belief",
+    "target": "bedrock",
+    "tier": "strong",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "rumination",
+    "target": "mill",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "creativity",
+    "target": "forge",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "madness",
+    "target": "maze",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "scepticism",
+    "target": "scalpel",
+    "tier": "weak",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "awareness",
+    "target": "lantern",
+    "tier": "medium",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "deception",
+    "target": "mask",
+    "tier": "strong",
+    "domain": "cognition",
+    "register": null
+  },
+  {
+    "source": "tyranny",
+    "target": "iron",
+    "tier": "strong",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "oppression",
+    "target": "yoke",
+    "tier": "strong",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "propaganda",
+    "target": "fog",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "bureaucracy",
+    "target": "web",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "rebellion",
+    "target": "earthquake",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "inequality",
+    "target": "chasm",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "authority",
+    "target": "throne",
+    "tier": "strong",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "censorship",
+    "target": "muzzle",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "diplomacy",
+    "target": "tightrope",
+    "tier": "weak",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "tradition",
+    "target": "anchor",
+    "tier": "strong",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "reform",
+    "target": "pruning",
+    "tier": "weak",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "sovereignty",
+    "target": "fortress",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "anarchy",
+    "target": "wildfire",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "privilege",
+    "target": "ivory",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "poverty",
+    "target": "drought",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "progress",
+    "target": "current",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "ideology",
+    "target": "lens",
+    "tier": "weak",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "solidarity",
+    "target": "rope",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "dissent",
+    "target": "crack",
+    "tier": "weak",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "patriotism",
+    "target": "hearth",
+    "tier": "weak",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "duty",
+    "target": "harness",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "empire",
+    "target": "colossus",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "liberty",
+    "target": "horizon",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "exploitation",
+    "target": "leech",
+    "tier": "strong",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "servitude",
+    "target": "shackle",
+    "tier": "strong",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "constitution",
+    "target": "skeleton",
+    "tier": "weak",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "revolution",
+    "target": "eruption",
+    "tier": "strong",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "civilisation",
+    "target": "garden",
+    "tier": "medium",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "war",
+    "target": "inferno",
+    "tier": "strong",
+    "domain": "society",
+    "register": null
+  },
+  {
+    "source": "soul",
+    "target": "bird",
+    "tier": "strong",
+    "domain": "body",
+    "register": "archetypal"
+  },
+  {
+    "source": "muscle",
+    "target": "rope",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "vein",
+    "target": "canal",
+    "tier": "weak",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "nerve",
+    "target": "wire",
+    "tier": "strong",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "spine",
+    "target": "pillar",
+    "tier": "strong",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "brain",
+    "target": "labyrinth",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "stomach",
+    "target": "crucible",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "lung",
+    "target": "bellows",
+    "tier": "strong",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "flesh",
+    "target": "clay",
+    "tier": "strong",
+    "domain": "body",
+    "register": "archetypal"
+  },
+  {
+    "source": "skull",
+    "target": "vault",
+    "tier": "weak",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "hair",
+    "target": "silk",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "joint",
+    "target": "hinge",
+    "tier": "strong",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "tongue",
+    "target": "sword",
+    "tier": "strong",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "voice",
+    "target": "bell",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "tear",
+    "target": "pearl",
+    "tier": "weak",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "sweat",
+    "target": "dew",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "pulse",
+    "target": "drum",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "womb",
+    "target": "cradle",
+    "tier": "strong",
+    "domain": "body",
+    "register": "archetypal"
+  },
+  {
+    "source": "rib",
+    "target": "arch",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "fist",
+    "target": "hammer",
+    "tier": "strong",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "wrinkle",
+    "target": "furrow",
+    "tier": "weak",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "scar",
+    "target": "map",
+    "tier": "weak",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "teeth",
+    "target": "ivory",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "belly",
+    "target": "cauldron",
+    "tier": "weak",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "skeleton",
+    "target": "scaffolding",
+    "tier": "medium",
+    "domain": "body",
+    "register": null
+  },
+  {
+    "source": "solitude",
+    "target": "island",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "adversity",
+    "target": "headwind",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "resilience",
+    "target": "bamboo",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "growth",
+    "target": "vine",
+    "tier": "medium",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "turmoil",
+    "target": "whirlwind",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "abundance",
+    "target": "orchard",
+    "tier": "weak",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "barrenness",
+    "target": "tundra",
+    "tier": "weak",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "renewal",
+    "target": "rain",
+    "tier": "medium",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "danger",
+    "target": "cliff",
+    "tier": "medium",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "calm",
+    "target": "pond",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "upheaval",
+    "target": "landslide",
+    "tier": "weak",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "prosperity",
+    "target": "meadow",
+    "tier": "weak",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "hardship",
+    "target": "thorn",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "fertility",
+    "target": "soil",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "desolation",
+    "target": "wasteland",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "temptation",
+    "target": "fruit",
+    "tier": "strong",
+    "domain": "nature",
+    "register": "archetypal"
+  },
+  {
+    "source": "transformation",
+    "target": "chrysalis",
+    "tier": "medium",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "instability",
+    "target": "foal",
+    "tier": "weak",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "purity",
+    "target": "snow",
+    "tier": "strong",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "corruption",
+    "target": "fungus",
+    "tier": "medium",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "complexity",
+    "target": "ecosystem",
+    "tier": "weak",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "fragility",
+    "target": "eggshell",
+    "tier": "medium",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "wildness",
+    "target": "wolf",
+    "tier": "medium",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "stubbornness",
+    "target": "boulder",
+    "tier": "medium",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "menace",
+    "target": "thunder",
+    "tier": "weak",
+    "domain": "nature",
+    "register": null
+  },
+  {
+    "source": "trust",
+    "target": "bridge",
+    "tier": "strong",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "betrayal",
+    "target": "knife",
+    "tier": "strong",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "intimacy",
+    "target": "nest",
+    "tier": "weak",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "rivalry",
+    "target": "arena",
+    "tier": "weak",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "loyalty",
+    "target": "oak",
+    "tier": "strong",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "attachment",
+    "target": "root",
+    "tier": "medium",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "infatuation",
+    "target": "fever",
+    "tier": "strong",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "reconciliation",
+    "target": "suture",
+    "tier": "weak",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "estrangement",
+    "target": "gulf",
+    "tier": "weak",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "friendship",
+    "target": "shelter",
+    "tier": "medium",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "heartbreak",
+    "target": "fracture",
+    "tier": "strong",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "romance",
+    "target": "dance",
+    "tier": "medium",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "manipulation",
+    "target": "puppet",
+    "tier": "strong",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "devotion",
+    "target": "altar",
+    "tier": "medium",
+    "domain": "relationship",
+    "register": "archetypal"
+  },
+  {
+    "source": "rejection",
+    "target": "door",
+    "tier": "strong",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "forgiveness",
+    "target": "salve",
+    "tier": "weak",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "possessiveness",
+    "target": "cage",
+    "tier": "medium",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "flirtation",
+    "target": "spark",
+    "tier": "medium",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "commitment",
+    "target": "mooring",
+    "tier": "strong",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "separation",
+    "target": "wound",
+    "tier": "strong",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "dependency",
+    "target": "vine",
+    "tier": "weak",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "kinship",
+    "target": "taproot",
+    "tier": "weak",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "enmity",
+    "target": "barb",
+    "tier": "medium",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "empathy",
+    "target": "mirror",
+    "tier": "medium",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "seduction",
+    "target": "honey",
+    "tier": "medium",
+    "domain": "relationship",
+    "register": null
+  },
+  {
+    "source": "inspiration",
+    "target": "lightning",
+    "tier": "strong",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "eloquence",
+    "target": "waterfall",
+    "tier": "medium",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "poetry",
+    "target": "tapestry",
+    "tier": "medium",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "melody",
+    "target": "stream",
+    "tier": "strong",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "prose",
+    "target": "brick",
+    "tier": "weak",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "rhetoric",
+    "target": "weapon",
+    "tier": "strong",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "narrative",
+    "target": "road",
+    "tier": "medium",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "satire",
+    "target": "scalpel",
+    "tier": "weak",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "comedy",
+    "target": "funhouse",
+    "tier": "medium",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "tragedy",
+    "target": "abyss",
+    "tier": "strong",
+    "domain": "creativity",
+    "register": "archetypal"
+  },
+  {
+    "source": "originality",
+    "target": "spring",
+    "tier": "medium",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "metaphor",
+    "target": "telescope",
+    "tier": "weak",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "expression",
+    "target": "chisel",
+    "tier": "weak",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "improvisation",
+    "target": "trapeze",
+    "tier": "weak",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "style",
+    "target": "garment",
+    "tier": "weak",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "harmony",
+    "target": "weave",
+    "tier": "medium",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "dissonance",
+    "target": "gravel",
+    "tier": "weak",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "masterpiece",
+    "target": "cathedral",
+    "tier": "medium",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "artistry",
+    "target": "alchemy",
+    "tier": "weak",
+    "domain": "creativity",
+    "register": null
+  },
+  {
+    "source": "language",
+    "target": "toolbox",
+    "tier": "weak",
+    "domain": "creativity",
+    "register": null
+  }
+]
