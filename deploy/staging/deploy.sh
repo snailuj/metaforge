@@ -83,9 +83,9 @@ check() {
 }
 
 check "API direct"      "http://127.0.0.1:8080/health"       '"status"'
-check "API via Caddy"   "http://127.0.0.1:3000/health"       '"status"'
-check "Frontend"        "http://127.0.0.1:3000/"             '<!doctype html>'
-check "Thesaurus"       "http://127.0.0.1:3000/thesaurus/lookup?word=happy" '"senses"'
+check "API via Caddy"   "https://metaforge.julianit.me/health"       '"status"'
+check "Frontend"        "https://metaforge.julianit.me/"             '<!doctype html>'
+check "Thesaurus"       "https://metaforge.julianit.me/thesaurus/lookup?word=happy" '"senses"'
 
 echo ""
 echo "=== Results: ${PASS} passed, ${FAIL} failed ==="
@@ -100,4 +100,4 @@ if [ "$FAIL" -gt 0 ]; then
 fi
 
 echo ""
-echo "Staging is live at http://45.32.60.40:3000/"
+echo "Staging is live at https://metaforge.julianit.me/"
