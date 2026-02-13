@@ -39,7 +39,7 @@ func NewHandler(dbPath string) (*Handler, error) {
 	}
 
 	// Validate required tables exist
-	requiredTables := []string{"synsets", "lemmas", "synset_properties", "property_vocabulary", "synset_centroids"}
+	requiredTables := []string{"synsets", "lemmas", "synset_properties", "property_vocabulary", "synset_centroids", "frequencies"}
 	for _, table := range requiredTables {
 		var count int
 		err := database.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)

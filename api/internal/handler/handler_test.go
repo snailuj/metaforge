@@ -2,10 +2,16 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const testDBPath = "../../../data-pipeline/output/lexicon_v2.db"
@@ -478,4 +484,32 @@ func TestAutocompleteEndpointLimitCap(t *testing.T) {
 	if len(resp.Suggestions) > 50 {
 		t.Errorf("Expected at most 50 suggestions (cap), got %d", len(resp.Suggestions))
 	}
+}
+
+func TestNewHandler_RejectsDBMissingFrequencies(t *testing.T) {
+	// Create a temp DB with every required table EXCEPT frequencies.
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	database, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("failed to create temp DB: %v", err)
+	}
+	// Tables that NewHandler already validates (minus frequencies).
+	for _, tbl := range []string{"synsets", "lemmas", "synset_properties", "property_vocabulary", "synset_centroids"} {
+		if _, err := database.Exec("CREATE TABLE " + tbl + " (id INTEGER)"); err != nil {
+			t.Fatalf("failed to create table %s: %v", tbl, err)
+		}
+	}
+	database.Close()
+
+	_, err = NewHandler(dbPath)
+	if err == nil {
+		t.Fatal("expected error when frequencies table is missing, got nil")
+	}
+	if !strings.Contains(err.Error(), "frequencies") {
+		t.Errorf("error should mention 'frequencies', got: %v", err)
+	}
+
+	// Clean up
+	os.Remove(dbPath)
 }
