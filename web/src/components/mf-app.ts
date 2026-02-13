@@ -33,7 +33,7 @@ export class MfApp extends LitElement {
       left: 50%;
       transform: translateX(-50%);
       width: min(480px, calc(100% - 2rem));
-      z-index: 20;
+      z-index: 30;
     }
 
     mf-force-graph {
