@@ -254,3 +254,60 @@ def test_prompt_json_no_type_check(mock_invoke):
     mock_invoke.return_value = '{"key": "val"}'
     result = prompt_json("prompt", model="haiku")  # no expect
     assert result == {"key": "val"}
+
+
+# --- prompt_batch ------------------------------------------------------------
+
+from claude_client import prompt_batch
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_batch_chunking(mock_invoke):
+    mock_invoke.side_effect = [
+        '[{"id":"a"},{"id":"b"}]',
+        '[{"id":"c"}]',
+    ]
+    results = prompt_batch(
+        items=["a", "b", "c"],
+        template="Process: {batch_items}",
+        batch_size=2,
+        model="haiku",
+    )
+    assert len(results) == 3
+    assert mock_invoke.call_count == 2
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_batch_render_fn(mock_invoke):
+    mock_invoke.return_value = '[{"id": "1"}]'
+    render = lambda items: "\n".join(f"Item: {i}" for i in items)
+    prompt_batch(items=["x"], template="{batch_items}", batch_size=10,
+                 model="haiku", render_fn=render)
+    sent_prompt = mock_invoke.call_args[0][0]
+    assert "Item: x" in sent_prompt
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_batch_on_batch_callback(mock_invoke):
+    mock_invoke.return_value = '[{"id":"a"}]'
+    calls = []
+    prompt_batch(
+        items=["a"],
+        template="{batch_items}",
+        batch_size=10,
+        model="haiku",
+        on_batch=lambda idx, total, results: calls.append((idx, total, results)),
+    )
+    assert calls == [(1, 1, [{"id": "a"}])]
+
+
+def test_prompt_batch_rejects_bad_template():
+    with pytest.raises(ValueError, match="batch_items"):
+        prompt_batch(items=["a"], template="no placeholder", batch_size=10, model="haiku")
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_batch_non_list_raises(mock_invoke):
+    mock_invoke.return_value = '{"not": "a list"}'
+    with pytest.raises(ParseError, match="Expected list"):
+        prompt_batch(items=["a"], template="{batch_items}", batch_size=10, model="haiku")

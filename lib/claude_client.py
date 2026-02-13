@@ -148,3 +148,37 @@ def prompt_json(
     if expect is not None and not isinstance(result, expect):
         raise ParseError(f"Expected {expect.__name__}, got {type(result).__name__}")
     return result
+
+
+def prompt_batch(
+    items: list,
+    template: str,
+    batch_size: int = 20,
+    model: str = "sonnet",
+    max_retries: int = 5,
+    verbose: bool = False,
+    render_fn: callable = None,
+    on_batch: callable = None,
+) -> list:
+    """Chunk items, render into template, call per-batch, merge results."""
+    if "{batch_items}" not in template:
+        raise ValueError("template must contain {batch_items} placeholder")
+    render = render_fn or (lambda batch: "\n".join(str(i) for i in batch))
+    total_batches = (len(items) + batch_size - 1) // batch_size
+    all_results = []
+    for i in range(0, len(items), batch_size):
+        chunk = items[i:i + batch_size]
+        batch_text = render(chunk)
+        prompt = template.format(batch_items=batch_text)
+        raw = _invoke_with_retries(prompt, model=model, max_retries=max_retries, verbose=verbose)
+        try:
+            batch_results = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ParseError(f"Failed to parse batch JSON: {e}") from e
+        if not isinstance(batch_results, list):
+            raise ParseError(f"Expected list from batch, got {type(batch_results).__name__}")
+        all_results.extend(batch_results)
+        if on_batch:
+            batch_index = i // batch_size + 1
+            on_batch(batch_index, total_batches, batch_results)
+    return all_results
