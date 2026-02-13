@@ -1,0 +1,24 @@
+[Unit]
+Description=Metaforge Go API
+After=network.target
+
+[Service]
+Type=simple
+User=agent
+WorkingDirectory=__WORKTREE__
+ExecStart=__WORKTREE__/api/metaforge \
+    -port 8080 \
+    -db __WORKTREE__/data-pipeline/output/lexicon_v2.db \
+    -strings __WORKTREE__/strings \
+    -cors-origin https://metaforge.julianit.me
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=metaforge-api
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=__WORKTREE__/data-pipeline/output
+
+[Install]
+WantedBy=multi-user.target

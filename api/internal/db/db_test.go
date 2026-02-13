@@ -469,3 +469,119 @@ func TestGetSynsetNotFound(t *testing.T) {
 		t.Error("Expected error for nonexistent synset ID")
 	}
 }
+
+func TestGetForgeMatchesDeduplicates(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	var synsetID string
+	err = db.QueryRow(`
+		SELECT sp.synset_id
+		FROM synset_properties sp
+		JOIN synset_centroids sc ON sc.synset_id = sp.synset_id
+		GROUP BY sp.synset_id
+		HAVING COUNT(*) >= 5
+		LIMIT 1
+	`).Scan(&synsetID)
+	if err != nil {
+		t.Skipf("No synset with 5+ properties and centroid: %v", err)
+	}
+
+	matches, err := GetForgeMatches(db, synsetID, 0.7, 50)
+	if err != nil {
+		t.Fatalf("GetForgeMatches failed: %v", err)
+	}
+
+	// All synset IDs in results must be unique
+	seen := make(map[string]bool)
+	for _, m := range matches {
+		if seen[m.SynsetID] {
+			t.Errorf("Duplicate synset ID %s in results", m.SynsetID)
+		}
+		seen[m.SynsetID] = true
+	}
+}
+
+func TestGetForgeMatchesSortedByTotalScore(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	var synsetID string
+	err = db.QueryRow(`
+		SELECT sp.synset_id
+		FROM synset_properties sp
+		JOIN synset_centroids sc ON sc.synset_id = sp.synset_id
+		GROUP BY sp.synset_id
+		HAVING COUNT(*) >= 5
+		LIMIT 1
+	`).Scan(&synsetID)
+	if err != nil {
+		t.Skipf("No synset with 5+ properties and centroid: %v", err)
+	}
+
+	matches, err := GetForgeMatches(db, synsetID, 0.7, 50)
+	if err != nil {
+		t.Fatalf("GetForgeMatches failed: %v", err)
+	}
+
+	// Results must be ordered by total_score desc
+	for i := 1; i < len(matches); i++ {
+		if matches[i].TotalScore > matches[i-1].TotalScore {
+			t.Errorf("Results not sorted by total_score desc: match[%d].TotalScore (%f) > match[%d].TotalScore (%f)",
+				i, matches[i].TotalScore, i-1, matches[i-1].TotalScore)
+		}
+	}
+}
+
+func TestGetSynsetsNotFound(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Nonexistent synset ID should return error
+	_, err = GetSynset(db, "nonexistent99999")
+	if err == nil {
+		t.Error("Expected error for nonexistent synset ID")
+	}
+}
+
+func TestGetSynsetsNoProperties(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Find a synset with no properties
+	var synsetID string
+	err = db.QueryRow(`
+		SELECT s.synset_id
+		FROM synsets s
+		WHERE NOT EXISTS (
+			SELECT 1 FROM synset_properties sp
+			WHERE sp.synset_id = s.synset_id
+		)
+		LIMIT 1
+	`).Scan(&synsetID)
+	if err != nil {
+		t.Skipf("No synset without properties found: %v", err)
+	}
+
+	synset, err := GetSynset(db, synsetID)
+	if err != nil {
+		t.Fatalf("GetSynset failed: %v", err)
+	}
+
+	// Synset should have no properties
+	if len(synset.Properties) != 0 {
+		t.Errorf("Expected 0 properties for synset %s, got %d", synsetID, len(synset.Properties))
+	}
+}

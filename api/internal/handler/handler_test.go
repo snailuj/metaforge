@@ -213,3 +213,115 @@ func TestForgeSuggestInvalidLimit(t *testing.T) {
 		t.Errorf("Expected <= %d suggestions for invalid limit, got %d", DefaultLimit, len(resp.Suggestions))
 	}
 }
+
+func TestForgeSuggestNonNumericThreshold(t *testing.T) {
+	h, err := NewHandler(testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create handler: %v", err)
+	}
+	defer h.Close()
+
+	// Non-numeric threshold should fall back to default
+	req := httptest.NewRequest("GET", "/forge/suggest?word=fire&threshold=abc", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleSuggest(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SuggestResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	// Should use default threshold for non-numeric input
+	if resp.Threshold != DefaultThreshold {
+		t.Errorf("Expected default threshold=%f, got %f", DefaultThreshold, resp.Threshold)
+	}
+}
+
+func TestForgeSuggestNonNumericLimit(t *testing.T) {
+	h, err := NewHandler(testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create handler: %v", err)
+	}
+	defer h.Close()
+
+	// Non-numeric limit should fall back to default
+	req := httptest.NewRequest("GET", "/forge/suggest?word=fire&limit=abc", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleSuggest(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SuggestResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	// Should use default limit for non-numeric input
+	if len(resp.Suggestions) > DefaultLimit {
+		t.Errorf("Expected <= %d suggestions (default), got %d", DefaultLimit, len(resp.Suggestions))
+	}
+}
+
+func TestForgeSuggestNegativeThreshold(t *testing.T) {
+	h, err := NewHandler(testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create handler: %v", err)
+	}
+	defer h.Close()
+
+	// Negative threshold should fall back to default
+	req := httptest.NewRequest("GET", "/forge/suggest?word=fire&threshold=-0.5", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleSuggest(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SuggestResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	// Should use default threshold for negative value
+	if resp.Threshold != DefaultThreshold {
+		t.Errorf("Expected default threshold=%f, got %f", DefaultThreshold, resp.Threshold)
+	}
+}
+
+func TestForgeSuggestZeroLimit(t *testing.T) {
+	h, err := NewHandler(testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create handler: %v", err)
+	}
+	defer h.Close()
+
+	// Zero limit should fall back to default
+	req := httptest.NewRequest("GET", "/forge/suggest?word=fire&limit=0", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleSuggest(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SuggestResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	// Should use default limit for zero value
+	if len(resp.Suggestions) > DefaultLimit {
+		t.Errorf("Expected <= %d suggestions (default), got %d", DefaultLimit, len(resp.Suggestions))
+	}
+}
