@@ -264,131 +264,133 @@ def run_enrichment(
         raise FileNotFoundError(f"Database not found: {SQLUNET_DB}")
 
     conn = sqlite3.connect(SQLUNET_DB)
+    try:
+        if output_file is None:
+            output_file = OUTPUT_DIR / f"property_pilot_{size}.json"
 
-    if output_file is None:
-        output_file = OUTPUT_DIR / f"property_pilot_{size}.json"
+        checkpoint_path = OUTPUT_DIR / "checkpoint_enrich.json"
 
-    checkpoint_path = OUTPUT_DIR / "checkpoint_enrich.json"
+        # Load required synset IDs — from set, file, or neither
+        required_ids = None
+        if required_synset_ids is not None:
+            required_ids = list(required_synset_ids)
+            print(f"  Required synset IDs: {len(required_ids)} (passed directly)")
+        elif synset_ids_file is not None:
+            with open(synset_ids_file) as f:
+                required_ids = json.load(f)
+            print(f"  Required synset IDs: {len(required_ids)} from {synset_ids_file}")
 
-    # Load required synset IDs — from set, file, or neither
-    required_ids = None
-    if required_synset_ids is not None:
-        required_ids = list(required_synset_ids)
-        print(f"  Required synset IDs: {len(required_ids)} (passed directly)")
-    elif synset_ids_file is not None:
-        with open(synset_ids_file) as f:
-            required_ids = json.load(f)
-        print(f"  Required synset IDs: {len(required_ids)} from {synset_ids_file}")
+        print(f"Running property enrichment...")
+        print(f"  Size: {size} synsets")
+        print(f"  Batch size: {batch_size}")
+        print(f"  Model: {model}")
+        print(f"  Database: {SQLUNET_DB}")
 
-    print(f"Running property enrichment...")
-    print(f"  Size: {size} synsets")
-    print(f"  Batch size: {batch_size}")
-    print(f"  Model: {model}")
-    print(f"  Database: {SQLUNET_DB}")
+        synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
+        print(f"  Retrieved {len(synsets)} synsets")
 
-    synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
-    print(f"  Retrieved {len(synsets)} synsets")
+        # Checkpoint handling
+        if resume:
+            state = load_checkpoint(checkpoint_path)
+            completed_ids = set(state["completed_ids"])
+            results = state["results"]
+            print(f"  Resuming from checkpoint: {len(completed_ids)} already done")
+        else:
+            completed_ids = set()
+            results = []
+            if checkpoint_path.exists():
+                checkpoint_path.unlink()
 
-    # Checkpoint handling
-    if resume:
-        state = load_checkpoint(checkpoint_path)
-        completed_ids = set(state["completed_ids"])
-        results = state["results"]
-        print(f"  Resuming from checkpoint: {len(completed_ids)} already done")
-    else:
-        completed_ids = set()
-        results = []
-        if checkpoint_path.exists():
+        remaining = [s for s in synsets if s['id'] not in completed_ids]
+
+        all_properties = []
+        failed_batches = 0
+        failed_synset_ids: list[str] = []
+
+        num_batches = (len(remaining) + batch_size - 1) // batch_size
+        for batch_idx in range(num_batches):
+            start = batch_idx * batch_size
+            end = min(start + batch_size, len(remaining))
+            batch = remaining[start:end]
+
+            print(f"\n  Batch {batch_idx + 1}/{num_batches} ({len(batch)} synsets)...")
+
+            try:
+                batch_results = extract_batch(
+                    batch, model=model, prompt_template=prompt_template,
+                    verbose=verbose,
+                )
+
+                for result in batch_results:
+                    results.append(result)
+                    completed_ids.add(result['id'])
+                    props = result.get('properties', [])
+                    all_properties.extend(props)
+                    print(f"    {result.get('lemma', '?')}: {len(props)} properties")
+
+                save_checkpoint(checkpoint_path, {
+                    "completed_ids": list(completed_ids),
+                    "results": results,
+                })
+
+            except Exception as e:
+                print(f"  BATCH FAILED after retries: {e}")
+                failed_batches += 1
+                failed_synset_ids.extend(s['id'] for s in batch)
+                save_checkpoint(checkpoint_path, {
+                    "completed_ids": list(completed_ids),
+                    "results": results,
+                })
+
+            if delay > 0:
+                time.sleep(delay)
+
+        # Recompute all_properties from full results (covers resume case)
+        all_properties = []
+        for r in results:
+            all_properties.extend(r.get('properties', []))
+
+        property_freq = Counter(all_properties)
+
+        output = {
+            "synsets": results,
+            "all_properties": list(set(all_properties)),
+            "property_frequency": dict(property_freq.most_common(100)),
+            "stats": {
+                "total_synsets": len(results),
+                "total_properties": len(all_properties),
+                "unique_properties": len(set(all_properties)),
+                "avg_properties_per_synset": round(
+                    len(all_properties) / len(results), 2
+                ) if results else 0,
+                "failed_batches": failed_batches,
+                "failed_synset_ids": failed_synset_ids,
+            },
+            "config": {
+                "model": model,
+                "batch_size": batch_size,
+                "size": size,
+            },
+        }
+
+        output_file.parent.mkdir(exist_ok=True)
+        with open(output_file, 'w') as f:
+            json.dump(output, f, indent=2)
+
+        # Clean up checkpoint on full success
+        if failed_batches == 0 and checkpoint_path.exists():
             checkpoint_path.unlink()
 
-    remaining = [s for s in synsets if s['id'] not in completed_ids]
+        print(f"\nEnrichment complete!")
+        print(f"  Synsets enriched: {output['stats']['total_synsets']}")
+        print(f"  Unique properties: {output['stats']['unique_properties']}")
+        print(f"  Avg properties/synset: {output['stats']['avg_properties_per_synset']}")
+        print(f"  Failed batches: {failed_batches}")
+        print(f"  Output: {output_file}")
 
-    all_properties = []
-    failed_batches = 0
-    failed_synset_ids: list[str] = []
+    finally:
+        conn.close()
 
-    num_batches = (len(remaining) + batch_size - 1) // batch_size
-    for batch_idx in range(num_batches):
-        start = batch_idx * batch_size
-        end = min(start + batch_size, len(remaining))
-        batch = remaining[start:end]
-
-        print(f"\n  Batch {batch_idx + 1}/{num_batches} ({len(batch)} synsets)...")
-
-        try:
-            batch_results = extract_batch(
-                batch, model=model, prompt_template=prompt_template,
-                verbose=verbose,
-            )
-
-            for result in batch_results:
-                results.append(result)
-                completed_ids.add(result['id'])
-                props = result.get('properties', [])
-                all_properties.extend(props)
-                print(f"    {result.get('lemma', '?')}: {len(props)} properties")
-
-            save_checkpoint(checkpoint_path, {
-                "completed_ids": list(completed_ids),
-                "results": results,
-            })
-
-        except Exception as e:
-            print(f"  BATCH FAILED after retries: {e}")
-            failed_batches += 1
-            failed_synset_ids.extend(s['id'] for s in batch)
-            save_checkpoint(checkpoint_path, {
-                "completed_ids": list(completed_ids),
-                "results": results,
-            })
-
-        if delay > 0:
-            time.sleep(delay)
-
-    # Recompute all_properties from full results (covers resume case)
-    all_properties = []
-    for r in results:
-        all_properties.extend(r.get('properties', []))
-
-    property_freq = Counter(all_properties)
-
-    output = {
-        "synsets": results,
-        "all_properties": list(set(all_properties)),
-        "property_frequency": dict(property_freq.most_common(100)),
-        "stats": {
-            "total_synsets": len(results),
-            "total_properties": len(all_properties),
-            "unique_properties": len(set(all_properties)),
-            "avg_properties_per_synset": round(
-                len(all_properties) / len(results), 2
-            ) if results else 0,
-            "failed_batches": failed_batches,
-            "failed_synset_ids": failed_synset_ids,
-        },
-        "config": {
-            "model": model,
-            "batch_size": batch_size,
-            "size": size,
-        },
-    }
-
-    output_file.parent.mkdir(exist_ok=True)
-    with open(output_file, 'w') as f:
-        json.dump(output, f, indent=2)
-
-    # Clean up checkpoint on full success
-    if failed_batches == 0 and checkpoint_path.exists():
-        checkpoint_path.unlink()
-
-    print(f"\nEnrichment complete!")
-    print(f"  Synsets enriched: {output['stats']['total_synsets']}")
-    print(f"  Unique properties: {output['stats']['unique_properties']}")
-    print(f"  Avg properties/synset: {output['stats']['avg_properties_per_synset']}")
-    print(f"  Failed batches: {failed_batches}")
-    print(f"  Output: {output_file}")
-
-    conn.close()
     return EnrichmentResult(
         output_file=str(output_file),
         requested=len(synsets),
