@@ -386,6 +386,100 @@ func GetForgeMatches(db *sql.DB, sourceID string, threshold float64, limit int) 
 	return matches, nil
 }
 
+// CuratedMatch represents a forge match via set intersection (curated vocabulary).
+type CuratedMatch struct {
+	SynsetID      string   `json:"synset_id"`
+	Word          string   `json:"word"`
+	Definition    string   `json:"definition"`
+	SharedCount   int      `json:"shared_count"`
+	ContrastCount int      `json:"contrast_count"`
+	SharedProps   []string `json:"shared_properties,omitempty"`
+}
+
+// GetForgeMatchesCurated finds forge candidates using curated vocabulary set intersection.
+// No embeddings or cosine distance — pure integer JOINs for shared + antonymous properties.
+func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMatch, error) {
+	rows, err := db.Query(`
+		WITH source_props AS (
+			SELECT vocab_id FROM synset_properties_curated WHERE synset_id = ?
+		),
+		shared AS (
+			SELECT spc.synset_id,
+			       COUNT(*) as shared_count,
+			       GROUP_CONCAT(pvc.lemma) as shared_props
+			FROM source_props sp
+			JOIN synset_properties_curated spc ON spc.vocab_id = sp.vocab_id
+			JOIN property_vocab_curated pvc ON pvc.vocab_id = sp.vocab_id
+			WHERE spc.synset_id != ?
+			GROUP BY spc.synset_id
+		),
+		contrast AS (
+			SELECT spc.synset_id,
+			       COUNT(*) as contrast_count
+			FROM source_props sp
+			JOIN property_antonyms pa ON pa.vocab_id_a = sp.vocab_id
+			JOIN synset_properties_curated spc ON spc.vocab_id = pa.vocab_id_b
+			WHERE spc.synset_id != ?
+			GROUP BY spc.synset_id
+		)
+		SELECT COALESCE(sh.synset_id, co.synset_id) as synset_id,
+		       s.definition,
+		       l.lemma,
+		       COALESCE(sh.shared_count, 0),
+		       COALESCE(co.contrast_count, 0),
+		       COALESCE(sh.shared_props, '')
+		FROM (
+			SELECT synset_id FROM shared
+			UNION
+			SELECT synset_id FROM contrast
+		) all_matches
+		LEFT JOIN shared sh ON sh.synset_id = all_matches.synset_id
+		LEFT JOIN contrast co ON co.synset_id = all_matches.synset_id
+		JOIN synsets s ON s.synset_id = all_matches.synset_id
+		JOIN lemmas l ON l.synset_id = all_matches.synset_id
+		ORDER BY COALESCE(sh.shared_count, 0) + COALESCE(co.contrast_count, 0) DESC
+		LIMIT ?
+	`, sourceID, sourceID, sourceID, limit)
+
+	if err != nil {
+		return nil, fmt.Errorf("GetForgeMatchesCurated query failed: %w", err)
+	}
+	defer rows.Close()
+
+	seen := make(map[string]bool)
+	var matches []CuratedMatch
+
+	for rows.Next() {
+		var m CuratedMatch
+		var sharedProps string
+
+		if err := rows.Scan(
+			&m.SynsetID, &m.Definition, &m.Word,
+			&m.SharedCount, &m.ContrastCount, &sharedProps,
+		); err != nil {
+			slog.Warn("scan curated match failed", "err", err)
+			continue
+		}
+
+		if seen[m.SynsetID] {
+			continue
+		}
+		seen[m.SynsetID] = true
+
+		if sharedProps != "" {
+			m.SharedProps = strings.Split(sharedProps, ",")
+		}
+
+		matches = append(matches, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("GetForgeMatchesCurated iteration error: %w", err)
+	}
+
+	return matches, nil
+}
+
 // GetSynsetIDForLemma finds the first synset ID for a given word.
 // Prefers synsets that have enrichment data (properties).
 func GetSynsetIDForLemma(db *sql.DB, lemma string) (string, error) {
