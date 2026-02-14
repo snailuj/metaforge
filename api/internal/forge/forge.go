@@ -8,17 +8,17 @@ import "sort"
 type Tier int
 
 const (
-	TierLegendary   Tier = iota // High distance + strong overlap (4+)
-	TierInteresting             // High distance + weak overlap (1)
-	TierStrong                  // High distance + moderate overlap (2-3)
-	TierObvious                 // Low distance + any overlap
-	TierUnlikely                // Low distance + weak overlap
-	TierIronic                  // Low shared + high contrast (ironic metaphor)
+	TierLegendary   Tier = iota // High shared + low contrast
 	TierComplex                 // High shared + high contrast (simultaneously alike and opposed)
+	TierInteresting             // High distance + weak overlap (legacy path only)
+	TierIronic                  // Low shared + high contrast (ironic metaphor)
+	TierStrong                  // Moderate shared / high distance + moderate overlap
+	TierObvious                 // Low distance + any overlap (legacy path only)
+	TierUnlikely                // Low everything
 )
 
 func (t Tier) String() string {
-	names := [...]string{"legendary", "interesting", "strong", "obvious", "unlikely", "ironic", "complex"}
+	names := [...]string{"legendary", "complex", "interesting", "ironic", "strong", "obvious", "unlikely"}
 	if int(t) < 0 || int(t) >= len(names) {
 		return "unknown"
 	}

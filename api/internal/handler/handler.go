@@ -121,44 +121,78 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Single mega-query: candidates + details + exact overlap + centroids
-	candidates, err := db.GetForgeMatches(h.database, synsetID, threshold, limit)
-	if err != nil {
-		http.Error(w, `{"error": "matching failed"}`, http.StatusInternalServerError)
-		return
+	// Check if curated vocabulary tables exist
+	var curatedExists int
+	_ = h.database.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type='table' AND name='synset_properties_curated'
+	`).Scan(&curatedExists)
+
+	var sorted []forge.Match
+
+	if curatedExists > 0 {
+		// Curated path: set intersection + antonym contrast
+		curatedCandidates, err := db.GetForgeMatchesCurated(h.database, synsetID, limit)
+		if err != nil {
+			http.Error(w, `{"error": "matching failed"}`, http.StatusInternalServerError)
+			return
+		}
+
+		var matches []forge.Match
+		for _, c := range curatedCandidates {
+			tier := forge.ClassifyTierCurated(c.SharedCount, c.ContrastCount)
+			matches = append(matches, forge.Match{
+				SynsetID:         c.SynsetID,
+				Word:             c.Word,
+				Definition:       c.Definition,
+				SharedProperties: c.SharedProps,
+				OverlapCount:     c.SharedCount,
+				Distance:         0, // No cosine distance in curated path
+				Tier:             tier,
+				TierName:         tier.String(),
+			})
+		}
+
+		sorted = forge.SortByTier(matches)
+	} else {
+		// Legacy path: cosine-distance mega-query
+		candidates, err := db.GetForgeMatches(h.database, synsetID, threshold, limit)
+		if err != nil {
+			http.Error(w, `{"error": "matching failed"}`, http.StatusInternalServerError)
+			return
+		}
+
+		// Compute raw distances from pre-computed centroids
+		rawDistances := make([]float64, len(candidates))
+		for i, c := range candidates {
+			rawDistances[i] = embeddings.CosineDistance(c.SourceCentroid, c.TargetCentroid)
+		}
+
+		// Normalise distances to [0, 1] within this result set.
+		// Shared-property discovery biases candidates toward similar centroids,
+		// so absolute distances cluster narrowly. Normalising ensures tier
+		// classification reflects relative distance within the candidate pool.
+		normDistances := forge.NormaliseDistances(rawDistances)
+
+		// Classify tiers using normalised distances
+		var matches []forge.Match
+		for i, c := range candidates {
+			tier := forge.ClassifyTier(normDistances[i], c.ExactOverlap)
+
+			matches = append(matches, forge.Match{
+				SynsetID:         c.SynsetID,
+				Word:             c.Word,
+				Definition:       c.Definition,
+				SharedProperties: c.SharedProperties,
+				OverlapCount:     c.ExactOverlap,
+				Distance:         rawDistances[i],
+				Tier:             tier,
+				TierName:         tier.String(),
+			})
+		}
+
+		sorted = forge.SortByTier(matches)
 	}
-
-	// Compute raw distances from pre-computed centroids
-	rawDistances := make([]float64, len(candidates))
-	for i, c := range candidates {
-		rawDistances[i] = embeddings.CosineDistance(c.SourceCentroid, c.TargetCentroid)
-	}
-
-	// Normalise distances to [0, 1] within this result set.
-	// Shared-property discovery biases candidates toward similar centroids,
-	// so absolute distances cluster narrowly. Normalising ensures tier
-	// classification reflects relative distance within the candidate pool.
-	normDistances := forge.NormaliseDistances(rawDistances)
-
-	// Classify tiers using normalised distances
-	var matches []forge.Match
-	for i, c := range candidates {
-		tier := forge.ClassifyTier(normDistances[i], c.ExactOverlap)
-
-		matches = append(matches, forge.Match{
-			SynsetID:         c.SynsetID,
-			Word:             c.Word,
-			Definition:       c.Definition,
-			SharedProperties: c.SharedProperties,
-			OverlapCount:     c.ExactOverlap,
-			Distance:         rawDistances[i],
-			Tier:             tier,
-			TierName:         tier.String(),
-		})
-	}
-
-	// Sort by tier (best first)
-	sorted := forge.SortByTier(matches)
 
 	resp := SuggestResponse{
 		Source:      word,
