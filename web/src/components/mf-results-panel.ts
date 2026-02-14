@@ -15,6 +15,7 @@ export class MfResultsPanel extends LitElement {
       width: var(--hud-width, 320px);
       z-index: 10;
       overflow: visible;
+      pointer-events: none;
     }
 
     .panel-track {
@@ -23,6 +24,7 @@ export class MfResultsPanel extends LitElement {
       scrollbar-width: thin;
       scrollbar-color: var(--colour-accent-gold-dim) transparent;
       transition: transform 200ms cubic-bezier(0, 0, 0.08, 1);
+      pointer-events: auto;
     }
 
     :host([collapsed]) .panel-track {
@@ -49,6 +51,7 @@ export class MfResultsPanel extends LitElement {
       padding: 4px 8px;
       cursor: pointer;
       z-index: 1;
+      pointer-events: auto;
     }
 
     :host(:not([collapsed])) .toggle-btn {
