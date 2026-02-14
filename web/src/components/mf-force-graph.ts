@@ -24,6 +24,7 @@ export class MfForceGraph extends LitElement {
       position: absolute;
       top: 0;
       left: 0;
+      touch-action: none;
     }
   `
 
