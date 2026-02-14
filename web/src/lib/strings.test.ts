@@ -23,6 +23,17 @@ describe('Fluent strings', () => {
     expect(getString('search-placeholder')).toBe('Search for a word...')
   })
 
+  it('fetches strings with cache no-cache to revalidate on deploy', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve(MOCK_FTL),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await initStrings()
+    expect(mockFetch).toHaveBeenCalledWith('/strings/v1/ui.ftl', { cache: 'no-cache' })
+  })
+
   it('interpolates variables', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,

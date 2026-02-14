@@ -7,7 +7,7 @@ let bundle: FluentBundle | null = null
  * Call once at app startup.
  */
 export async function initStrings(locale = 'en-GB'): Promise<void> {
-  const response = await fetch('/strings/v1/ui.ftl')
+  const response = await fetch('/strings/v1/ui.ftl', { cache: 'no-cache' })
   if (!response.ok) {
     console.error('Failed to load strings:', response.status)
     return

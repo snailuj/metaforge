@@ -217,6 +217,7 @@ export class MfApp extends LitElement {
         <mf-search-bar
           .placeholder=${getString('search-placeholder')}
           .searchLabel=${getString('search-aria-label')}
+          .value=${this.currentWord}
           @mf-search=${this.handleSearch}
         ></mf-search-bar>
       </div>

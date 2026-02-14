@@ -54,6 +54,14 @@ describe('MfSearchBar', () => {
     expect(customElements.get('mf-search-bar')).toBeDefined()
   })
 
+  it('reflects externally set value into the input', async () => {
+    el.value = 'melancholy'
+    await el.updateComplete
+
+    const input = el.shadowRoot!.querySelector('input')!
+    expect(input.value).toBe('melancholy')
+  })
+
   it('fires mf-search event with trimmed, lowercased word on Enter', async () => {
     const handler = vi.fn()
     el.addEventListener('mf-search', handler)

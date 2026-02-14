@@ -138,7 +138,7 @@ export class MfSearchBar extends LitElement {
   @property() placeholder = 'Search for a word...'
   @property() searchLabel = 'Search for a word'
 
-  @state() private value = ''
+  @property() value = ''
   @state() private suggestions: AutocompleteSuggestion[] = []
   @state() private selectedIndex = -1
 
