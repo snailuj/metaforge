@@ -13,10 +13,12 @@ const (
 	TierStrong                  // High distance + moderate overlap (2-3)
 	TierObvious                 // Low distance + any overlap
 	TierUnlikely                // Low distance + weak overlap
+	TierIronic                  // Low shared + high contrast (ironic metaphor)
+	TierComplex                 // High shared + high contrast (simultaneously alike and opposed)
 )
 
 func (t Tier) String() string {
-	names := [...]string{"legendary", "interesting", "strong", "obvious", "unlikely"}
+	names := [...]string{"legendary", "interesting", "strong", "obvious", "unlikely", "ironic", "complex"}
 	if int(t) < 0 || int(t) >= len(names) {
 		return "unknown"
 	}
@@ -29,6 +31,30 @@ const (
 	MinOverlap            = 2   // Minimum shared properties for "moderate" overlap
 	StrongOverlap         = 4   // Shared properties for "strong" overlap
 )
+
+// MinContrastOverlap is the minimum antonymous properties for contrast-based tiers.
+const MinContrastOverlap = 3
+
+// ClassifyTierCurated determines tier from shared and contrast property counts.
+// Used with the curated vocabulary (set-intersection matching, no cosine distance).
+func ClassifyTierCurated(shared, contrast int) Tier {
+	highShared := shared >= StrongOverlap
+	moderateShared := shared >= MinOverlap
+	highContrast := contrast >= MinContrastOverlap
+
+	switch {
+	case highShared && highContrast:
+		return TierComplex
+	case !moderateShared && highContrast:
+		return TierIronic
+	case highShared:
+		return TierLegendary
+	case moderateShared:
+		return TierStrong
+	default:
+		return TierUnlikely
+	}
+}
 
 // Match represents a candidate metaphor match.
 type Match struct {
