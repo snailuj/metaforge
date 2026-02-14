@@ -132,6 +132,11 @@ describe('MfForceGraph', () => {
     expect(capturedNodeColor!(noRarity)).toBe(RARITY_COLOURS.unusual)
   })
 
+  it('sets touch-action none on graph container', () => {
+    const container = el.shadowRoot!.querySelector('#graph-container') as HTMLElement
+    expect(container.style.touchAction).toBe('none')
+  })
+
   it('hides links when either endpoint is hidden', async () => {
     el.hiddenRarities = new Set(['rare'])
     await el.updateComplete

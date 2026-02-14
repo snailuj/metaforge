@@ -171,7 +171,7 @@ export class MfForceGraph extends LitElement {
   }
 
   render() {
-    return html`<div id="graph-container" style="width:100%;height:100%;"></div>`
+    return html`<div id="graph-container" style="width:100%;height:100%;touch-action:none;"></div>`
   }
 }
 
