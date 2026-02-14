@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { GraphData } from '@/graph/types'
 import { RARITY_COLOURS } from '@/graph/colours'
 
-// Capture the accessor functions passed to the graph instance
+// Capture the accessor functions and constructor options passed to the graph instance
 let capturedNodeVisibility: ((node: unknown) => boolean) | null = null
 let capturedLinkVisibility: ((link: unknown) => boolean) | null = null
 let capturedNodeColor: ((node: unknown) => string) | null = null
+let capturedControlType: string | undefined = undefined
 
 const chainable: Record<string, unknown> = new Proxy({}, {
   get: (_t, prop) => {
@@ -31,7 +32,12 @@ const chainable: Record<string, unknown> = new Proxy({}, {
   },
 })
 
-vi.mock('3d-force-graph', () => ({ default: () => () => chainable }))
+vi.mock('3d-force-graph', () => ({
+  default: (opts?: { controlType?: string }) => {
+    capturedControlType = opts?.controlType
+    return () => chainable
+  },
+}))
 vi.mock('three-spritetext', () => ({ default: vi.fn() }))
 
 import { MfForceGraph } from './mf-force-graph'
@@ -57,6 +63,7 @@ describe('MfForceGraph', () => {
     capturedNodeVisibility = null
     capturedLinkVisibility = null
     capturedNodeColor = null
+    capturedControlType = undefined
     el = new MfForceGraph()
     el.graphData = testData
     document.body.appendChild(el)
@@ -135,6 +142,33 @@ describe('MfForceGraph', () => {
   it('sets touch-action none on graph container', () => {
     const container = el.shadowRoot!.querySelector('#graph-container') as HTMLElement
     expect(container.style.touchAction).toBe('none')
+  })
+
+  it('uses fly controls on fine pointer devices', () => {
+    // happy-dom matchMedia returns matches:false by default → fine pointer
+    expect(capturedControlType).toBe('fly')
+  })
+
+  it('uses orbit controls on coarse pointer devices', async () => {
+    const origMatchMedia = window.matchMedia
+    window.matchMedia = vi.fn().mockImplementation((query: string) => {
+      if (query === '(pointer: coarse)') {
+        return { matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }
+      }
+      return { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }
+    }) as unknown as typeof window.matchMedia
+
+    const touchEl = new MfForceGraph()
+    touchEl.graphData = testData
+    document.body.appendChild(touchEl)
+    await touchEl.updateComplete
+
+    try {
+      expect(capturedControlType).toBe('orbit')
+    } finally {
+      document.body.removeChild(touchEl)
+      window.matchMedia = origMatchMedia
+    }
   })
 
   it('hides links when either endpoint is hidden', async () => {
