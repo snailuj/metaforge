@@ -79,6 +79,17 @@ CREATE TABLE synset_centroids (
     centroid BLOB NOT NULL,
     property_count INTEGER NOT NULL
 );
+
+CREATE TABLE frequencies (
+    lemma TEXT PRIMARY KEY,
+    familiarity REAL
+);
+
+CREATE TABLE relations (
+    source_synset TEXT NOT NULL,
+    target_synset TEXT NOT NULL,
+    relation_type TEXT NOT NULL
+);
 """
 
 
@@ -606,3 +617,39 @@ def test_populate_applies_mwe_filter():
         (seep_id,),
     ).fetchone()
     assert link is not None
+
+
+# --- 17. run_pipeline creates curated tables ----------------------------------
+
+def test_run_pipeline_creates_curated_tables(tmp_path):
+    """run_pipeline() should create property_vocab_curated, synset_properties_curated,
+    and property_antonyms tables via the curated pipeline integration."""
+    data = _make_enrichment_data()
+    enrichment_file = tmp_path / "enrichment.json"
+    enrichment_file.write_text(json.dumps(data))
+
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(SCHEMA_SQL)
+    conn.close()
+
+    vectors = _make_vectors()
+
+    with patch("enrich_pipeline.load_fasttext_vectors", return_value=vectors):
+        stats = run_pipeline(str(db_path), str(enrichment_file), "dummy.vec")
+
+    # Curated tables must exist
+    conn = sqlite3.connect(str(db_path))
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    conn.close()
+
+    assert "property_vocab_curated" in tables
+    assert "synset_properties_curated" in tables
+    assert "property_antonyms" in tables
+
+    # Stats dict must include curated keys
+    assert "vocab_entries" in stats
+    assert "snapped_properties" in stats
+    assert "antonym_pairs" in stats
