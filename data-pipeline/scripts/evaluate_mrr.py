@@ -360,6 +360,7 @@ def evaluate(
             required_synset_ids=all_synset_ids,
             prompt_template=prompt_template,
             verbose=verbose,
+            db_path=db_path,
         )
         enrichment_file = enrich_result.output_file
         enrichment_coverage = enrich_result.coverage

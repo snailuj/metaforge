@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
 from claude_client import prompt_json, RateLimitError
 
-from utils import SQLUNET_DB, OUTPUT_DIR
+from utils import LEXICON_V2, OUTPUT_DIR
 
 
 # --- Errors ------------------------------------------------------------------
@@ -169,6 +169,7 @@ def get_pilot_synsets(
 ) -> List[Dict]:
     """Get diverse synsets: stratified by POS and frequency.
 
+    Queries lexicon_v2 schema (synsets + lemmas tables).
     If required_ids is provided, those synsets are included first, then
     remaining slots are filled randomly to reach the limit.
     """
@@ -179,11 +180,10 @@ def get_pilot_synsets(
     if required_ids:
         placeholders = ",".join("?" for _ in required_ids)
         cursor = conn.execute(f"""
-            SELECT DISTINCT s.synsetid, s.definition, w.word, s.posid
+            SELECT DISTINCT s.synset_id, s.definition, l.lemma, s.pos
             FROM synsets s
-            JOIN senses se ON se.synsetid = s.synsetid
-            JOIN words w ON w.wordid = se.wordid
-            WHERE s.synsetid IN ({placeholders})
+            JOIN lemmas l ON l.synset_id = s.synset_id
+            WHERE s.synset_id IN ({placeholders})
         """, required_ids)
         for row in cursor.fetchall():
             sid = str(row[0])
@@ -209,22 +209,20 @@ def get_pilot_synsets(
             if seen_ids:
                 exclude_placeholders = ",".join("?" for _ in seen_ids)
                 cursor = conn.execute(f"""
-                    SELECT DISTINCT s.synsetid, s.definition, w.word
+                    SELECT DISTINCT s.synset_id, s.definition, l.lemma
                     FROM synsets s
-                    JOIN senses se ON se.synsetid = s.synsetid
-                    JOIN words w ON w.wordid = se.wordid
-                    WHERE s.posid = ?
-                      AND s.synsetid NOT IN ({exclude_placeholders})
+                    JOIN lemmas l ON l.synset_id = s.synset_id
+                    WHERE s.pos = ?
+                      AND s.synset_id NOT IN ({exclude_placeholders})
                     ORDER BY RANDOM()
                     LIMIT ?
                 """, (pos, *seen_ids, count))
             else:
                 cursor = conn.execute("""
-                    SELECT DISTINCT s.synsetid, s.definition, w.word
+                    SELECT DISTINCT s.synset_id, s.definition, l.lemma
                     FROM synsets s
-                    JOIN senses se ON se.synsetid = s.synsetid
-                    JOIN words w ON w.wordid = se.wordid
-                    WHERE s.posid = ?
+                    JOIN lemmas l ON l.synset_id = s.synset_id
+                    WHERE s.pos = ?
                     ORDER BY RANDOM()
                     LIMIT ?
                 """, (pos, count))
@@ -255,15 +253,21 @@ def run_enrichment(
     required_synset_ids: set[str] = None,
     prompt_template: str = None,
     verbose: bool = False,
+    db_path: str = None,
 ) -> EnrichmentResult:
     """Run property enrichment on synsets using claude CLI.
 
-    Returns the output file path as a string.
+    Queries synset data from the lexicon DB (lexicon_v2 schema).
+    Returns an EnrichmentResult dataclass.
     """
-    if not SQLUNET_DB.exists():
-        raise FileNotFoundError(f"Database not found: {SQLUNET_DB}")
+    if db_path is None:
+        db_path = str(LEXICON_V2)
 
-    conn = sqlite3.connect(SQLUNET_DB)
+    db = Path(db_path)
+    if not db.exists():
+        raise FileNotFoundError(f"Database not found: {db_path}")
+
+    conn = sqlite3.connect(db_path)
     try:
         if output_file is None:
             output_file = OUTPUT_DIR / f"property_pilot_{size}.json"
@@ -284,7 +288,7 @@ def run_enrichment(
         print(f"  Size: {size} synsets")
         print(f"  Batch size: {batch_size}")
         print(f"  Model: {model}")
-        print(f"  Database: {SQLUNET_DB}")
+        print(f"  Database: {db_path}")
 
         synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
         print(f"  Retrieved {len(synsets)} synsets")
