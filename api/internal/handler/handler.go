@@ -14,16 +14,12 @@ import (
 	"strings"
 
 	"github.com/snailuj/metaforge/internal/db"
-	"github.com/snailuj/metaforge/internal/embeddings"
 	"github.com/snailuj/metaforge/internal/forge"
 	"github.com/snailuj/metaforge/internal/thesaurus"
 )
 
-// Default values for query parameters
-const (
-	DefaultThreshold = 0.7
-	DefaultLimit     = 50
-)
+// DefaultLimit is the default number of forge suggestions to return.
+const DefaultLimit = 50
 
 // Handler holds a shared database connection for all API endpoints.
 type Handler struct {
@@ -39,7 +35,7 @@ func NewHandler(dbPath string) (*Handler, error) {
 	}
 
 	// Validate required tables exist
-	requiredTables := []string{"synsets", "lemmas", "synset_properties", "property_vocabulary", "synset_centroids", "frequencies"}
+	requiredTables := []string{"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated", "frequencies"}
 	for _, table := range requiredTables {
 		var count int
 		err := database.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)
@@ -65,16 +61,14 @@ func (h *Handler) Close() error {
 }
 
 // SuggestResponse is the JSON response for /forge/suggest.
+// Each suggestion carries its own source context (synset, definition, POS)
+// since polysemous words may align different targets to different senses.
 type SuggestResponse struct {
 	Source      string        `json:"source"`
-	SynsetID    string        `json:"synset_id"`
-	Definition  string        `json:"definition"`
-	Properties  []string      `json:"properties"`
-	Threshold   float64       `json:"threshold"`
 	Suggestions []forge.Match `json:"suggestions"`
 }
 
-// HandleSuggest handles GET /forge/suggest?word=<word>&threshold=<0.0-1.0>&limit=<n>
+// HandleSuggest handles GET /forge/suggest?word=<word>&limit=<n>
 func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 	word := r.URL.Query().Get("word")
 	if word == "" {
@@ -82,17 +76,6 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse threshold (default 0.7)
-	threshold := DefaultThreshold
-	if t := r.URL.Query().Get("threshold"); t != "" {
-		if parsed, err := strconv.ParseFloat(t, 64); err == nil {
-			if parsed >= 0 && parsed <= 1 {
-				threshold = parsed
-			}
-		}
-	}
-
-	// Parse limit (default 50)
 	limit := DefaultLimit
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil {
@@ -102,104 +85,34 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Look up synset for word
-	synsetID, err := db.GetSynsetIDForLemma(h.database, word)
+	candidates, err := db.GetForgeMatchesCuratedByLemma(h.database, word, limit)
 	if err != nil {
-		http.Error(w, `{"error": "word not found"}`, http.StatusNotFound)
+		slog.Error("matching failed", "word", word, "err", err)
+		http.Error(w, `{"error": "word not found or has no curated properties"}`, http.StatusNotFound)
 		return
 	}
 
-	// Get source synset with properties
-	source, err := db.GetSynset(h.database, synsetID)
-	if err != nil {
-		http.Error(w, `{"error": "synset lookup failed"}`, http.StatusInternalServerError)
-		return
+	var matches []forge.Match
+	for _, c := range candidates {
+		tier := forge.ClassifyTierCurated(c.SharedCount, c.ContrastCount)
+		matches = append(matches, forge.Match{
+			SynsetID:         c.SynsetID,
+			Word:             c.Word,
+			Definition:       c.Definition,
+			SharedProperties: c.SharedProps,
+			OverlapCount:     c.SharedCount,
+			Tier:             tier,
+			TierName:         tier.String(),
+			SourceSynsetID:   c.SourceSynsetID,
+			SourceDefinition: c.SourceDefinition,
+			SourcePOS:        c.SourcePOS,
+		})
 	}
 
-	if len(source.Properties) == 0 {
-		http.Error(w, `{"error": "word has no enriched properties"}`, http.StatusNotFound)
-		return
-	}
-
-	// Check if curated vocabulary tables exist
-	var curatedExists int
-	_ = h.database.QueryRow(`
-		SELECT COUNT(*) FROM sqlite_master
-		WHERE type='table' AND name='synset_properties_curated'
-	`).Scan(&curatedExists)
-
-	var sorted []forge.Match
-
-	if curatedExists > 0 {
-		// Curated path: set intersection + antonym contrast
-		curatedCandidates, err := db.GetForgeMatchesCurated(h.database, synsetID, limit)
-		if err != nil {
-			http.Error(w, `{"error": "matching failed"}`, http.StatusInternalServerError)
-			return
-		}
-
-		var matches []forge.Match
-		for _, c := range curatedCandidates {
-			tier := forge.ClassifyTierCurated(c.SharedCount, c.ContrastCount)
-			matches = append(matches, forge.Match{
-				SynsetID:         c.SynsetID,
-				Word:             c.Word,
-				Definition:       c.Definition,
-				SharedProperties: c.SharedProps,
-				OverlapCount:     c.SharedCount,
-				Distance:         0, // No cosine distance in curated path
-				Tier:             tier,
-				TierName:         tier.String(),
-			})
-		}
-
-		sorted = forge.SortByTier(matches)
-	} else {
-		// Legacy path: cosine-distance mega-query
-		candidates, err := db.GetForgeMatches(h.database, synsetID, threshold, limit)
-		if err != nil {
-			http.Error(w, `{"error": "matching failed"}`, http.StatusInternalServerError)
-			return
-		}
-
-		// Compute raw distances from pre-computed centroids
-		rawDistances := make([]float64, len(candidates))
-		for i, c := range candidates {
-			rawDistances[i] = embeddings.CosineDistance(c.SourceCentroid, c.TargetCentroid)
-		}
-
-		// Normalise distances to [0, 1] within this result set.
-		// Shared-property discovery biases candidates toward similar centroids,
-		// so absolute distances cluster narrowly. Normalising ensures tier
-		// classification reflects relative distance within the candidate pool.
-		normDistances := forge.NormaliseDistances(rawDistances)
-
-		// Classify tiers using normalised distances
-		var matches []forge.Match
-		for i, c := range candidates {
-			tier := forge.ClassifyTier(normDistances[i], c.ExactOverlap)
-
-			matches = append(matches, forge.Match{
-				SynsetID:         c.SynsetID,
-				Word:             c.Word,
-				Definition:       c.Definition,
-				SharedProperties: c.SharedProperties,
-				OverlapCount:     c.ExactOverlap,
-				Distance:         rawDistances[i],
-				Tier:             tier,
-				TierName:         tier.String(),
-			})
-		}
-
-		sorted = forge.SortByTier(matches)
-	}
+	sorted := forge.SortByTier(matches)
 
 	resp := SuggestResponse{
 		Source:      word,
-		SynsetID:    synsetID,
-		Definition:  source.Definition,
-		Properties:  source.Properties,
-		Threshold:   threshold,
 		Suggestions: sorted,
 	}
 

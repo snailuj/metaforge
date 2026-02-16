@@ -388,12 +388,16 @@ func GetForgeMatches(db *sql.DB, sourceID string, threshold float64, limit int) 
 
 // CuratedMatch represents a forge match via set intersection (curated vocabulary).
 type CuratedMatch struct {
-	SynsetID      string   `json:"synset_id"`
-	Word          string   `json:"word"`
-	Definition    string   `json:"definition"`
-	SharedCount   int      `json:"shared_count"`
-	ContrastCount int      `json:"contrast_count"`
-	SharedProps   []string `json:"shared_properties,omitempty"`
+	SynsetID         string   `json:"synset_id"`
+	Word             string   `json:"word"`
+	POS              string   `json:"pos"`
+	Definition       string   `json:"definition"`
+	SharedCount      int      `json:"shared_count"`
+	ContrastCount    int      `json:"contrast_count"`
+	SharedProps      []string `json:"shared_properties,omitempty"`
+	SourceSynsetID   string   `json:"source_synset_id,omitempty"`
+	SourceDefinition string   `json:"source_definition,omitempty"`
+	SourcePOS        string   `json:"source_pos,omitempty"`
 }
 
 // GetForgeMatchesCurated finds forge candidates using curated vocabulary set intersection.
@@ -422,23 +426,29 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 			WHERE spc.synset_id != ?
 			GROUP BY spc.synset_id
 		)
-		SELECT COALESCE(sh.synset_id, co.synset_id) as synset_id,
+		SELECT sub.synset_id,
 		       s.definition,
 		       l.lemma,
-		       COALESCE(sh.shared_count, 0),
-		       COALESCE(co.contrast_count, 0),
-		       COALESCE(sh.shared_props, '')
+		       sub.shared_count,
+		       sub.contrast_count,
+		       sub.shared_props
 		FROM (
-			SELECT synset_id FROM shared
-			UNION
-			SELECT synset_id FROM contrast
-		) all_matches
-		LEFT JOIN shared sh ON sh.synset_id = all_matches.synset_id
-		LEFT JOIN contrast co ON co.synset_id = all_matches.synset_id
-		JOIN synsets s ON s.synset_id = all_matches.synset_id
-		JOIN lemmas l ON l.synset_id = all_matches.synset_id
-		ORDER BY COALESCE(sh.shared_count, 0) + COALESCE(co.contrast_count, 0) DESC
-		LIMIT ?
+			SELECT COALESCE(sh.synset_id, co.synset_id) as synset_id,
+			       COALESCE(sh.shared_count, 0) as shared_count,
+			       COALESCE(co.contrast_count, 0) as contrast_count,
+			       COALESCE(sh.shared_props, '') as shared_props
+			FROM (
+				SELECT synset_id FROM shared
+				UNION
+				SELECT synset_id FROM contrast
+			) all_matches
+			LEFT JOIN shared sh ON sh.synset_id = all_matches.synset_id
+			LEFT JOIN contrast co ON co.synset_id = all_matches.synset_id
+			ORDER BY COALESCE(sh.shared_count, 0) + COALESCE(co.contrast_count, 0) DESC
+			LIMIT ?
+		) sub
+		JOIN synsets s ON s.synset_id = sub.synset_id
+		JOIN lemmas l ON l.synset_id = sub.synset_id
 	`, sourceID, sourceID, sourceID, limit)
 
 	if err != nil {
@@ -480,29 +490,162 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 	return matches, nil
 }
 
-// GetSynsetIDForLemma finds the first synset ID for a given word.
-// Prefers synsets that have enrichment data (properties).
+// GetForgeMatchesCuratedByLemma finds forge candidates for a lemma with per-candidate
+// sense alignment. For polysemous words (e.g. "bank"), each target is matched against
+// whichever source sense shares the most properties with it, rather than picking a
+// single source synset up front.
+//
+// Returns matches sorted by (shared_count + contrast_count) descending. Each match
+// carries source-side context (SourceSynsetID, SourceDefinition, SourcePOS) reflecting
+// the best-aligned source sense for that specific target.
+func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([]CuratedMatch, error) {
+	rows, err := database.Query(`
+		WITH source_synsets AS (
+			SELECT l.synset_id
+			FROM lemmas l
+			JOIN synset_properties_curated spc ON spc.synset_id = l.synset_id
+			WHERE l.lemma = ?
+			GROUP BY l.synset_id
+		),
+		-- For each (source_sense, target) pair, count shared properties
+		per_sense_shared AS (
+			SELECT ss.synset_id as source_id,
+			       tgt.synset_id as target_id,
+			       COUNT(*) as shared_count,
+			       GROUP_CONCAT(pvc.lemma) as shared_props
+			FROM source_synsets ss
+			JOIN synset_properties_curated src ON src.synset_id = ss.synset_id
+			JOIN synset_properties_curated tgt ON tgt.vocab_id = src.vocab_id
+			JOIN property_vocab_curated pvc ON pvc.vocab_id = src.vocab_id
+			WHERE tgt.synset_id NOT IN (SELECT synset_id FROM source_synsets)
+			GROUP BY ss.synset_id, tgt.synset_id
+		),
+		-- Pick best source sense per target (most shared properties)
+		best_sense AS (
+			SELECT source_id, target_id, shared_count, shared_props,
+			       ROW_NUMBER() OVER (PARTITION BY target_id ORDER BY shared_count DESC) as rn
+			FROM per_sense_shared
+		),
+		-- Count antonymous properties per (source_sense, target) pair
+		per_sense_contrast AS (
+			SELECT ss.synset_id as source_id,
+			       tgt.synset_id as target_id,
+			       COUNT(*) as contrast_count
+			FROM source_synsets ss
+			JOIN synset_properties_curated src ON src.synset_id = ss.synset_id
+			JOIN property_antonyms pa ON pa.vocab_id_a = src.vocab_id
+			JOIN synset_properties_curated tgt ON tgt.vocab_id = pa.vocab_id_b
+			WHERE tgt.synset_id NOT IN (SELECT synset_id FROM source_synsets)
+			GROUP BY ss.synset_id, tgt.synset_id
+		),
+		best_contrast AS (
+			SELECT source_id, target_id, contrast_count,
+			       ROW_NUMBER() OVER (PARTITION BY target_id ORDER BY contrast_count DESC) as rn
+			FROM per_sense_contrast
+		)
+		SELECT bs.target_id,
+		       ts.pos,
+		       ts.definition,
+		       l.lemma,
+		       bs.shared_count,
+		       COALESCE(bc.contrast_count, 0) as contrast_count,
+		       bs.shared_props,
+		       bs.source_id,
+		       ss.definition as source_definition,
+		       ss.pos as source_pos
+		FROM best_sense bs
+		JOIN synsets ts ON ts.synset_id = bs.target_id
+		JOIN synsets ss ON ss.synset_id = bs.source_id
+		JOIN lemmas l ON l.synset_id = bs.target_id
+		LEFT JOIN best_contrast bc ON bc.target_id = bs.target_id AND bc.rn = 1
+		WHERE bs.rn = 1
+		ORDER BY bs.shared_count + COALESCE(bc.contrast_count, 0) DESC
+		LIMIT ?
+	`, lemma, limit)
+
+	if err != nil {
+		return nil, fmt.Errorf("GetForgeMatchesCuratedByLemma query failed: %w", err)
+	}
+	defer rows.Close()
+
+	seen := make(map[string]bool)
+	var matches []CuratedMatch
+
+	for rows.Next() {
+		var m CuratedMatch
+		var sharedProps string
+
+		if err := rows.Scan(
+			&m.SynsetID, &m.POS, &m.Definition, &m.Word,
+			&m.SharedCount, &m.ContrastCount, &sharedProps,
+			&m.SourceSynsetID, &m.SourceDefinition, &m.SourcePOS,
+		); err != nil {
+			slog.Warn("scan curated-by-lemma match failed", "err", err)
+			continue
+		}
+
+		// Deduplicate: a synset with multiple lemmas produces multiple rows
+		if seen[m.SynsetID] {
+			continue
+		}
+		seen[m.SynsetID] = true
+
+		if sharedProps != "" {
+			m.SharedProps = strings.Split(sharedProps, ",")
+		}
+
+		matches = append(matches, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("GetForgeMatchesCuratedByLemma iteration error: %w", err)
+	}
+
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("lemma not found or has no curated properties: %s", lemma)
+	}
+
+	return matches, nil
+}
+
+// GetSynsetIDForLemma finds the best synset ID for a given word.
+// Prefers synsets with the most curated properties, then falls back to
+// legacy enriched synsets, then to any synset for the lemma.
 func GetSynsetIDForLemma(db *sql.DB, lemma string) (string, error) {
 	var synsetID string
 
-	// Prefer enriched synsets (those with properties in synset_properties)
+	// 1. Prefer synsets with curated properties (most curated props first)
 	err := db.QueryRow(`
+		SELECT l.synset_id
+		FROM lemmas l
+		JOIN synset_properties_curated spc ON spc.synset_id = l.synset_id
+		WHERE l.lemma = ?
+		GROUP BY l.synset_id
+		ORDER BY COUNT(*) DESC
+		LIMIT 1
+	`, lemma).Scan(&synsetID)
+	if err == nil {
+		return synsetID, nil
+	}
+	slog.Debug("no curated synset for lemma", "lemma", lemma, "err", err)
+
+	// 2. Fall back to legacy enriched synsets
+	err = db.QueryRow(`
 		SELECT l.synset_id
 		FROM lemmas l
 		JOIN synset_properties sp ON sp.synset_id = l.synset_id
 		WHERE l.lemma = ?
 		LIMIT 1
 	`, lemma).Scan(&synsetID)
-
 	if err == nil {
 		return synsetID, nil
 	}
+	slog.Debug("no legacy enriched synset for lemma", "lemma", lemma, "err", err)
 
-	// Fall back to any synset
+	// 3. Fall back to any synset
 	err = db.QueryRow(`
 		SELECT synset_id FROM lemmas WHERE lemma = ? LIMIT 1
 	`, lemma).Scan(&synsetID)
-
 	if err == sql.ErrNoRows {
 		return "", fmt.Errorf("lemma not found: %s", lemma)
 	}
