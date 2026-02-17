@@ -6,8 +6,7 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 
 | Document | Purpose |
 |----------|---------|
-| `Metaforge-PRD-2.md` | **Authoritative PRD** (supersedes original, includes parked ideas) |
-| `docs/plans/20260207-prd-reconciliation-scratchpad.md` | Decision log from PRD reconciliation |
+| `Metaforge-PRD-2.md` | **Authoritative PRD** (supersedes original, parked ideas from original included) |
 | `docs/plans/2026-01-26-sprint-zero.md` | Sprint Zero implementation plan (backend complete) |
 | `docs/plans/2026-01-28-performance-tuning.md` | Performance optimisation notes and scaling strategies |
 | `docs/designs/` | Feature brainstorms (start here for design context) |
@@ -22,11 +21,25 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 - **Data:** SQLite + FastText embeddings + Claude-extracted properties
 - **Storage:** IndexedDB for local user data (no accounts in MVP)
 
-## Current Phase
+## Current Phase: Phase 1 (MVP)
+- API MVP-complete
+- Basic Thesaurus and Graph navigation complete
+- Staging server deployed at https://metaforge.julianit.me/
+- Live testing confirmed on multiple browsers and phones
+- ~300 automated tests across all code surfaces
 
-**Sprint Zero backend complete.** Forge + Thesaurus endpoints working, 38 Go tests passing.
+**Forge endpoint tuning in progres. Data pipeline 70% MVP-ready. Substack teaser post drafted with Opus.**
 
-Next: Phase 1 MVP frontend — 3D force graph + HUD results panel.
+**Next:** Metaphor Forge UI
+
+**Required for MVP-complete:**
+- Increase MR Rank of known metaphors
+- 2nd-Order Edge Node Rendering
+- 2-3 Substack posts
+- Sem-sim distance between words visually rendered
+- 20k word enrichment
+- CI/CD pipeline
+- Testing, Polish for MVP
 
 ---
 
@@ -91,43 +104,6 @@ cd api && go run ./cmd/metaforge --db ../data-pipeline/output/lexicon_v2.db --po
 cd web && npm run dev
 ```
 
-### Data Pipeline
-
-```bash
-# Restore lexicon DB from SQL dump
-./data-pipeline/scripts/restore_db.sh
-
-# Run enrichment pipeline (requires FastText vectors + venv)
-python data-pipeline/scripts/enrich_pipeline.py --db PATH --enrichment FILE --fasttext PATH
-
-# MRR evaluation — three modes:
-
-# 1. Pre-built DB (eval-only, no pipeline, no API calls)
-python data-pipeline/scripts/evaluate_mrr.py --db PATH --port 9091 -v -o results.json
-
-# 2. Pre-computed enrichment (restore + pipeline, no API calls)
-python data-pipeline/scripts/evaluate_mrr.py --enrichment FILE --port 9091 -v -o results.json
-
-# 3. Live LLM enrichment (restore + enrich + pipeline, costs API calls)
-python data-pipeline/scripts/evaluate_mrr.py --enrich --size 700 --model sonnet --port 9091 -v -o results.json
-```
-
----
-
-## Large Files Policy
-
-- **FastText vectors and other large assets** live in `~/.local/share/metaforge/`, NOT in the repo
-- Worktrees symlink into the shared location: `data-pipeline/raw/wiki-news-300d-1M.vec`
-- Never commit large binary assets to the repo
-
-## Database Policy
-
-- **Never commit `.db` binaries** — they are gitignored.
-- **Commit SQL text dumps** (`sqlite3 <db> .dump > <file>.sql`) containing schema + data.
-- **Dumps must be idempotent:** restore into a fresh SQLite database via `restore_db.sh`.
-- Current dump: `data-pipeline/output/lexicon_v2.sql`
-- Restore script: `data-pipeline/scripts/restore_db.sh`
-
 ## Secrets Policy
 
 - **NEVER commit API keys, tokens, passwords, or other secrets** to the repo or database — not in code, config, SQL dumps, comments, or test fixtures.
@@ -147,7 +123,7 @@ python data-pipeline/scripts/evaluate_mrr.py --enrich --size 700 --model sonnet 
 | Feature | Design | Implementation |
 |---------|--------|----------------|
 | Metaphor Forge | ✓ Complete | ✓ Backend complete |
-| Core Thesaurus | ✓ Complete | ✓ Backend complete, ○ Frontend not started |
+| Core Thesaurus | ✓ Complete | ✓ Backend complete, Frontend not started |
 | 3D Force Graph | ✓ Complete (PRD-2) | ○ Not started |
 | Word Hunt | Parked | Parked |
 | Constellation | Parked (near-horizon) | Parked |
