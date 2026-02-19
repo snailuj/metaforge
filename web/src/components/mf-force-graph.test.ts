@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { GraphData } from '@/graph/types'
 import { RARITY_COLOURS } from '@/graph/colours'
+import SpriteText from 'three-spritetext'
 
 // Capture the accessor functions and constructor options passed to the graph instance
 let capturedNodeVisibility: ((node: unknown) => boolean) | null = null
 let capturedLinkVisibility: ((link: unknown) => boolean) | null = null
 let capturedNodeColor: ((node: unknown) => string) | null = null
+let capturedNodeOpacity: ((node: unknown) => number) | null = null
+let capturedLinkColor: ((link: unknown) => string) | null = null
+let capturedLinkWidth: ((link: unknown) => number) | null = null
+let capturedNodeThreeObject: ((node: unknown) => unknown) | null = null
 let capturedControlType: string | undefined = undefined
 
 const chainable: Record<string, unknown> = new Proxy({}, {
@@ -28,6 +33,30 @@ const chainable: Record<string, unknown> = new Proxy({}, {
         return chainable
       }
     }
+    if (prop === 'nodeOpacity') {
+      return (fn: ((node: unknown) => number) | number) => {
+        if (typeof fn === 'function') capturedNodeOpacity = fn
+        return chainable
+      }
+    }
+    if (prop === 'linkColor') {
+      return (fn: ((link: unknown) => string) | string) => {
+        if (typeof fn === 'function') capturedLinkColor = fn
+        return chainable
+      }
+    }
+    if (prop === 'linkWidth') {
+      return (fn: ((link: unknown) => number) | number) => {
+        if (typeof fn === 'function') capturedLinkWidth = fn
+        return chainable
+      }
+    }
+    if (prop === 'nodeThreeObject') {
+      return (fn: (node: unknown) => unknown) => {
+        capturedNodeThreeObject = fn
+        return chainable
+      }
+    }
     return () => chainable
   },
 })
@@ -38,7 +67,13 @@ vi.mock('3d-force-graph', () => ({
     return () => chainable
   },
 }))
-vi.mock('three-spritetext', () => ({ default: vi.fn() }))
+vi.mock('three-spritetext', () => ({
+  default: vi.fn().mockImplementation(() => ({
+    fontFace: '',
+    backgroundColor: '',
+    position: { y: 0 },
+  })),
+}))
 
 import { MfForceGraph } from './mf-force-graph'
 
@@ -48,11 +83,13 @@ const testData: GraphData = {
     { id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, rarity: 'common' },
     { id: 'conflagration', word: 'conflagration', relationType: 'synonym', val: 4, rarity: 'rare' },
     { id: 'flame', word: 'flame', relationType: 'synonym', val: 4 }, // no rarity → defaults to 'unusual'
+    { id: 'ember', word: 'ember', relationType: 'synonym', val: 1, rarity: 'common', order: 2 },
   ],
   links: [
     { source: 'fire', target: 'blaze', relationType: 'synonym' },
     { source: 'fire', target: 'conflagration', relationType: 'synonym' },
     { source: 'fire', target: 'flame', relationType: 'synonym' },
+    { source: 'fire', target: 'ember', relationType: 'synonym', order: 2 },
   ],
 }
 
@@ -63,7 +100,12 @@ describe('MfForceGraph', () => {
     capturedNodeVisibility = null
     capturedLinkVisibility = null
     capturedNodeColor = null
+    capturedNodeOpacity = null
+    capturedLinkColor = null
+    capturedLinkWidth = null
+    capturedNodeThreeObject = null
     capturedControlType = undefined
+    vi.mocked(SpriteText).mockClear()
     el = new MfForceGraph()
     el.graphData = testData
     document.body.appendChild(el)
@@ -186,5 +228,75 @@ describe('MfForceGraph', () => {
     expect(capturedLinkVisibility!({ source: centralNode, target: rareNode })).toBe(false)
     // Link between visible nodes → visible
     expect(capturedLinkVisibility!({ source: centralNode, target: commonNode })).toBe(true)
+  })
+
+  describe('order-2 visual differentiation', () => {
+    it('sets nodeOpacity accessor as a function', () => {
+      expect(capturedNodeOpacity).toBeTypeOf('function')
+    })
+
+    it('returns 0.9 opacity for order-1 nodes', () => {
+      const node = testData.nodes.find(n => n.id === 'blaze')!
+      expect(capturedNodeOpacity!(node)).toBe(0.9)
+    })
+
+    it('returns 0.45 opacity for order-2 nodes', () => {
+      const node = testData.nodes.find(n => n.id === 'ember')!
+      expect(capturedNodeOpacity!(node)).toBe(0.45)
+    })
+
+    it('sets linkColor accessor as a function', () => {
+      expect(capturedLinkColor).toBeTypeOf('function')
+    })
+
+    it('returns standard alpha for order-1 links', () => {
+      const link = testData.links.find(l => l.target === 'blaze')!
+      expect(capturedLinkColor!(link)).toBe('rgba(232, 224, 212, 0.15)')
+    })
+
+    it('returns dimmer alpha for order-2 links', () => {
+      const link = testData.links.find(l => l.target === 'ember')!
+      expect(capturedLinkColor!(link)).toBe('rgba(232, 224, 212, 0.08)')
+    })
+
+    it('sets linkWidth accessor as a function', () => {
+      expect(capturedLinkWidth).toBeTypeOf('function')
+    })
+
+    it('returns 1 width for order-1 links', () => {
+      const link = testData.links.find(l => l.target === 'blaze')!
+      expect(capturedLinkWidth!(link)).toBe(1)
+    })
+
+    it('returns 0.5 width for order-2 links', () => {
+      const link = testData.links.find(l => l.target === 'ember')!
+      expect(capturedLinkWidth!(link)).toBe(0.5)
+    })
+
+    it('hides order-2 nodes when their rarity is hidden', async () => {
+      el.hiddenRarities = new Set(['common'])
+      await el.updateComplete
+
+      const ember = testData.nodes.find(n => n.id === 'ember')!
+      expect(capturedNodeVisibility!(ember)).toBe(false)
+    })
+
+    it('uses smaller label sprite for order-2 nodes', () => {
+      expect(capturedNodeThreeObject).toBeTypeOf('function')
+      vi.mocked(SpriteText).mockClear()
+      const ember = testData.nodes.find(n => n.id === 'ember')!
+      capturedNodeThreeObject!(ember)
+      const calls = vi.mocked(SpriteText).mock.calls
+      expect(calls[0][1]).toBe(2)
+    })
+
+    it('uses standard label sprite for order-1 nodes', () => {
+      expect(capturedNodeThreeObject).toBeTypeOf('function')
+      vi.mocked(SpriteText).mockClear()
+      const blaze = testData.nodes.find(n => n.id === 'blaze')!
+      capturedNodeThreeObject!(blaze)
+      const calls = vi.mocked(SpriteText).mock.calls
+      expect(calls[0][1]).toBe(3)
+    })
   })
 })

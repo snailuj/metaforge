@@ -4,10 +4,11 @@ import type { PropertyValues } from 'lit'
 import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
 import SpriteText from 'three-spritetext'
-import type { GraphData, GraphNode, Rarity } from '@/graph/types'
+import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
+const EDGE_COLOUR_DIM = 'rgba(232, 224, 212, 0.08)'
 const LABEL_FONT = 'Georgia, "Times New Roman", serif'
 
 // 300ms matches typical OS double-click threshold; balances responsiveness
@@ -61,7 +62,7 @@ export class MfForceGraph extends LitElement {
         return RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
       })
       .nodeVal((n: unknown) => (n as GraphNode).val)
-      .nodeOpacity(0.9)
+      .nodeOpacity((n: unknown) => (n as GraphNode).order === 2 ? 0.45 : 0.9)
       .nodeRelSize(0.5)
       .nodeThreeObjectExtend(true)
       .nodeThreeObject((n: unknown) => {
@@ -69,10 +70,10 @@ export class MfForceGraph extends LitElement {
         const colour = node.relationType === 'central'
           ? NODE_COLOURS.central
           : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
-        const sprite = new SpriteText(node.word, 3, colour)
+        const fontSize = node.order === 2 ? 2 : 3
+        const sprite = new SpriteText(node.word, fontSize, colour)
         sprite.fontFace = LABEL_FONT
-        // three-spritetext accepts `false` to disable background, but types only declare `string`
-        sprite.backgroundColor = false as unknown as string
+        sprite.backgroundColor = false
         sprite.position.y = 3
         return sprite
       })
@@ -80,8 +81,8 @@ export class MfForceGraph extends LitElement {
       .d3AlphaDecay(0.005)
       .cooldownTime(30000)
       .warmupTicks(50)
-      .linkColor(() => EDGE_COLOUR)
-      .linkWidth(1)
+      .linkColor((l: unknown) => (l as GraphLink).order === 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR)
+      .linkWidth((l: unknown) => (l as GraphLink).order === 2 ? 0.5 : 1)
       .linkOpacity(0.6)
       .onNodeClick((n: unknown) => {
         const node = n as GraphNode
