@@ -62,7 +62,7 @@ export class MfForceGraph extends LitElement {
         return RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
       })
       .nodeVal((n: unknown) => (n as GraphNode).val)
-      .nodeOpacity((n: unknown) => (n as GraphNode).order === 2 ? 0.45 : 0.9)
+      .nodeOpacity(0.9)
       .nodeRelSize(0.5)
       .nodeThreeObjectExtend(true)
       .nodeThreeObject((n: unknown) => {
@@ -152,7 +152,7 @@ export class MfForceGraph extends LitElement {
           dampingFactor: number
         }
         controls.enableDamping = true
-        controls.dampingFactor = 0.25
+        controls.dampingFactor = 0.75
       }
     })
 

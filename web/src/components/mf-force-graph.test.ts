@@ -252,7 +252,7 @@ describe('MfForceGraph', () => {
   it('enables damping on orbit controls after init', async () => {
     await new Promise<void>(r => requestAnimationFrame(r))
     expect(mockControls.enableDamping).toBe(true)
-    expect(mockControls.dampingFactor).toBeCloseTo(0.25)
+    expect(mockControls.dampingFactor).toBeCloseTo(0.75)
   })
 
   it('highlights mesh on hover: wireframe, bright colour, scaled up', () => {
@@ -304,18 +304,11 @@ describe('MfForceGraph', () => {
   })
 
   describe('order-2 visual differentiation', () => {
-    it('sets nodeOpacity accessor as a function', () => {
-      expect(capturedNodeOpacity).toBeTypeOf('function')
-    })
-
-    it('returns 0.9 opacity for order-1 nodes', () => {
-      const node = testData.nodes.find(n => n.id === 'blaze')!
-      expect(capturedNodeOpacity!(node)).toBe(0.9)
-    })
-
-    it('returns 0.45 opacity for order-2 nodes', () => {
-      const node = testData.nodes.find(n => n.id === 'ember')!
-      expect(capturedNodeOpacity!(node)).toBe(0.45)
+    it('sets nodeOpacity as a static number', () => {
+      // nodeOpacity must be a number — 3d-force-graph v1.79 uses it
+      // directly in multiplication (state.nodeOpacity * colorAlpha),
+      // so a function causes NaN and makes all spheres invisible.
+      expect(capturedNodeOpacity).toBeNull()
     })
 
     it('sets linkColor accessor as a function', () => {
