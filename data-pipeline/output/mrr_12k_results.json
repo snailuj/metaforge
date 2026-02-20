@@ -1,0 +1,1932 @@
+{
+  "mrr": 0.0337,
+  "testable_pairs": 271,
+  "skipped_pairs": 3,
+  "per_pair": [
+    {
+      "source": "anger",
+      "target": "fire",
+      "rank": 1,
+      "reciprocal_rank": 1.0,
+      "tier": "medium"
+    },
+    {
+      "source": "grief",
+      "target": "anchor",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "love",
+      "target": "journey",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "fear",
+      "target": "shadow",
+      "rank": 2,
+      "reciprocal_rank": 0.5,
+      "tier": "medium"
+    },
+    {
+      "source": "hope",
+      "target": "light",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "joy",
+      "target": "fountain",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "sorrow",
+      "target": "ocean",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "rage",
+      "target": "storm",
+      "rank": 5,
+      "reciprocal_rank": 0.2,
+      "tier": "strong"
+    },
+    {
+      "source": "despair",
+      "target": "pit",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "anxiety",
+      "target": "knot",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "time",
+      "target": "river",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "life",
+      "target": "stage",
+      "rank": 49,
+      "reciprocal_rank": 0.02040816326530612,
+      "tier": "strong"
+    },
+    {
+      "source": "death",
+      "target": "sleep",
+      "rank": 33,
+      "reciprocal_rank": 0.030303030303030304,
+      "tier": "weak"
+    },
+    {
+      "source": "memory",
+      "target": "palace",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "childhood",
+      "target": "garden",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "age",
+      "target": "winter",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "youth",
+      "target": "spring",
+      "rank": 12,
+      "reciprocal_rank": 0.08333333333333333,
+      "tier": "strong"
+    },
+    {
+      "source": "dawn",
+      "target": "beginning",
+      "rank": 63,
+      "reciprocal_rank": 0.015873015873015872,
+      "tier": "medium"
+    },
+    {
+      "source": "knowledge",
+      "target": "light",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "ignorance",
+      "target": "darkness",
+      "rank": 3,
+      "reciprocal_rank": 0.3333333333333333,
+      "tier": "medium"
+    },
+    {
+      "source": "idea",
+      "target": "seed",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "argument",
+      "target": "war",
+      "rank": 66,
+      "reciprocal_rank": 0.015151515151515152,
+      "tier": "weak"
+    },
+    {
+      "source": "theory",
+      "target": "building",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "mind",
+      "target": "machine",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "thought",
+      "target": "thread",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "wisdom",
+      "target": "treasure",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "power",
+      "target": "muscle",
+      "rank": 11,
+      "reciprocal_rank": 0.09090909090909091,
+      "tier": "medium"
+    },
+    {
+      "source": "freedom",
+      "target": "bird",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "law",
+      "target": "chain",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "corruption",
+      "target": "disease",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "revolution",
+      "target": "fire",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "democracy",
+      "target": "foundation",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "heart",
+      "target": "engine",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "blood",
+      "target": "river",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "breath",
+      "target": "wind",
+      "rank": 1,
+      "reciprocal_rank": 1.0,
+      "tier": "medium"
+    },
+    {
+      "source": "bone",
+      "target": "stone",
+      "rank": 3,
+      "reciprocal_rank": 0.3333333333333333,
+      "tier": "medium"
+    },
+    {
+      "source": "skin",
+      "target": "armour",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "eye",
+      "target": "window",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "silence",
+      "target": "blanket",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "loneliness",
+      "target": "desert",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "chaos",
+      "target": "storm",
+      "rank": 6,
+      "reciprocal_rank": 0.16666666666666666,
+      "tier": "strong"
+    },
+    {
+      "source": "peace",
+      "target": "harbour",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "truth",
+      "target": "mirror",
+      "rank": 40,
+      "reciprocal_rank": 0.025,
+      "tier": "medium"
+    },
+    {
+      "source": "jealousy",
+      "target": "poison",
+      "rank": 28,
+      "reciprocal_rank": 0.03571428571428571,
+      "tier": "medium"
+    },
+    {
+      "source": "ambition",
+      "target": "ladder",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "conscience",
+      "target": "compass",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "imagination",
+      "target": "wings",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "fate",
+      "target": "wheel",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "grief",
+      "target": "weight",
+      "rank": 25,
+      "reciprocal_rank": 0.04,
+      "tier": "medium"
+    },
+    {
+      "source": "fury",
+      "target": "volcano",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "contentment",
+      "target": "hearth",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "shame",
+      "target": "stain",
+      "rank": 1,
+      "reciprocal_rank": 1.0,
+      "tier": "strong"
+    },
+    {
+      "source": "melancholy",
+      "target": "fog",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "resentment",
+      "target": "ember",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "elation",
+      "target": "balloon",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "dread",
+      "target": "abyss",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "envy",
+      "target": "acid",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "bliss",
+      "target": "sunshine",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "bitterness",
+      "target": "vinegar",
+      "rank": 36,
+      "reciprocal_rank": 0.027777777777777776,
+      "tier": "weak"
+    },
+    {
+      "source": "tenderness",
+      "target": "silk",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "nostalgia",
+      "target": "amber",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "euphoria",
+      "target": "firework",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "apathy",
+      "target": "ash",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "remorse",
+      "target": "scar",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "ecstasy",
+      "target": "lightning",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "serenity",
+      "target": "lake",
+      "rank": 16,
+      "reciprocal_rank": 0.0625,
+      "tier": "strong"
+    },
+    {
+      "source": "panic",
+      "target": "earthquake",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "wrath",
+      "target": "wildfire",
+      "rank": 12,
+      "reciprocal_rank": 0.08333333333333333,
+      "tier": "strong"
+    },
+    {
+      "source": "pity",
+      "target": "rain",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "frustration",
+      "target": "wall",
+      "rank": 74,
+      "reciprocal_rank": 0.013513513513513514,
+      "tier": "strong"
+    },
+    {
+      "source": "humiliation",
+      "target": "cage",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "yearning",
+      "target": "tide",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "gloom",
+      "target": "overcast",
+      "rank": 11,
+      "reciprocal_rank": 0.09090909090909091,
+      "tier": "weak"
+    },
+    {
+      "source": "delight",
+      "target": "sparkle",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "agony",
+      "target": "blade",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "compassion",
+      "target": "balm",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "indignation",
+      "target": "boiling",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "torment",
+      "target": "rack",
+      "rank": 5,
+      "reciprocal_rank": 0.2,
+      "tier": "medium"
+    },
+    {
+      "source": "rapture",
+      "target": "flood",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "irritation",
+      "target": "splinter",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "courage",
+      "target": "steel",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "vulnerability",
+      "target": "glass",
+      "rank": 92,
+      "reciprocal_rank": 0.010869565217391304,
+      "tier": "weak"
+    },
+    {
+      "source": "numbness",
+      "target": "ice",
+      "rank": 75,
+      "reciprocal_rank": 0.013333333333333334,
+      "tier": "strong"
+    },
+    {
+      "source": "passion",
+      "target": "flame",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "longing",
+      "target": "horizon",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "gratitude",
+      "target": "well",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "spite",
+      "target": "venom",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "awe",
+      "target": "precipice",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "disgust",
+      "target": "rot",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "mortality",
+      "target": "candle",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "eternity",
+      "target": "circle",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "ageing",
+      "target": "rust",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "transience",
+      "target": "dew",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "decay",
+      "target": "mould",
+      "rank": 34,
+      "reciprocal_rank": 0.029411764705882353,
+      "tier": "medium"
+    },
+    {
+      "source": "maturity",
+      "target": "harvest",
+      "rank": 35,
+      "reciprocal_rank": 0.02857142857142857,
+      "tier": "strong"
+    },
+    {
+      "source": "infancy",
+      "target": "bud",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "brevity",
+      "target": "smoke",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "legacy",
+      "target": "footprint",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "rebirth",
+      "target": "phoenix",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "patience",
+      "target": "root",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "urgency",
+      "target": "drumbeat",
+      "rank": 2,
+      "reciprocal_rank": 0.5,
+      "tier": "weak"
+    },
+    {
+      "source": "impermanence",
+      "target": "sand",
+      "rank": 63,
+      "reciprocal_rank": 0.015873015873015872,
+      "tier": "medium"
+    },
+    {
+      "source": "decline",
+      "target": "sunset",
+      "rank": 10,
+      "reciprocal_rank": 0.1,
+      "tier": "strong"
+    },
+    {
+      "source": "epoch",
+      "target": "glacier",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "routine",
+      "target": "treadmill",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "procrastination",
+      "target": "quicksand",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "endurance",
+      "target": "oak",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "obsolescence",
+      "target": "fossil",
+      "rank": 91,
+      "reciprocal_rank": 0.01098901098901099,
+      "tier": "weak"
+    },
+    {
+      "source": "permanence",
+      "target": "granite",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "anticipation",
+      "target": "threshold",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "stagnation",
+      "target": "swamp",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "senescence",
+      "target": "autumn",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "resurrection",
+      "target": "dawn",
+      "rank": 1,
+      "reciprocal_rank": 1.0,
+      "tier": "strong"
+    },
+    {
+      "source": "ephemera",
+      "target": "butterfly",
+      "rank": 55,
+      "reciprocal_rank": 0.01818181818181818,
+      "tier": "medium"
+    },
+    {
+      "source": "heritage",
+      "target": "tapestry",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "deadline",
+      "target": "guillotine",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "momentum",
+      "target": "avalanche",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "perpetuity",
+      "target": "diamond",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "confusion",
+      "target": "labyrinth",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "understanding",
+      "target": "key",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "curiosity",
+      "target": "spark",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "delusion",
+      "target": "mirage",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "insight",
+      "target": "lens",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "reason",
+      "target": "scaffold",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "intuition",
+      "target": "compass",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "obsession",
+      "target": "whirlpool",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "clarity",
+      "target": "crystal",
+      "rank": 5,
+      "reciprocal_rank": 0.2,
+      "tier": "strong"
+    },
+    {
+      "source": "doubt",
+      "target": "crack",
+      "rank": 14,
+      "reciprocal_rank": 0.07142857142857142,
+      "tier": "medium"
+    },
+    {
+      "source": "concentration",
+      "target": "beam",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "perception",
+      "target": "prism",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "epiphany",
+      "target": "thunderbolt",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "prejudice",
+      "target": "filter",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "logic",
+      "target": "chain",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "stupidity",
+      "target": "blindfold",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "genius",
+      "target": "furnace",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "abstraction",
+      "target": "cloud",
+      "rank": 8,
+      "reciprocal_rank": 0.125,
+      "tier": "weak"
+    },
+    {
+      "source": "focus",
+      "target": "arrow",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "revelation",
+      "target": "veil",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "hypothesis",
+      "target": "bridge",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "forgetfulness",
+      "target": "sieve",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "learning",
+      "target": "climb",
+      "rank": 64,
+      "reciprocal_rank": 0.015625,
+      "tier": "medium"
+    },
+    {
+      "source": "belief",
+      "target": "bedrock",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "rumination",
+      "target": "mill",
+      "rank": 87,
+      "reciprocal_rank": 0.011494252873563218,
+      "tier": "weak"
+    },
+    {
+      "source": "creativity",
+      "target": "forge",
+      "rank": 3,
+      "reciprocal_rank": 0.3333333333333333,
+      "tier": "medium"
+    },
+    {
+      "source": "madness",
+      "target": "maze",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "scepticism",
+      "target": "scalpel",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "awareness",
+      "target": "lantern",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "deception",
+      "target": "mask",
+      "rank": 57,
+      "reciprocal_rank": 0.017543859649122806,
+      "tier": "strong"
+    },
+    {
+      "source": "tyranny",
+      "target": "iron",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "oppression",
+      "target": "yoke",
+      "rank": 51,
+      "reciprocal_rank": 0.0196078431372549,
+      "tier": "strong"
+    },
+    {
+      "source": "propaganda",
+      "target": "fog",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "bureaucracy",
+      "target": "web",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "rebellion",
+      "target": "earthquake",
+      "rank": 76,
+      "reciprocal_rank": 0.013157894736842105,
+      "tier": "medium"
+    },
+    {
+      "source": "inequality",
+      "target": "chasm",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "authority",
+      "target": "throne",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "censorship",
+      "target": "muzzle",
+      "rank": 39,
+      "reciprocal_rank": 0.02564102564102564,
+      "tier": "medium"
+    },
+    {
+      "source": "diplomacy",
+      "target": "tightrope",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "tradition",
+      "target": "anchor",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "reform",
+      "target": "pruning",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "sovereignty",
+      "target": "fortress",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "anarchy",
+      "target": "wildfire",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "privilege",
+      "target": "ivory",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "poverty",
+      "target": "drought",
+      "rank": 11,
+      "reciprocal_rank": 0.09090909090909091,
+      "tier": "medium"
+    },
+    {
+      "source": "progress",
+      "target": "current",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "ideology",
+      "target": "lens",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "solidarity",
+      "target": "rope",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "dissent",
+      "target": "crack",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "patriotism",
+      "target": "hearth",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "duty",
+      "target": "harness",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "empire",
+      "target": "colossus",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "liberty",
+      "target": "horizon",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "exploitation",
+      "target": "leech",
+      "rank": 49,
+      "reciprocal_rank": 0.02040816326530612,
+      "tier": "strong"
+    },
+    {
+      "source": "servitude",
+      "target": "shackle",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "constitution",
+      "target": "skeleton",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "revolution",
+      "target": "eruption",
+      "rank": 20,
+      "reciprocal_rank": 0.05,
+      "tier": "strong"
+    },
+    {
+      "source": "civilisation",
+      "target": "garden",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "war",
+      "target": "inferno",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "soul",
+      "target": "bird",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "muscle",
+      "target": "rope",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "vein",
+      "target": "canal",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "nerve",
+      "target": "wire",
+      "rank": 7,
+      "reciprocal_rank": 0.14285714285714285,
+      "tier": "strong"
+    },
+    {
+      "source": "spine",
+      "target": "pillar",
+      "rank": 29,
+      "reciprocal_rank": 0.034482758620689655,
+      "tier": "strong"
+    },
+    {
+      "source": "brain",
+      "target": "labyrinth",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "stomach",
+      "target": "crucible",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "lung",
+      "target": "bellows",
+      "rank": 18,
+      "reciprocal_rank": 0.05555555555555555,
+      "tier": "strong"
+    },
+    {
+      "source": "flesh",
+      "target": "clay",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "skull",
+      "target": "vault",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "hair",
+      "target": "silk",
+      "rank": 46,
+      "reciprocal_rank": 0.021739130434782608,
+      "tier": "medium"
+    },
+    {
+      "source": "joint",
+      "target": "hinge",
+      "rank": 21,
+      "reciprocal_rank": 0.047619047619047616,
+      "tier": "strong"
+    },
+    {
+      "source": "tongue",
+      "target": "sword",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "voice",
+      "target": "bell",
+      "rank": 62,
+      "reciprocal_rank": 0.016129032258064516,
+      "tier": "medium"
+    },
+    {
+      "source": "tear",
+      "target": "pearl",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "sweat",
+      "target": "dew",
+      "rank": 9,
+      "reciprocal_rank": 0.1111111111111111,
+      "tier": "medium"
+    },
+    {
+      "source": "pulse",
+      "target": "drum",
+      "rank": 4,
+      "reciprocal_rank": 0.25,
+      "tier": "medium"
+    },
+    {
+      "source": "womb",
+      "target": "cradle",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "rib",
+      "target": "arch",
+      "rank": 29,
+      "reciprocal_rank": 0.034482758620689655,
+      "tier": "medium"
+    },
+    {
+      "source": "fist",
+      "target": "hammer",
+      "rank": 86,
+      "reciprocal_rank": 0.011627906976744186,
+      "tier": "strong"
+    },
+    {
+      "source": "wrinkle",
+      "target": "furrow",
+      "rank": 74,
+      "reciprocal_rank": 0.013513513513513514,
+      "tier": "weak"
+    },
+    {
+      "source": "scar",
+      "target": "map",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "teeth",
+      "target": "ivory",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "belly",
+      "target": "cauldron",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "skeleton",
+      "target": "scaffolding",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "solitude",
+      "target": "island",
+      "rank": 17,
+      "reciprocal_rank": 0.058823529411764705,
+      "tier": "strong"
+    },
+    {
+      "source": "adversity",
+      "target": "headwind",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "resilience",
+      "target": "bamboo",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "growth",
+      "target": "vine",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "turmoil",
+      "target": "whirlwind",
+      "rank": 88,
+      "reciprocal_rank": 0.011363636363636364,
+      "tier": "strong"
+    },
+    {
+      "source": "abundance",
+      "target": "orchard",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "barrenness",
+      "target": "tundra",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "renewal",
+      "target": "rain",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "danger",
+      "target": "cliff",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "calm",
+      "target": "pond",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "upheaval",
+      "target": "landslide",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "prosperity",
+      "target": "meadow",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "hardship",
+      "target": "thorn",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "fertility",
+      "target": "soil",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "desolation",
+      "target": "wasteland",
+      "rank": 21,
+      "reciprocal_rank": 0.047619047619047616,
+      "tier": "strong"
+    },
+    {
+      "source": "temptation",
+      "target": "fruit",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "transformation",
+      "target": "chrysalis",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "instability",
+      "target": "foal",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "purity",
+      "target": "snow",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "corruption",
+      "target": "fungus",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "complexity",
+      "target": "ecosystem",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "fragility",
+      "target": "eggshell",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "wildness",
+      "target": "wolf",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "stubbornness",
+      "target": "boulder",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "menace",
+      "target": "thunder",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "trust",
+      "target": "bridge",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "betrayal",
+      "target": "knife",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "intimacy",
+      "target": "nest",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "rivalry",
+      "target": "arena",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "loyalty",
+      "target": "oak",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "attachment",
+      "target": "root",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "infatuation",
+      "target": "fever",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "reconciliation",
+      "target": "suture",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "estrangement",
+      "target": "gulf",
+      "rank": 42,
+      "reciprocal_rank": 0.023809523809523808,
+      "tier": "weak"
+    },
+    {
+      "source": "friendship",
+      "target": "shelter",
+      "rank": 88,
+      "reciprocal_rank": 0.011363636363636364,
+      "tier": "medium"
+    },
+    {
+      "source": "heartbreak",
+      "target": "fracture",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "romance",
+      "target": "dance",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "manipulation",
+      "target": "puppet",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "devotion",
+      "target": "altar",
+      "rank": 50,
+      "reciprocal_rank": 0.02,
+      "tier": "medium"
+    },
+    {
+      "source": "rejection",
+      "target": "door",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "forgiveness",
+      "target": "salve",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "possessiveness",
+      "target": "cage",
+      "rank": 22,
+      "reciprocal_rank": 0.045454545454545456,
+      "tier": "medium"
+    },
+    {
+      "source": "flirtation",
+      "target": "spark",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "commitment",
+      "target": "mooring",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "separation",
+      "target": "wound",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "dependency",
+      "target": "vine",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "kinship",
+      "target": "taproot",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "enmity",
+      "target": "barb",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "empathy",
+      "target": "mirror",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "seduction",
+      "target": "honey",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "inspiration",
+      "target": "lightning",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "eloquence",
+      "target": "waterfall",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "poetry",
+      "target": "tapestry",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "melody",
+      "target": "stream",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "prose",
+      "target": "brick",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "rhetoric",
+      "target": "weapon",
+      "rank": 43,
+      "reciprocal_rank": 0.023255813953488372,
+      "tier": "strong"
+    },
+    {
+      "source": "narrative",
+      "target": "road",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "satire",
+      "target": "scalpel",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "tragedy",
+      "target": "abyss",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "strong"
+    },
+    {
+      "source": "originality",
+      "target": "spring",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "metaphor",
+      "target": "telescope",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "expression",
+      "target": "chisel",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "improvisation",
+      "target": "trapeze",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "style",
+      "target": "garment",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "harmony",
+      "target": "weave",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "dissonance",
+      "target": "gravel",
+      "rank": 18,
+      "reciprocal_rank": 0.05555555555555555,
+      "tier": "weak"
+    },
+    {
+      "source": "masterpiece",
+      "target": "cathedral",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "medium"
+    },
+    {
+      "source": "artistry",
+      "target": "alchemy",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    },
+    {
+      "source": "language",
+      "target": "toolbox",
+      "rank": null,
+      "reciprocal_rank": 0.0,
+      "tier": "weak"
+    }
+  ],
+  "skipped": [
+    {
+      "source": "justice",
+      "target": "scales",
+      "reason": "target not found"
+    },
+    {
+      "source": "haste",
+      "target": "rapids",
+      "reason": "target not found"
+    },
+    {
+      "source": "comedy",
+      "target": "funhouse",
+      "reason": "target not found"
+    }
+  ],
+  "secondary": {
+    "unique_properties": 35000,
+    "hapax_count": 1417,
+    "hapax_rate": 0.040485714285714285,
+    "avg_properties_per_synset": 8.716973313442733
+  },
+  "valid": true,
+  "config": {
+    "enrichment_file": null,
+    "limit": 200
+  }
+}

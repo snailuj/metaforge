@@ -4,7 +4,7 @@
 # Usage:
 #   ./export.sh --db output/lexicon_v2.db
 #
-# Output: output/baseline_lexicon.sql (overwritten)
+# Output: output/baseline_lexicon.sql.gz (overwritten)
 
 set -euo pipefail
 
@@ -44,9 +44,10 @@ done
 echo "VACUUMing $DB_PATH..."
 sqlite3 "$DB_PATH" "VACUUM;"
 
-OUTPUT_FILE="$OUTPUT_DIR/baseline_lexicon.sql"
-echo "Dumping to $OUTPUT_FILE..."
-sqlite3 "$DB_PATH" .dump > "$OUTPUT_FILE"
+SQL_FILE="$OUTPUT_DIR/baseline_lexicon.sql"
+OUTPUT_FILE="$SQL_FILE.gz"
+echo "Dumping and compressing to $OUTPUT_FILE..."
+sqlite3 "$DB_PATH" .dump | gzip > "$OUTPUT_FILE"
 
 # --- Summary -----------------------------------------------------------------
 echo ""
