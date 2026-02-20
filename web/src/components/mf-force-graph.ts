@@ -52,8 +52,7 @@ export class MfForceGraph extends LitElement {
     this.container = this.renderRoot.querySelector('#graph-container') as HTMLDivElement
     if (!this.container) return
 
-    const isTouch = window.matchMedia('(pointer: coarse)').matches
-    this.graph = ForceGraph3D({ controlType: isTouch ? 'orbit' : 'fly' })(this.container)
+    this.graph = ForceGraph3D({ controlType: 'orbit' })(this.container)
       .backgroundColor('#1a1a2e')
       .nodeColor((n: unknown) => {
         const node = n as GraphNode
