@@ -11,7 +11,12 @@ let capturedNodeOpacity: ((node: unknown) => number) | null = null
 let capturedLinkColor: ((link: unknown) => string) | null = null
 let capturedLinkWidth: ((link: unknown) => number) | null = null
 let capturedNodeThreeObject: ((node: unknown) => unknown) | null = null
+let capturedOnNodeClick: ((node: unknown) => void) | null = null
+let capturedOnNodeHover: ((node: unknown | null) => void) | null = null
 let capturedControlType: string | undefined = undefined
+
+const mockCamera = { position: { x: 0, y: 0, z: 100 } }
+const mockControls = { enableDamping: false, dampingFactor: 0 }
 
 const chainable: Record<string, unknown> = new Proxy({}, {
   get: (_t, prop) => {
@@ -57,6 +62,20 @@ const chainable: Record<string, unknown> = new Proxy({}, {
         return chainable
       }
     }
+    if (prop === 'onNodeClick') {
+      return (fn: (node: unknown) => void) => {
+        capturedOnNodeClick = fn
+        return chainable
+      }
+    }
+    if (prop === 'onNodeHover') {
+      return (fn: (node: unknown | null) => void) => {
+        capturedOnNodeHover = fn
+        return chainable
+      }
+    }
+    if (prop === 'camera') return () => mockCamera
+    if (prop === 'controls') return () => mockControls
     return () => chainable
   },
 })
@@ -104,7 +123,12 @@ describe('MfForceGraph', () => {
     capturedLinkColor = null
     capturedLinkWidth = null
     capturedNodeThreeObject = null
+    capturedOnNodeClick = null
+    capturedOnNodeHover = null
     capturedControlType = undefined
+    mockCamera.position.z = 100
+    mockControls.enableDamping = false
+    mockControls.dampingFactor = 0
     vi.mocked(SpriteText).mockClear()
     el = new MfForceGraph()
     el.graphData = testData
@@ -188,6 +212,70 @@ describe('MfForceGraph', () => {
 
   it('uses orbit controls', () => {
     expect(capturedControlType).toBe('orbit')
+  })
+
+  it('does not dispatch mf-node-select for order-2 nodes', () => {
+    vi.useFakeTimers()
+    const order2Node = { id: 'spark', word: 'spark', relationType: 'synonym', val: 2, order: 2 }
+    const spy = vi.fn()
+    el.addEventListener('mf-node-select', spy)
+
+    capturedOnNodeClick!(order2Node)
+    vi.advanceTimersByTime(400)
+
+    expect(spy).not.toHaveBeenCalled()
+
+    el.removeEventListener('mf-node-select', spy)
+    vi.useRealTimers()
+  })
+
+  it('dispatches mf-node-select for order-1 nodes', () => {
+    vi.useFakeTimers()
+    const order1Node = { id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1 }
+    const spy = vi.fn()
+    el.addEventListener('mf-node-select', spy)
+
+    capturedOnNodeClick!(order1Node)
+    vi.advanceTimersByTime(400)
+
+    expect(spy).toHaveBeenCalledOnce()
+
+    el.removeEventListener('mf-node-select', spy)
+    vi.useRealTimers()
+  })
+
+  it('scales default camera zoom 35% closer on init', async () => {
+    await new Promise<void>(r => requestAnimationFrame(r))
+    expect(mockCamera.position.z).toBeCloseTo(65, 0)
+  })
+
+  it('enables damping on orbit controls after init', async () => {
+    await new Promise<void>(r => requestAnimationFrame(r))
+    expect(mockControls.enableDamping).toBe(true)
+    expect(mockControls.dampingFactor).toBeCloseTo(0.08)
+  })
+
+  it('sets wireframe on mesh child when hovering a node', () => {
+    const meshMaterial = { wireframe: false, opacity: 0.9 }
+    const node = {
+      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4,
+      __threeObj: { children: [{ isMesh: true, material: meshMaterial }, { isMesh: false }] },
+    }
+    capturedOnNodeHover!(node)
+    expect(meshMaterial.wireframe).toBe(true)
+    expect(meshMaterial.opacity).toBe(1.0)
+  })
+
+  it('removes wireframe on hover-out', () => {
+    const meshMaterial = { wireframe: false, opacity: 0.9 }
+    const node = {
+      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4,
+      __threeObj: { children: [{ isMesh: true, material: meshMaterial }, { isMesh: false }] },
+    }
+    capturedOnNodeHover!(node) // hover in
+    capturedOnNodeHover!(null) // hover out
+    expect(meshMaterial.wireframe).toBe(false)
+    expect(meshMaterial.opacity).toBe(0.9)
   })
 
   it('hides links when either endpoint is hidden', async () => {

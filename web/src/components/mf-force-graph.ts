@@ -33,6 +33,7 @@ export class MfForceGraph extends LitElement {
   private container: HTMLDivElement | null = null
   private clickTimer: ReturnType<typeof setTimeout> | null = null
   private resizeObserver: ResizeObserver | null = null
+  private previousHoveredNode: GraphNode | null = null
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
   @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
@@ -85,6 +86,7 @@ export class MfForceGraph extends LitElement {
       .linkOpacity(0.6)
       .onNodeClick((n: unknown) => {
         const node = n as GraphNode
+        if (node.order === 2) return
         if (this.clickTimer) {
           // Double click — navigate
           clearTimeout(this.clickTimer)
@@ -123,10 +125,36 @@ export class MfForceGraph extends LitElement {
         if (this.container) {
           this.container.style.cursor = node ? 'pointer' : 'default'
         }
+
+        // Debug highlight: show wireframe on hit-region sphere
+        if (this.previousHoveredNode) {
+          this.setNodeHighlight(this.previousHoveredNode, false)
+        }
+        if (node) {
+          this.setNodeHighlight(node, true)
+        }
+        this.previousHoveredNode = node
       })
 
     // Sync renderer dimensions to actual container size (fixes hit-test offset)
-    requestAnimationFrame(() => this.syncDimensions())
+    requestAnimationFrame(() => {
+      this.syncDimensions()
+
+      if (this.graph) {
+        // Pull camera 35% closer than the default starting distance
+        const camera = this.graph.camera() as { position: { z: number } }
+        camera.position.z *= 0.65
+
+        // Enable smooth zoom/orbit damping (3d-force-graph already calls
+        // controls.update() each frame, so this works out of the box)
+        const controls = this.graph.controls() as {
+          enableDamping: boolean
+          dampingFactor: number
+        }
+        controls.enableDamping = true
+        controls.dampingFactor = 0.08
+      }
+    })
 
     this.resizeObserver = new ResizeObserver(() => this.syncDimensions())
     this.resizeObserver.observe(this.container)
@@ -137,6 +165,16 @@ export class MfForceGraph extends LitElement {
     if (this.graphData.nodes.length) {
       this.graph.graphData(this.graphData)
     }
+  }
+
+  /** Toggle wireframe debug highlight on a node's hit-region sphere */
+  private setNodeHighlight(node: GraphNode, highlight: boolean): void {
+    const threeObj = (node as unknown as { __threeObj?: { children: { isMesh?: boolean; material?: { wireframe: boolean; opacity: number } }[] } }).__threeObj
+    if (!threeObj?.children) return
+    const mesh = threeObj.children.find(c => c.isMesh)
+    if (!mesh?.material) return
+    mesh.material.wireframe = highlight
+    mesh.material.opacity = highlight ? 1.0 : 0.9
   }
 
   private syncDimensions() {
