@@ -144,31 +144,8 @@ describe('MfForceGraph', () => {
     expect(container.style.touchAction).toBe('none')
   })
 
-  it('uses fly controls on fine pointer devices', () => {
-    // happy-dom matchMedia returns matches:false by default → fine pointer
-    expect(capturedControlType).toBe('fly')
-  })
-
-  it('uses orbit controls on coarse pointer devices', async () => {
-    const origMatchMedia = window.matchMedia
-    window.matchMedia = vi.fn().mockImplementation((query: string) => {
-      if (query === '(pointer: coarse)') {
-        return { matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }
-      }
-      return { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }
-    }) as unknown as typeof window.matchMedia
-
-    const touchEl = new MfForceGraph()
-    touchEl.graphData = testData
-    document.body.appendChild(touchEl)
-    await touchEl.updateComplete
-
-    try {
-      expect(capturedControlType).toBe('orbit')
-    } finally {
-      document.body.removeChild(touchEl)
-      window.matchMedia = origMatchMedia
-    }
+  it('uses orbit controls', () => {
+    expect(capturedControlType).toBe('orbit')
   })
 
   it('hides links when either endpoint is hidden', async () => {
