@@ -7,12 +7,12 @@ import SpriteText from 'three-spritetext'
 let capturedNodeVisibility: ((node: unknown) => boolean) | null = null
 let capturedLinkVisibility: ((link: unknown) => boolean) | null = null
 let capturedNodeColor: ((node: unknown) => string) | null = null
-let capturedNodeOpacity: ((node: unknown) => number) | null = null
+let capturedNodeOpacity: number | null = null
 let capturedLinkColor: ((link: unknown) => string) | null = null
 let capturedLinkWidth: ((link: unknown) => number) | null = null
 let capturedNodeThreeObject: ((node: unknown) => unknown) | null = null
 let capturedOnNodeClick: ((node: unknown) => void) | null = null
-let capturedOnNodeHover: ((node: unknown | null) => void) | null = null
+let capturedOnNodeHover: ((node: unknown | null, previousNode: unknown | null) => void) | null = null
 let capturedControlType: string | undefined = undefined
 
 const mockCamera = { position: { x: 0, y: 0, z: 100 } }
@@ -39,8 +39,11 @@ const chainable: Record<string, unknown> = new Proxy({}, {
       }
     }
     if (prop === 'nodeOpacity') {
-      return (fn: ((node: unknown) => number) | number) => {
-        if (typeof fn === 'function') capturedNodeOpacity = fn
+      // Real library only accepts a static number — used directly in
+      // multiplication (state.nodeOpacity * colorAlpha). A function
+      // would produce NaN and make all spheres invisible.
+      return (val: number) => {
+        capturedNodeOpacity = val
         return chainable
       }
     }
@@ -69,7 +72,8 @@ const chainable: Record<string, unknown> = new Proxy({}, {
       }
     }
     if (prop === 'onNodeHover') {
-      return (fn: (node: unknown | null) => void) => {
+      // Real library calls: fn(node | null, previousNode | null)
+      return (fn: (node: unknown | null, previousNode: unknown | null) => void) => {
         capturedOnNodeHover = fn
         return chainable
       }
@@ -258,7 +262,7 @@ describe('MfForceGraph', () => {
   it('highlights mesh on hover: wireframe, bright colour, scaled up', () => {
     // Real structure: with nodeThreeObjectExtend(true), __threeObj IS the
     // default sphere Mesh. Children are custom objects (SpriteText), not meshes.
-    const color = { _origHex: 0, getHex: vi.fn().mockReturnValue(0xaabbcc), setHex: vi.fn() }
+    const color = { getHex: vi.fn().mockReturnValue(0xaabbcc), setHex: vi.fn() }
     const meshMaterial = { wireframe: false, opacity: 0.9, color }
     const scale = { set: vi.fn() }
     const node = {
@@ -274,7 +278,7 @@ describe('MfForceGraph', () => {
 
   it('restores mesh on hover-out: original colour, opacity, normal scale', () => {
     // Real structure: __threeObj IS the mesh (see highlight test comment)
-    const color = { _origHex: 0, getHex: vi.fn().mockReturnValue(0xaabbcc), setHex: vi.fn() }
+    const color = { getHex: vi.fn().mockReturnValue(0xaabbcc), setHex: vi.fn() }
     const meshMaterial = { wireframe: false, opacity: 0.9, color }
     const scale = { set: vi.fn() }
     const node = {
@@ -311,7 +315,7 @@ describe('MfForceGraph', () => {
       // nodeOpacity must be a number — 3d-force-graph v1.79 uses it
       // directly in multiplication (state.nodeOpacity * colorAlpha),
       // so a function causes NaN and makes all spheres invisible.
-      expect(capturedNodeOpacity).toBeNull()
+      expect(capturedNodeOpacity).toBe(0.9)
     })
 
     it('sets linkColor accessor as a function', () => {
