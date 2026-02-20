@@ -152,7 +152,7 @@ export class MfForceGraph extends LitElement {
           dampingFactor: number
         }
         controls.enableDamping = true
-        controls.dampingFactor = 0.08
+        controls.dampingFactor = 0.12
       }
     })
 
@@ -169,12 +169,15 @@ export class MfForceGraph extends LitElement {
 
   /** Toggle wireframe debug highlight on a node's hit-region sphere */
   private setNodeHighlight(node: GraphNode, highlight: boolean): void {
-    const threeObj = (node as unknown as { __threeObj?: { children: { isMesh?: boolean; material?: { wireframe: boolean; opacity: number } }[] } }).__threeObj
+    type MeshChild = { isMesh?: boolean; material?: { wireframe: boolean; opacity: number }; scale?: { set(x: number, y: number, z: number): void } }
+    const threeObj = (node as unknown as { __threeObj?: { children: MeshChild[] } }).__threeObj
     if (!threeObj?.children) return
     const mesh = threeObj.children.find(c => c.isMesh)
     if (!mesh?.material) return
     mesh.material.wireframe = highlight
-    mesh.material.opacity = highlight ? 1.0 : 0.9
+    mesh.material.opacity = highlight ? 1.0 : (node.order === 2 ? 0.45 : 0.9)
+    const s = highlight ? 3 : 1
+    mesh.scale?.set(s, s, s)
   }
 
   private syncDimensions() {

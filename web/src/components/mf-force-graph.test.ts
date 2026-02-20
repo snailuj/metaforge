@@ -252,30 +252,34 @@ describe('MfForceGraph', () => {
   it('enables damping on orbit controls after init', async () => {
     await new Promise<void>(r => requestAnimationFrame(r))
     expect(mockControls.enableDamping).toBe(true)
-    expect(mockControls.dampingFactor).toBeCloseTo(0.08)
+    expect(mockControls.dampingFactor).toBeCloseTo(0.12)
   })
 
-  it('sets wireframe on mesh child when hovering a node', () => {
+  it('highlights mesh on hover: wireframe, full opacity, scaled up', () => {
     const meshMaterial = { wireframe: false, opacity: 0.9 }
+    const scale = { set: vi.fn() }
     const node = {
       id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1,
-      __threeObj: { children: [{ isMesh: true, material: meshMaterial }, { isMesh: false }] },
+      __threeObj: { children: [{ isMesh: true, material: meshMaterial, scale }, { isMesh: false }] },
     }
     capturedOnNodeHover!(node)
     expect(meshMaterial.wireframe).toBe(true)
     expect(meshMaterial.opacity).toBe(1.0)
+    expect(scale.set).toHaveBeenCalledWith(3, 3, 3)
   })
 
-  it('removes wireframe on hover-out', () => {
+  it('restores mesh on hover-out: no wireframe, original opacity, normal scale', () => {
     const meshMaterial = { wireframe: false, opacity: 0.9 }
+    const scale = { set: vi.fn() }
     const node = {
       id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1,
-      __threeObj: { children: [{ isMesh: true, material: meshMaterial }, { isMesh: false }] },
+      __threeObj: { children: [{ isMesh: true, material: meshMaterial, scale }, { isMesh: false }] },
     }
     capturedOnNodeHover!(node) // hover in
     capturedOnNodeHover!(null) // hover out
     expect(meshMaterial.wireframe).toBe(false)
     expect(meshMaterial.opacity).toBe(0.9)
+    expect(scale.set).toHaveBeenLastCalledWith(1, 1, 1)
   })
 
   it('hides links when either endpoint is hidden', async () => {
