@@ -74,7 +74,8 @@ export class MfForceGraph extends LitElement {
         const sprite = new SpriteText(node.word, fontSize, colour)
         sprite.fontFace = LABEL_FONT
         sprite.backgroundColor = false
-        sprite.position.y = 3
+        sprite.padding = [0.5, 2]
+        sprite.position.y = 2
         return sprite
       })
       .d3VelocityDecay(0.85)
@@ -126,12 +127,11 @@ export class MfForceGraph extends LitElement {
           this.container.style.cursor = node ? 'pointer' : 'default'
         }
 
-        // Debug highlight: show wireframe on hit-region sphere
         if (this.previousHoveredNode) {
-          this.setNodeHighlight(this.previousHoveredNode, false)
+          this.setNodeHoverBorder(this.previousHoveredNode, false)
         }
         if (node) {
-          this.setNodeHighlight(node, true)
+          this.setNodeHoverBorder(node, true)
         }
         this.previousHoveredNode = node
       })
@@ -167,38 +167,29 @@ export class MfForceGraph extends LitElement {
     }
   }
 
-  /** Toggle wireframe debug highlight on a node's hit-region sphere */
-  private setNodeHighlight(node: GraphNode, highlight: boolean): void {
-    type ColorLike = { getHex(): number; setHex(hex: number): void }
-    type MeshLike = {
-      isMesh?: boolean
-      material?: { wireframe: boolean; opacity: number; color?: ColorLike }
-      scale?: { set(x: number, y: number, z: number): void }
-      children?: MeshLike[]
-      _origColorHex?: number
+  /** Toggle rounded-rectangle border on the SpriteText label for hover feedback */
+  private setNodeHoverBorder(node: GraphNode, hover: boolean): void {
+    type SpriteLike = {
+      isSprite?: boolean
+      borderWidth: number
+      borderRadius: number
+      borderColor: string
     }
-    const threeObj = (node as unknown as { __threeObj?: MeshLike }).__threeObj
+    type ObjLike = { children?: SpriteLike[] }
+    const threeObj = (node as unknown as { __threeObj?: ObjLike }).__threeObj
     if (!threeObj) return
-    // With nodeThreeObjectExtend(true), __threeObj IS the default sphere Mesh.
-    // Its children are custom objects (sprites), not meshes.
-    const mesh = threeObj.isMesh ? threeObj : threeObj.children?.find(c => c.isMesh)
-    if (!mesh?.material) return
+    const sprite = threeObj.children?.find(c => c.isSprite)
+    if (!sprite) return
 
-    if (highlight) {
-      if (mesh.material.color) {
-        mesh._origColorHex = mesh.material.color.getHex()
-        mesh.material.color.setHex(0x00ff88)
-      }
-      mesh.material.wireframe = true
-      mesh.material.opacity = 1.0
-      mesh.scale?.set(5, 5, 5)
-    } else {
-      if (mesh.material.color && mesh._origColorHex !== undefined) {
-        mesh.material.color.setHex(mesh._origColorHex)
-      }
-      mesh.material.wireframe = false
-      mesh.material.opacity = node.order === 2 ? 0.45 : 0.9
-      mesh.scale?.set(1, 1, 1)
+    if (hover) {
+      const colour = node.relationType === 'central'
+        ? NODE_COLOURS.central
+        : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
+      sprite.borderWidth = 0.15
+      sprite.borderRadius = 0.3
+      sprite.borderColor = colour
+    } else if (sprite.borderWidth !== 0) {
+      sprite.borderWidth = 0
     }
   }
 

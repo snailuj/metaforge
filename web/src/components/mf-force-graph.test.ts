@@ -93,8 +93,13 @@ vi.mock('3d-force-graph', () => ({
 vi.mock('three-spritetext', () => ({
   default: vi.fn().mockImplementation(() => ({
     fontFace: '',
-    backgroundColor: '',
+    backgroundColor: false,
     position: { y: 0 },
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: 0,
+    borderColor: 'white',
+    isSprite: true,
   })),
 }))
 
@@ -259,38 +264,37 @@ describe('MfForceGraph', () => {
     expect(mockControls.dampingFactor).toBeCloseTo(0.05)
   })
 
-  it('highlights mesh on hover: wireframe, bright colour, scaled up', () => {
-    // Real structure: with nodeThreeObjectExtend(true), __threeObj IS the
-    // default sphere Mesh. Children are custom objects (SpriteText), not meshes.
-    const color = { getHex: vi.fn().mockReturnValue(0xaabbcc), setHex: vi.fn() }
-    const meshMaterial = { wireframe: false, opacity: 0.9, color }
-    const scale = { set: vi.fn() }
+  it('shows rounded-rect border on hover with rarity colour', () => {
+    const spriteChild = { isSprite: true, borderWidth: 0, borderRadius: 0, borderColor: 'white' }
     const node = {
-      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1,
-      __threeObj: { isMesh: true, material: meshMaterial, scale, children: [{ isMesh: false }] },
+      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1, rarity: 'common',
+      __threeObj: { isMesh: true, children: [spriteChild] },
     }
     capturedOnNodeHover!(node)
-    expect(meshMaterial.wireframe).toBe(true)
-    expect(meshMaterial.opacity).toBe(1.0)
-    expect(scale.set).toHaveBeenCalledWith(5, 5, 5)
-    expect(color.setHex).toHaveBeenCalledWith(0x00ff88)
+    expect(spriteChild.borderWidth).toBe(0.15)
+    expect(spriteChild.borderRadius).toBe(0.3)
+    expect(spriteChild.borderColor).toBe(RARITY_COLOURS.common)
   })
 
-  it('restores mesh on hover-out: original colour, opacity, normal scale', () => {
-    // Real structure: __threeObj IS the mesh (see highlight test comment)
-    const color = { getHex: vi.fn().mockReturnValue(0xaabbcc), setHex: vi.fn() }
-    const meshMaterial = { wireframe: false, opacity: 0.9, color }
-    const scale = { set: vi.fn() }
+  it('removes border on hover-out', () => {
+    const spriteChild = { isSprite: true, borderWidth: 0, borderRadius: 0, borderColor: 'white' }
     const node = {
-      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1,
-      __threeObj: { isMesh: true, material: meshMaterial, scale, children: [{ isMesh: false }] },
+      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1, rarity: 'common',
+      __threeObj: { isMesh: true, children: [spriteChild] },
     }
     capturedOnNodeHover!(node) // hover in
     capturedOnNodeHover!(null) // hover out
-    expect(meshMaterial.wireframe).toBe(false)
-    expect(meshMaterial.opacity).toBe(0.9)
-    expect(scale.set).toHaveBeenLastCalledWith(1, 1, 1)
-    expect(color.setHex).toHaveBeenLastCalledWith(0xaabbcc)
+    expect(spriteChild.borderWidth).toBe(0)
+  })
+
+  it('uses gold border for central node on hover', () => {
+    const spriteChild = { isSprite: true, borderWidth: 0, borderRadius: 0, borderColor: 'white' }
+    const node = {
+      id: 'fire', word: 'fire', relationType: 'central', val: 8, order: 0,
+      __threeObj: { isMesh: true, children: [spriteChild] },
+    }
+    capturedOnNodeHover!(node)
+    expect(spriteChild.borderColor).toBe('#d4af37')
   })
 
   it('hides links when either endpoint is hidden', async () => {
@@ -370,6 +374,20 @@ describe('MfForceGraph', () => {
       capturedNodeThreeObject!(blaze)
       const calls = vi.mocked(SpriteText).mock.calls
       expect(calls[0][1]).toBe(3)
+    })
+
+    it('positions sprite at y=2 for unified hit area', () => {
+      vi.mocked(SpriteText).mockClear()
+      const blaze = testData.nodes.find(n => n.id === 'blaze')!
+      const sprite = capturedNodeThreeObject!(blaze) as { position: { y: number } }
+      expect(sprite.position.y).toBe(2)
+    })
+
+    it('sets sprite padding to cover sphere hit area', () => {
+      vi.mocked(SpriteText).mockClear()
+      const blaze = testData.nodes.find(n => n.id === 'blaze')!
+      const sprite = capturedNodeThreeObject!(blaze) as { padding: number[] }
+      expect(sprite.padding).toEqual([0.5, 2])
     })
   })
 })
