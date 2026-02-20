@@ -27,6 +27,7 @@ export function transformLookupToGraph(
     relationType: 'central',
     val: 8,
     rarity: toRarity(result.rarity),
+    order: 0,
   })
 
   // Collect all related words by priority tier
@@ -64,12 +65,14 @@ export function transformLookupToGraph(
         relationType: tier.type,
         val: tier.type === 'synonym' ? 4 : 2,
         rarity: toRarity(rw.rarity),
+        order: 1,
       })
 
       links.push({
         source: centralId,
         target: nodeId,
         relationType: tier.type,
+        order: 1,
       })
 
       remaining--

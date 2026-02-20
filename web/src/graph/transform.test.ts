@@ -138,6 +138,28 @@ describe('transformLookupToGraph', () => {
     expect(graph.links.length).toBe(0)
   })
 
+  it('assigns order 0 to the central node', () => {
+    const graph = transformLookupToGraph(melancholy)
+    const central = graph.nodes.find(n => n.relationType === 'central')!
+    expect(central.order).toBe(0)
+  })
+
+  it('assigns order 1 to first-order nodes', () => {
+    const graph = transformLookupToGraph(melancholy)
+    const firstOrder = graph.nodes.filter(n => n.relationType !== 'central')
+    expect(firstOrder.length).toBeGreaterThan(0)
+    for (const node of firstOrder) {
+      expect(node.order).toBe(1)
+    }
+  })
+
+  it('assigns order 1 to first-order links', () => {
+    const graph = transformLookupToGraph(melancholy)
+    for (const link of graph.links) {
+      expect(link.order).toBe(1)
+    }
+  })
+
   it('filters self-references from synonyms', () => {
     const selfRef: LookupResult = {
       word: 'happy',
@@ -207,8 +229,8 @@ describe('mergeSecondOrderGraph', () => {
     // "sadness" is already a first-order hypernym — should not be duplicated
     const sadnessNodes = merged.nodes.filter(n => n.word === 'sadness')
     expect(sadnessNodes.length).toBe(1)
-    // Its order should remain undefined (first-order, existing)
-    expect(sadnessNodes[0].order).toBeUndefined()
+    // Its order should remain 1 (first-order, existing — not overwritten)
+    expect(sadnessNodes[0].order).toBe(1)
   })
 
   it('creates cross-links to existing nodes with order 2', () => {

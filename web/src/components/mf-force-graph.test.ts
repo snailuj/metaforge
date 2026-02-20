@@ -98,16 +98,16 @@ import { MfForceGraph } from './mf-force-graph'
 
 const testData: GraphData = {
   nodes: [
-    { id: 'fire', word: 'fire', relationType: 'central', val: 8 },
-    { id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, rarity: 'common' },
-    { id: 'conflagration', word: 'conflagration', relationType: 'synonym', val: 4, rarity: 'rare' },
-    { id: 'flame', word: 'flame', relationType: 'synonym', val: 4 }, // no rarity → defaults to 'unusual'
+    { id: 'fire', word: 'fire', relationType: 'central', val: 8, order: 0 },
+    { id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, rarity: 'common', order: 1 },
+    { id: 'conflagration', word: 'conflagration', relationType: 'synonym', val: 4, rarity: 'rare', order: 1 },
+    { id: 'flame', word: 'flame', relationType: 'synonym', val: 4, order: 1 }, // no rarity → defaults to 'unusual'
     { id: 'ember', word: 'ember', relationType: 'synonym', val: 1, rarity: 'common', order: 2 },
   ],
   links: [
-    { source: 'fire', target: 'blaze', relationType: 'synonym' },
-    { source: 'fire', target: 'conflagration', relationType: 'synonym' },
-    { source: 'fire', target: 'flame', relationType: 'synonym' },
+    { source: 'fire', target: 'blaze', relationType: 'synonym', order: 1 },
+    { source: 'fire', target: 'conflagration', relationType: 'synonym', order: 1 },
+    { source: 'fire', target: 'flame', relationType: 'synonym', order: 1 },
     { source: 'fire', target: 'ember', relationType: 'synonym', order: 2 },
   ],
 }
@@ -258,7 +258,7 @@ describe('MfForceGraph', () => {
   it('sets wireframe on mesh child when hovering a node', () => {
     const meshMaterial = { wireframe: false, opacity: 0.9 }
     const node = {
-      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4,
+      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1,
       __threeObj: { children: [{ isMesh: true, material: meshMaterial }, { isMesh: false }] },
     }
     capturedOnNodeHover!(node)
@@ -269,7 +269,7 @@ describe('MfForceGraph', () => {
   it('removes wireframe on hover-out', () => {
     const meshMaterial = { wireframe: false, opacity: 0.9 }
     const node = {
-      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4,
+      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1,
       __threeObj: { children: [{ isMesh: true, material: meshMaterial }, { isMesh: false }] },
     }
     capturedOnNodeHover!(node) // hover in
