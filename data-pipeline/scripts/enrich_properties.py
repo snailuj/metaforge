@@ -240,6 +240,64 @@ def get_pilot_synsets(
     return synsets
 
 
+def get_frequency_ranked_synsets(
+    conn: sqlite3.Connection,
+    limit: int,
+) -> List[Dict]:
+    """Get synsets ranked by max lemma familiarity, excluding already-enriched.
+
+    For each synset, picks the most familiar lemma (for the enrichment prompt).
+    Synsets already present in the enrichment table are excluded.
+    """
+    # Check if enrichment table exists (fresh DBs may not have it)
+    has_enrichment = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='enrichment'"
+    ).fetchone()[0] > 0
+
+    exclude_clause = (
+        "AND s.synset_id NOT IN (SELECT synset_id FROM enrichment)"
+        if has_enrichment else ""
+    )
+
+    cursor = conn.execute(f"""
+        WITH ranked_lemmas AS (
+            SELECT
+                s.synset_id,
+                s.definition,
+                s.pos,
+                l.lemma,
+                COALESCE(f.familiarity, 0) AS fam,
+                ROW_NUMBER() OVER (
+                    PARTITION BY s.synset_id
+                    ORDER BY COALESCE(f.familiarity, 0) DESC, l.lemma
+                ) AS rn,
+                MAX(COALESCE(f.familiarity, 0)) OVER (
+                    PARTITION BY s.synset_id
+                ) AS max_fam
+            FROM synsets s
+            JOIN lemmas l ON l.synset_id = s.synset_id
+            LEFT JOIN frequencies f ON f.lemma = l.lemma
+            WHERE 1=1 {exclude_clause}
+        )
+        SELECT synset_id, definition, lemma, pos
+        FROM ranked_lemmas
+        WHERE rn = 1
+        ORDER BY max_fam DESC
+        LIMIT ?
+    """, (limit,))
+
+    synsets = []
+    for row in cursor.fetchall():
+        synsets.append({
+            "id": str(row[0]),
+            "definition": row[1],
+            "lemma": row[2],
+            "pos": row[3],
+        })
+
+    return synsets
+
+
 # --- Main loop ----------------------------------------------------------------
 
 def run_enrichment(
@@ -254,6 +312,7 @@ def run_enrichment(
     prompt_template: str = None,
     verbose: bool = False,
     db_path: str = None,
+    strategy: str = "random",
 ) -> EnrichmentResult:
     """Run property enrichment on synsets using claude CLI.
 
@@ -270,7 +329,7 @@ def run_enrichment(
     conn = sqlite3.connect(db_path)
     try:
         if output_file is None:
-            output_file = OUTPUT_DIR / f"property_pilot_{size}.json"
+            raise ValueError("output_file is required")
 
         checkpoint_path = OUTPUT_DIR / "checkpoint_enrich.json"
 
@@ -288,9 +347,13 @@ def run_enrichment(
         print(f"  Size: {size} synsets")
         print(f"  Batch size: {batch_size}")
         print(f"  Model: {model}")
+        print(f"  Strategy: {strategy}")
         print(f"  Database: {db_path}")
 
-        synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
+        if strategy == "frequency":
+            synsets = get_frequency_ranked_synsets(conn, size)
+        else:
+            synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
         print(f"  Retrieved {len(synsets)} synsets")
 
         # Checkpoint handling
@@ -429,12 +492,17 @@ def main():
         help="Resume from checkpoint",
     )
     parser.add_argument(
-        "--output", "-o", type=str, default=None,
-        help="Output file path (default: property_pilot_<size>.json)",
+        "--output", "-o", type=str, required=True,
+        help="Output file path (e.g. enrichment_8000_sonnet_20260220.json)",
     )
     parser.add_argument(
         "--synset-ids", type=str, default=None,
         help="JSON file with array of synset IDs to enrich (optional)",
+    )
+    parser.add_argument(
+        "--strategy", type=str, default="random",
+        choices=["random", "frequency"],
+        help="Synset selection strategy: 'random' (POS-stratified) or 'frequency' (by familiarity, excludes already-enriched)",
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true",
@@ -456,6 +524,7 @@ def main():
         output_file=output_file,
         synset_ids_file=synset_ids_file,
         verbose=args.verbose,
+        strategy=args.strategy,
     )
 
 

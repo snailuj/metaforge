@@ -209,3 +209,82 @@ def test_snap_morphological_participle(tmp_path):
         conn.close()
 
     assert any(r[0] == 1 and r[1] == "morphological" for r in rows)
+
+
+def test_snap_embedding_match(tmp_path):
+    """Properties with similar embeddings snap via 'embedding' stage."""
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "emb_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX idx_vocab_lemma ON property_vocab_curated(lemma);
+
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            PRIMARY KEY (synset_id, property_id)
+        );
+
+        -- Vocabulary has "bright" with an embedding
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'bright', 'a', 1);
+        INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'distant', 'a', 1);
+    """)
+
+    # "bright" vocab embedding
+    bright_emb = _make_embedding(1.0)
+    conn.execute(
+        "INSERT INTO property_vocabulary VALUES (1, 'bright', ?, 0, 'pilot')",
+        (bright_emb,),
+    )
+    # "distant" vocab embedding — very different seed
+    distant_emb = _make_embedding(-1.0)
+    conn.execute(
+        "INSERT INTO property_vocabulary VALUES (2, 'distant', ?, 0, 'pilot')",
+        (distant_emb,),
+    )
+
+    # Extracted property "radiant" with embedding very close to "bright"
+    radiant_emb = _make_embedding(1.001)  # very close to bright's 1.0
+    conn.execute(
+        "INSERT INTO property_vocabulary VALUES (10, 'radiant', ?, 0, 'pilot')",
+        (radiant_emb,),
+    )
+    conn.execute("INSERT INTO synset_properties VALUES ('abc', 10)")
+    conn.commit()
+
+    try:
+        result = snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    assert result["embedding"] >= 1
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT vocab_id, snap_method, snap_score FROM synset_properties_curated"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert len(rows) == 1
+    assert rows[0][0] == 1  # matched to "bright", not "distant"
+    assert rows[0][1] == "embedding"
+    assert rows[0][2] is not None and rows[0][2] > 0.99  # very high similarity

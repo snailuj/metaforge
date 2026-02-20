@@ -165,7 +165,7 @@ def curate_properties(
         is_oov = 1 if emb is None else 0
 
         conn.execute(
-            """INSERT OR REPLACE INTO property_vocabulary (text, embedding, is_oov, source)
+            """INSERT OR IGNORE INTO property_vocabulary (text, embedding, is_oov, source)
                VALUES (?, ?, ?, 'pilot')""",
             (prop, emb, is_oov),
         )
@@ -307,12 +307,19 @@ def compute_property_similarity(
         print("  <2 properties with embeddings — skipping similarity")
         return 0
 
+    # O(n²) pairwise similarity — n properties, chunked to limit memory
+    num_chunks = (n + chunk_size - 1) // chunk_size
+    total_chunk_pairs = num_chunks * (num_chunks + 1) // 2  # upper triangle of chunk grid
+    print(f"  Computing pairwise similarity: {n} properties, "
+          f"{num_chunks} chunks, {total_chunk_pairs} chunk pairs", flush=True)
+
     matrix = np.array(embeddings, dtype=np.float32)
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     norms[norms == 0] = 1
     normalised = matrix / norms
 
     unique_count = 0
+    chunk_pairs_done = 0
     for ci in range(0, n, chunk_size):
         ci_end = min(ci + chunk_size, n)
         for cj in range(ci, n, chunk_size):
@@ -344,6 +351,12 @@ def compute_property_similarity(
                     pairs,
                 )
                 unique_count += len(pairs) // 2
+
+            chunk_pairs_done += 1
+            if chunk_pairs_done % 5 == 0 or chunk_pairs_done == total_chunk_pairs:
+                print(f"    Chunk {chunk_pairs_done}/{total_chunk_pairs} "
+                      f"({chunk_pairs_done * 100 // total_chunk_pairs}%), "
+                      f"pairs so far: {unique_count}", flush=True)
 
     # Create indexes after bulk insert
     conn.executescript("""

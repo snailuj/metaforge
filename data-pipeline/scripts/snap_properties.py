@@ -3,20 +3,20 @@
 Three-stage cascade:
   1. Exact match — property text matches vocabulary lemma verbatim
   2. Morphological normalisation — stem/lemmatise then exact match
-  3. Embedding top-K — cosine similarity above threshold
+  3. Embedding top-1 — cosine similarity above threshold (numpy-vectorised)
   4. Drop — no match found
 
 Usage:
     python snap_properties.py --db PATH [--threshold 0.7]
 """
 import argparse
-import math
 import sqlite3
 import struct
 import sys
 from pathlib import Path
 
 import nltk
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import LEXICON_V2, EMBEDDING_DIM
@@ -49,16 +49,42 @@ def _lemmatise(word: str) -> list[str]:
     return list(variants)
 
 
-def _cosine_similarity(a: bytes, b: bytes) -> float:
-    """Compute cosine similarity between two embedding blobs."""
-    va = struct.unpack(f"{EMBEDDING_DIM}f", a)
-    vb = struct.unpack(f"{EMBEDDING_DIM}f", b)
-    dot = sum(x * y for x, y in zip(va, vb))
-    norm_a = math.sqrt(sum(x * x for x in va))
-    norm_b = math.sqrt(sum(x * x for x in vb))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
+def _build_vocab_matrix(
+    conn: sqlite3.Connection,
+    vocab_by_lemma: dict[str, int],
+) -> tuple[np.ndarray, list[int]]:
+    """Build normalised numpy matrix of vocab embeddings.
+
+    Single query joins property_vocab_curated with property_vocabulary
+    to get embeddings for vocab entries.
+
+    Returns (matrix, vocab_ids) where matrix is (n, EMBEDDING_DIM)
+    and vocab_ids[i] corresponds to matrix[i].
+    """
+    rows = conn.execute("""
+        SELECT pvc.vocab_id, pv.embedding
+        FROM property_vocab_curated pvc
+        JOIN property_vocabulary pv ON LOWER(pv.text) = LOWER(pvc.lemma)
+        WHERE pv.embedding IS NOT NULL
+    """).fetchall()
+
+    if not rows:
+        return np.empty((0, EMBEDDING_DIM), dtype=np.float32), []
+
+    vocab_ids = []
+    vectors = []
+    for vid, blob in rows:
+        vec = struct.unpack(f"{EMBEDDING_DIM}f", blob)
+        vectors.append(vec)
+        vocab_ids.append(vid)
+
+    matrix = np.array(vectors, dtype=np.float32)
+    # L2-normalise for cosine similarity via dot product
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms[norms == 0] = 1
+    matrix /= norms
+
+    return matrix, vocab_ids
 
 
 def snap_properties(
@@ -69,6 +95,9 @@ def snap_properties(
 
     Reads from synset_properties + property_vocabulary + property_vocab_curated.
     Writes to synset_properties_curated.
+
+    Stage 3 (embedding) uses numpy-vectorised cosine similarity:
+    O(P_unmatched) matrix-vector multiplications instead of O(P × V) Python loops.
 
     Returns stats dict with counts per snap stage.
     """
@@ -86,22 +115,15 @@ def snap_properties(
 
     # Load vocabulary: lemma -> vocab_id
     vocab_by_lemma: dict[str, int] = {}
-    vocab_embeddings: dict[int, bytes] = {}
     for vid, lemma in conn.execute(
         "SELECT vocab_id, lemma FROM property_vocab_curated"
     ):
         vocab_by_lemma[lemma.lower()] = vid
 
-    # Load vocabulary embeddings (from property_vocabulary, matched by text)
-    for vid, lemma in conn.execute(
-        "SELECT vocab_id, lemma FROM property_vocab_curated"
-    ):
-        row = conn.execute(
-            "SELECT embedding FROM property_vocabulary WHERE text = ? AND embedding IS NOT NULL",
-            (lemma.lower(),)
-        ).fetchone()
-        if row and row[0]:
-            vocab_embeddings[vid] = row[0]
+    # Build normalised vocab embedding matrix for Stage 3
+    vocab_matrix, vocab_ids = _build_vocab_matrix(conn, vocab_by_lemma)
+    has_vocab_embeddings = len(vocab_ids) > 0
+    print(f"    Vocab embeddings loaded: {len(vocab_ids)} entries", flush=True)
 
     # Load synset-property links with property text and embedding
     synset_props: list[tuple[str, str, bytes | None]] = []
@@ -112,11 +134,23 @@ def snap_properties(
     """):
         synset_props.append((sid, text, emb))
 
+    total_links = len(synset_props)
+    print(f"    Property links to snap: {total_links}", flush=True)
+
     stats = {"exact": 0, "morphological": 0, "embedding": 0, "dropped": 0}
     inserts: list[tuple[str, int, str, float | None]] = []
     seen: set[tuple[str, int]] = set()
 
-    for sid, prop_text, prop_emb in synset_props:
+    # Collect unmatched properties for batched embedding lookup
+    # (index in synset_props, synset_id, embedding_bytes)
+    embedding_candidates: list[tuple[int, str, bytes]] = []
+
+    for i, (sid, prop_text, prop_emb) in enumerate(synset_props):
+        if (i + 1) % 20000 == 0:
+            print(f"    Stages 1-2: {i + 1}/{total_links} "
+                  f"(exact={stats['exact']}, morph={stats['morphological']})",
+                  flush=True)
+
         prop_lower = prop_text.lower().strip()
 
         # Stage 1: Exact match
@@ -144,25 +178,47 @@ def snap_properties(
         if matched:
             continue
 
-        # Stage 3: Embedding similarity
-        if prop_emb and vocab_embeddings:
-            best_vid = None
-            best_score = 0.0
-            for vid, v_emb in vocab_embeddings.items():
-                score = _cosine_similarity(prop_emb, v_emb)
-                if score > best_score:
-                    best_score = score
-                    best_vid = vid
-            if best_vid is not None and best_score >= embedding_threshold:
-                key = (sid, best_vid)
-                if key not in seen:
-                    inserts.append((sid, best_vid, "embedding", best_score))
-                    seen.add(key)
-                    stats["embedding"] += 1
-                continue
+        # Collect for Stage 3 batch processing
+        if prop_emb and has_vocab_embeddings:
+            embedding_candidates.append((i, sid, prop_emb))
+        else:
+            stats["dropped"] += 1
 
-        # Stage 4: Drop
-        stats["dropped"] += 1
+    # Stage 3: Batch embedding similarity via numpy
+    # Each candidate gets a single matrix-vector dot product: O(V × 300)
+    print(f"    Stage 3: {len(embedding_candidates)} candidates for embedding match",
+          flush=True)
+
+    for j, (idx, sid, prop_emb) in enumerate(embedding_candidates):
+        if (j + 1) % 2000 == 0:
+            print(f"    Stage 3: {j + 1}/{len(embedding_candidates)} "
+                  f"(matched={stats['embedding']})", flush=True)
+
+        # Unpack and normalise the query vector
+        vec = np.array(
+            struct.unpack(f"{EMBEDDING_DIM}f", prop_emb),
+            dtype=np.float32,
+        )
+        norm = np.linalg.norm(vec)
+        if norm == 0:
+            stats["dropped"] += 1
+            continue
+        vec /= norm
+
+        # Cosine similarities via single matrix-vector multiply
+        scores = vocab_matrix @ vec  # shape: (n_vocab,)
+        best_idx = int(np.argmax(scores))
+        best_score = float(scores[best_idx])
+
+        if best_score >= embedding_threshold:
+            best_vid = vocab_ids[best_idx]
+            key = (sid, best_vid)
+            if key not in seen:
+                inserts.append((sid, best_vid, "embedding", best_score))
+                seen.add(key)
+                stats["embedding"] += 1
+        else:
+            stats["dropped"] += 1
 
     conn.executemany(
         "INSERT INTO synset_properties_curated (synset_id, vocab_id, snap_method, snap_score) "

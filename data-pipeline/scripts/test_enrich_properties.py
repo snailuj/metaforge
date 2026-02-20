@@ -14,6 +14,7 @@ from enrich_properties import (
     format_batch_items,
     extract_batch,
     get_pilot_synsets,
+    get_frequency_ranked_synsets,
     load_checkpoint,
     save_checkpoint,
     run_enrichment,
@@ -400,3 +401,160 @@ def test_run_enrichment_accepts_db_path(tmp_path):
 
     assert isinstance(result, EnrichmentResult)
     assert result.succeeded == 1
+
+
+# --- 15. get_frequency_ranked_synsets -----------------------------------------
+
+LEXICON_SCHEMA_WITH_FREQ = """
+CREATE TABLE synsets (
+    synset_id TEXT PRIMARY KEY,
+    pos TEXT NOT NULL,
+    definition TEXT NOT NULL
+);
+CREATE TABLE lemmas (
+    lemma TEXT NOT NULL,
+    synset_id TEXT NOT NULL,
+    PRIMARY KEY (lemma, synset_id)
+);
+CREATE TABLE frequencies (
+    lemma TEXT PRIMARY KEY,
+    familiarity REAL,
+    rarity TEXT
+);
+CREATE TABLE enrichment (
+    synset_id TEXT PRIMARY KEY,
+    model_used TEXT
+);
+"""
+
+
+def _make_freq_db():
+    """Create in-memory DB with frequency + enrichment tables.
+
+    Synsets ranked by max lemma familiarity:
+      1. 200001 "happy" (fam=7.0) — already enriched, should be excluded
+      2. 200002 "walk" (fam=6.5)
+      3. 200003 "candle" (fam=5.0, "taper" fam=2.0)
+      4. 200004 "melancholy" (fam=3.0)
+      5. 200005 "petrichor" (no frequency data → fam=0)
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(LEXICON_SCHEMA_WITH_FREQ)
+    conn.executemany(
+        "INSERT INTO synsets VALUES (?, ?, ?)",
+        [
+            ("200001", "a", "feeling pleasure"),
+            ("200002", "v", "move on foot"),
+            ("200003", "n", "stick of wax with a wick"),
+            ("200004", "n", "a feeling of pensive sadness"),
+            ("200005", "n", "pleasant earthy smell after rain"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO lemmas VALUES (?, ?)",
+        [
+            ("happy", "200001"),
+            ("walk", "200002"),
+            ("candle", "200003"),
+            ("taper", "200003"),
+            ("melancholy", "200004"),
+            ("petrichor", "200005"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO frequencies VALUES (?, ?, ?)",
+        [
+            ("happy", 7.0, "common"),
+            ("walk", 6.5, "common"),
+            ("candle", 5.0, "unusual"),
+            ("taper", 2.0, "rare"),
+            ("melancholy", 3.0, "rare"),
+            # petrichor deliberately absent — no frequency data
+        ],
+    )
+    # Mark "happy" as already enriched
+    conn.execute(
+        "INSERT INTO enrichment VALUES (?, ?)",
+        ("200001", "haiku"),
+    )
+    conn.commit()
+    return conn
+
+
+def test_frequency_ranked_excludes_enriched():
+    """Already-enriched synsets are excluded from frequency-ranked selection."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=10)
+
+    ids = [s["id"] for s in synsets]
+    assert "200001" not in ids, "already-enriched synset should be excluded"
+
+
+def test_frequency_ranked_returns_familiarity_order():
+    """Synsets are returned in descending max-lemma-familiarity order."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=10)
+
+    ids = [s["id"] for s in synsets]
+    # walk (6.5), candle (5.0), melancholy (3.0), petrichor (0)
+    assert ids == ["200002", "200003", "200004", "200005"]
+
+
+def test_frequency_ranked_picks_most_familiar_lemma():
+    """For multi-lemma synsets, the most familiar lemma is selected."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=10)
+
+    candle_entry = next(s for s in synsets if s["id"] == "200003")
+    assert candle_entry["lemma"] == "candle", (
+        "should pick 'candle' (fam=5.0) over 'taper' (fam=2.0)"
+    )
+
+
+def test_frequency_ranked_respects_limit():
+    """Limit parameter caps the number of results."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=2)
+
+    assert len(synsets) == 2
+    ids = [s["id"] for s in synsets]
+    assert ids == ["200002", "200003"]
+
+
+def test_frequency_ranked_populates_all_fields():
+    """Each result has id, lemma, definition, and pos."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=1)
+
+    s = synsets[0]
+    assert s["id"] == "200002"
+    assert s["lemma"] == "walk"
+    assert s["definition"] == "move on foot"
+    assert s["pos"] == "v"
+
+
+def test_frequency_ranked_no_enrichment_table():
+    """Works when enrichment table doesn't exist (fresh DB)."""
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(LEXICON_SCHEMA)
+    conn.executemany(
+        "INSERT INTO synsets VALUES (?, ?, ?)",
+        [("300001", "n", "a thing")],
+    )
+    conn.executemany(
+        "INSERT INTO lemmas VALUES (?, ?)",
+        [("thing", "300001")],
+    )
+    # No frequencies table either — should still work, just 0 familiarity
+    conn.execute("""
+        CREATE TABLE frequencies (
+            lemma TEXT PRIMARY KEY,
+            familiarity REAL,
+            rarity TEXT
+        )
+    """)
+    conn.commit()
+
+    synsets = get_frequency_ranked_synsets(conn, limit=10)
+    assert len(synsets) == 1
+    assert synsets[0]["id"] == "300001"
