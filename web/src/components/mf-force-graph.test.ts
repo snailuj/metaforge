@@ -252,16 +252,18 @@ describe('MfForceGraph', () => {
   it('enables damping on orbit controls after init', async () => {
     await new Promise<void>(r => requestAnimationFrame(r))
     expect(mockControls.enableDamping).toBe(true)
-    expect(mockControls.dampingFactor).toBeCloseTo(0.75)
+    expect(mockControls.dampingFactor).toBeCloseTo(0.05)
   })
 
   it('highlights mesh on hover: wireframe, bright colour, scaled up', () => {
+    // Real structure: with nodeThreeObjectExtend(true), __threeObj IS the
+    // default sphere Mesh. Children are custom objects (SpriteText), not meshes.
     const color = { _origHex: 0, getHex: vi.fn().mockReturnValue(0xaabbcc), setHex: vi.fn() }
     const meshMaterial = { wireframe: false, opacity: 0.9, color }
     const scale = { set: vi.fn() }
     const node = {
       id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1,
-      __threeObj: { children: [{ isMesh: true, material: meshMaterial, scale }, { isMesh: false }] },
+      __threeObj: { isMesh: true, material: meshMaterial, scale, children: [{ isMesh: false }] },
     }
     capturedOnNodeHover!(node)
     expect(meshMaterial.wireframe).toBe(true)
@@ -271,12 +273,13 @@ describe('MfForceGraph', () => {
   })
 
   it('restores mesh on hover-out: original colour, opacity, normal scale', () => {
+    // Real structure: __threeObj IS the mesh (see highlight test comment)
     const color = { _origHex: 0, getHex: vi.fn().mockReturnValue(0xaabbcc), setHex: vi.fn() }
     const meshMaterial = { wireframe: false, opacity: 0.9, color }
     const scale = { set: vi.fn() }
     const node = {
       id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1,
-      __threeObj: { children: [{ isMesh: true, material: meshMaterial, scale }, { isMesh: false }] },
+      __threeObj: { isMesh: true, material: meshMaterial, scale, children: [{ isMesh: false }] },
     }
     capturedOnNodeHover!(node) // hover in
     capturedOnNodeHover!(null) // hover out

@@ -152,7 +152,7 @@ export class MfForceGraph extends LitElement {
           dampingFactor: number
         }
         controls.enableDamping = true
-        controls.dampingFactor = 0.75
+        controls.dampingFactor = 0.05
       }
     })
 
@@ -170,15 +170,18 @@ export class MfForceGraph extends LitElement {
   /** Toggle wireframe debug highlight on a node's hit-region sphere */
   private setNodeHighlight(node: GraphNode, highlight: boolean): void {
     type ColorLike = { getHex(): number; setHex(hex: number): void }
-    type MeshChild = {
+    type MeshLike = {
       isMesh?: boolean
       material?: { wireframe: boolean; opacity: number; color?: ColorLike }
       scale?: { set(x: number, y: number, z: number): void }
+      children?: MeshLike[]
       _origColorHex?: number
     }
-    const threeObj = (node as unknown as { __threeObj?: { children: MeshChild[] } }).__threeObj
-    if (!threeObj?.children) return
-    const mesh = threeObj.children.find(c => c.isMesh)
+    const threeObj = (node as unknown as { __threeObj?: MeshLike }).__threeObj
+    if (!threeObj) return
+    // With nodeThreeObjectExtend(true), __threeObj IS the default sphere Mesh.
+    // Its children are custom objects (sprites), not meshes.
+    const mesh = threeObj.isMesh ? threeObj : threeObj.children?.find(c => c.isMesh)
     if (!mesh?.material) return
 
     if (highlight) {
