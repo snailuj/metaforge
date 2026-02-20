@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
 from claude_client import prompt_json, RateLimitError
 
-from utils import SQLUNET_DB, OUTPUT_DIR
+from utils import LEXICON_V2, OUTPUT_DIR
 
 
 # --- Errors ------------------------------------------------------------------
@@ -169,6 +169,7 @@ def get_pilot_synsets(
 ) -> List[Dict]:
     """Get diverse synsets: stratified by POS and frequency.
 
+    Queries lexicon_v2 schema (synsets + lemmas tables).
     If required_ids is provided, those synsets are included first, then
     remaining slots are filled randomly to reach the limit.
     """
@@ -179,11 +180,10 @@ def get_pilot_synsets(
     if required_ids:
         placeholders = ",".join("?" for _ in required_ids)
         cursor = conn.execute(f"""
-            SELECT DISTINCT s.synsetid, s.definition, w.word, s.posid
+            SELECT DISTINCT s.synset_id, s.definition, l.lemma, s.pos
             FROM synsets s
-            JOIN senses se ON se.synsetid = s.synsetid
-            JOIN words w ON w.wordid = se.wordid
-            WHERE s.synsetid IN ({placeholders})
+            JOIN lemmas l ON l.synset_id = s.synset_id
+            WHERE s.synset_id IN ({placeholders})
         """, required_ids)
         for row in cursor.fetchall():
             sid = str(row[0])
@@ -209,22 +209,20 @@ def get_pilot_synsets(
             if seen_ids:
                 exclude_placeholders = ",".join("?" for _ in seen_ids)
                 cursor = conn.execute(f"""
-                    SELECT DISTINCT s.synsetid, s.definition, w.word
+                    SELECT DISTINCT s.synset_id, s.definition, l.lemma
                     FROM synsets s
-                    JOIN senses se ON se.synsetid = s.synsetid
-                    JOIN words w ON w.wordid = se.wordid
-                    WHERE s.posid = ?
-                      AND s.synsetid NOT IN ({exclude_placeholders})
+                    JOIN lemmas l ON l.synset_id = s.synset_id
+                    WHERE s.pos = ?
+                      AND s.synset_id NOT IN ({exclude_placeholders})
                     ORDER BY RANDOM()
                     LIMIT ?
                 """, (pos, *seen_ids, count))
             else:
                 cursor = conn.execute("""
-                    SELECT DISTINCT s.synsetid, s.definition, w.word
+                    SELECT DISTINCT s.synset_id, s.definition, l.lemma
                     FROM synsets s
-                    JOIN senses se ON se.synsetid = s.synsetid
-                    JOIN words w ON w.wordid = se.wordid
-                    WHERE s.posid = ?
+                    JOIN lemmas l ON l.synset_id = s.synset_id
+                    WHERE s.pos = ?
                     ORDER BY RANDOM()
                     LIMIT ?
                 """, (pos, count))
@@ -242,6 +240,64 @@ def get_pilot_synsets(
     return synsets
 
 
+def get_frequency_ranked_synsets(
+    conn: sqlite3.Connection,
+    limit: int,
+) -> List[Dict]:
+    """Get synsets ranked by max lemma familiarity, excluding already-enriched.
+
+    For each synset, picks the most familiar lemma (for the enrichment prompt).
+    Synsets already present in the enrichment table are excluded.
+    """
+    # Check if enrichment table exists (fresh DBs may not have it)
+    has_enrichment = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='enrichment'"
+    ).fetchone()[0] > 0
+
+    exclude_clause = (
+        "AND s.synset_id NOT IN (SELECT synset_id FROM enrichment)"
+        if has_enrichment else ""
+    )
+
+    cursor = conn.execute(f"""
+        WITH ranked_lemmas AS (
+            SELECT
+                s.synset_id,
+                s.definition,
+                s.pos,
+                l.lemma,
+                COALESCE(f.familiarity, 0) AS fam,
+                ROW_NUMBER() OVER (
+                    PARTITION BY s.synset_id
+                    ORDER BY COALESCE(f.familiarity, 0) DESC, l.lemma
+                ) AS rn,
+                MAX(COALESCE(f.familiarity, 0)) OVER (
+                    PARTITION BY s.synset_id
+                ) AS max_fam
+            FROM synsets s
+            JOIN lemmas l ON l.synset_id = s.synset_id
+            LEFT JOIN frequencies f ON f.lemma = l.lemma
+            WHERE 1=1 {exclude_clause}
+        )
+        SELECT synset_id, definition, lemma, pos
+        FROM ranked_lemmas
+        WHERE rn = 1
+        ORDER BY max_fam DESC
+        LIMIT ?
+    """, (limit,))
+
+    synsets = []
+    for row in cursor.fetchall():
+        synsets.append({
+            "id": str(row[0]),
+            "definition": row[1],
+            "lemma": row[2],
+            "pos": row[3],
+        })
+
+    return synsets
+
+
 # --- Main loop ----------------------------------------------------------------
 
 def run_enrichment(
@@ -255,18 +311,25 @@ def run_enrichment(
     required_synset_ids: set[str] = None,
     prompt_template: str = None,
     verbose: bool = False,
+    db_path: str = None,
+    strategy: str = "random",
 ) -> EnrichmentResult:
     """Run property enrichment on synsets using claude CLI.
 
-    Returns the output file path as a string.
+    Queries synset data from the lexicon DB (lexicon_v2 schema).
+    Returns an EnrichmentResult dataclass.
     """
-    if not SQLUNET_DB.exists():
-        raise FileNotFoundError(f"Database not found: {SQLUNET_DB}")
+    if db_path is None:
+        db_path = str(LEXICON_V2)
 
-    conn = sqlite3.connect(SQLUNET_DB)
+    db = Path(db_path)
+    if not db.exists():
+        raise FileNotFoundError(f"Database not found: {db_path}")
+
+    conn = sqlite3.connect(db_path)
     try:
         if output_file is None:
-            output_file = OUTPUT_DIR / f"property_pilot_{size}.json"
+            raise ValueError("output_file is required")
 
         checkpoint_path = OUTPUT_DIR / "checkpoint_enrich.json"
 
@@ -284,9 +347,13 @@ def run_enrichment(
         print(f"  Size: {size} synsets")
         print(f"  Batch size: {batch_size}")
         print(f"  Model: {model}")
-        print(f"  Database: {SQLUNET_DB}")
+        print(f"  Strategy: {strategy}")
+        print(f"  Database: {db_path}")
 
-        synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
+        if strategy == "frequency":
+            synsets = get_frequency_ranked_synsets(conn, size)
+        else:
+            synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
         print(f"  Retrieved {len(synsets)} synsets")
 
         # Checkpoint handling
@@ -425,12 +492,17 @@ def main():
         help="Resume from checkpoint",
     )
     parser.add_argument(
-        "--output", "-o", type=str, default=None,
-        help="Output file path (default: property_pilot_<size>.json)",
+        "--output", "-o", type=str, required=True,
+        help="Output file path (e.g. enrichment_8000_sonnet_20260220.json)",
     )
     parser.add_argument(
         "--synset-ids", type=str, default=None,
         help="JSON file with array of synset IDs to enrich (optional)",
+    )
+    parser.add_argument(
+        "--strategy", type=str, default="random",
+        choices=["random", "frequency"],
+        help="Synset selection strategy: 'random' (POS-stratified) or 'frequency' (by familiarity, excludes already-enriched)",
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true",
@@ -452,6 +524,7 @@ def main():
         output_file=output_file,
         synset_ids_file=synset_ids_file,
         verbose=args.verbose,
+        strategy=args.strategy,
     )
 
 

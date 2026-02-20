@@ -79,6 +79,17 @@ CREATE TABLE synset_centroids (
     centroid BLOB NOT NULL,
     property_count INTEGER NOT NULL
 );
+
+CREATE TABLE frequencies (
+    lemma TEXT PRIMARY KEY,
+    familiarity REAL
+);
+
+CREATE TABLE relations (
+    source_synset TEXT NOT NULL,
+    target_synset TEXT NOT NULL,
+    relation_type TEXT NOT NULL
+);
 """
 
 
@@ -606,3 +617,109 @@ def test_populate_applies_mwe_filter():
         (seep_id,),
     ).fetchone()
     assert link is not None
+
+
+# --- 17. run_pipeline creates curated tables ----------------------------------
+
+def test_run_pipeline_creates_curated_tables(tmp_path):
+    """run_pipeline() should create property_vocab_curated, synset_properties_curated,
+    and property_antonyms tables via the curated pipeline integration."""
+    data = _make_enrichment_data()
+    enrichment_file = tmp_path / "enrichment.json"
+    enrichment_file.write_text(json.dumps(data))
+
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(SCHEMA_SQL)
+    conn.close()
+
+    vectors = _make_vectors()
+
+    with patch("enrich_pipeline.load_fasttext_vectors", return_value=vectors):
+        stats = run_pipeline(str(db_path), str(enrichment_file), "dummy.vec")
+
+    # Curated tables must exist
+    conn = sqlite3.connect(str(db_path))
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    conn.close()
+
+    assert "property_vocab_curated" in tables
+    assert "synset_properties_curated" in tables
+    assert "property_antonyms" in tables
+
+    # Stats dict must include curated keys
+    assert "vocab_entries" in stats
+    assert "snapped_properties" in stats
+    assert "antonym_pairs" in stats
+
+
+# --- 18. curate_properties preserves existing IDs on re-run -------------------
+
+def test_curate_properties_preserves_existing_ids():
+    """Re-running curate+populate with overlapping properties preserves IDs and links."""
+    conn = _make_db()
+    vectors = {
+        "hot": _make_vec(1.0, 0.0, 0.0),
+        "cold": _make_vec(0.0, 1.0, 0.0),
+        "wet": _make_vec(0.0, 0.0, 1.0),
+    }
+
+    # --- Enrichment A: hot + cold for synset s1 ---
+    data_a = {
+        "synsets": [{"id": "s1", "properties": ["hot", "cold"]}],
+        "config": {"model": "model-a"},
+    }
+    curate_properties(conn, data_a, vectors)
+    populate_synset_properties(conn, data_a, "model-a")
+
+    hot_id_before = conn.execute(
+        "SELECT property_id FROM property_vocabulary WHERE text = 'hot'"
+    ).fetchone()[0]
+    cold_id_before = conn.execute(
+        "SELECT property_id FROM property_vocabulary WHERE text = 'cold'"
+    ).fetchone()[0]
+
+    # --- Enrichment B: hot (overlap) + wet (new) for synset s2 ---
+    data_b = {
+        "synsets": [{"id": "s2", "properties": ["hot", "wet"]}],
+        "config": {"model": "model-b"},
+    }
+    curate_properties(conn, data_b, vectors)
+    populate_synset_properties(conn, data_b, "model-b")
+
+    # Property IDs for hot and cold must be unchanged
+    hot_id_after = conn.execute(
+        "SELECT property_id FROM property_vocabulary WHERE text = 'hot'"
+    ).fetchone()[0]
+    cold_id_after = conn.execute(
+        "SELECT property_id FROM property_vocabulary WHERE text = 'cold'"
+    ).fetchone()[0]
+    assert hot_id_after == hot_id_before, "hot property_id changed on re-run"
+    assert cold_id_after == cold_id_before, "cold property_id changed on re-run"
+
+    # s1 links still resolve via JOIN
+    s1_props = conn.execute(
+        """SELECT pv.text FROM synset_properties sp
+           JOIN property_vocabulary pv ON pv.property_id = sp.property_id
+           WHERE sp.synset_id = 's1'"""
+    ).fetchall()
+    s1_texts = {r[0] for r in s1_props}
+    assert s1_texts == {"hot", "cold"}, f"s1 links broken: {s1_texts}"
+
+    # s2 links also resolve
+    s2_props = conn.execute(
+        """SELECT pv.text FROM synset_properties sp
+           JOIN property_vocabulary pv ON pv.property_id = sp.property_id
+           WHERE sp.synset_id = 's2'"""
+    ).fetchall()
+    s2_texts = {r[0] for r in s2_props}
+    assert s2_texts == {"hot", "wet"}, f"s2 links broken: {s2_texts}"
+
+    # "wet" got a new property_id (distinct from hot and cold)
+    wet_id = conn.execute(
+        "SELECT property_id FROM property_vocabulary WHERE text = 'wet'"
+    ).fetchone()[0]
+    assert wet_id != hot_id_before
+    assert wet_id != cold_id_before

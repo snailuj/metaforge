@@ -9,7 +9,6 @@ RAW_DIR = PIPELINE_DIR / "raw"
 
 # Outputs
 LEXICON_V2 = OUTPUT_DIR / "lexicon_v2.db"
-PILOT_FILE = OUTPUT_DIR / "property_pilot_2k.json"
 
 # Raw source data
 SQLUNET_DB = RAW_DIR / "sqlunet_master.db"

@@ -9,6 +9,9 @@ export type RelationType =
 /** Frequency-based rarity bucket for visibility filtering */
 export type Rarity = 'common' | 'unusual' | 'rare'
 
+/** Forge tier — all tiers including curated vocabulary tiers */
+export type ForgeTier = 'legendary' | 'complex' | 'interesting' | 'ironic' | 'strong' | 'obvious' | 'unlikely'
+
 /** A node in the force graph */
 export interface GraphNode {
   id: string            // Unique: word or word__synsetId for disambiguation

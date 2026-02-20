@@ -5,13 +5,15 @@
 #
 # Usage:
 #   # From existing enrichment JSON:
-#   ./enrich.sh --db output/lexicon_v2.db --from-json output/property_pilot_2k.json
+#   ./enrich.sh --db output/lexicon_v2.db --from-json output/enrichment_2000_gemini-flash_20260215.json
 #
 #   # Full LLM enrichment:
-#   ./enrich.sh --db output/lexicon_v2.db --enrich --size 2000 --batch-size 20 --model haiku
+#   ./enrich.sh --db output/lexicon_v2.db --enrich --size 2000 --model haiku \
+#               --output output/enrichment_2000_haiku_20260220.json
 #
 #   # With targeted synset IDs:
-#   ./enrich.sh --db output/lexicon_v2.db --enrich --size 500 --synset-ids ids.json
+#   ./enrich.sh --db output/lexicon_v2.db --enrich --size 500 --synset-ids ids.json \
+#               --output output/enrichment_500_haiku_20260220.json
 
 set -euo pipefail
 
@@ -34,6 +36,7 @@ BATCH_SIZE=20
 MODEL="haiku"
 DELAY=1.0
 SYNSET_IDS=""
+OUTPUT_JSON=""
 DUMP_SQL=true
 
 while [[ $# -gt 0 ]]; do
@@ -46,6 +49,7 @@ while [[ $# -gt 0 ]]; do
         --model)    MODEL="$2"; shift 2 ;;
         --delay)    DELAY="$2"; shift 2 ;;
         --synset-ids) SYNSET_IDS="$2"; shift 2 ;;
+        --output)   OUTPUT_JSON="$2"; shift 2 ;;
         --no-dump)  DUMP_SQL=false; shift ;;
         *)          echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -107,8 +111,12 @@ echo ""
 ENRICHMENT_JSON=""
 
 if [[ "$ENRICH" == true ]]; then
+    if [[ -z "$OUTPUT_JSON" ]]; then
+        echo "ERROR: --output FILE is required with --enrich (e.g. --output enrichment_2000_sonnet_20260220.json)" >&2
+        exit 1
+    fi
     echo "--- Running LLM enrichment (size=$SIZE, model=$MODEL) ---"
-    ENRICHMENT_JSON="$OUTPUT_DIR/property_pilot_${SIZE}.json"
+    ENRICHMENT_JSON="$OUTPUT_JSON"
 
     ENRICH_ARGS=(
         python "$SCRIPTS_DIR/enrich_properties.py"

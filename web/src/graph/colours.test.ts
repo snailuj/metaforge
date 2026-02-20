@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from './colours'
+import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR, FORGE_TIER_COLOURS } from './colours'
 
 describe('colours', () => {
   it('exports NODE_COLOURS for each relation type', () => {
@@ -18,5 +18,22 @@ describe('colours', () => {
 
   it('exports DEFAULT_NODE_COLOUR', () => {
     expect(DEFAULT_NODE_COLOUR).toBe('#e8e0d4')
+  })
+})
+
+describe('FORGE_TIER_COLOURS', () => {
+  it('includes ironic tier', () => {
+    expect(FORGE_TIER_COLOURS.ironic).toBeDefined()
+  })
+
+  it('includes complex tier', () => {
+    expect(FORGE_TIER_COLOURS.complex).toBeDefined()
+  })
+
+  it('includes all seven tiers', () => {
+    const tiers = ['legendary', 'complex', 'interesting', 'ironic', 'strong', 'obvious', 'unlikely'] as const
+    for (const tier of tiers) {
+      expect(FORGE_TIER_COLOURS[tier]).toBeDefined()
+    }
   })
 })

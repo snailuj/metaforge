@@ -245,6 +245,44 @@ CREATE TABLE IF NOT EXISTS synset_centroids (
 );
 
 -- ============================================================
+-- Curated Property Vocabulary (from build_vocab.py)
+-- ============================================================
+
+-- Canonical vocabulary entries: one lemma per synset, least-polysemous chosen
+CREATE TABLE IF NOT EXISTS property_vocab_curated (
+    vocab_id    INTEGER PRIMARY KEY,
+    synset_id   TEXT NOT NULL,
+    lemma       TEXT NOT NULL,
+    pos         TEXT NOT NULL,
+    polysemy    INTEGER NOT NULL,
+    UNIQUE(synset_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vocab_curated_lemma ON property_vocab_curated(lemma);
+
+-- Snapped synset-property links (from snap_properties.py)
+CREATE TABLE IF NOT EXISTS synset_properties_curated (
+    synset_id   TEXT NOT NULL,
+    vocab_id    INTEGER NOT NULL,
+    snap_method TEXT NOT NULL,
+    snap_score  REAL,
+    FOREIGN KEY (vocab_id) REFERENCES property_vocab_curated(vocab_id),
+    PRIMARY KEY (synset_id, vocab_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_spc_synset ON synset_properties_curated(synset_id);
+CREATE INDEX IF NOT EXISTS idx_spc_vocab ON synset_properties_curated(vocab_id);
+
+-- Antonym pairs via WordNet attribute relations (from build_antonyms.py)
+CREATE TABLE IF NOT EXISTS property_antonyms (
+    vocab_id_a  INTEGER NOT NULL,
+    vocab_id_b  INTEGER NOT NULL,
+    FOREIGN KEY (vocab_id_a) REFERENCES property_vocab_curated(vocab_id),
+    FOREIGN KEY (vocab_id_b) REFERENCES property_vocab_curated(vocab_id),
+    PRIMARY KEY (vocab_id_a, vocab_id_b)
+);
+
+-- ============================================================
 -- Runtime Query Examples
 -- ============================================================
 

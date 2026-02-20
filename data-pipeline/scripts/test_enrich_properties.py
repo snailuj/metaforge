@@ -1,5 +1,6 @@
 """Tests for enrich_properties.py — claude -p enrichment script."""
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -12,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from enrich_properties import (
     format_batch_items,
     extract_batch,
+    get_pilot_synsets,
+    get_frequency_ranked_synsets,
     load_checkpoint,
     save_checkpoint,
     run_enrichment,
@@ -157,25 +160,37 @@ def test_extract_batch_invalid_template():
 
 # --- Helpers for run_enrichment tests ----------------------------------------
 
-def _mock_sqlunet_db():
-    """Create a MagicMock that acts like a Path for SQLUNET_DB."""
-    mock_path = MagicMock()
-    mock_path.exists.return_value = True
-    mock_path.__str__ = lambda s: ":memory:"
-    return mock_path
+def _make_test_db(tmp_path) -> str:
+    """Create a temporary lexicon_v2-schema DB for run_enrichment tests."""
+    db_file = tmp_path / "test_lexicon.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.executescript(LEXICON_SCHEMA)
+    conn.executemany(
+        "INSERT INTO synsets VALUES (?, ?, ?)",
+        [
+            ("100001", "n", "stick of wax with a wick"),
+            ("100002", "v", "speak softly"),
+            ("100003", "n", "loud noise"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO lemmas VALUES (?, ?)",
+        [("candle", "100001"), ("whisper", "100002"), ("thunder", "100003")],
+    )
+    conn.commit()
+    conn.close()
+    return str(db_file)
 
 
 # --- 11. run_enrichment returns EnrichmentResult dataclass --------------------
 
 @patch("enrich_properties.extract_batch")
 @patch("enrich_properties.get_pilot_synsets")
-@patch("enrich_properties.sqlite3")
 def test_run_enrichment_returns_enrichment_result(
-    mock_sqlite, mock_get_synsets, mock_extract, tmp_path,
+    mock_get_synsets, mock_extract, tmp_path,
 ):
     """run_enrichment returns an EnrichmentResult dataclass with expected fields."""
-    mock_conn = MagicMock()
-    mock_sqlite.connect.return_value = mock_conn
+    db_path = _make_test_db(tmp_path)
 
     mock_get_synsets.return_value = SAMPLE_SYNSETS
     mock_extract.return_value = [
@@ -185,13 +200,13 @@ def test_run_enrichment_returns_enrichment_result(
          "properties": ["quiet", "intimate"]},
     ]
 
-    with patch("enrich_properties.SQLUNET_DB", _mock_sqlunet_db()), \
-         patch("enrich_properties.OUTPUT_DIR", tmp_path):
+    with patch("enrich_properties.OUTPUT_DIR", tmp_path):
         result = run_enrichment(
             size=2,
             batch_size=20,
             delay=0,
             output_file=tmp_path / "out.json",
+            db_path=db_path,
         )
 
     assert isinstance(result, EnrichmentResult)
@@ -208,13 +223,11 @@ def test_run_enrichment_returns_enrichment_result(
 
 @patch("enrich_properties.extract_batch")
 @patch("enrich_properties.get_pilot_synsets")
-@patch("enrich_properties.sqlite3")
 def test_run_enrichment_tracks_failed_synset_ids(
-    mock_sqlite, mock_get_synsets, mock_extract, tmp_path,
+    mock_get_synsets, mock_extract, tmp_path,
 ):
     """When a batch fails, run_enrichment captures the failed synset IDs."""
-    mock_conn = MagicMock()
-    mock_sqlite.connect.return_value = mock_conn
+    db_path = _make_test_db(tmp_path)
 
     synsets = [
         {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n"},
@@ -234,13 +247,13 @@ def test_run_enrichment_tracks_failed_synset_ids(
         RuntimeError("API failure"),
     ]
 
-    with patch("enrich_properties.SQLUNET_DB", _mock_sqlunet_db()), \
-         patch("enrich_properties.OUTPUT_DIR", tmp_path):
+    with patch("enrich_properties.OUTPUT_DIR", tmp_path):
         result = run_enrichment(
             size=3,
             batch_size=2,
             delay=0,
             output_file=tmp_path / "out.json",
+            db_path=db_path,
         )
 
     assert isinstance(result, EnrichmentResult)
@@ -254,13 +267,11 @@ def test_run_enrichment_tracks_failed_synset_ids(
 
 @patch("enrich_properties.extract_batch")
 @patch("enrich_properties.get_pilot_synsets")
-@patch("enrich_properties.sqlite3")
 def test_enrichment_output_json_includes_failed_ids(
-    mock_sqlite, mock_get_synsets, mock_extract, tmp_path,
+    mock_get_synsets, mock_extract, tmp_path,
 ):
     """Output JSON file includes failed_synset_ids in stats."""
-    mock_conn = MagicMock()
-    mock_sqlite.connect.return_value = mock_conn
+    db_path = _make_test_db(tmp_path)
 
     synsets = [
         {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n"},
@@ -275,15 +286,275 @@ def test_enrichment_output_json_includes_failed_ids(
         RuntimeError("Timeout"),
     ]
 
-    with patch("enrich_properties.SQLUNET_DB", _mock_sqlunet_db()), \
-         patch("enrich_properties.OUTPUT_DIR", tmp_path):
+    with patch("enrich_properties.OUTPUT_DIR", tmp_path):
         result = run_enrichment(
             size=2,
             batch_size=1,
             delay=0,
             output_file=tmp_path / "out.json",
+            db_path=db_path,
         )
 
     output = json.loads((tmp_path / "out.json").read_text())
     assert "failed_synset_ids" in output["stats"]
     assert output["stats"]["failed_synset_ids"] == ["100002"]
+
+
+# --- 14. get_pilot_synsets queries lexicon_v2 schema -------------------------
+
+LEXICON_SCHEMA = """
+CREATE TABLE synsets (
+    synset_id TEXT PRIMARY KEY,
+    pos TEXT NOT NULL,
+    definition TEXT NOT NULL
+);
+CREATE TABLE lemmas (
+    lemma TEXT NOT NULL,
+    synset_id TEXT NOT NULL,
+    PRIMARY KEY (lemma, synset_id)
+);
+"""
+
+
+def _make_lexicon_db():
+    """Create in-memory DB with lexicon_v2 schema and sample data."""
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(LEXICON_SCHEMA)
+    conn.executemany(
+        "INSERT INTO synsets VALUES (?, ?, ?)",
+        [
+            ("100001", "n", "stick of wax with a wick"),
+            ("100002", "v", "speak softly"),
+            ("100003", "a", "having a high temperature"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO lemmas VALUES (?, ?)",
+        [
+            ("candle", "100001"),
+            ("taper", "100001"),
+            ("whisper", "100002"),
+            ("hot", "100003"),
+        ],
+    )
+    conn.commit()
+    return conn
+
+
+def test_get_pilot_synsets_lexicon_schema():
+    """get_pilot_synsets returns synsets from lexicon_v2 schema."""
+    conn = _make_lexicon_db()
+    synsets = get_pilot_synsets(conn, limit=10)
+
+    assert len(synsets) == 3
+    ids = {s["id"] for s in synsets}
+    assert "100001" in ids
+    assert "100002" in ids
+    assert "100003" in ids
+
+    # Check fields populated correctly
+    candle = next(s for s in synsets if s["id"] == "100001")
+    assert candle["definition"] == "stick of wax with a wick"
+    assert candle["pos"] == "n"
+    assert candle["lemma"] in ("candle", "taper")
+
+
+def test_get_pilot_synsets_required_ids():
+    """get_pilot_synsets prioritises required_ids."""
+    conn = _make_lexicon_db()
+    synsets = get_pilot_synsets(conn, limit=1, required_ids=["100002"])
+
+    ids = {s["id"] for s in synsets}
+    assert "100002" in ids
+
+
+def test_run_enrichment_accepts_db_path(tmp_path):
+    """run_enrichment accepts db_path parameter instead of using SQLUNET_DB."""
+    db_path = tmp_path / "test_lexicon.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(LEXICON_SCHEMA)
+    conn.executemany(
+        "INSERT INTO synsets VALUES (?, ?, ?)",
+        [("100001", "n", "stick of wax with a wick")],
+    )
+    conn.executemany(
+        "INSERT INTO lemmas VALUES (?, ?)",
+        [("candle", "100001")],
+    )
+    conn.commit()
+    conn.close()
+
+    with patch("enrich_properties.extract_batch") as mock_extract, \
+         patch("enrich_properties.OUTPUT_DIR", tmp_path):
+        mock_extract.return_value = [
+            {"id": "100001", "lemma": "candle", "definition": "stick of wax with a wick",
+             "pos": "n", "properties": ["warm"]},
+        ]
+        result = run_enrichment(
+            size=1,
+            batch_size=20,
+            delay=0,
+            output_file=tmp_path / "out.json",
+            db_path=str(db_path),
+            required_synset_ids={"100001"},
+        )
+
+    assert isinstance(result, EnrichmentResult)
+    assert result.succeeded == 1
+
+
+# --- 15. get_frequency_ranked_synsets -----------------------------------------
+
+LEXICON_SCHEMA_WITH_FREQ = """
+CREATE TABLE synsets (
+    synset_id TEXT PRIMARY KEY,
+    pos TEXT NOT NULL,
+    definition TEXT NOT NULL
+);
+CREATE TABLE lemmas (
+    lemma TEXT NOT NULL,
+    synset_id TEXT NOT NULL,
+    PRIMARY KEY (lemma, synset_id)
+);
+CREATE TABLE frequencies (
+    lemma TEXT PRIMARY KEY,
+    familiarity REAL,
+    rarity TEXT
+);
+CREATE TABLE enrichment (
+    synset_id TEXT PRIMARY KEY,
+    model_used TEXT
+);
+"""
+
+
+def _make_freq_db():
+    """Create in-memory DB with frequency + enrichment tables.
+
+    Synsets ranked by max lemma familiarity:
+      1. 200001 "happy" (fam=7.0) — already enriched, should be excluded
+      2. 200002 "walk" (fam=6.5)
+      3. 200003 "candle" (fam=5.0, "taper" fam=2.0)
+      4. 200004 "melancholy" (fam=3.0)
+      5. 200005 "petrichor" (no frequency data → fam=0)
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(LEXICON_SCHEMA_WITH_FREQ)
+    conn.executemany(
+        "INSERT INTO synsets VALUES (?, ?, ?)",
+        [
+            ("200001", "a", "feeling pleasure"),
+            ("200002", "v", "move on foot"),
+            ("200003", "n", "stick of wax with a wick"),
+            ("200004", "n", "a feeling of pensive sadness"),
+            ("200005", "n", "pleasant earthy smell after rain"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO lemmas VALUES (?, ?)",
+        [
+            ("happy", "200001"),
+            ("walk", "200002"),
+            ("candle", "200003"),
+            ("taper", "200003"),
+            ("melancholy", "200004"),
+            ("petrichor", "200005"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO frequencies VALUES (?, ?, ?)",
+        [
+            ("happy", 7.0, "common"),
+            ("walk", 6.5, "common"),
+            ("candle", 5.0, "unusual"),
+            ("taper", 2.0, "rare"),
+            ("melancholy", 3.0, "rare"),
+            # petrichor deliberately absent — no frequency data
+        ],
+    )
+    # Mark "happy" as already enriched
+    conn.execute(
+        "INSERT INTO enrichment VALUES (?, ?)",
+        ("200001", "haiku"),
+    )
+    conn.commit()
+    return conn
+
+
+def test_frequency_ranked_excludes_enriched():
+    """Already-enriched synsets are excluded from frequency-ranked selection."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=10)
+
+    ids = [s["id"] for s in synsets]
+    assert "200001" not in ids, "already-enriched synset should be excluded"
+
+
+def test_frequency_ranked_returns_familiarity_order():
+    """Synsets are returned in descending max-lemma-familiarity order."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=10)
+
+    ids = [s["id"] for s in synsets]
+    # walk (6.5), candle (5.0), melancholy (3.0), petrichor (0)
+    assert ids == ["200002", "200003", "200004", "200005"]
+
+
+def test_frequency_ranked_picks_most_familiar_lemma():
+    """For multi-lemma synsets, the most familiar lemma is selected."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=10)
+
+    candle_entry = next(s for s in synsets if s["id"] == "200003")
+    assert candle_entry["lemma"] == "candle", (
+        "should pick 'candle' (fam=5.0) over 'taper' (fam=2.0)"
+    )
+
+
+def test_frequency_ranked_respects_limit():
+    """Limit parameter caps the number of results."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=2)
+
+    assert len(synsets) == 2
+    ids = [s["id"] for s in synsets]
+    assert ids == ["200002", "200003"]
+
+
+def test_frequency_ranked_populates_all_fields():
+    """Each result has id, lemma, definition, and pos."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=1)
+
+    s = synsets[0]
+    assert s["id"] == "200002"
+    assert s["lemma"] == "walk"
+    assert s["definition"] == "move on foot"
+    assert s["pos"] == "v"
+
+
+def test_frequency_ranked_no_enrichment_table():
+    """Works when enrichment table doesn't exist (fresh DB)."""
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(LEXICON_SCHEMA)
+    conn.executemany(
+        "INSERT INTO synsets VALUES (?, ?, ?)",
+        [("300001", "n", "a thing")],
+    )
+    conn.executemany(
+        "INSERT INTO lemmas VALUES (?, ?)",
+        [("thing", "300001")],
+    )
+    # No frequencies table either — should still work, just 0 familiarity
+    conn.execute("""
+        CREATE TABLE frequencies (
+            lemma TEXT PRIMARY KEY,
+            familiarity REAL,
+            rarity TEXT
+        )
+    """)
+    conn.commit()
+
+    synsets = get_frequency_ranked_synsets(conn, limit=10)
+    assert len(synsets) == 1
+    assert synsets[0]["id"] == "300001"
