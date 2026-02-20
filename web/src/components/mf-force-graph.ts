@@ -152,7 +152,7 @@ export class MfForceGraph extends LitElement {
           dampingFactor: number
         }
         controls.enableDamping = true
-        controls.dampingFactor = 0.12
+        controls.dampingFactor = 0.25
       }
     })
 
@@ -169,15 +169,34 @@ export class MfForceGraph extends LitElement {
 
   /** Toggle wireframe debug highlight on a node's hit-region sphere */
   private setNodeHighlight(node: GraphNode, highlight: boolean): void {
-    type MeshChild = { isMesh?: boolean; material?: { wireframe: boolean; opacity: number }; scale?: { set(x: number, y: number, z: number): void } }
+    type ColorLike = { getHex(): number; setHex(hex: number): void }
+    type MeshChild = {
+      isMesh?: boolean
+      material?: { wireframe: boolean; opacity: number; color?: ColorLike }
+      scale?: { set(x: number, y: number, z: number): void }
+      _origColorHex?: number
+    }
     const threeObj = (node as unknown as { __threeObj?: { children: MeshChild[] } }).__threeObj
     if (!threeObj?.children) return
     const mesh = threeObj.children.find(c => c.isMesh)
     if (!mesh?.material) return
-    mesh.material.wireframe = highlight
-    mesh.material.opacity = highlight ? 1.0 : (node.order === 2 ? 0.45 : 0.9)
-    const s = highlight ? 3 : 1
-    mesh.scale?.set(s, s, s)
+
+    if (highlight) {
+      if (mesh.material.color) {
+        mesh._origColorHex = mesh.material.color.getHex()
+        mesh.material.color.setHex(0x00ff88)
+      }
+      mesh.material.wireframe = true
+      mesh.material.opacity = 1.0
+      mesh.scale?.set(5, 5, 5)
+    } else {
+      if (mesh.material.color && mesh._origColorHex !== undefined) {
+        mesh.material.color.setHex(mesh._origColorHex)
+      }
+      mesh.material.wireframe = false
+      mesh.material.opacity = node.order === 2 ? 0.45 : 0.9
+      mesh.scale?.set(1, 1, 1)
+    }
   }
 
   private syncDimensions() {

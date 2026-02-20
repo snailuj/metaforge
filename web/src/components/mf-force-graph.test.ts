@@ -252,11 +252,12 @@ describe('MfForceGraph', () => {
   it('enables damping on orbit controls after init', async () => {
     await new Promise<void>(r => requestAnimationFrame(r))
     expect(mockControls.enableDamping).toBe(true)
-    expect(mockControls.dampingFactor).toBeCloseTo(0.12)
+    expect(mockControls.dampingFactor).toBeCloseTo(0.25)
   })
 
-  it('highlights mesh on hover: wireframe, full opacity, scaled up', () => {
-    const meshMaterial = { wireframe: false, opacity: 0.9 }
+  it('highlights mesh on hover: wireframe, bright colour, scaled up', () => {
+    const color = { _origHex: 0, getHex: vi.fn().mockReturnValue(0xaabbcc), setHex: vi.fn() }
+    const meshMaterial = { wireframe: false, opacity: 0.9, color }
     const scale = { set: vi.fn() }
     const node = {
       id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1,
@@ -265,11 +266,13 @@ describe('MfForceGraph', () => {
     capturedOnNodeHover!(node)
     expect(meshMaterial.wireframe).toBe(true)
     expect(meshMaterial.opacity).toBe(1.0)
-    expect(scale.set).toHaveBeenCalledWith(3, 3, 3)
+    expect(scale.set).toHaveBeenCalledWith(5, 5, 5)
+    expect(color.setHex).toHaveBeenCalledWith(0x00ff88)
   })
 
-  it('restores mesh on hover-out: no wireframe, original opacity, normal scale', () => {
-    const meshMaterial = { wireframe: false, opacity: 0.9 }
+  it('restores mesh on hover-out: original colour, opacity, normal scale', () => {
+    const color = { _origHex: 0, getHex: vi.fn().mockReturnValue(0xaabbcc), setHex: vi.fn() }
+    const meshMaterial = { wireframe: false, opacity: 0.9, color }
     const scale = { set: vi.fn() }
     const node = {
       id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1,
@@ -280,6 +283,7 @@ describe('MfForceGraph', () => {
     expect(meshMaterial.wireframe).toBe(false)
     expect(meshMaterial.opacity).toBe(0.9)
     expect(scale.set).toHaveBeenLastCalledWith(1, 1, 1)
+    expect(color.setHex).toHaveBeenLastCalledWith(0xaabbcc)
   })
 
   it('hides links when either endpoint is hidden', async () => {
