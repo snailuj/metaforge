@@ -1,15 +1,26 @@
 #!/usr/bin/env bash
-# Phase 1: Build baseline lexicon from raw sources (OEWN + SyntagNet + VerbNet + Familiarity).
+# Build the Metaforge lexicon database from raw linguistic sources.
 #
-# Run only when raw data sources update. For normal enrichment, use enrich.sh.
+# Creates lexicon_v2.db from SCHEMA.sql, imports OEWN + SyntagNet + VerbNet +
+# Brysbaert familiarity + SUBTLEX-UK frequencies, then builds curated vocabulary
+# and antonym pairs.
+#
+# Run only when raw data sources update or you need to recreate from scratch.
+# For normal enrichment lifecycle, use the pipeline management skill.
 #
 # Usage:
 #   ./import_raw.sh              Build baseline DB only
-#   ./import_raw.sh --dump       Build and export baseline_lexicon.sql
+#   ./import_raw.sh --dump       Build and export PRE_ENRICH.sql
 #
-# Raw sources required in data-pipeline/raw/:
-#   - sqlunet_master.db        SQLunet integrated database
-#   - wiki-news-300d-1M.vec    FastText 300d word vectors (not used here, but validated)
+# Raw sources required:
+#   data-pipeline/raw/sqlunet_master.db          SQLunet integrated database
+#   data-pipeline/input/multilex-en/*.xlsx       Brysbaert GPT familiarity
+#   data-pipeline/input/subtlex-uk/*.xlsx        SUBTLEX-UK frequencies
+#
+# See also:
+#   data-pipeline/CLAUDE.md                      Pipeline overview
+#   data-pipeline/SCHEMA.sql                     Canonical DDL
+#   .claude/skills/metaforge-pipeline-creation/   Detailed build guide
 
 set -euo pipefail
 
@@ -18,6 +29,7 @@ PIPELINE_DIR="$SCRIPT_DIR"
 SCRIPTS_DIR="$PIPELINE_DIR/scripts"
 RAW_DIR="$PIPELINE_DIR/raw"
 OUTPUT_DIR="$PIPELINE_DIR/output"
+SCHEMA_FILE="$PIPELINE_DIR/SCHEMA.sql"
 
 DUMP=false
 if [[ "${1:-}" == "--dump" ]]; then
@@ -36,7 +48,6 @@ if [[ ! -f "$RAW_DIR/sqlunet_master.db" ]]; then
     errors=1
 fi
 
-SCHEMA_FILE="$(cd "$PIPELINE_DIR/.." && pwd)/docs/designs/schema-v2.sql"
 if [[ ! -f "$SCHEMA_FILE" ]]; then
     echo "ERROR: Missing schema file: $SCHEMA_FILE"
     errors=1
@@ -64,7 +75,7 @@ run_step() {
 
 DB_PATH="$OUTPUT_DIR/lexicon_v2.db"
 
-run_step "Create empty database with schema" \
+run_step "Create empty database from SCHEMA.sql" \
     bash -c "rm -f '$DB_PATH' && sqlite3 '$DB_PATH' < '$SCHEMA_FILE'"
 
 run_step "Import OEWN synsets, lemmas, relations" \
@@ -82,12 +93,36 @@ run_step "Import Brysbaert GPT familiarity" \
 run_step "Backfill SUBTLEX-UK frequency data" \
     python "$SCRIPTS_DIR/import_subtlex.py"
 
+run_step "Build curated vocabulary (35k entries)" \
+    python "$SCRIPTS_DIR/build_vocab.py" --db "$DB_PATH"
+
+run_step "Build antonym pairs from WordNet relations" \
+    python "$SCRIPTS_DIR/build_antonyms.py" --db "$DB_PATH"
+
+# --- Verification ---------------------------------------------------------
+
+echo "--- Verification ---"
+sqlite3 "$DB_PATH" <<'SQL'
+SELECT 'synsets' AS tbl, COUNT(*) FROM synsets
+UNION ALL SELECT 'lemmas', COUNT(*) FROM lemmas
+UNION ALL SELECT 'relations', COUNT(*) FROM relations
+UNION ALL SELECT 'frequencies', COUNT(*) FROM frequencies
+UNION ALL SELECT 'syntagms', COUNT(*) FROM syntagms
+UNION ALL SELECT 'vn_classes', COUNT(*) FROM vn_classes
+UNION ALL SELECT 'property_vocab_curated', COUNT(*) FROM property_vocab_curated
+UNION ALL SELECT 'property_antonyms', COUNT(*) FROM property_antonyms
+UNION ALL SELECT 'enrichment', COUNT(*) FROM enrichment
+UNION ALL SELECT 'property_vocabulary', COUNT(*) FROM property_vocabulary
+UNION ALL SELECT 'synset_properties', COUNT(*) FROM synset_properties;
+SQL
+echo ""
+
 # --- Optional dump --------------------------------------------------------
 
 if [[ "$DUMP" == true ]]; then
-    run_step "Export baseline_lexicon.sql" \
-        bash -c "sqlite3 '$DB_PATH' .dump > '$OUTPUT_DIR/baseline_lexicon.sql'"
-    echo "Baseline dump: $OUTPUT_DIR/baseline_lexicon.sql"
+    run_step "Export PRE_ENRICH.sql" \
+        bash -c "sqlite3 '$DB_PATH' .dump > '$OUTPUT_DIR/PRE_ENRICH.sql'"
+    echo "Baseline dump: $OUTPUT_DIR/PRE_ENRICH.sql"
 fi
 
 echo "=== Import complete ==="

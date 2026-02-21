@@ -187,17 +187,29 @@ python data-pipeline/scripts/enrich_pipeline.py \
 
 `PRE_ENRICH.sql` contains: base WordNet data + frequencies + curated vocabulary (35k) + antonyms (576) + empty enrichment schema tables with indexes.
 
+**Alternative:** `enrich.sh` wraps the restore + enrich/import + pipeline + dump cycle in a single command:
+```bash
+# From existing JSON:
+./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
+  --from-json data-pipeline/output/enrichment_NNNN_model_YYYYMMDD.json
+
+# Full LLM enrichment:
+./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
+  --enrich --size 2000 --model sonnet \
+  --output data-pipeline/output/enrichment_NNNN_model_YYYYMMDD.json
+```
+
 ---
 
 ## Dump Enriched DB
 
-After a successful import, dump the enriched DB for version control:
+After a successful import, dump the enriched DB using `export.sh`:
 
 ```bash
-sqlite3 data-pipeline/output/lexicon_v2.db .dump > data-pipeline/output/lexicon_v2.sql
+./data-pipeline/export.sh --db data-pipeline/output/lexicon_v2.db
 ```
 
-Commit `lexicon_v2.sql` if the enrichment represents a meaningful milestone.
+This VACUUMs the DB and dumps to `data-pipeline/output/lexicon_v2.sql` with a row-count summary.
 
 ---
 
