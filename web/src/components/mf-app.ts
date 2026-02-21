@@ -1,10 +1,11 @@
 import { LitElement, html, css, type PropertyValues } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { lookupWord, ApiError } from '@/api/client'
-import { transformLookupToGraph } from '@/graph/transform'
+import { transformLookupToGraph, mergeSecondOrderGraph, stripSecondOrderNodes } from '@/graph/transform'
+import { computeCrossLinks } from '@/graph/cross-links'
 import { initStrings, getString } from '@/lib/strings'
 import type { LookupResult } from '@/types/api'
-import type { GraphData, Rarity } from '@/graph/types'
+import type { GraphData, GraphNode, Rarity } from '@/graph/types'
 import type { MfToast } from './mf-toast'
 
 // Import components so they register
@@ -116,6 +117,8 @@ export class MfApp extends LitElement {
 
   private currentWord = ''
   private lookupId = 0
+  private selectId = 0
+  private baseGraphData: GraphData = { nodes: [], links: [] }
 
   private hiddenRarities: Set<Rarity> = new Set()
 
@@ -178,6 +181,21 @@ export class MfApp extends LitElement {
     }
   }
 
+  private async handleNodeSelect(e: CustomEvent<GraphNode>) {
+    const node = e.detail
+    if (node.relationType === 'central') return
+
+    const id = ++this.selectId
+    try {
+      const result = await lookupWord(node.word)
+      if (id !== this.selectId) return // stale — a newer select superseded this one
+      const stripped = stripSecondOrderNodes(this.baseGraphData)
+      this.graphData = mergeSecondOrderGraph(stripped, node.id, result)
+    } catch (err) {
+      console.warn('[mf-app] second-order expansion failed', { nodeId: node.id, word: node.word }, err)
+    }
+  }
+
   private handleWordNavigate(e: CustomEvent<{ word: string }>) {
     this.doLookup(e.detail.word)
   }
@@ -189,6 +207,7 @@ export class MfApp extends LitElement {
 
   private async doLookup(word: string) {
     const id = ++this.lookupId
+    ++this.selectId // invalidate any in-flight second-order select
     this.currentWord = word
     this.appState = 'loading'
     this.errorMessage = ''
@@ -197,7 +216,11 @@ export class MfApp extends LitElement {
       const result = await lookupWord(word)
       if (id !== this.lookupId) return // stale — a newer lookup superseded this one
       this.result = result
-      this.graphData = transformLookupToGraph(result)
+      const graph = transformLookupToGraph(result)
+      const nodeIds = new Set(graph.nodes.map(n => n.id))
+      const crossLinks = computeCrossLinks(result, nodeIds)
+      this.baseGraphData = { nodes: graph.nodes, links: [...graph.links, ...crossLinks] }
+      this.graphData = this.baseGraphData
       this.appState = 'ready'
       this.setWordHash(word)
     } catch (err) {
@@ -266,7 +289,7 @@ export class MfApp extends LitElement {
       <mf-force-graph
         .graphData=${this.graphData}
         .hiddenRarities=${this.hiddenRarities}
-        @mf-node-select=${() => {}}
+        @mf-node-select=${this.handleNodeSelect}
         @mf-node-navigate=${this.handleNodeNavigate}
         @mf-node-copy=${this.handleCopy}
       ></mf-force-graph>

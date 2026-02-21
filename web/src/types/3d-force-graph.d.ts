@@ -8,8 +8,8 @@ declare module '3d-force-graph' {
     nodeRelSize(size: number): ForceGraph3DInstance
     nodeThreeObject(fn: (node: unknown) => object): ForceGraph3DInstance
     nodeThreeObjectExtend(extend: boolean): ForceGraph3DInstance
-    linkColor(fn: () => string): ForceGraph3DInstance
-    linkWidth(width: number): ForceGraph3DInstance
+    linkColor(fn: ((link: unknown) => string) | string): ForceGraph3DInstance
+    linkWidth(fn: ((link: unknown) => number) | number): ForceGraph3DInstance
     linkOpacity(opacity: number): ForceGraph3DInstance
     nodeVisibility(fn: (node: unknown) => boolean): ForceGraph3DInstance
     linkVisibility(fn: (link: unknown) => boolean): ForceGraph3DInstance

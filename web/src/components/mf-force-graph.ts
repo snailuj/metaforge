@@ -4,10 +4,11 @@ import type { PropertyValues } from 'lit'
 import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
 import SpriteText from 'three-spritetext'
-import type { GraphData, GraphNode, Rarity } from '@/graph/types'
+import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
+const EDGE_COLOUR_DIM = 'rgba(232, 224, 212, 0.08)'
 const LABEL_FONT = 'Georgia, "Times New Roman", serif'
 
 // 300ms matches typical OS double-click threshold; balances responsiveness
@@ -32,6 +33,7 @@ export class MfForceGraph extends LitElement {
   private container: HTMLDivElement | null = null
   private clickTimer: ReturnType<typeof setTimeout> | null = null
   private resizeObserver: ResizeObserver | null = null
+  private previousHoveredNode: GraphNode | null = null
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
   @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
@@ -52,8 +54,7 @@ export class MfForceGraph extends LitElement {
     this.container = this.renderRoot.querySelector('#graph-container') as HTMLDivElement
     if (!this.container) return
 
-    const isTouch = window.matchMedia('(pointer: coarse)').matches
-    this.graph = ForceGraph3D({ controlType: isTouch ? 'orbit' : 'fly' })(this.container)
+    this.graph = ForceGraph3D({ controlType: 'orbit' })(this.container)
       .backgroundColor('#1a1a2e')
       .nodeColor((n: unknown) => {
         const node = n as GraphNode
@@ -69,22 +70,32 @@ export class MfForceGraph extends LitElement {
         const colour = node.relationType === 'central'
           ? NODE_COLOURS.central
           : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
-        const sprite = new SpriteText(node.word, 3, colour)
+        const fontSize = node.order === 2 ? 2 : 3
+        const sprite = new SpriteText(node.word, fontSize, colour)
         sprite.fontFace = LABEL_FONT
-        // three-spritetext accepts `false` to disable background, but types only declare `string`
-        sprite.backgroundColor = false as unknown as string
-        sprite.position.y = 3
+        sprite.backgroundColor = false
+        sprite.material.transparent = true
+        sprite.material.depthWrite = false
+        sprite.padding = [0.5, 2]
+        sprite.position.y = 2
         return sprite
       })
       .d3VelocityDecay(0.85)
       .d3AlphaDecay(0.005)
       .cooldownTime(30000)
       .warmupTicks(50)
-      .linkColor(() => EDGE_COLOUR)
-      .linkWidth(1)
+      .linkColor((l: unknown) => (l as GraphLink).order === 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR)
+      .linkWidth((l: unknown) => (l as GraphLink).order === 2 ? 0.5 : 1)
       .linkOpacity(0.6)
       .onNodeClick((n: unknown) => {
         const node = n as GraphNode
+        if (node.order === 2) {
+          if (this.clickTimer) {
+            clearTimeout(this.clickTimer)
+            this.clickTimer = null
+          }
+          return
+        }
         if (this.clickTimer) {
           // Double click — navigate
           clearTimeout(this.clickTimer)
@@ -123,10 +134,35 @@ export class MfForceGraph extends LitElement {
         if (this.container) {
           this.container.style.cursor = node ? 'pointer' : 'default'
         }
+
+        if (this.previousHoveredNode) {
+          this.setNodeHoverBorder(this.previousHoveredNode, false)
+        }
+        if (node) {
+          this.setNodeHoverBorder(node, true)
+        }
+        this.previousHoveredNode = node
       })
 
     // Sync renderer dimensions to actual container size (fixes hit-test offset)
-    requestAnimationFrame(() => this.syncDimensions())
+    requestAnimationFrame(() => {
+      this.syncDimensions()
+
+      if (this.graph) {
+        // Pull camera 35% closer than the default starting distance
+        const camera = this.graph.camera() as { position: { z: number } }
+        camera.position.z *= 0.65
+
+        // Enable smooth zoom/orbit damping (3d-force-graph already calls
+        // controls.update() each frame, so this works out of the box)
+        const controls = this.graph.controls() as {
+          enableDamping: boolean
+          dampingFactor: number
+        }
+        controls.enableDamping = true
+        controls.dampingFactor = 0.05
+      }
+    })
 
     this.resizeObserver = new ResizeObserver(() => this.syncDimensions())
     this.resizeObserver.observe(this.container)
@@ -136,6 +172,35 @@ export class MfForceGraph extends LitElement {
 
     if (this.graphData.nodes.length) {
       this.graph.graphData(this.graphData)
+    }
+  }
+
+  /** Toggle rounded-rectangle border on the SpriteText label for hover feedback */
+  private setNodeHoverBorder(node: GraphNode, hover: boolean): void {
+    type SpriteLike = {
+      isSprite?: boolean
+      borderWidth: number
+      borderRadius: number
+      borderColor: string
+      backgroundColor: string | false
+    }
+    type ObjLike = { children?: SpriteLike[] }
+    const threeObj = (node as unknown as { __threeObj?: ObjLike }).__threeObj
+    if (!threeObj) return
+    const sprite = threeObj.children?.find(c => c.isSprite)
+    if (!sprite) return
+
+    if (hover) {
+      const colour = node.relationType === 'central'
+        ? NODE_COLOURS.central
+        : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
+      sprite.borderWidth = 0.15
+      sprite.borderRadius = 0.3
+      sprite.borderColor = colour
+      sprite.backgroundColor = 'rgba(0, 0, 0, 0.2)'
+    } else if (sprite.borderWidth !== 0) {
+      sprite.borderWidth = 0
+      sprite.backgroundColor = false
     }
   }
 
