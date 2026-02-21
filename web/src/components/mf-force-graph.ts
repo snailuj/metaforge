@@ -75,6 +75,7 @@ export class MfForceGraph extends LitElement {
         sprite.fontFace = LABEL_FONT
         sprite.backgroundColor = false
         sprite.material.transparent = true
+        sprite.material.depthWrite = false
         sprite.padding = [0.5, 2]
         sprite.position.y = 2
         return sprite

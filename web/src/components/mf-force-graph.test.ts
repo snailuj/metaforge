@@ -100,7 +100,7 @@ vi.mock('three-spritetext', () => ({
     borderRadius: 0,
     borderColor: 'white',
     isSprite: true,
-    material: { transparent: false },
+    material: { transparent: false, depthWrite: true },
   })),
 }))
 
@@ -398,6 +398,13 @@ describe('MfForceGraph', () => {
       const blaze = testData.nodes.find(n => n.id === 'blaze')!
       const sprite = capturedNodeThreeObject!(blaze) as { material: { transparent: boolean } }
       expect(sprite.material.transparent).toBe(true)
+    })
+
+    it('disables depthWrite on sprite to prevent transparent regions occluding scene', () => {
+      vi.mocked(SpriteText).mockClear()
+      const blaze = testData.nodes.find(n => n.id === 'blaze')!
+      const sprite = capturedNodeThreeObject!(blaze) as { material: { depthWrite: boolean } }
+      expect(sprite.material.depthWrite).toBe(false)
     })
   })
 })
