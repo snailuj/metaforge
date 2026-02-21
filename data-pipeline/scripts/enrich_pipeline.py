@@ -427,6 +427,46 @@ def compute_synset_centroids(conn: sqlite3.Connection) -> int:
 
 
 # =============================================================================
+# 6. Store lemma embeddings
+# =============================================================================
+
+def store_lemma_embeddings(
+    conn: sqlite3.Connection,
+    vectors: dict[str, tuple[float, ...]],
+) -> int:
+    """Store FastText embeddings for all known lemmas.
+
+    Creates the lemma_embeddings table and populates it with packed 300d
+    vectors for every lemma in the lemmas table that exists in the vectors
+    dict.  OOV lemmas are excluded.
+
+    Returns the number of embeddings stored.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS lemma_embeddings (
+            lemma TEXT PRIMARY KEY,
+            embedding BLOB NOT NULL
+        )
+    """)
+
+    lemmas = conn.execute("SELECT DISTINCT lemma FROM lemmas").fetchall()
+
+    count = 0
+    for (lemma,) in lemmas:
+        if lemma in vectors:
+            blob = struct.pack(f"{EMBEDDING_DIM}f", *vectors[lemma])
+            conn.execute(
+                "INSERT OR REPLACE INTO lemma_embeddings (lemma, embedding) VALUES (?, ?)",
+                (lemma, blob),
+            )
+            count += 1
+
+    conn.commit()
+    print(f"  Stored {count} lemma embeddings")
+    return count
+
+
+# =============================================================================
 # Orchestrator
 # =============================================================================
 
@@ -454,6 +494,7 @@ def run_pipeline(
     conn = sqlite3.connect(db_path)
     try:
         props = curate_properties(conn, data, vectors)
+        lemma_emb_count = store_lemma_embeddings(conn, vectors)
         links = populate_synset_properties(conn, data, model_used)
         compute_idf(conn)
         sim_pairs = compute_property_similarity(conn, threshold=threshold)
@@ -471,6 +512,7 @@ def run_pipeline(
 
     stats = {
         "properties_curated": props,
+        "lemma_embeddings": lemma_emb_count,
         "synset_links": links,
         "similarity_pairs": sim_pairs,
         "centroids": centroids,

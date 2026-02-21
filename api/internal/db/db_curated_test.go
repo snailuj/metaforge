@@ -2,6 +2,8 @@ package db
 
 import (
 	"database/sql"
+	"encoding/binary"
+	"math"
 	"path/filepath"
 	"testing"
 
@@ -498,5 +500,168 @@ func TestGetForgeMatchesCurated_LimitCountsUniqueSynsets(t *testing.T) {
 		for _, m := range matches {
 			t.Logf("  %s (shared=%d)", m.SynsetID, m.SharedCount)
 		}
+	}
+}
+
+// --- Lemma embedding tests ---
+
+// makeLemmaEmbeddingBlob creates a 300-dimensional embedding BLOB from the
+// given float32 values. Remaining dimensions are zero-filled.
+func makeLemmaEmbeddingBlob(vals ...float32) []byte {
+	buf := make([]byte, 300*4) // 300 floats * 4 bytes
+	for i := 0; i < len(vals) && i < 300; i++ {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(vals[i]))
+	}
+	return buf
+}
+
+func setupLemmaEmbeddingTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = db.Exec(`CREATE TABLE lemma_embeddings (lemma TEXT PRIMARY KEY, embedding BLOB NOT NULL)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return db
+}
+
+func TestGetLemmaEmbedding(t *testing.T) {
+	db := setupLemmaEmbeddingTestDB(t)
+	defer db.Close()
+
+	blob := makeLemmaEmbeddingBlob(0.1, 0.2, 0.3)
+	_, err := db.Exec(`INSERT INTO lemma_embeddings VALUES (?, ?)`, "anger", blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vec, err := GetLemmaEmbedding(db, "anger")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vec == nil {
+		t.Fatal("expected non-nil embedding")
+	}
+	if len(vec) != 300 {
+		t.Fatalf("expected 300 floats, got %d", len(vec))
+	}
+
+	// Verify the first three values match what we inserted
+	const epsilon = 1e-6
+	if diff := vec[0] - 0.1; diff < -epsilon || diff > epsilon {
+		t.Errorf("vec[0]: got %f, want 0.1", vec[0])
+	}
+	if diff := vec[1] - 0.2; diff < -epsilon || diff > epsilon {
+		t.Errorf("vec[1]: got %f, want 0.2", vec[1])
+	}
+	if diff := vec[2] - 0.3; diff < -epsilon || diff > epsilon {
+		t.Errorf("vec[2]: got %f, want 0.3", vec[2])
+	}
+
+	// Remaining dimensions should be zero
+	if vec[3] != 0 {
+		t.Errorf("vec[3]: got %f, want 0", vec[3])
+	}
+}
+
+func TestGetLemmaEmbedding_Missing(t *testing.T) {
+	db := setupLemmaEmbeddingTestDB(t)
+	defer db.Close()
+
+	vec, err := GetLemmaEmbedding(db, "nonexistent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vec != nil {
+		t.Errorf("expected nil for missing lemma, got %v", vec)
+	}
+}
+
+func TestGetLemmaEmbedding_NoTable(t *testing.T) {
+	// DB without lemma_embeddings table
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Create a dummy table so the DB file is valid, but no lemma_embeddings
+	_, err = db.Exec(`CREATE TABLE synsets (synset_id TEXT PRIMARY KEY)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vec, err := GetLemmaEmbedding(db, "anger")
+	if err != nil {
+		t.Fatalf("expected graceful degradation, got error: %v", err)
+	}
+	if vec != nil {
+		t.Errorf("expected nil for missing table, got %v", vec)
+	}
+}
+
+func TestGetLemmaEmbeddingsBatch(t *testing.T) {
+	db := setupLemmaEmbeddingTestDB(t)
+	defer db.Close()
+
+	// Insert embeddings for anger, fire, hope
+	angerBlob := makeLemmaEmbeddingBlob(0.1, 0.2, 0.3)
+	fireBlob := makeLemmaEmbeddingBlob(0.4, 0.5, 0.6)
+	hopeBlob := makeLemmaEmbeddingBlob(0.7, 0.8, 0.9)
+
+	_, err := db.Exec(`INSERT INTO lemma_embeddings VALUES (?, ?)`, "anger", angerBlob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO lemma_embeddings VALUES (?, ?)`, "fire", fireBlob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO lemma_embeddings VALUES (?, ?)`, "hope", hopeBlob)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := GetLemmaEmbeddingsBatch(db, []string{"anger", "fire", "missing"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// anger and fire should be present
+	if _, ok := result["anger"]; !ok {
+		t.Error("expected 'anger' in result map")
+	}
+	if _, ok := result["fire"]; !ok {
+		t.Error("expected 'fire' in result map")
+	}
+
+	// missing should be absent
+	if _, ok := result["missing"]; ok {
+		t.Error("expected 'missing' to be absent from result map")
+	}
+
+	// Verify values
+	const epsilon = 1e-6
+	if diff := result["anger"][0] - 0.1; diff < -epsilon || diff > epsilon {
+		t.Errorf("anger[0]: got %f, want 0.1", result["anger"][0])
+	}
+	if diff := result["fire"][0] - 0.4; diff < -epsilon || diff > epsilon {
+		t.Errorf("fire[0]: got %f, want 0.4", result["fire"][0])
+	}
+
+	// Verify dimension count
+	if len(result["anger"]) != 300 {
+		t.Errorf("anger embedding: expected 300 floats, got %d", len(result["anger"]))
 	}
 }

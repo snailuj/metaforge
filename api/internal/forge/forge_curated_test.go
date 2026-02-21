@@ -1,6 +1,9 @@
 package forge
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestClassifyTierIronic(t *testing.T) {
 	tier := ClassifyTierCurated(1, 4) // low shared, high contrast
@@ -34,5 +37,41 @@ func TestClassifyTierCuratedUnlikely(t *testing.T) {
 	tier := ClassifyTierCurated(1, 0) // low shared, no contrast
 	if tier != TierUnlikely {
 		t.Errorf("expected unlikely, got %s", tier)
+	}
+}
+
+func TestCompositeScore_HighDistanceBoosts(t *testing.T) {
+	// With Beta=0.5: sqrt(6)*1.1 = 2.69, sqrt(4)*1.7 = 3.40
+	synonym := CompositeScore(6, 0.1)
+	crossDomain := CompositeScore(4, 0.7)
+	if crossDomain <= synonym {
+		t.Errorf("cross-domain (%.2f) should beat synonym (%.2f)", crossDomain, synonym)
+	}
+}
+
+func TestCompositeScore_ZeroOverlapAlwaysZero(t *testing.T) {
+	score := CompositeScore(0, 0.9)
+	if score != 0.0 {
+		t.Errorf("expected 0, got %.2f", score)
+	}
+}
+
+func TestCompositeScore_ZeroDistanceReturnsCompressedOverlap(t *testing.T) {
+	// With Beta=0.5: sqrt(5) * 1.0 ≈ 2.236
+	score := CompositeScore(5, 0.0)
+	expected := math.Sqrt(5.0)
+	if math.Abs(score-expected) > 0.001 {
+		t.Errorf("expected %.3f, got %.3f", expected, score)
+	}
+}
+
+func TestSortByTier_UsesCompositeScore(t *testing.T) {
+	matches := []Match{
+		{Word: "synonym", OverlapCount: 6, Tier: TierLegendary, CompositeScore: 6.6},
+		{Word: "metaphor", OverlapCount: 4, Tier: TierLegendary, CompositeScore: 6.8},
+	}
+	sorted := SortByTier(matches)
+	if sorted[0].Word != "metaphor" {
+		t.Errorf("expected metaphor first, got %s", sorted[0].Word)
 	}
 }
