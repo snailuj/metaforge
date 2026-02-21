@@ -74,6 +74,7 @@ export class MfForceGraph extends LitElement {
         const sprite = new SpriteText(node.word, fontSize, colour)
         sprite.fontFace = LABEL_FONT
         sprite.backgroundColor = false
+        sprite.material.transparent = true
         sprite.padding = [0.5, 2]
         sprite.position.y = 2
         return sprite
@@ -174,6 +175,7 @@ export class MfForceGraph extends LitElement {
       borderWidth: number
       borderRadius: number
       borderColor: string
+      backgroundColor: string | false
     }
     type ObjLike = { children?: SpriteLike[] }
     const threeObj = (node as unknown as { __threeObj?: ObjLike }).__threeObj
@@ -188,8 +190,10 @@ export class MfForceGraph extends LitElement {
       sprite.borderWidth = 0.15
       sprite.borderRadius = 0.3
       sprite.borderColor = colour
+      sprite.backgroundColor = 'rgba(0, 0, 0, 0.2)'
     } else if (sprite.borderWidth !== 0) {
       sprite.borderWidth = 0
+      sprite.backgroundColor = false
     }
   }
 
