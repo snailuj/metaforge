@@ -239,6 +239,26 @@ describe('MfForceGraph', () => {
     vi.useRealTimers()
   })
 
+  it('clears armed click timer when order-2 node is clicked', () => {
+    vi.useFakeTimers()
+    const order1Node = { id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1 }
+    const order2Node = { id: 'spark', word: 'spark', relationType: 'synonym', val: 2, order: 2 }
+    const selectSpy = vi.fn()
+    el.addEventListener('mf-node-select', selectSpy)
+
+    // First click arms the timer for order-1
+    capturedOnNodeClick!(order1Node)
+    // Immediately click an order-2 node (within threshold)
+    capturedOnNodeClick!(order2Node)
+    // Advance past the threshold — timer should have been cleared
+    vi.advanceTimersByTime(400)
+
+    expect(selectSpy).not.toHaveBeenCalled()
+
+    el.removeEventListener('mf-node-select', selectSpy)
+    vi.useRealTimers()
+  })
+
   it('dispatches mf-node-select for order-1 nodes', () => {
     vi.useFakeTimers()
     const order1Node = { id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1 }

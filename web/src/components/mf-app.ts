@@ -191,8 +191,8 @@ export class MfApp extends LitElement {
       if (id !== this.selectId) return // stale — a newer select superseded this one
       const stripped = stripSecondOrderNodes(this.baseGraphData)
       this.graphData = mergeSecondOrderGraph(stripped, node.id, result)
-    } catch {
-      // Second-order expansion is non-critical — fail silently
+    } catch (err) {
+      console.warn('[mf-app] second-order expansion failed', { nodeId: node.id, word: node.word }, err)
     }
   }
 
@@ -207,6 +207,7 @@ export class MfApp extends LitElement {
 
   private async doLookup(word: string) {
     const id = ++this.lookupId
+    ++this.selectId // invalidate any in-flight second-order select
     this.currentWord = word
     this.appState = 'loading'
     this.errorMessage = ''

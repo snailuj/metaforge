@@ -516,6 +516,97 @@ describe('MfApp', () => {
       expect(graphData.nodes.find((n: any) => n.word === 'spark')).toBeDefined()
     })
 
+    it('logs a warning when second-order lookup fails', async () => {
+      vi.mocked(lookupWord).mockResolvedValue(mockResult)
+
+      const searchBar = el.shadowRoot!.querySelector('mf-search-bar')
+      searchBar?.dispatchEvent(new CustomEvent('mf-search', {
+        detail: { word: 'fire' },
+        bubbles: true,
+        composed: true,
+      }))
+      await new Promise(r => setTimeout(r, 100))
+      await el.updateComplete
+
+      const networkError = new Error('network timeout')
+      vi.mocked(lookupWord).mockRejectedValueOnce(networkError)
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const graph = el.shadowRoot!.querySelector('mf-force-graph')
+      graph?.dispatchEvent(new CustomEvent('mf-node-select', {
+        detail: { id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4 },
+        bubbles: true,
+        composed: true,
+      }))
+
+      await new Promise(r => setTimeout(r, 100))
+      await el.updateComplete
+
+      expect(warnSpy).toHaveBeenCalledOnce()
+      expect(warnSpy.mock.calls[0][0]).toContain('second-order')
+      // Should include contextual fields: node id/word and the error
+      const args = warnSpy.mock.calls[0]
+      expect(args).toEqual(
+        expect.arrayContaining([expect.objectContaining({ nodeId: 'blaze', word: 'blaze' })]),
+      )
+      expect(args).toEqual(expect.arrayContaining([networkError]))
+
+      warnSpy.mockRestore()
+    })
+
+    it('invalidates in-flight select when a new doLookup starts', async () => {
+      vi.mocked(lookupWord).mockResolvedValue(mockResult)
+
+      // Initial lookup
+      const searchBar = el.shadowRoot!.querySelector('mf-search-bar')
+      searchBar?.dispatchEvent(new CustomEvent('mf-search', {
+        detail: { word: 'fire' },
+        bubbles: true,
+        composed: true,
+      }))
+      await new Promise(r => setTimeout(r, 100))
+      await el.updateComplete
+
+      // Start a slow select
+      let resolveSelect!: (v: LookupResult) => void
+      const selectPromise = new Promise<LookupResult>(r => { resolveSelect = r })
+      vi.mocked(lookupWord).mockReturnValueOnce(selectPromise)
+
+      const graph = el.shadowRoot!.querySelector('mf-force-graph')
+      graph?.dispatchEvent(new CustomEvent('mf-node-select', {
+        detail: { id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4 },
+        bubbles: true,
+        composed: true,
+      }))
+
+      // Before select resolves, start a new central lookup
+      const newResult: LookupResult = {
+        word: 'water',
+        senses: [{
+          synset_id: '100',
+          pos: 'noun',
+          definition: 'H2O',
+          synonyms: [{ word: 'aqua', synset_id: '100' }],
+          relations: { hypernyms: [], hyponyms: [], similar: [] },
+        }],
+      }
+      vi.mocked(lookupWord).mockResolvedValueOnce(newResult)
+      ;(el as any).doLookup('water')
+      await new Promise(r => setTimeout(r, 100))
+      await el.updateComplete
+
+      // Now the stale select resolves
+      resolveSelect(blazeLookup)
+      await new Promise(r => setTimeout(r, 100))
+      await el.updateComplete
+
+      // The stale select should NOT have merged "inferno" into the graph
+      const graphData = (el as any).graphData
+      expect(graphData.nodes.find((n: any) => n.word === 'inferno')).toBeUndefined()
+      // Should still show the water graph
+      expect(graphData.nodes.find((n: any) => n.word === 'aqua')).toBeDefined()
+    })
+
     it('does not fetch second-order for the central node', async () => {
       vi.mocked(lookupWord).mockResolvedValue(mockResult)
 

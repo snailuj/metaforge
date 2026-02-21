@@ -89,7 +89,13 @@ export class MfForceGraph extends LitElement {
       .linkOpacity(0.6)
       .onNodeClick((n: unknown) => {
         const node = n as GraphNode
-        if (node.order === 2) return
+        if (node.order === 2) {
+          if (this.clickTimer) {
+            clearTimeout(this.clickTimer)
+            this.clickTimer = null
+          }
+          return
+        }
         if (this.clickTimer) {
           // Double click — navigate
           clearTimeout(this.clickTimer)
