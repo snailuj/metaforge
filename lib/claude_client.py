@@ -5,6 +5,7 @@ with the Claude CLI, with built-in retries and error handling.
 """
 import json
 import logging
+import os
 import re
 import subprocess
 import time
@@ -73,6 +74,9 @@ def _invoke(prompt: str, model: str, verbose: bool = False) -> str:
     """Call claude CLI and return the parsed result text."""
     if verbose:
         log.debug("claude_client prompt (first 500 chars): %s", prompt[:500])
+    # Strip CLAUDECODE env var so `claude -p` doesn't refuse to run
+    # when invoked from within a Claude Code session.
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
     proc = subprocess.run(
         [
             "claude", "-p",
@@ -85,6 +89,7 @@ def _invoke(prompt: str, model: str, verbose: bool = False) -> str:
         capture_output=True,
         text=True,
         timeout=120,
+        env=env,
     )
     if verbose:
         log.debug("claude_client raw stdout (last 2000 chars): %s",

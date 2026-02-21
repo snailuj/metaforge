@@ -8,6 +8,10 @@ Feature-level brainstorms and design documents. These accumulate during design p
 - [string-handling.md](./string-handling.md) - Cross-cutting: Fluent-based UI strings, versioned caching, locale stubs
 - [core-thesaurus.md](./core-thesaurus.md) - Search, results panel, copy-to-clipboard, strategy pattern rendering
 
+## In Progress
+
+- [curated-property-vocabulary.md](./curated-property-vocabulary.md) - Two-pass snap-to-vocabulary for Forge matching, antonym contrast tiers
+
 ## Pending Designs
 
 - `3d-visualization.md` - Semantic solar system, antique theme, planet rendering

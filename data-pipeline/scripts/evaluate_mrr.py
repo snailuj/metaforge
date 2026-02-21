@@ -7,7 +7,7 @@ MRR (Mean Reciprocal Rank): for each pair, query /forge/suggest with
 the source word and find the rank of the target. MRR = mean(1/rank).
 
 Usage:
-    python evaluate_mrr.py --enrichment FILE [--pairs FILE] [--threshold 0.7]
+    python evaluate_mrr.py --enrichment FILE [--pairs FILE]
                            [--limit 200] [--port 9090] [--output FILE]
 """
 import argparse
@@ -38,7 +38,7 @@ from utils import OUTPUT_DIR, FASTTEXT_VEC
 PIPELINE_DIR = Path(__file__).parent.parent
 FIXTURES_DIR = PIPELINE_DIR / "fixtures"
 DEFAULT_PAIRS = FIXTURES_DIR / "metaphor_pairs_v2.json"
-BASELINE_SQL = OUTPUT_DIR / "baseline_lexicon.sql"
+DEFAULT_BASELINE_SQL = OUTPUT_DIR / "lexicon_v2.sql"
 EVAL_WORK_DB = OUTPUT_DIR / "eval_work.db"
 API_DIR = PIPELINE_DIR.parent / "api"
 
@@ -137,7 +137,6 @@ def query_forge_rank(
     target_word: str,
     target_synsets: set[str],
     port: int = 9090,
-    threshold: float = 0.7,
     limit: int = 200,
 ) -> Optional[int]:
     """Query /forge/suggest and find the rank of the target.
@@ -149,7 +148,7 @@ def query_forge_rank(
     Returns 1-based rank or None if not found / error.
     """
     url = f"http://localhost:{port}/forge/suggest"
-    params = {"word": source_word, "threshold": threshold, "limit": limit}
+    params = {"word": source_word, "limit": limit}
     try:
         resp = requests.get(url, params=params, timeout=30)
     except requests.RequestException as exc:
@@ -184,27 +183,27 @@ def compute_mrr(ranks: list[Optional[int]]) -> float:
 # --- Secondary metrics -------------------------------------------------------
 
 def compute_secondary_metrics(conn: sqlite3.Connection) -> dict:
-    """Compute secondary quality metrics from the enriched DB."""
+    """Compute secondary quality metrics from the curated vocabulary."""
     unique = conn.execute(
-        "SELECT COUNT(*) FROM property_vocabulary"
+        "SELECT COUNT(*) FROM property_vocab_curated"
     ).fetchone()[0]
 
     # Hapax: properties appearing in exactly 1 synset
     hapax = conn.execute("""
         SELECT COUNT(*) FROM (
-            SELECT property_id, COUNT(synset_id) as cnt
-            FROM synset_properties
-            GROUP BY property_id
+            SELECT vocab_id, COUNT(synset_id) as cnt
+            FROM synset_properties_curated
+            GROUP BY vocab_id
             HAVING cnt = 1
         )
     """).fetchone()[0]
 
     total_synsets = conn.execute(
-        "SELECT COUNT(DISTINCT synset_id) FROM synset_properties"
+        "SELECT COUNT(DISTINCT synset_id) FROM synset_properties_curated"
     ).fetchone()[0]
 
     total_links = conn.execute(
-        "SELECT COUNT(*) FROM synset_properties"
+        "SELECT COUNT(*) FROM synset_properties_curated"
     ).fetchone()[0]
 
     avg_props = total_links / total_synsets if total_synsets > 0 else 0
@@ -271,7 +270,6 @@ def wait_for_health(
 def evaluate(
     enrichment_file: str = None,
     pairs_file: str = None,
-    threshold: float = 0.7,
     limit: int = 200,
     port: int = 9090,
     output_file: str = None,
@@ -283,104 +281,143 @@ def evaluate(
     coverage_threshold: float = 0.9,
     verbose: bool = False,
     eval_subset: list[str] = None,
+    db: str = None,
+    baseline_sql: str = None,
 ) -> dict:
     """Run full MRR evaluation.
 
-    1. Load metaphor pairs and resolve synset IDs
-    2. Restore baseline into temp DB
-    3. Run enrichment (LLM if --enrich, or from pre-computed file)
-    4. Start Go API, query pairs, compute MRR
-    5. Output results
+    Three modes:
+      --db PATH          Use a pre-built DB directly (skip restore/enrich/pipeline)
+      --enrichment FILE  Restore baseline, run pipeline with pre-computed enrichment
+      --enrich --size N  Restore baseline, run LLM enrichment + pipeline
 
-    Two modes:
-      --enrichment FILE  Use a pre-computed enrichment JSON
-      --enrich --size N  Run LLM enrichment, guaranteeing metaphor pair
-                         synsets are included in the enrichment set
+    The --db mode is useful for re-running just the server + query step
+    against an already-built database (e.g. after a crash).
     """
-    if shutil.which("sqlite3") is None:
-        raise RuntimeError(
-            "sqlite3 CLI not found on PATH. "
-            "Install it (e.g. apt install sqlite3) before running evaluation."
-        )
-
-    if enrichment_file is None and enrich_size is None:
-        raise ValueError("Provide --enrichment FILE or --enrich --size N")
-
     if pairs_file is None:
         pairs_file = str(DEFAULT_PAIRS)
 
-    mode = "enrich" if enrich_size is not None else "file"
-    print(f"=== MRR Evaluation ===")
-    print(f"  Mode: {mode}")
-    if enrichment_file:
-        print(f"  Enrichment: {enrichment_file}")
+    # --- Mode: pre-built DB (eval-only, no pipeline) ---
+    if db is not None:
+        db_path = str(Path(db).resolve())
+        print(f"=== MRR Evaluation (eval-only) ===")
+        print(f"  DB: {db_path}")
+        print(f"  Pairs: {pairs_file}")
+
+        pairs = load_metaphor_pairs(pairs_file)
+        if eval_subset:
+            subset_set = set(eval_subset)
+            pairs = [p for p in pairs if f"{p['source']}:{p['target']}" in subset_set]
+
+        conn = sqlite3.connect(db_path)
+        testable, skipped, all_synset_ids = resolve_pair_synsets(conn, pairs)
+        conn.close()
+        print(f"  Testable pairs: {len(testable)}, skipped: {len(skipped)}")
+
+        enrichment_coverage = None
+        enrichment_succeeded = None
+        enrichment_failed = None
+
+    # --- Mode: restore + enrich/pipeline ---
     else:
-        print(f"  Enrich: size={enrich_size}, model={enrich_model}")
-    print(f"  Pairs: {pairs_file}")
+        if shutil.which("sqlite3") is None:
+            raise RuntimeError(
+                "sqlite3 CLI not found on PATH. "
+                "Install it (e.g. apt install sqlite3) before running evaluation."
+            )
 
-    # Step 1: Load pairs and resolve synsets from baseline
-    pairs = load_metaphor_pairs(pairs_file)
+        if enrichment_file is None and enrich_size is None:
+            raise ValueError("Provide --db PATH, --enrichment FILE, or --enrich --size N")
 
-    # Filter to eval subset if provided
-    if eval_subset:
-        subset_set = set(eval_subset)
-        pairs = [p for p in pairs if f"{p['source']}:{p['target']}" in subset_set]
+        baseline = baseline_sql or str(DEFAULT_BASELINE_SQL)
 
-    # Restore baseline for synset lookup
-    print("  Restoring baseline for synset resolution...")
-    db_path = str(EVAL_WORK_DB)
-    if EVAL_WORK_DB.exists():
-        EVAL_WORK_DB.unlink()
-    subprocess.run(
-        ["sqlite3", db_path],
-        input=Path(BASELINE_SQL).read_text(),
-        text=True,
-        check=True,
-    )
+        mode = "enrich" if enrich_size is not None else "file"
+        print(f"=== MRR Evaluation ===")
+        print(f"  Mode: {mode}")
+        print(f"  Baseline: {baseline}")
+        if enrichment_file:
+            print(f"  Enrichment: {enrichment_file}")
+        else:
+            print(f"  Enrich: size={enrich_size}, model={enrich_model}")
+        print(f"  Pairs: {pairs_file}")
 
-    conn = sqlite3.connect(db_path)
-    testable, skipped, all_synset_ids = resolve_pair_synsets(conn, pairs)
-    conn.close()
-    print(f"  Testable pairs: {len(testable)}, skipped: {len(skipped)}")
-    print(f"  Required synset IDs: {len(all_synset_ids)}")
+        # Step 1: Load pairs and resolve synsets from baseline
+        pairs = load_metaphor_pairs(pairs_file)
 
-    # Step 2: Get enrichment JSON (LLM or pre-computed)
-    enrichment_coverage = None
-    enrichment_succeeded = None
-    enrichment_failed = None
-    if enrich_size is not None:
-        print(f"  Running LLM enrichment (size={enrich_size}, "
-              f"required={len(all_synset_ids)})...")
-        enrich_result = run_enrichment(
-            size=enrich_size,
-            batch_size=enrich_batch_size,
-            model=enrich_model,
-            delay=enrich_delay,
-            output_file=OUTPUT_DIR / "eval_enrichment.json",
-            required_synset_ids=all_synset_ids,
-            prompt_template=prompt_template,
-            verbose=verbose,
+        if eval_subset:
+            subset_set = set(eval_subset)
+            pairs = [p for p in pairs if f"{p['source']}:{p['target']}" in subset_set]
+
+        print("  Restoring baseline for synset resolution...")
+        db_path = str(EVAL_WORK_DB)
+        if EVAL_WORK_DB.exists():
+            EVAL_WORK_DB.unlink()
+        subprocess.run(
+            ["sqlite3", db_path],
+            input=Path(baseline).read_text(),
+            text=True,
+            check=True,
         )
-        enrichment_file = enrich_result.output_file
-        enrichment_coverage = enrich_result.coverage
-        enrichment_succeeded = enrich_result.succeeded
-        enrichment_failed = enrich_result.failed
-        print(f"  Enrichment coverage: {enrichment_coverage:.2%} "
-              f"({enrichment_succeeded}/{enrich_result.requested})")
 
-    # Step 3: Run downstream pipeline on the work DB
-    print("  Running enrichment pipeline...")
-    run_pipeline(
-        db_path=db_path,
-        enrichment_file=enrichment_file,
-        fasttext_vec=str(FASTTEXT_VEC),
-    )
+        conn = sqlite3.connect(db_path)
+        testable, skipped, all_synset_ids = resolve_pair_synsets(conn, pairs)
+        conn.close()
+        print(f"  Testable pairs: {len(testable)}, skipped: {len(skipped)}")
+        print(f"  Required synset IDs: {len(all_synset_ids)}")
 
-    # Step 3: Start API server
+        # Step 2: Get enrichment JSON (LLM or pre-computed)
+        enrichment_coverage = None
+        enrichment_succeeded = None
+        enrichment_failed = None
+        if enrich_size is not None:
+            print(f"  Running LLM enrichment (size={enrich_size}, "
+                  f"required={len(all_synset_ids)})...")
+            enrich_result = run_enrichment(
+                size=enrich_size,
+                batch_size=enrich_batch_size,
+                model=enrich_model,
+                delay=enrich_delay,
+                resume=True,
+                output_file=OUTPUT_DIR / "eval_enrichment.json",
+                required_synset_ids=all_synset_ids,
+                prompt_template=prompt_template,
+                verbose=verbose,
+                db_path=db_path,
+            )
+            enrichment_file = enrich_result.output_file
+            enrichment_coverage = enrich_result.coverage
+            enrichment_succeeded = enrich_result.succeeded
+            enrichment_failed = enrich_result.failed
+            print(f"  Enrichment coverage: {enrichment_coverage:.2%} "
+                  f"({enrichment_succeeded}/{enrich_result.requested})")
+
+        # Step 3: Run downstream pipeline on the work DB
+        print("  Running enrichment pipeline...")
+        run_pipeline(
+            db_path=db_path,
+            enrichment_file=enrichment_file,
+            fasttext_vec=str(FASTTEXT_VEC),
+        )
+
+    # Start API server
     print(f"  Starting API server on port {port}...")
     server = start_server(db_path, port)
     try:
-        wait_for_health(port, timeout=60)
+        try:
+            wait_for_health(port, timeout=60)
+        except TimeoutError:
+            # Dump server output to help diagnose startup failures
+            rc = server.poll()
+            print(f"  Server failed to become healthy (exit code: {rc})")
+            try:
+                stdout_out, stderr_out = server.communicate(timeout=5)
+                if stdout_out:
+                    print(f"  Server stdout:\n{stdout_out[:2000]}")
+                if stderr_out:
+                    print(f"  Server stderr:\n{stderr_out[:2000]}")
+            except Exception:
+                pass
+            raise
         print("  Server ready.")
 
         # Step 4: Query each testable pair (API takes word, not synset_id)
@@ -392,7 +429,6 @@ def evaluate(
                 target_word=pair["target"],
                 target_synsets=pair["target_synsets"],
                 port=port,
-                threshold=threshold,
                 limit=limit,
             )
 
@@ -440,7 +476,6 @@ def evaluate(
         "valid": valid,
         "config": {
             "enrichment_file": enrichment_file,
-            "threshold": threshold,
             "limit": limit,
         },
     }
@@ -464,8 +499,12 @@ def evaluate(
 def main():
     parser = argparse.ArgumentParser(description="MRR evaluation for enrichment quality")
 
-    # Enrichment source: pre-computed file OR live LLM run
+    # Enrichment source: pre-built DB, pre-computed file, or live LLM run
     source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--db",
+        help="Pre-built DB — skip restore/enrich/pipeline, run eval only",
+    )
     source.add_argument(
         "--enrichment",
         help="Pre-computed enrichment JSON file",
@@ -473,6 +512,12 @@ def main():
     source.add_argument(
         "--enrich", action="store_true",
         help="Run LLM enrichment (requires --size)",
+    )
+
+    parser.add_argument(
+        "--baseline-sql",
+        default=None,
+        help=f"SQL dump to restore as baseline (default: {DEFAULT_BASELINE_SQL})",
     )
 
     # Enrich-mode options
@@ -499,10 +544,6 @@ def main():
         help=f"Metaphor pairs JSON (default: {DEFAULT_PAIRS})",
     )
     parser.add_argument(
-        "--threshold", type=float, default=0.7,
-        help="Cosine distance threshold (default: 0.7)",
-    )
-    parser.add_argument(
         "--limit", type=int, default=200,
         help="Max suggestions per query (default: 200)",
     )
@@ -514,6 +555,10 @@ def main():
         "--output", "-o", default=None,
         help="Output results JSON file",
     )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Enable verbose/debug logging",
+    )
     args = parser.parse_args()
 
     if args.enrich and args.size is None:
@@ -522,7 +567,6 @@ def main():
     evaluate(
         enrichment_file=args.enrichment,
         pairs_file=args.pairs,
-        threshold=args.threshold,
         limit=args.limit,
         port=args.port,
         output_file=args.output,
@@ -530,9 +574,14 @@ def main():
         enrich_model=args.model,
         enrich_batch_size=args.batch_size,
         enrich_delay=args.delay,
+        verbose=args.verbose,
+        db=args.db,
+        baseline_sql=args.baseline_sql,
     )
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    # Parse --verbose/-v early so we can set log level before main()
+    log_level = logging.DEBUG if "-v" in sys.argv or "--verbose" in sys.argv else logging.INFO
+    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
     main()

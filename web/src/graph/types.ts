@@ -19,6 +19,9 @@ export function toRarity(value?: string): Rarity | undefined {
 /** Graph depth: 0 = central, 1 = direct relation, 2 = relation of a relation */
 export type GraphOrder = 0 | 1 | 2
 
+/** Forge tier — all tiers including curated vocabulary tiers */
+export type ForgeTier = 'legendary' | 'complex' | 'interesting' | 'ironic' | 'strong' | 'obvious' | 'unlikely'
+
 /** A node in the force graph */
 export interface GraphNode {
   id: string            // Unique: word or word__synsetId for disambiguation
