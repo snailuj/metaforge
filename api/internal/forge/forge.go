@@ -2,7 +2,10 @@
 // It ranks synset matches based on property overlap and semantic distance.
 package forge
 
-import "sort"
+import (
+	"math"
+	"sort"
+)
 
 // Tier represents the quality tier of a metaphor match.
 type Tier int
@@ -65,9 +68,25 @@ type Match struct {
 	SourceSynsetID   string   `json:"source_synset_id,omitempty"`
 	SourceDefinition string   `json:"source_definition,omitempty"`
 	SourcePOS        string   `json:"source_pos,omitempty"`
+	DomainDistance   float64  `json:"domain_distance,omitempty"`
+	CompositeScore   float64  `json:"composite_score,omitempty"`
 }
 
-// SortByTier sorts matches by tier (best first), then by overlap count.
+// Alpha is the tuneable weight for the cross-domain distance bonus.
+// Beta compresses the overlap scale: 1.0 = linear, 0.5 = sqrt, 0 = ignore overlap.
+const (
+	Alpha = 1.0
+	Beta  = 0.5
+)
+
+// CompositeScore computes overlap^Beta × (1 + Alpha × domainDistance).
+// Beta < 1 compresses the overlap scale so domain distance has more
+// influence on ranking across overlap tiers.
+func CompositeScore(overlapCount int, domainDistance float64) float64 {
+	return math.Pow(float64(overlapCount), Beta) * (1.0 + Alpha*domainDistance)
+}
+
+// SortByTier sorts matches by tier (best first), then by composite score.
 func SortByTier(matches []Match) []Match {
 	sorted := make([]Match, len(matches))
 	copy(sorted, matches)
@@ -77,8 +96,8 @@ func SortByTier(matches []Match) []Match {
 		if sorted[i].Tier != sorted[j].Tier {
 			return sorted[i].Tier < sorted[j].Tier
 		}
-		// Secondary: overlap count (higher = better)
-		return sorted[i].OverlapCount > sorted[j].OverlapCount
+		// Secondary: composite score (higher = better)
+		return sorted[i].CompositeScore > sorted[j].CompositeScore
 	})
 
 	return sorted

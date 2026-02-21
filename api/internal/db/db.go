@@ -652,6 +652,69 @@ func GetSynsetIDForLemma(db *sql.DB, lemma string) (string, error) {
 	return synsetID, err
 }
 
+// GetLemmaEmbedding retrieves the FastText embedding for a single lemma.
+// Returns (nil, nil) if the lemma is not found or if the lemma_embeddings table doesn't exist.
+func GetLemmaEmbedding(db *sql.DB, lemma string) ([]float32, error) {
+	var blob []byte
+	err := db.QueryRow("SELECT embedding FROM lemma_embeddings WHERE lemma = ?", lemma).Scan(&blob)
+	if err != nil {
+		// Graceful degradation: table missing or lemma not found
+		if err == sql.ErrNoRows || strings.Contains(err.Error(), "no such table") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("GetLemmaEmbedding failed for %s: %w", lemma, err)
+	}
+	return blobconv.BlobToFloats(blob), nil
+}
+
+// GetLemmaEmbeddingsBatch retrieves FastText embeddings for multiple lemmas.
+// Returns a map of lemma -> embedding. Missing lemmas are simply absent from the map.
+// Returns (nil, nil) gracefully if the lemma_embeddings table doesn't exist.
+func GetLemmaEmbeddingsBatch(db *sql.DB, lemmas []string) (map[string][]float32, error) {
+	if len(lemmas) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]string, len(lemmas))
+	args := make([]interface{}, len(lemmas))
+	for i, l := range lemmas {
+		placeholders[i] = "?"
+		args[i] = l
+	}
+
+	query := "SELECT lemma, embedding FROM lemma_embeddings WHERE lemma IN (" +
+		strings.Join(placeholders, ",") + ")"
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("GetLemmaEmbeddingsBatch query failed: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string][]float32)
+	for rows.Next() {
+		var lemma string
+		var blob []byte
+		if err := rows.Scan(&lemma, &blob); err != nil {
+			slog.Warn("scan lemma embedding failed", "err", err)
+			continue
+		}
+		vec := blobconv.BlobToFloats(blob)
+		if vec != nil {
+			result[lemma] = vec
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("GetLemmaEmbeddingsBatch iteration error: %w", err)
+	}
+
+	return result, nil
+}
+
 // GetLemmaForSynset returns the primary lemma for a synset.
 func GetLemmaForSynset(db *sql.DB, synsetID string) (string, error) {
 	var lemma string

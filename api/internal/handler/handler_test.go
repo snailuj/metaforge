@@ -65,9 +65,9 @@ func TestForgeSuggestWithThreshold(t *testing.T) {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	// Verify threshold is included in response
-	if resp.Threshold != 0.5 {
-		t.Errorf("Expected threshold=0.5, got %f", resp.Threshold)
+	// Threshold was removed from the curated API — just verify response parsed
+	if resp.Source == "" {
+		t.Error("Expected source word in response")
 	}
 }
 
@@ -131,7 +131,7 @@ func TestForgeSuggestUnknownWord(t *testing.T) {
 	}
 }
 
-func TestForgeSuggestDefaultThresholdAndLimit(t *testing.T) {
+func TestForgeSuggestDefaultLimitAndLimit(t *testing.T) {
 	h, err := NewHandler(testDBPath)
 	if err != nil {
 		t.Fatalf("Failed to create handler: %v", err)
@@ -151,11 +151,6 @@ func TestForgeSuggestDefaultThresholdAndLimit(t *testing.T) {
 	var resp SuggestResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
-	}
-
-	// Verify default threshold
-	if resp.Threshold != DefaultThreshold {
-		t.Errorf("Expected default threshold=%f, got %f", DefaultThreshold, resp.Threshold)
 	}
 
 	// Verify limit is applied (max 50 suggestions by default)
@@ -186,9 +181,9 @@ func TestForgeSuggestInvalidThreshold(t *testing.T) {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	// Should use default threshold for invalid value
-	if resp.Threshold != DefaultThreshold {
-		t.Errorf("Expected default threshold for invalid input, got %f", resp.Threshold)
+	// Threshold was removed from curated API — just verify response parsed
+	if resp.Source == "" {
+		t.Error("Expected source word in response")
 	}
 }
 
@@ -242,9 +237,9 @@ func TestForgeSuggestNonNumericThreshold(t *testing.T) {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	// Should use default threshold for non-numeric input
-	if resp.Threshold != DefaultThreshold {
-		t.Errorf("Expected default threshold=%f, got %f", DefaultThreshold, resp.Threshold)
+	// Threshold was removed from curated API — just verify response parsed
+	if resp.Source == "" {
+		t.Error("Expected source word in response")
 	}
 }
 
@@ -298,9 +293,9 @@ func TestForgeSuggestNegativeThreshold(t *testing.T) {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	// Should use default threshold for negative value
-	if resp.Threshold != DefaultThreshold {
-		t.Errorf("Expected default threshold=%f, got %f", DefaultThreshold, resp.Threshold)
+	// Threshold was removed from curated API — just verify response parsed
+	if resp.Source == "" {
+		t.Error("Expected source word in response")
 	}
 }
 

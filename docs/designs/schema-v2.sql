@@ -253,6 +253,15 @@ CREATE TABLE IF NOT EXISTS synset_centroids (
     property_count INTEGER NOT NULL
 );
 
+-- Per-lemma FastText embeddings for cross-domain distance computation.
+-- Populated by store_lemma_embeddings() in the enrichment pipeline.
+-- Used by the Go API to compute domain_distance between source and candidate
+-- lemmas, enabling cross-domain metaphor boosting via composite scoring.
+CREATE TABLE IF NOT EXISTS lemma_embeddings (
+    lemma TEXT PRIMARY KEY,
+    embedding BLOB NOT NULL  -- 300 × float32 = 1200 bytes
+);
+
 -- ============================================================
 -- Curated Property Vocabulary (from build_vocab.py)
 -- ============================================================

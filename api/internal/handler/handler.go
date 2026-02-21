@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/snailuj/metaforge/internal/db"
+	"github.com/snailuj/metaforge/internal/embeddings"
 	"github.com/snailuj/metaforge/internal/forge"
 	"github.com/snailuj/metaforge/internal/thesaurus"
 )
@@ -92,9 +93,35 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch source lemma embedding for cross-domain distance
+	sourceEmb, err := db.GetLemmaEmbedding(h.database, word)
+	if err != nil {
+		slog.Warn("source embedding lookup failed", "word", word, "err", err)
+	}
+
+	// Batch-fetch candidate embeddings
+	candidateWords := make([]string, len(candidates))
+	for i, c := range candidates {
+		candidateWords[i] = c.Word
+	}
+	candidateEmbs, err := db.GetLemmaEmbeddingsBatch(h.database, candidateWords)
+	if err != nil {
+		slog.Warn("candidate embeddings batch lookup failed", "word", word, "err", err)
+	}
+
 	var matches []forge.Match
 	for _, c := range candidates {
+		// Compute domain distance if both embeddings available
+		var domainDist float64
+		if sourceEmb != nil && candidateEmbs != nil {
+			if candEmb, ok := candidateEmbs[c.Word]; ok {
+				domainDist = embeddings.CosineDistance(sourceEmb, candEmb)
+			}
+		}
+
+		compositeScore := forge.CompositeScore(c.SharedCount, domainDist)
 		tier := forge.ClassifyTierCurated(c.SharedCount, c.ContrastCount)
+
 		matches = append(matches, forge.Match{
 			SynsetID:         c.SynsetID,
 			Word:             c.Word,
@@ -106,6 +133,8 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 			SourceSynsetID:   c.SourceSynsetID,
 			SourceDefinition: c.SourceDefinition,
 			SourcePOS:        c.SourcePOS,
+			DomainDistance:    domainDist,
+			CompositeScore:   compositeScore,
 		})
 	}
 

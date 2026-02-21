@@ -26,6 +26,7 @@ from enrich_pipeline import (
     compute_idf,
     compute_property_similarity,
     compute_synset_centroids,
+    store_lemma_embeddings,
     run_pipeline,
 )
 from utils import EMBEDDING_DIM
@@ -365,17 +366,23 @@ def test_run_pipeline_end_to_end(tmp_path):
     assert stats["properties_curated"] > 0
     assert stats["synset_links"] > 0
     assert stats["centroids"] == 2
+    assert "lemma_embeddings" in stats
+    assert stats["lemma_embeddings"] >= 0
 
     # Verify tables populated
     conn = sqlite3.connect(str(db_path))
     prop_count = conn.execute("SELECT COUNT(*) FROM property_vocabulary").fetchone()[0]
     sp_count = conn.execute("SELECT COUNT(*) FROM synset_properties").fetchone()[0]
     centroid_count = conn.execute("SELECT COUNT(*) FROM synset_centroids").fetchone()[0]
+    lemma_emb_table = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='lemma_embeddings'"
+    ).fetchone()[0]
     conn.close()
 
     assert prop_count > 0
     assert sp_count > 0
     assert centroid_count == 2
+    assert lemma_emb_table == 1
 
 
 # --- 9. curate_properties caps per synset ------------------------------------
@@ -723,3 +730,119 @@ def test_curate_properties_preserves_existing_ids():
     ).fetchone()[0]
     assert wet_id != hot_id_before
     assert wet_id != cold_id_before
+
+
+# --- 19. store_lemma_embeddings -----------------------------------------------
+
+def test_store_lemma_embeddings():
+    """store_lemma_embeddings creates table and stores correct blobs for known lemmas."""
+    conn = _make_db()
+    # Insert some lemmas into the lemmas table
+    conn.executemany(
+        "INSERT INTO lemmas (lemma, synset_id) VALUES (?, ?)",
+        [("anger", "s1"), ("fire", "s2"), ("xyznotinvectors", "s3")],
+    )
+    conn.commit()
+
+    vectors = {
+        "anger": _make_vec(0.5, 0.3, 0.1),
+        "fire": _make_vec(0.9, 0.1, 0.0),
+        # "xyznotinvectors" deliberately absent — OOV lemma
+    }
+
+    count = store_lemma_embeddings(conn, vectors)
+
+    # Should store 2 embeddings (anger + fire), skip OOV
+    assert count == 2
+
+    # Table should exist
+    table_check = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='lemma_embeddings'"
+    ).fetchone()[0]
+    assert table_check == 1
+
+    # Verify correct blobs stored
+    row = conn.execute(
+        "SELECT embedding FROM lemma_embeddings WHERE lemma = 'anger'"
+    ).fetchone()
+    assert row is not None
+    values = struct.unpack(f"{EMBEDDING_DIM}f", row[0])
+    assert abs(values[0] - 0.5) < 0.01
+    assert abs(values[1] - 0.3) < 0.01
+
+    row = conn.execute(
+        "SELECT embedding FROM lemma_embeddings WHERE lemma = 'fire'"
+    ).fetchone()
+    assert row is not None
+
+    # OOV lemma should NOT be in the table
+    row = conn.execute(
+        "SELECT embedding FROM lemma_embeddings WHERE lemma = 'xyznotinvectors'"
+    ).fetchone()
+    assert row is None
+
+
+def test_store_lemma_embeddings_deduplicates():
+    """Lemmas appearing in multiple synsets are stored once."""
+    conn = _make_db()
+    conn.executemany(
+        "INSERT INTO lemmas (lemma, synset_id) VALUES (?, ?)",
+        [("bank", "s1"), ("bank", "s2"), ("river", "s3")],
+    )
+    conn.commit()
+
+    vectors = {
+        "bank": _make_vec(0.1, 0.2, 0.3),
+        "river": _make_vec(0.4, 0.5, 0.6),
+    }
+
+    count = store_lemma_embeddings(conn, vectors)
+    assert count == 2
+
+    rows = conn.execute("SELECT COUNT(*) FROM lemma_embeddings").fetchone()[0]
+    assert rows == 2
+
+
+def test_store_lemma_embeddings_idempotent():
+    """Re-running updates existing embeddings without error or duplicates."""
+    conn = _make_db()
+    conn.execute("INSERT INTO lemmas (lemma, synset_id) VALUES ('anger', 's1')")
+    conn.commit()
+
+    vectors_v1 = {"anger": _make_vec(0.1, 0.2, 0.3)}
+    count1 = store_lemma_embeddings(conn, vectors_v1)
+    assert count1 == 1
+
+    # Re-run with updated vector — should replace, not duplicate
+    vectors_v2 = {"anger": _make_vec(0.9, 0.8, 0.7)}
+    count2 = store_lemma_embeddings(conn, vectors_v2)
+    assert count2 == 1
+
+    # Still exactly one row
+    rows = conn.execute("SELECT COUNT(*) FROM lemma_embeddings").fetchone()[0]
+    assert rows == 1
+
+    # Value should be updated
+    blob = conn.execute(
+        "SELECT embedding FROM lemma_embeddings WHERE lemma = 'anger'"
+    ).fetchone()[0]
+    values = struct.unpack(f"{EMBEDDING_DIM}f", blob)
+    assert abs(values[0] - 0.9) < 0.01, f"expected 0.9, got {values[0]}"
+
+
+def test_store_lemma_embeddings_empty_lemmas():
+    """Empty lemmas table returns 0 without error."""
+    conn = _make_db()
+    # lemmas table exists but is empty
+    count = store_lemma_embeddings(conn, {"anger": _make_vec(1.0)})
+    assert count == 0
+
+
+def test_store_lemma_embeddings_empty_vectors():
+    """Empty vectors dict returns 0 — all lemmas are OOV."""
+    conn = _make_db()
+    conn.execute("INSERT INTO lemmas (lemma, synset_id) VALUES ('anger', 's1')")
+    conn.commit()
+
+    count = store_lemma_embeddings(conn, {})
+    assert count == 0

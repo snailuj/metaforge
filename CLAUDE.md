@@ -62,6 +62,7 @@ The superpowers skills are bundled in this repo for portability (CCotW, remote s
 | **CI/CD** | All commits trigger automated tests. No merging with failing tests. |
 | **Canary Releases** | New features deploy to subset first. Monitor before full rollout. |
 | **All Errors/Exceptions Handled**| Even if the error is recoverable or negligible it should be logged, and if not recoverable it must escalate to callers. |
+| **Idempotency** | Batch functions must be idempotent to ensure composability and recovery from errors does not require wasting the work of previous runs |
 | **Observability** | Output to logs not just for errors and warnings, but to enable tracing of control flow and data transformations. Collect timing behind feature-flags for all complex or potentially long-running routines. Timer functions must devolve to NO-OP when the feature-flag is disabled and in all production deployments |
 
 **If you're about to write code without a failing test, STOP.**
