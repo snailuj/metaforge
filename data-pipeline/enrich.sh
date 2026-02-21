@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Phase 2: Enrich a baseline lexicon DB with LLM-extracted properties.
 #
-# Restores baseline_lexicon.sql → fresh DB, then runs enrichment pipeline.
+# Restores PRE_ENRICH.sql → fresh DB, then runs enrichment pipeline.
 #
 # Usage:
 #   # From existing enrichment JSON:
@@ -23,7 +23,7 @@ SCRIPTS_DIR="$PIPELINE_DIR/scripts"
 RAW_DIR="$PIPELINE_DIR/raw"
 OUTPUT_DIR="$PIPELINE_DIR/output"
 
-BASELINE_SQL="$OUTPUT_DIR/baseline_lexicon.sql"
+BASELINE_SQL="$OUTPUT_DIR/PRE_ENRICH.sql"
 FASTTEXT_VEC="$RAW_DIR/wiki-news-300d-1M.vec"
 
 # --- Parse arguments ------------------------------------------------------

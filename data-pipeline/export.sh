@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Export enriched lexicon DB as new baseline SQL dump.
+# Export enriched lexicon DB as SQL text dump.
 #
 # Usage:
 #   ./export.sh --db output/lexicon_v2.db
 #
-# Output: output/baseline_lexicon.sql.gz (overwritten)
+# Output: output/lexicon_v2.sql (overwritten)
 
 set -euo pipefail
 
@@ -44,16 +44,15 @@ done
 echo "VACUUMing $DB_PATH..."
 sqlite3 "$DB_PATH" "VACUUM;"
 
-SQL_FILE="$OUTPUT_DIR/baseline_lexicon.sql"
-OUTPUT_FILE="$SQL_FILE.gz"
-echo "Dumping and compressing to $OUTPUT_FILE..."
-sqlite3 "$DB_PATH" .dump | gzip > "$OUTPUT_FILE"
+SQL_FILE="$OUTPUT_DIR/lexicon_v2.sql"
+echo "Dumping to $SQL_FILE..."
+sqlite3 "$DB_PATH" .dump > "$SQL_FILE"
 
 # --- Summary -----------------------------------------------------------------
 echo ""
 echo "=== Export Summary ==="
 echo "Source: $DB_PATH"
-echo "Output: $OUTPUT_FILE"
+echo "Output: $SQL_FILE"
 echo ""
 for table in synsets enrichment property_vocab_curated synset_properties_curated property_vocabulary synset_properties; do
   count=$(sqlite3 -list -noheader "$DB_PATH" "SELECT count(*) FROM $table" 2>/dev/null || echo "N/A")

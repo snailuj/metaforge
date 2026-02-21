@@ -11,7 +11,7 @@ The data pipeline builds and enriches `lexicon_v2.db` — the SQLite database ba
 
 ```
 Raw Sources (OEWN, Brysbaert, SUBTLEX, SyntagNet, VerbNet)
-    ↓ import_*.py scripts
+    ↓ import_raw.sh (SCHEMA.sql + import_*.py + build_*.py)
 PRE_ENRICH.sql (base DB dump: WordNet + frequencies + curated vocab)
     ↓ restore_db.sh
 lexicon_v2.db (empty enrichment tables)
@@ -55,7 +55,6 @@ Extract properties from an LLM for a batch of synsets. **Costs API calls.**
 ```bash
 source .venv/bin/activate
 python data-pipeline/scripts/enrich_properties.py \
-  --db data-pipeline/output/lexicon_v2.db \
   --size 2000 \
   --model sonnet \
   --strategy frequency \
@@ -122,12 +121,23 @@ python data-pipeline/scripts/evaluate_mrr.py --enrich --size 700 --model sonnet 
 - **`metaforge-pipeline-management`** — detailed workflow for the 4 operations above
 - **`metaforge-pipeline-creation`** — building the base DB from raw sources (rare)
 
+## Shell Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `import_raw.sh` | Build base DB from raw sources, optionally dump `PRE_ENRICH.sql` |
+| `enrich.sh` | Restore from `PRE_ENRICH.sql` + run enrichment + pipeline + dump `lexicon_v2.sql` |
+| `export.sh` | VACUUM + dump enriched DB as `lexicon_v2.sql` |
+| `scripts/restore_db.sh` | Restore any SQL dump into a fresh DB |
+| `evolve_trials.sh` | Crash-recovery wrapper for evolutionary prompt optimisation |
+
 ## Database Policy
 
 - **Never commit `.db` binaries** — they are gitignored.
 - **Commit SQL text dumps** for reproducibility.
+- **`SCHEMA.sql`** — canonical DDL for all tables and indexes. Used by `import_raw.sh` to create an empty database.
 - **`PRE_ENRICH.sql`** — the committed baseline. Base WordNet data + curated vocab + antonyms + empty enrichment schema. Restore from this for a clean slate.
-- **`lexicon_v2.sql`** — dump of the enriched DB. Updated after successful enrichment imports.
+- **`lexicon_v2.sql`** — dump of the enriched DB. Updated after successful enrichment imports (via `export.sh`).
 
 ## Environment
 
