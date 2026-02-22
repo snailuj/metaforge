@@ -578,10 +578,13 @@ def run_pipeline(
 
     total_props = 0
     total_links = 0
+    total_lemma_metadata = 0
     lemma_emb_count = 0
 
     conn = sqlite3.connect(db_path)
     try:
+        _ensure_v2_schema(conn)
+
         # Process each enrichment file (curate + populate)
         for enrichment_file in enrichment_files:
             print(f"\n  --- Processing: {enrichment_file} ---")
@@ -593,6 +596,7 @@ def run_pipeline(
             total_props += curate_properties(conn, data, vectors)
             lemma_emb_count = store_lemma_embeddings(conn, vectors)
             total_links += populate_synset_properties(conn, data, model_used)
+            total_lemma_metadata += populate_lemma_metadata(conn, data)
 
         # Downstream steps run once on the combined data
         print("\n  --- Running downstream steps ---")
@@ -618,6 +622,7 @@ def run_pipeline(
         "properties_curated": total_props,
         "lemma_embeddings": lemma_emb_count,
         "synset_links": total_links,
+        "lemma_metadata": total_lemma_metadata,
         "similarity_pairs": sim_pairs,
         "centroids": centroids,
         "vocab_entries": vocab_entries,

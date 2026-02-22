@@ -1105,3 +1105,110 @@ def test_extract_batch_v2_returns_structured_properties():
     assert r["properties"][0]["text"] == "warm"
     assert r["properties"][0]["salience"] == 0.9
     assert len(r["lemma_metadata"]) == 2
+
+
+# --- 26. run_pipeline v2 end-to-end -------------------------------------------
+
+def test_run_pipeline_v2_end_to_end(tmp_path):
+    """run_pipeline with v2 enrichment JSON stores salience, lemma_metadata, usage_example."""
+    data = {
+        "synsets": [
+            {
+                "id": "syn001",
+                "lemma": "candle",
+                "definition": "stick of wax with a wick",
+                "pos": "n",
+                "usage_example": "She lit a candle in the draught.",
+                "properties": [
+                    {"text": "warm", "salience": 0.9, "type": "physical", "relation": "emits warmth"},
+                    {"text": "flickering", "salience": 0.85, "type": "behaviour", "relation": "flame flickers"},
+                    {"text": "luminous", "salience": 0.7, "type": "visual", "relation": "gives light"},
+                ],
+                "lemma_metadata": [
+                    {"lemma": "candle", "register": "neutral", "connotation": "positive"},
+                ],
+            },
+            {
+                "id": "syn002",
+                "lemma": "storm",
+                "definition": "violent weather condition",
+                "pos": "n",
+                "properties": [
+                    {"text": "loud", "salience": 0.8, "type": "physical", "relation": "storm is loud"},
+                    {"text": "violent", "salience": 0.95, "type": "behaviour", "relation": "storm is violent"},
+                ],
+                "lemma_metadata": [
+                    {"lemma": "storm", "register": "neutral", "connotation": "negative"},
+                ],
+            },
+        ],
+        "config": {"model": "test-model", "schema_version": "v2"},
+    }
+
+    enrichment_file = tmp_path / "enrichment_v2.json"
+    enrichment_file.write_text(json.dumps(data))
+
+    db_path = tmp_path / "test_v2.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(SCHEMA_SQL)
+
+    # Populate base tables so build_vocab produces curated entries that snap can match
+    base_words = [
+        ("oewn-warm-a", "a", "having warmth", "warm"),
+        ("oewn-flickering-a", "a", "shining unsteadily", "flickering"),
+        ("oewn-luminous-a", "a", "softly bright", "luminous"),
+        ("oewn-loud-a", "a", "high in volume", "loud"),
+        ("oewn-violent-a", "a", "acting with force", "violent"),
+    ]
+    for sid, pos, defn, lemma in base_words:
+        conn.execute("INSERT INTO synsets VALUES (?, ?, ?)", (sid, pos, defn))
+        conn.execute("INSERT INTO lemmas VALUES (?, ?)", (lemma, sid))
+        conn.execute(
+            "INSERT INTO frequencies (lemma, familiarity) VALUES (?, 5.0)",
+            (lemma,),
+        )
+    conn.commit()
+    conn.close()
+
+    vectors = _make_vectors()
+
+    with patch("enrich_pipeline.load_fasttext_vectors", return_value=vectors):
+        stats = run_pipeline(str(db_path), [str(enrichment_file)], "dummy.vec")
+
+    assert stats["properties_curated"] > 0
+    assert stats["synset_links"] > 0
+    assert stats["centroids"] == 2
+    assert stats["lemma_metadata"] == 2
+
+    # Verify salience stored in synset_properties
+    conn = sqlite3.connect(str(db_path))
+    rows = conn.execute(
+        "SELECT salience, property_type FROM synset_properties WHERE synset_id = 'syn001'"
+    ).fetchall()
+    saliences = {r[0] for r in rows}
+    assert 0.9 in saliences
+    assert 0.85 in saliences
+
+    # Verify usage_example stored in enrichment
+    row = conn.execute(
+        "SELECT usage_example FROM enrichment WHERE synset_id = 'syn001'"
+    ).fetchone()
+    assert row[0] == "She lit a candle in the draught."
+
+    # Verify lemma_metadata populated
+    meta_rows = conn.execute("SELECT lemma, register, connotation FROM lemma_metadata").fetchall()
+    assert len(meta_rows) == 2
+    by_lemma = {r[0]: r for r in meta_rows}
+    assert by_lemma["candle"][1] == "neutral"
+    assert by_lemma["storm"][2] == "negative"
+
+    # Verify snapped properties have salience_sum
+    spc_rows = conn.execute(
+        "SELECT salience_sum FROM synset_properties_curated WHERE synset_id = 'syn001'"
+    ).fetchall()
+    assert len(spc_rows) > 0
+    # All should have non-zero salience_sum
+    for row in spc_rows:
+        assert row[0] > 0
+
+    conn.close()
