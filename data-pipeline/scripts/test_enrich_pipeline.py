@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from enrich_pipeline import (
     MAX_PROPERTIES_PER_SYNSET,
     SIMILARITY_CHUNK_SIZE,
+    _extract_property_text,  # noqa: F401 — exported for downstream test coverage
     _fasttext_cache,
     _ensure_v2_schema,
     curate_properties,
@@ -924,7 +925,24 @@ def test_populate_lemma_metadata_inserts():
     assert by_lemma["taper"][3] == "neutral"
 
 
-# --- 22. curate_properties handles v2 structured objects ----------------------
+# --- 22. _extract_property_text helper ----------------------------------------
+
+def test_extract_property_text_v1_string():
+    """_extract_property_text returns plain string as-is."""
+    assert _extract_property_text("warm") == "warm"
+
+
+def test_extract_property_text_v2_object():
+    """_extract_property_text extracts .text from v2 structured object."""
+    assert _extract_property_text({"text": "warm", "salience": 0.9}) == "warm"
+
+
+def test_extract_property_text_missing_text():
+    """_extract_property_text returns None for dict without .text key."""
+    assert _extract_property_text({"salience": 0.9}) is None
+
+
+# --- 23. curate_properties handles v2 structured objects ----------------------
 
 def test_curate_properties_handles_v2_structured():
     """curate_properties extracts .text from v2 structured property objects."""
@@ -950,7 +968,7 @@ def test_curate_properties_handles_v2_structured():
     assert "cold" in texts
 
 
-# --- 23. populate_synset_properties stores v2 salience/type/relation ----------
+# --- 24. populate_synset_properties stores v2 salience/type/relation ----------
 
 def test_populate_synset_properties_v2_stores_salience():
     """populate_synset_properties stores salience, property_type, relation from v2 objects."""
@@ -987,7 +1005,7 @@ def test_populate_synset_properties_v2_stores_salience():
     assert "visual" in types
 
 
-# --- 24. populate_synset_properties stores usage_example ----------------------
+# --- 25. populate_synset_properties stores usage_example ----------------------
 
 def test_populate_synset_properties_populates_usage_example():
     """populate_synset_properties stores usage_example in enrichment table."""
@@ -1039,3 +1057,51 @@ def test_format_batch_items_v2_includes_lemmas():
     assert "Word: candle" in result
     assert "Lemmas: candle, taper" in result
     assert "Definition: stick of wax with a wick" in result
+
+
+def test_extract_batch_v2_returns_structured_properties():
+    """extract_batch with v2 prompt returns structured property objects."""
+    from unittest.mock import patch
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    from enrich_properties import extract_batch
+
+    synsets = [
+        {
+            "id": "syn001",
+            "lemma": "candle",
+            "definition": "stick of wax with a wick",
+            "pos": "n",
+            "all_lemmas": ["candle", "taper"],
+        },
+    ]
+
+    # Mock the LLM response to return v2 structured data
+    mock_response = [
+        {
+            "id": "syn001",
+            "usage_example": "She lit a candle in the dark.",
+            "properties": [
+                {"text": "warm", "salience": 0.9, "type": "physical", "relation": "candle emits warmth"},
+                {"text": "flickering", "salience": 0.85, "type": "behaviour", "relation": "flame flickers"},
+            ],
+            "lemma_metadata": [
+                {"lemma": "candle", "register": "neutral", "connotation": "positive"},
+                {"lemma": "taper", "register": "formal", "connotation": "neutral"},
+            ],
+        },
+    ]
+
+    with patch("enrich_properties.prompt_json", return_value=mock_response):
+        results = extract_batch(synsets, model="test")
+
+    assert len(results) == 1
+    r = results[0]
+    assert r["id"] == "syn001"
+    assert r["usage_example"] == "She lit a candle in the dark."
+    assert len(r["properties"]) == 2
+    # v2 properties are structured objects
+    assert r["properties"][0]["text"] == "warm"
+    assert r["properties"][0]["salience"] == 0.9
+    assert len(r["lemma_metadata"]) == 2
