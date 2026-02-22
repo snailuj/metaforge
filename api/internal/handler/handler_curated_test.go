@@ -50,15 +50,26 @@ func setupCrossDomainTestDB(t *testing.T) *sql.DB {
 			pos TEXT NOT NULL,
 			polysemy INTEGER NOT NULL
 		);
+
+		CREATE TABLE vocab_clusters (
+			vocab_id         INTEGER PRIMARY KEY,
+			cluster_id       INTEGER NOT NULL,
+			is_representative INTEGER NOT NULL DEFAULT 0,
+			is_singleton     INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
+
 		CREATE TABLE synset_properties_curated (
 			synset_id TEXT NOT NULL,
 			vocab_id INTEGER NOT NULL,
+			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
-			PRIMARY KEY (synset_id, vocab_id)
+			PRIMARY KEY (synset_id, cluster_id)
 		);
 		CREATE INDEX idx_spc_synset ON synset_properties_curated(synset_id);
 		CREATE INDEX idx_spc_vocab ON synset_properties_curated(vocab_id);
+		CREATE INDEX idx_spc_cluster ON synset_properties_curated(cluster_id);
 
 		CREATE TABLE property_antonyms (
 			vocab_id_a INTEGER NOT NULL,
@@ -66,35 +77,44 @@ func setupCrossDomainTestDB(t *testing.T) *sql.DB {
 			PRIMARY KEY (vocab_id_a, vocab_id_b)
 		);
 
+		CREATE TABLE cluster_antonyms (
+			cluster_id_a INTEGER NOT NULL,
+			cluster_id_b INTEGER NOT NULL,
+			PRIMARY KEY (cluster_id_a, cluster_id_b)
+		);
+
 		CREATE TABLE lemma_embeddings (
 			lemma TEXT PRIMARY KEY,
 			embedding BLOB NOT NULL
 		);
 
-		-- Properties
+		-- Properties (all singletons)
 		INSERT INTO property_vocab_curated VALUES (1, 'v1', 'intense', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (2, 'v2', 'consuming', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (3, 'v3', 'destructive', 'a', 1);
+		INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+		INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
+		INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
 
 		-- Source: anger (3 props: intense, consuming, destructive)
 		INSERT INTO synsets VALUES ('syn-anger', 'n', 'strong displeasure');
 		INSERT INTO lemmas VALUES ('anger', 'syn-anger');
-		INSERT INTO synset_properties_curated VALUES ('syn-anger', 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-anger', 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-anger', 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated VALUES ('syn-anger', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated VALUES ('syn-anger', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated VALUES ('syn-anger', 3, 3, 'exact', NULL);
 
 		-- Candidate: fury (3 props — same as anger, synonym)
 		INSERT INTO synsets VALUES ('syn-fury', 'n', 'wild anger');
 		INSERT INTO lemmas VALUES ('fury', 'syn-fury');
-		INSERT INTO synset_properties_curated VALUES ('syn-fury', 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-fury', 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-fury', 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated VALUES ('syn-fury', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated VALUES ('syn-fury', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated VALUES ('syn-fury', 3, 3, 'exact', NULL);
 
 		-- Candidate: fire (2 props: consuming, destructive — cross-domain)
 		INSERT INTO synsets VALUES ('syn-fire', 'n', 'combustion');
 		INSERT INTO lemmas VALUES ('fire', 'syn-fire');
-		INSERT INTO synset_properties_curated VALUES ('syn-fire', 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-fire', 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated VALUES ('syn-fire', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated VALUES ('syn-fire', 3, 3, 'exact', NULL);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -205,12 +225,21 @@ func TestHandleSuggest_NoEmbeddingsGraceful(t *testing.T) {
 			pos TEXT NOT NULL,
 			polysemy INTEGER NOT NULL
 		);
+
+		CREATE TABLE vocab_clusters (
+			vocab_id         INTEGER PRIMARY KEY,
+			cluster_id       INTEGER NOT NULL,
+			is_representative INTEGER NOT NULL DEFAULT 0,
+			is_singleton     INTEGER NOT NULL DEFAULT 0
+		);
+
 		CREATE TABLE synset_properties_curated (
 			synset_id TEXT NOT NULL,
 			vocab_id INTEGER NOT NULL,
+			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
-			PRIMARY KEY (synset_id, vocab_id)
+			PRIMARY KEY (synset_id, cluster_id)
 		);
 		CREATE INDEX idx_spc_synset2 ON synset_properties_curated(synset_id);
 		CREATE INDEX idx_spc_vocab2 ON synset_properties_curated(vocab_id);
@@ -221,14 +250,21 @@ func TestHandleSuggest_NoEmbeddingsGraceful(t *testing.T) {
 			PRIMARY KEY (vocab_id_a, vocab_id_b)
 		);
 
+		CREATE TABLE cluster_antonyms (
+			cluster_id_a INTEGER NOT NULL,
+			cluster_id_b INTEGER NOT NULL,
+			PRIMARY KEY (cluster_id_a, cluster_id_b)
+		);
+
 		INSERT INTO property_vocab_curated VALUES (1, 'v1', 'hot', 'a', 1);
+		INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
 		INSERT INTO synsets VALUES ('src', 'n', 'source');
 		INSERT INTO lemmas VALUES ('sun', 'src');
-		INSERT INTO synset_properties_curated VALUES ('src', 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated VALUES ('src', 1, 1, 'exact', NULL);
 
 		INSERT INTO synsets VALUES ('tgt', 'n', 'target');
 		INSERT INTO lemmas VALUES ('star', 'tgt');
-		INSERT INTO synset_properties_curated VALUES ('tgt', 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated VALUES ('tgt', 1, 1, 'exact', NULL);
 	`)
 	if err != nil {
 		t.Fatal(err)

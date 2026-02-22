@@ -127,3 +127,116 @@ def test_build_antonyms_creates_table(tmp_path):
 
     assert "vocab_id_a" in columns
     assert "vocab_id_b" in columns
+
+
+# --- Cluster antonym tests ---
+
+def make_cluster_antonym_db(tmp_path):
+    """Create DB with property_antonyms + vocab_clusters for cluster antonym lifting."""
+    db_path = tmp_path / "cluster_ant_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_antonyms (
+            vocab_id_a INTEGER NOT NULL,
+            vocab_id_b INTEGER NOT NULL,
+            PRIMARY KEY (vocab_id_a, vocab_id_b)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+
+        -- vocab 1 ("hot") in cluster 1, vocab 5 ("warm") also in cluster 1
+        -- vocab 2 ("cold") in cluster 2, vocab 6 ("chilly") also in cluster 2
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
+        INSERT INTO vocab_clusters VALUES (5, 1, 0, 0);
+        INSERT INTO vocab_clusters VALUES (2, 2, 1, 0);
+        INSERT INTO vocab_clusters VALUES (6, 2, 0, 0);
+        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);  -- singleton "bright"
+
+        -- Antonym pairs at vocab level: hot<->cold, warm<->chilly
+        INSERT INTO property_antonyms VALUES (1, 2);
+        INSERT INTO property_antonyms VALUES (2, 1);
+        INSERT INTO property_antonyms VALUES (5, 6);
+        INSERT INTO property_antonyms VALUES (6, 5);
+    """)
+    conn.commit()
+    return db_path, conn
+
+
+def test_cluster_antonyms_lifts_to_clusters(tmp_path):
+    """Vocab-level antonym pairs are lifted to cluster-level pairs."""
+    from build_antonyms import build_cluster_antonym_table
+
+    db_path, conn = make_cluster_antonym_db(tmp_path)
+    try:
+        count = build_cluster_antonym_table(conn)
+    finally:
+        conn.close()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT cluster_id_a, cluster_id_b FROM cluster_antonyms "
+            "ORDER BY cluster_id_a, cluster_id_b"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # hot(cluster 1) <-> cold(cluster 2) — deduplicated from both vocab pairs
+    assert (1, 2) in rows
+    assert (2, 1) in rows
+    assert len(rows) == 2  # bidirectional, but deduplicated
+    assert count == 1  # 1 unique pair
+
+
+def test_cluster_antonyms_creates_table(tmp_path):
+    """cluster_antonyms table has correct schema."""
+    from build_antonyms import build_cluster_antonym_table
+
+    db_path, conn = make_cluster_antonym_db(tmp_path)
+    try:
+        build_cluster_antonym_table(conn)
+    finally:
+        conn.close()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cursor = conn.execute("PRAGMA table_info(cluster_antonyms)")
+        columns = {row[1] for row in cursor.fetchall()}
+    finally:
+        conn.close()
+
+    assert "cluster_id_a" in columns
+    assert "cluster_id_b" in columns
+
+
+def test_cluster_antonyms_empty_when_no_antonyms(tmp_path):
+    """No crash when property_antonyms is empty."""
+    from build_antonyms import build_cluster_antonym_table
+
+    db_path = tmp_path / "empty_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_antonyms (
+            vocab_id_a INTEGER NOT NULL,
+            vocab_id_b INTEGER NOT NULL,
+            PRIMARY KEY (vocab_id_a, vocab_id_b)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+    """)
+    conn.commit()
+
+    try:
+        count = build_cluster_antonym_table(conn)
+    finally:
+        conn.close()
+
+    assert count == 0
