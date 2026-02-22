@@ -105,11 +105,12 @@ def snap_properties(
     conn.executescript("""
         DROP TABLE IF EXISTS synset_properties_curated;
         CREATE TABLE synset_properties_curated (
-            synset_id   TEXT NOT NULL,
-            vocab_id    INTEGER NOT NULL,
-            cluster_id  INTEGER NOT NULL,
-            snap_method TEXT NOT NULL,
-            snap_score  REAL,
+            synset_id    TEXT NOT NULL,
+            vocab_id     INTEGER NOT NULL,
+            cluster_id   INTEGER NOT NULL,
+            snap_method  TEXT NOT NULL,
+            snap_score   REAL,
+            salience_sum REAL NOT NULL DEFAULT 1.0,
             PRIMARY KEY (synset_id, cluster_id)
         );
     """)
@@ -135,27 +136,27 @@ def snap_properties(
     has_vocab_embeddings = len(vocab_ids) > 0
     print(f"    Vocab embeddings loaded: {len(vocab_ids)} entries", flush=True)
 
-    # Load synset-property links with property text and embedding
-    synset_props: list[tuple[str, str, bytes | None]] = []
-    for sid, text, emb in conn.execute("""
-        SELECT sp.synset_id, pv.text, pv.embedding
+    # Load synset-property links with property text, embedding, and salience
+    synset_props: list[tuple[str, str, bytes | None, float]] = []
+    for sid, text, emb, salience in conn.execute("""
+        SELECT sp.synset_id, pv.text, pv.embedding, sp.salience
         FROM synset_properties sp
         JOIN property_vocabulary pv ON pv.property_id = sp.property_id
     """):
-        synset_props.append((sid, text, emb))
+        synset_props.append((sid, text, emb, salience))
 
     total_links = len(synset_props)
     print(f"    Property links to snap: {total_links}", flush=True)
 
     stats = {"exact": 0, "morphological": 0, "embedding": 0, "dropped": 0}
-    inserts: list[tuple[str, int, int, str, float | None]] = []
-    seen: set[tuple[str, int]] = set()  # (synset_id, cluster_id)
+    # accumulated: key=(synset_id, cluster_id) -> (vocab_id, snap_method, snap_score, salience_sum)
+    accumulated: dict[tuple[str, int], tuple[int, str, float | None, float]] = {}
 
     # Collect unmatched properties for batched embedding lookup
-    # (index in synset_props, synset_id, embedding_bytes)
-    embedding_candidates: list[tuple[int, str, bytes]] = []
+    # (index in synset_props, synset_id, embedding_bytes, salience)
+    embedding_candidates: list[tuple[int, str, bytes, float]] = []
 
-    for i, (sid, prop_text, prop_emb) in enumerate(synset_props):
+    for i, (sid, prop_text, prop_emb, salience) in enumerate(synset_props):
         if (i + 1) % 20000 == 0:
             print(f"    Stages 1-2: {i + 1}/{total_links} "
                   f"(exact={stats['exact']}, morph={stats['morphological']})",
@@ -168,9 +169,11 @@ def snap_properties(
             vid = vocab_by_lemma[prop_lower]
             cid = cluster_lookup.get(vid, vid)
             key = (sid, cid)
-            if key not in seen:
-                inserts.append((sid, vid, cid, "exact", None))
-                seen.add(key)
+            if key in accumulated:
+                existing = accumulated[key]
+                accumulated[key] = (existing[0], existing[1], existing[2], existing[3] + salience)
+            else:
+                accumulated[key] = (vid, "exact", None, salience)
                 stats["exact"] += 1
             continue
 
@@ -181,9 +184,11 @@ def snap_properties(
                 vid = vocab_by_lemma[variant]
                 cid = cluster_lookup.get(vid, vid)
                 key = (sid, cid)
-                if key not in seen:
-                    inserts.append((sid, vid, cid, "morphological", None))
-                    seen.add(key)
+                if key in accumulated:
+                    existing = accumulated[key]
+                    accumulated[key] = (existing[0], existing[1], existing[2], existing[3] + salience)
+                else:
+                    accumulated[key] = (vid, "morphological", None, salience)
                     stats["morphological"] += 1
                 matched = True
                 break
@@ -192,7 +197,7 @@ def snap_properties(
 
         # Collect for Stage 3 batch processing
         if prop_emb and has_vocab_embeddings:
-            embedding_candidates.append((i, sid, prop_emb))
+            embedding_candidates.append((i, sid, prop_emb, salience))
         else:
             stats["dropped"] += 1
 
@@ -201,7 +206,7 @@ def snap_properties(
     print(f"    Stage 3: {len(embedding_candidates)} candidates for embedding match",
           flush=True)
 
-    for j, (idx, sid, prop_emb) in enumerate(embedding_candidates):
+    for j, (idx, sid, prop_emb, salience) in enumerate(embedding_candidates):
         if (j + 1) % 2000 == 0:
             print(f"    Stage 3: {j + 1}/{len(embedding_candidates)} "
                   f"(matched={stats['embedding']})", flush=True)
@@ -226,16 +231,23 @@ def snap_properties(
             best_vid = vocab_ids[best_idx]
             best_cid = cluster_lookup.get(best_vid, best_vid)
             key = (sid, best_cid)
-            if key not in seen:
-                inserts.append((sid, best_vid, best_cid, "embedding", best_score))
-                seen.add(key)
+            if key in accumulated:
+                existing = accumulated[key]
+                accumulated[key] = (existing[0], existing[1], existing[2], existing[3] + salience)
+            else:
+                accumulated[key] = (best_vid, "embedding", best_score, salience)
                 stats["embedding"] += 1
         else:
             stats["dropped"] += 1
 
+    inserts = [
+        (sid, vid, cid, method, score, sal_sum)
+        for (sid, cid), (vid, method, score, sal_sum) in accumulated.items()
+    ]
     conn.executemany(
-        "INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO synset_properties_curated "
+        "(synset_id, vocab_id, cluster_id, snap_method, snap_score, salience_sum) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
         inserts,
     )
 
