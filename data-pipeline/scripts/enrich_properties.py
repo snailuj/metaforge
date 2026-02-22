@@ -108,6 +108,19 @@ def format_batch_items(synsets: List[Dict]) -> str:
     return "\n".join(lines)
 
 
+def format_batch_items_v2(synsets: List[Dict]) -> str:
+    """Format synsets for the v2 batch prompt, including all lemmas."""
+    lines = []
+    for s in synsets:
+        lines.append(f"ID: {s['id']}")
+        lines.append(f"Word: {s['lemma']}")
+        all_lemmas = s.get("all_lemmas", [s["lemma"]])
+        lines.append(f"Lemmas: {', '.join(all_lemmas)}")
+        lines.append(f"Definition: {s['definition']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def extract_batch(
     synsets: List[Dict],
     model: str = "haiku",
