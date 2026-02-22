@@ -94,6 +94,52 @@ Output ONLY a valid JSON array (no markdown, no explanation):
 [{{"id": "...", "properties": [...]}}, ...]
 """
 
+BATCH_PROMPT_V2 = """You are extracting sensory and behavioural properties for specific word senses, with salience weights and metadata.
+
+CRITICAL: The definition tells you WHICH sense of the word to analyse. Many words have multiple meanings — focus ONLY on the sense described in the definition.
+
+For each word sense, provide:
+
+1. **usage_example**: A natural sentence using the word in this specific sense.
+
+2. **properties**: 10-15 properties, each as a JSON object:
+   - "text": 1-2 word property (short, evocative)
+   - "salience": 0.0-1.0 — how immediately/strongly this property comes to mind for this concept
+     - 0.9-1.0: Defining, inescapable (fire → hot, ice → cold)
+     - 0.6-0.8: Strong association (fire → dangerous, ice → slippery)
+     - 0.3-0.5: Secondary/contextual (fire → ancient, ice → seasonal)
+   - "type": one of "physical", "behaviour", "effect", "functional", "emotional", "social"
+   - "relation": short phrase linking word to property (e.g. "fire emits heat")
+
+   Property types:
+   - physical: texture, weight, temperature, luminosity, sound, colour
+   - behaviour: speed, rhythm, intensity, duration, pattern of movement
+   - effect: what it causes, its consequences, its aftermath
+   - functional: what it does, enables, or is used for
+   - emotional: feelings it evokes or is associated with
+   - social: cultural, relational, or status associations
+
+3. **lemma_metadata**: For EACH listed lemma, provide:
+   - "lemma": the word form
+   - "register": "formal", "neutral", "informal", or "slang"
+   - "connotation": "positive", "neutral", or "negative"
+
+Example:
+
+Word: candle
+Lemmas: candle, taper
+Definition: stick of wax with a wick; gives light when burning
+
+{{"id": "oewn-candle-n", "usage_example": "She lit a candle and watched the flame flicker in the draught.", "properties": [{{"text": "warm", "salience": 0.9, "type": "physical", "relation": "candle emits warmth"}}, {{"text": "flickering", "salience": 0.85, "type": "behaviour", "relation": "flame flickers"}}, {{"text": "ephemeral", "salience": 0.7, "type": "effect", "relation": "candle burns away"}}, {{"text": "luminous", "salience": 0.8, "type": "physical", "relation": "candle gives light"}}, {{"text": "waxy", "salience": 0.75, "type": "physical", "relation": "made of wax"}}, {{"text": "fragile", "salience": 0.6, "type": "physical", "relation": "wick is delicate"}}, {{"text": "aromatic", "salience": 0.5, "type": "effect", "relation": "scented candles smell"}}, {{"text": "ceremonial", "salience": 0.4, "type": "social", "relation": "used in rituals"}}, {{"text": "intimate", "salience": 0.65, "type": "emotional", "relation": "evokes closeness"}}, {{"text": "ancient", "salience": 0.3, "type": "social", "relation": "pre-electric lighting"}}], "lemma_metadata": [{{"lemma": "candle", "register": "neutral", "connotation": "positive"}}, {{"lemma": "taper", "register": "formal", "connotation": "neutral"}}]}}
+
+Now extract properties for each of these word senses:
+
+{batch_items}
+
+Output ONLY a valid JSON array (no markdown, no explanation):
+[{{"id": "...", "usage_example": "...", "properties": [...], "lemma_metadata": [...]}}, ...]
+"""
+
 
 # --- Helpers ------------------------------------------------------------------
 
@@ -334,11 +380,16 @@ def run_enrichment(
     verbose: bool = False,
     db_path: str = None,
     strategy: str = "random",
+    schema_version: str = "v1",
 ) -> EnrichmentResult:
     """Run property enrichment on synsets using claude CLI.
 
     Queries synset data from the lexicon DB (lexicon_v2 schema).
     Returns an EnrichmentResult dataclass.
+
+    Args:
+        schema_version: "v1" for plain property strings, "v2" for structured
+            property objects with salience, type, relation, and lemma metadata.
     """
     if db_path is None:
         db_path = str(LEXICON_V2)
@@ -364,11 +415,20 @@ def run_enrichment(
                 required_ids = json.load(f)
             print(f"  Required synset IDs: {len(required_ids)} from {synset_ids_file}")
 
+        # Select prompt template and formatter based on schema version
+        if schema_version == "v2":
+            template = BATCH_PROMPT_V2
+            formatter = format_batch_items_v2
+        else:
+            template = prompt_template or BATCH_PROMPT
+            formatter = format_batch_items
+
         print(f"Running property enrichment...")
         print(f"  Size: {size} synsets")
         print(f"  Batch size: {batch_size}")
         print(f"  Model: {model}")
         print(f"  Strategy: {strategy}")
+        print(f"  Schema version: {schema_version}")
         print(f"  Database: {db_path}")
 
         if strategy == "frequency":
@@ -405,8 +465,8 @@ def run_enrichment(
 
             try:
                 batch_results = extract_batch(
-                    batch, model=model, prompt_template=prompt_template,
-                    verbose=verbose,
+                    batch, model=model, prompt_template=template,
+                    formatter=formatter, verbose=verbose,
                 )
 
                 for result in batch_results:
@@ -458,6 +518,7 @@ def run_enrichment(
                 "model": model,
                 "batch_size": batch_size,
                 "size": size,
+                "schema_version": schema_version,
             },
         }
 
