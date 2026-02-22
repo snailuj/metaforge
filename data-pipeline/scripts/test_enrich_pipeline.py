@@ -23,6 +23,7 @@ from enrich_pipeline import (
     curate_properties,
     filter_mwe,
     load_fasttext_vectors,
+    populate_lemma_metadata,
     populate_synset_properties,
     compute_idf,
     compute_property_similarity,
@@ -891,3 +892,58 @@ def test_ensure_v2_schema_adds_columns():
         "SELECT name FROM sqlite_master WHERE type='table'"
     ).fetchall()}
     assert "lemma_metadata" in tables
+
+
+# --- 21. populate_lemma_metadata ----------------------------------------------
+
+def test_populate_lemma_metadata_inserts():
+    """populate_lemma_metadata stores per-lemma register and connotation."""
+    conn = _make_db()
+    data = {
+        "synsets": [
+            {
+                "id": "syn001",
+                "lemma": "candle",
+                "properties": ["warm"],
+                "lemma_metadata": [
+                    {"lemma": "candle", "register": "neutral", "connotation": "positive"},
+                    {"lemma": "taper", "register": "formal", "connotation": "neutral"},
+                ],
+            },
+        ],
+    }
+    count = populate_lemma_metadata(conn, data)
+
+    assert count == 2
+    rows = conn.execute("SELECT lemma, synset_id, register, connotation FROM lemma_metadata").fetchall()
+    assert len(rows) == 2
+    by_lemma = {r[0]: r for r in rows}
+    assert by_lemma["candle"][2] == "neutral"
+    assert by_lemma["candle"][3] == "positive"
+    assert by_lemma["taper"][2] == "formal"
+    assert by_lemma["taper"][3] == "neutral"
+
+
+# --- v2 enrichment prompt tests -----------------------------------------------
+
+def test_format_batch_items_v2_includes_lemmas():
+    """format_batch_items_v2 includes all lemmas per synset."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    from enrich_properties import format_batch_items_v2
+
+    synsets = [
+        {
+            "id": "oewn-candle-n",
+            "lemma": "candle",
+            "definition": "stick of wax with a wick",
+            "pos": "n",
+            "all_lemmas": ["candle", "taper"],
+        },
+    ]
+    result = format_batch_items_v2(synsets)
+    assert "ID: oewn-candle-n" in result
+    assert "Word: candle" in result
+    assert "Lemmas: candle, taper" in result
+    assert "Definition: stick of wax with a wick" in result

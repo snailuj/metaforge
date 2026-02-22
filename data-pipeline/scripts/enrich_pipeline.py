@@ -244,6 +244,34 @@ def populate_synset_properties(
 
 
 # =============================================================================
+# 2b. Populate lemma metadata (register, connotation)
+# =============================================================================
+
+def populate_lemma_metadata(
+    conn: sqlite3.Connection,
+    enrichment_data: dict,
+) -> int:
+    """Store per-lemma register and connotation from v2 enrichment data.
+
+    Returns the number of metadata entries inserted.
+    """
+    count = 0
+    for synset in enrichment_data.get("synsets", []):
+        synset_id = synset["id"]
+        for meta in synset.get("lemma_metadata", []):
+            conn.execute(
+                """INSERT OR IGNORE INTO lemma_metadata
+                   (lemma, synset_id, register, connotation)
+                   VALUES (?, ?, ?, ?)""",
+                (meta["lemma"], synset_id, meta.get("register"), meta.get("connotation")),
+            )
+            count += 1
+    conn.commit()
+    print(f"  Stored {count} lemma metadata entries")
+    return count
+
+
+# =============================================================================
 # 3. Compute property IDF (from 06_compute_property_idf.py)
 # =============================================================================
 
