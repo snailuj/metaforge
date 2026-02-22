@@ -46,6 +46,7 @@ func setupCuratedTestDB(t *testing.T) *sql.DB {
 			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
+			salience_sum REAL NOT NULL DEFAULT 1.0,
 			PRIMARY KEY (synset_id, cluster_id)
 		);
 		CREATE INDEX idx_spc_synset ON synset_properties_curated(synset_id);
@@ -78,20 +79,20 @@ func setupCuratedTestDB(t *testing.T) *sql.DB {
 		INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
 		INSERT INTO vocab_clusters VALUES (4, 4, 1, 1);
 
-		INSERT INTO synset_properties_curated VALUES ('src1', 1, 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('src1', 2, 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('src1', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src1', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src1', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src1', 3, 3, 'exact', NULL);
 
 		-- Target synset: anchor (shares heavy + waves)
 		INSERT INTO synsets VALUES ('tgt1', 'n', 'a device for holding');
 		INSERT INTO lemmas VALUES ('anchor', 'tgt1');
-		INSERT INTO synset_properties_curated VALUES ('tgt1', 1, 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt1', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt1', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt1', 3, 3, 'exact', NULL);
 
 		-- Target synset: balloon (has light, antonym of heavy)
 		INSERT INTO synsets VALUES ('tgt2', 'n', 'inflatable bag');
 		INSERT INTO lemmas VALUES ('balloon', 'tgt2');
-		INSERT INTO synset_properties_curated VALUES ('tgt2', 4, 4, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt2', 4, 4, 'exact', NULL);
 
 		-- Antonym: heavy <-> light (vocab-level)
 		INSERT INTO property_antonyms VALUES (1, 4);
@@ -126,8 +127,32 @@ func TestGetForgeMatchesCurated_SharedProperties(t *testing.T) {
 	if anchor == nil {
 		t.Fatal("expected anchor in results")
 	}
-	if anchor.SharedCount != 2 {
-		t.Errorf("expected 2 shared, got %d", anchor.SharedCount)
+	if anchor.SalienceSum != 2.0 {
+		t.Errorf("expected salience_sum 2.0, got %.2f", anchor.SalienceSum)
+	}
+}
+
+func TestGetForgeMatchesCurated_SalienceSum(t *testing.T) {
+	db := setupCuratedTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCurated(db, "src1", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var anchor *CuratedMatch
+	for i := range matches {
+		if matches[i].SynsetID == "tgt1" {
+			anchor = &matches[i]
+		}
+	}
+	if anchor == nil {
+		t.Fatal("expected anchor in results")
+	}
+	// tgt1 has 2 properties each with salience_sum=1.0, so total = 2.0
+	if anchor.SalienceSum != 2.0 {
+		t.Errorf("expected salience_sum 2.0, got %.2f", anchor.SalienceSum)
 	}
 }
 
@@ -193,6 +218,7 @@ func setupSenseAlignmentTestDB(t *testing.T) *sql.DB {
 			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
+			salience_sum REAL NOT NULL DEFAULT 1.0,
 			PRIMARY KEY (synset_id, cluster_id)
 		);
 		CREATE INDEX idx_spc_sense_synset ON synset_properties_curated(synset_id);
@@ -222,28 +248,28 @@ func setupSenseAlignmentTestDB(t *testing.T) *sql.DB {
 		INSERT INTO property_vocab_curated VALUES (2, 'v2', 'secure', 'a', 1);
 		INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
 		INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
-		INSERT INTO synset_properties_curated VALUES ('bank-money', 1, 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('bank-money', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('bank-money', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('bank-money', 2, 2, 'exact', NULL);
 
 		-- Properties for bank-river: wet, flowing (all singletons)
 		INSERT INTO property_vocab_curated VALUES (3, 'v3', 'wet', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (4, 'v4', 'flowing', 'a', 1);
 		INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
 		INSERT INTO vocab_clusters VALUES (4, 4, 1, 1);
-		INSERT INTO synset_properties_curated VALUES ('bank-river', 3, 3, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('bank-river', 4, 4, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('bank-river', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('bank-river', 4, 4, 'exact', NULL);
 
 		-- Target: vault (shares valuable + secure with bank-money)
 		INSERT INTO synsets VALUES ('tgt-vault', 'n', 'secure storage room');
 		INSERT INTO lemmas VALUES ('vault', 'tgt-vault');
-		INSERT INTO synset_properties_curated VALUES ('tgt-vault', 1, 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt-vault', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-vault', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-vault', 2, 2, 'exact', NULL);
 
 		-- Target: stream (shares wet + flowing with bank-river)
 		INSERT INTO synsets VALUES ('tgt-stream', 'n', 'small river');
 		INSERT INTO lemmas VALUES ('stream', 'tgt-stream');
-		INSERT INTO synset_properties_curated VALUES ('tgt-stream', 3, 3, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt-stream', 4, 4, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-stream', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-stream', 4, 4, 'exact', NULL);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -363,6 +389,7 @@ func setupSynsetIDTestDB(t *testing.T) *sql.DB {
 			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
+			salience_sum REAL NOT NULL DEFAULT 1.0,
 			PRIMARY KEY (synset_id, cluster_id)
 		);
 
@@ -380,9 +407,9 @@ func setupSynsetIDTestDB(t *testing.T) *sql.DB {
 		INSERT INTO property_vocab_curated VALUES (10, 'v1', 'authoritarian', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (11, 'v2', 'controlling', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (12, 'v3', 'unjust', 'a', 1);
-		INSERT INTO synset_properties_curated VALUES ('syn-curated', 10, 10, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-curated', 11, 11, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-curated', 12, 12, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-curated', 10, 10, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-curated', 11, 11, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-curated', 12, 12, 'exact', NULL);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -488,6 +515,7 @@ func setupLimitTestDB(t *testing.T) *sql.DB {
 			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
+			salience_sum REAL NOT NULL DEFAULT 1.0,
 			PRIMARY KEY (synset_id, cluster_id)
 		);
 		CREATE INDEX idx_spc_synset2 ON synset_properties_curated(synset_id);
@@ -517,29 +545,29 @@ func setupLimitTestDB(t *testing.T) *sql.DB {
 		-- Source: src (props: hot, bright, loud)
 		INSERT INTO synsets VALUES ('src', 'n', 'source concept');
 		INSERT INTO lemmas VALUES ('source', 'src');
-		INSERT INTO synset_properties_curated VALUES ('src', 1, 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('src', 2, 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('src', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src', 3, 3, 'exact', NULL);
 
 		-- tgt_a: shares hot+bright+loud (score 3), has 3 lemmas
 		INSERT INTO synsets VALUES ('tgt_a', 'n', 'target A');
 		INSERT INTO lemmas VALUES ('alpha1', 'tgt_a');
 		INSERT INTO lemmas VALUES ('alpha2', 'tgt_a');
 		INSERT INTO lemmas VALUES ('alpha3', 'tgt_a');
-		INSERT INTO synset_properties_curated VALUES ('tgt_a', 1, 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt_a', 2, 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt_a', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_a', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_a', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_a', 3, 3, 'exact', NULL);
 
 		-- tgt_b: shares hot+bright (score 2), 1 lemma
 		INSERT INTO synsets VALUES ('tgt_b', 'n', 'target B');
 		INSERT INTO lemmas VALUES ('beta', 'tgt_b');
-		INSERT INTO synset_properties_curated VALUES ('tgt_b', 1, 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt_b', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_b', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_b', 2, 2, 'exact', NULL);
 
 		-- tgt_c: shares hot (score 1), 1 lemma
 		INSERT INTO synsets VALUES ('tgt_c', 'n', 'target C');
 		INSERT INTO lemmas VALUES ('gamma', 'tgt_c');
-		INSERT INTO synset_properties_curated VALUES ('tgt_c', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_c', 1, 1, 'exact', NULL);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -563,7 +591,7 @@ func TestGetForgeMatchesCurated_LimitCountsUniqueSynsets(t *testing.T) {
 	if len(matches) != 3 {
 		t.Errorf("expected 3 unique synsets, got %d", len(matches))
 		for _, m := range matches {
-			t.Logf("  %s (shared=%d)", m.SynsetID, m.SharedCount)
+			t.Logf("  %s (salience_sum=%.2f)", m.SynsetID, m.SalienceSum)
 		}
 	}
 }
