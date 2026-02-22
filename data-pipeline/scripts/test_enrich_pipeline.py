@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from enrich_pipeline import (
     MAX_PROPERTIES_PER_SYNSET,
     SIMILARITY_CHUNK_SIZE,
+    _extract_property_text,
     _fasttext_cache,
     _ensure_v2_schema,
     curate_properties,
