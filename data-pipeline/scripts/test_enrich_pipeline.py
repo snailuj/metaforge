@@ -58,6 +58,9 @@ CREATE TABLE property_vocabulary (
 
 CREATE TABLE enrichment (
     synset_id TEXT PRIMARY KEY,
+    connotation TEXT CHECK (connotation IN ('positive', 'neutral', 'negative')),
+    register TEXT CHECK (register IN ('formal', 'neutral', 'informal', 'slang')),
+    usage_example TEXT,
     model_used TEXT,
     extracted_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -65,7 +68,18 @@ CREATE TABLE enrichment (
 CREATE TABLE synset_properties (
     synset_id TEXT NOT NULL,
     property_id INTEGER NOT NULL,
+    salience REAL NOT NULL DEFAULT 1.0,
+    property_type TEXT,
+    relation TEXT,
     PRIMARY KEY (synset_id, property_id)
+);
+
+CREATE TABLE lemma_metadata (
+    lemma       TEXT NOT NULL,
+    synset_id   TEXT NOT NULL,
+    register    TEXT CHECK (register IN ('formal', 'neutral', 'informal', 'slang')),
+    connotation TEXT CHECK (connotation IN ('positive', 'neutral', 'negative')),
+    PRIMARY KEY (lemma, synset_id)
 );
 
 CREATE TABLE property_similarity (
@@ -361,7 +375,7 @@ def test_run_pipeline_end_to_end(tmp_path):
     vectors = _make_vectors()
 
     with patch("enrich_pipeline.load_fasttext_vectors", return_value=vectors):
-        stats = run_pipeline(str(db_path), str(enrichment_file), "dummy.vec")
+        stats = run_pipeline(str(db_path), [str(enrichment_file)], "dummy.vec")
 
     assert stats["properties_curated"] > 0
     assert stats["synset_links"] > 0
@@ -643,7 +657,7 @@ def test_run_pipeline_creates_curated_tables(tmp_path):
     vectors = _make_vectors()
 
     with patch("enrich_pipeline.load_fasttext_vectors", return_value=vectors):
-        stats = run_pipeline(str(db_path), str(enrichment_file), "dummy.vec")
+        stats = run_pipeline(str(db_path), [str(enrichment_file)], "dummy.vec")
 
     # Curated tables must exist
     conn = sqlite3.connect(str(db_path))
