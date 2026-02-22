@@ -29,8 +29,9 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import EMBEDDING_DIM, FASTTEXT_VEC, normalise
 from build_vocab import build_and_store
+from cluster_vocab import cluster_vocab
 from snap_properties import snap_properties
-from build_antonyms import build_antonym_table
+from build_antonyms import build_antonym_table, build_cluster_antonym_table
 
 # Lazy-download NLTK tagger data on first import
 try:
@@ -503,10 +504,14 @@ def run_pipeline(
         # --- Curated vocabulary pipeline ---
         print("  Building curated vocabulary...")
         vocab_entries = build_and_store(conn)
+        print("  Clustering vocabulary...")
+        cluster_stats = cluster_vocab(conn)
         print("  Snapping properties to curated vocabulary...")
         snap_stats = snap_properties(conn)
         print("  Building antonym pairs...")
         antonym_pairs = build_antonym_table(conn)
+        print("  Building cluster antonym pairs...")
+        cluster_antonym_pairs = build_cluster_antonym_table(conn)
     finally:
         conn.close()
 
@@ -517,8 +522,11 @@ def run_pipeline(
         "similarity_pairs": sim_pairs,
         "centroids": centroids,
         "vocab_entries": vocab_entries,
+        "vocab_clusters": cluster_stats.get("num_clusters", 0),
+        "vocab_singletons": cluster_stats.get("singletons", 0),
         "snapped_properties": sum(snap_stats.values()) - snap_stats.get("dropped", 0),
         "antonym_pairs": antonym_pairs,
+        "cluster_antonym_pairs": cluster_antonym_pairs,
     }
     print(f"=== Pipeline complete: {stats} ===")
     return stats

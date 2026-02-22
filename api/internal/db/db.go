@@ -405,15 +405,15 @@ type CuratedMatch struct {
 func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMatch, error) {
 	rows, err := db.Query(`
 		WITH source_props AS (
-			SELECT vocab_id FROM synset_properties_curated WHERE synset_id = ?
+			SELECT cluster_id FROM synset_properties_curated WHERE synset_id = ?
 		),
 		shared AS (
 			SELECT spc.synset_id,
 			       COUNT(*) as shared_count,
 			       GROUP_CONCAT(pvc.lemma) as shared_props
 			FROM source_props sp
-			JOIN synset_properties_curated spc ON spc.vocab_id = sp.vocab_id
-			JOIN property_vocab_curated pvc ON pvc.vocab_id = sp.vocab_id
+			JOIN synset_properties_curated spc ON spc.cluster_id = sp.cluster_id
+			JOIN property_vocab_curated pvc ON pvc.vocab_id = sp.cluster_id
 			WHERE spc.synset_id != ?
 			GROUP BY spc.synset_id
 		),
@@ -421,8 +421,8 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 			SELECT spc.synset_id,
 			       COUNT(*) as contrast_count
 			FROM source_props sp
-			JOIN property_antonyms pa ON pa.vocab_id_a = sp.vocab_id
-			JOIN synset_properties_curated spc ON spc.vocab_id = pa.vocab_id_b
+			JOIN cluster_antonyms ca ON ca.cluster_id_a = sp.cluster_id
+			JOIN synset_properties_curated spc ON spc.cluster_id = ca.cluster_id_b
 			WHERE spc.synset_id != ?
 			GROUP BY spc.synset_id
 		)
@@ -515,8 +515,8 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 			       GROUP_CONCAT(pvc.lemma) as shared_props
 			FROM source_synsets ss
 			JOIN synset_properties_curated src ON src.synset_id = ss.synset_id
-			JOIN synset_properties_curated tgt ON tgt.vocab_id = src.vocab_id
-			JOIN property_vocab_curated pvc ON pvc.vocab_id = src.vocab_id
+			JOIN synset_properties_curated tgt ON tgt.cluster_id = src.cluster_id
+			JOIN property_vocab_curated pvc ON pvc.vocab_id = src.cluster_id
 			WHERE tgt.synset_id NOT IN (SELECT synset_id FROM source_synsets)
 			GROUP BY ss.synset_id, tgt.synset_id
 		),
@@ -533,8 +533,8 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 			       COUNT(*) as contrast_count
 			FROM source_synsets ss
 			JOIN synset_properties_curated src ON src.synset_id = ss.synset_id
-			JOIN property_antonyms pa ON pa.vocab_id_a = src.vocab_id
-			JOIN synset_properties_curated tgt ON tgt.vocab_id = pa.vocab_id_b
+			JOIN cluster_antonyms ca ON ca.cluster_id_a = src.cluster_id
+			JOIN synset_properties_curated tgt ON tgt.cluster_id = ca.cluster_id_b
 			WHERE tgt.synset_id NOT IN (SELECT synset_id FROM source_synsets)
 			GROUP BY ss.synset_id, tgt.synset_id
 		),
