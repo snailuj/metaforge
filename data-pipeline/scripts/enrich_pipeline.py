@@ -43,6 +43,30 @@ MAX_PROPERTIES_PER_SYNSET = 15
 SIMILARITY_CHUNK_SIZE = 2048
 
 
+def _ensure_v2_schema(conn: sqlite3.Connection) -> None:
+    """Apply v2 schema migrations: add salience columns, create lemma_metadata."""
+    # Add columns to synset_properties if missing
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(synset_properties)").fetchall()}
+    if "salience" not in cols:
+        conn.execute("ALTER TABLE synset_properties ADD COLUMN salience REAL NOT NULL DEFAULT 1.0")
+    if "property_type" not in cols:
+        conn.execute("ALTER TABLE synset_properties ADD COLUMN property_type TEXT")
+    if "relation" not in cols:
+        conn.execute("ALTER TABLE synset_properties ADD COLUMN relation TEXT")
+
+    # Create lemma_metadata table if missing
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS lemma_metadata (
+            lemma       TEXT NOT NULL,
+            synset_id   TEXT NOT NULL,
+            register    TEXT CHECK (register IN ('formal', 'neutral', 'informal', 'slang')),
+            connotation TEXT CHECK (connotation IN ('positive', 'neutral', 'negative')),
+            PRIMARY KEY (lemma, synset_id)
+        )
+    """)
+    conn.commit()
+
+
 # =============================================================================
 # MWE filter — strip adjectives/adverbs from multi-word properties
 # =============================================================================
@@ -473,30 +497,45 @@ def store_lemma_embeddings(
 
 def run_pipeline(
     db_path: str,
-    enrichment_file: str,
+    enrichment_files: list[str],
     fasttext_vec: str,
     threshold: float = 0.5,
 ) -> dict:
     """Run the full downstream enrichment pipeline.
 
+    Accepts one or more enrichment JSON files. FastText vectors are loaded
+    once and reused across all files.
+
     Returns a stats dict.
     """
     print(f"=== Enrichment Pipeline ===")
     print(f"  DB: {db_path}")
-    print(f"  Enrichment: {enrichment_file}")
-
-    with open(enrichment_file) as f:
-        data = json.load(f)
-
-    model_used = data.get("config", {}).get("model", "unknown")
+    print(f"  Enrichment files: {len(enrichment_files)}")
+    for f in enrichment_files:
+        print(f"    {f}")
 
     vectors = load_fasttext_vectors(fasttext_vec)
 
+    total_props = 0
+    total_links = 0
+    lemma_emb_count = 0
+
     conn = sqlite3.connect(db_path)
     try:
-        props = curate_properties(conn, data, vectors)
-        lemma_emb_count = store_lemma_embeddings(conn, vectors)
-        links = populate_synset_properties(conn, data, model_used)
+        # Process each enrichment file (curate + populate)
+        for enrichment_file in enrichment_files:
+            print(f"\n  --- Processing: {enrichment_file} ---")
+            with open(enrichment_file) as f:
+                data = json.load(f)
+
+            model_used = data.get("config", {}).get("model", "unknown")
+
+            total_props += curate_properties(conn, data, vectors)
+            lemma_emb_count = store_lemma_embeddings(conn, vectors)
+            total_links += populate_synset_properties(conn, data, model_used)
+
+        # Downstream steps run once on the combined data
+        print("\n  --- Running downstream steps ---")
         compute_idf(conn)
         sim_pairs = compute_property_similarity(conn, threshold=threshold)
         centroids = compute_synset_centroids(conn)
@@ -516,9 +555,9 @@ def run_pipeline(
         conn.close()
 
     stats = {
-        "properties_curated": props,
+        "properties_curated": total_props,
         "lemma_embeddings": lemma_emb_count,
-        "synset_links": links,
+        "synset_links": total_links,
         "similarity_pairs": sim_pairs,
         "centroids": centroids,
         "vocab_entries": vocab_entries,
@@ -535,7 +574,10 @@ def run_pipeline(
 def main():
     parser = argparse.ArgumentParser(description="Run downstream enrichment pipeline")
     parser.add_argument("--db", required=True, help="Path to lexicon DB")
-    parser.add_argument("--enrichment", required=True, help="Enrichment JSON file")
+    parser.add_argument(
+        "--enrichment", required=True, nargs="+",
+        help="One or more enrichment JSON files",
+    )
     parser.add_argument(
         "--fasttext",
         default=str(FASTTEXT_VEC),
