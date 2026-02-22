@@ -119,15 +119,16 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		compositeScore := forge.CompositeScore(c.SharedCount, domainDist)
-		tier := forge.ClassifyTierCurated(c.SharedCount, c.ContrastCount)
+		compositeScore := forge.CompositeScore(c.SalienceSum, domainDist)
+		tier := forge.ClassifyTierCurated(c.SalienceSum, c.ContrastCount)
 
 		matches = append(matches, forge.Match{
 			SynsetID:         c.SynsetID,
 			Word:             c.Word,
 			Definition:       c.Definition,
 			SharedProperties: c.SharedProps,
-			OverlapCount:     c.SharedCount,
+			OverlapCount:     int(c.SalienceSum), // backward compat
+			SalienceSum:      c.SalienceSum,
 			Tier:             tier,
 			TierName:         tier.String(),
 			SourceSynsetID:   c.SourceSynsetID,

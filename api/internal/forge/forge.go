@@ -63,6 +63,7 @@ type Match struct {
 	Definition       string   `json:"definition,omitempty"`
 	SharedProperties []string `json:"shared_properties,omitempty"`
 	OverlapCount     int      `json:"overlap_count"`
+	SalienceSum      float64  `json:"salience_sum,omitempty"`
 	Tier             Tier     `json:"-"`
 	TierName         string   `json:"tier"`
 	SourceSynsetID   string   `json:"source_synset_id,omitempty"`

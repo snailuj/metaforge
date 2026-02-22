@@ -65,6 +65,7 @@ func setupCrossDomainTestDB(t *testing.T) *sql.DB {
 			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
+			salience_sum REAL NOT NULL DEFAULT 1.0,
 			PRIMARY KEY (synset_id, cluster_id)
 		);
 		CREATE INDEX idx_spc_synset ON synset_properties_curated(synset_id);
@@ -99,22 +100,22 @@ func setupCrossDomainTestDB(t *testing.T) *sql.DB {
 		-- Source: anger (3 props: intense, consuming, destructive)
 		INSERT INTO synsets VALUES ('syn-anger', 'n', 'strong displeasure');
 		INSERT INTO lemmas VALUES ('anger', 'syn-anger');
-		INSERT INTO synset_properties_curated VALUES ('syn-anger', 1, 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-anger', 2, 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-anger', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-anger', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-anger', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-anger', 3, 3, 'exact', NULL);
 
 		-- Candidate: fury (3 props — same as anger, synonym)
 		INSERT INTO synsets VALUES ('syn-fury', 'n', 'wild anger');
 		INSERT INTO lemmas VALUES ('fury', 'syn-fury');
-		INSERT INTO synset_properties_curated VALUES ('syn-fury', 1, 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-fury', 2, 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-fury', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-fury', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-fury', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-fury', 3, 3, 'exact', NULL);
 
 		-- Candidate: fire (2 props: consuming, destructive — cross-domain)
 		INSERT INTO synsets VALUES ('syn-fire', 'n', 'combustion');
 		INSERT INTO lemmas VALUES ('fire', 'syn-fire');
-		INSERT INTO synset_properties_curated VALUES ('syn-fire', 2, 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-fire', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-fire', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-fire', 3, 3, 'exact', NULL);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -239,6 +240,7 @@ func TestHandleSuggest_NoEmbeddingsGraceful(t *testing.T) {
 			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
+			salience_sum REAL NOT NULL DEFAULT 1.0,
 			PRIMARY KEY (synset_id, cluster_id)
 		);
 		CREATE INDEX idx_spc_synset2 ON synset_properties_curated(synset_id);
@@ -260,11 +262,11 @@ func TestHandleSuggest_NoEmbeddingsGraceful(t *testing.T) {
 		INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
 		INSERT INTO synsets VALUES ('src', 'n', 'source');
 		INSERT INTO lemmas VALUES ('sun', 'src');
-		INSERT INTO synset_properties_curated VALUES ('src', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src', 1, 1, 'exact', NULL);
 
 		INSERT INTO synsets VALUES ('tgt', 'n', 'target');
 		INSERT INTO lemmas VALUES ('star', 'tgt');
-		INSERT INTO synset_properties_curated VALUES ('tgt', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt', 1, 1, 'exact', NULL);
 	`)
 	if err != nil {
 		t.Fatal(err)
