@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from enrich_pipeline import (
     MAX_PROPERTIES_PER_SYNSET,
     SIMILARITY_CHUNK_SIZE,
-    _extract_property_text,
     _fasttext_cache,
     _ensure_v2_schema,
     curate_properties,
@@ -923,6 +922,98 @@ def test_populate_lemma_metadata_inserts():
     assert by_lemma["candle"][3] == "positive"
     assert by_lemma["taper"][2] == "formal"
     assert by_lemma["taper"][3] == "neutral"
+
+
+# --- 22. curate_properties handles v2 structured objects ----------------------
+
+def test_curate_properties_handles_v2_structured():
+    """curate_properties extracts .text from v2 structured property objects."""
+    conn = _make_db()
+    data = {
+        "synsets": [
+            {
+                "id": "syn001",
+                "properties": [
+                    {"text": "warm", "salience": 0.9, "type": "physical", "relation": "emits warmth"},
+                    {"text": "luminous", "salience": 0.7, "type": "visual", "relation": "gives light"},
+                    "cold",  # v1 plain string mixed in
+                ],
+            },
+        ],
+    }
+    vectors = _make_vectors()
+    count = curate_properties(conn, data, vectors)
+
+    texts = {r[0] for r in conn.execute("SELECT text FROM property_vocabulary").fetchall()}
+    assert "warm" in texts
+    assert "luminous" in texts
+    assert "cold" in texts
+
+
+# --- 23. populate_synset_properties stores v2 salience/type/relation ----------
+
+def test_populate_synset_properties_v2_stores_salience():
+    """populate_synset_properties stores salience, property_type, relation from v2 objects."""
+    conn = _make_db()
+    data = {
+        "synsets": [
+            {
+                "id": "syn001",
+                "lemma": "candle",
+                "definition": "stick of wax",
+                "pos": "n",
+                "usage_example": "She lit a candle.",
+                "properties": [
+                    {"text": "warm", "salience": 0.9, "type": "physical", "relation": "emits warmth"},
+                    {"text": "luminous", "salience": 0.7, "type": "visual", "relation": "gives light"},
+                ],
+            },
+        ],
+        "config": {"model": "test-model"},
+    }
+    vectors = _make_vectors()
+    curate_properties(conn, data, vectors)
+    populate_synset_properties(conn, data, "test-model")
+
+    rows = conn.execute(
+        "SELECT synset_id, salience, property_type, relation FROM synset_properties WHERE synset_id = 'syn001'"
+    ).fetchall()
+    assert len(rows) == 2
+    saliences = {r[1] for r in rows}
+    assert 0.9 in saliences
+    assert 0.7 in saliences
+    types = {r[2] for r in rows}
+    assert "physical" in types
+    assert "visual" in types
+
+
+# --- 24. populate_synset_properties stores usage_example ----------------------
+
+def test_populate_synset_properties_populates_usage_example():
+    """populate_synset_properties stores usage_example in enrichment table."""
+    conn = _make_db()
+    data = {
+        "synsets": [
+            {
+                "id": "syn001",
+                "lemma": "candle",
+                "definition": "stick of wax",
+                "pos": "n",
+                "usage_example": "She lit a candle in the dark.",
+                "properties": ["warm"],
+            },
+        ],
+        "config": {"model": "test-model"},
+    }
+    vectors = _make_vectors()
+    curate_properties(conn, data, vectors)
+    populate_synset_properties(conn, data, "test-model")
+
+    row = conn.execute(
+        "SELECT usage_example FROM enrichment WHERE synset_id = 'syn001'"
+    ).fetchone()
+    assert row is not None
+    assert row[0] == "She lit a candle in the dark."
 
 
 # --- v2 enrichment prompt tests -----------------------------------------------
