@@ -125,17 +125,23 @@ def extract_batch(
     synsets: List[Dict],
     model: str = "haiku",
     prompt_template: str = None,
+    formatter=None,
     verbose: bool = False,
 ) -> List[Dict]:
     """Extract properties for a batch of synsets via Claude CLI.
 
     Returns merged results with local data (lemma, definition, pos).
     Retries up to 5 times on failure via claude_client.
+
+    Args:
+        formatter: callable to format synsets for the prompt.
+            Defaults to format_batch_items (v1).
     """
     template = prompt_template or BATCH_PROMPT
     if "{batch_items}" not in template:
         raise ValueError("prompt_template must contain {batch_items} placeholder")
-    batch_items = format_batch_items(synsets)
+    fmt = formatter or format_batch_items
+    batch_items = fmt(synsets)
     prompt = template.format(batch_items=batch_items)
 
     results = prompt_json(prompt, model=model, expect=list, verbose=verbose)
@@ -151,6 +157,8 @@ def extract_batch(
                 "definition": local_data[rid]['definition'],
                 "pos": local_data[rid].get('pos', ''),
                 "properties": r.get('properties', []),
+                "usage_example": r.get('usage_example', ''),
+                "lemma_metadata": r.get('lemma_metadata', []),
             })
         else:
             log.warning("LLM returned unknown ID %s", rid)
