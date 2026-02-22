@@ -165,6 +165,13 @@ def _get_compound_embedding(
     return struct.pack(f"{EMBEDDING_DIM}f", *avg)
 
 
+def _extract_property_text(prop) -> str | None:
+    """Extract property text from v1 string or v2 structured object."""
+    if isinstance(prop, dict):
+        return prop.get("text")
+    return prop
+
+
 def curate_properties(
     conn: sqlite3.Connection,
     enrichment_data: dict,
@@ -172,12 +179,17 @@ def curate_properties(
 ) -> int:
     """Normalise properties, add FastText embeddings, flag OOV.
 
+    Handles both v1 (plain string) and v2 (structured object with .text) formats.
+
     Returns the number of properties inserted.
     """
     all_props = set()
     for synset in enrichment_data.get("synsets", []):
         for prop in synset.get("properties", [])[:MAX_PROPERTIES_PER_SYNSET]:
-            filtered = filter_mwe(normalise(prop))
+            raw_text = _extract_property_text(prop)
+            if raw_text is None:
+                continue
+            filtered = filter_mwe(normalise(raw_text))
             if filtered is not None:
                 all_props.add(filtered)
 
@@ -212,6 +224,10 @@ def populate_synset_properties(
 ) -> int:
     """Create enrichment entries and synset-property links.
 
+    Handles both v1 (plain string) and v2 (structured object) property formats.
+    For v2 objects, stores salience, property_type, and relation alongside
+    the synset-property link. Also stores usage_example in the enrichment table.
+
     Returns the number of synset-property links created.
     """
     prop_ids = {}
@@ -221,20 +237,36 @@ def populate_synset_properties(
     links = 0
     for synset in enrichment_data.get("synsets", []):
         synset_id = synset["id"]
+        usage_example = synset.get("usage_example")
 
         conn.execute(
-            "INSERT OR IGNORE INTO enrichment (synset_id, model_used) VALUES (?, ?)",
-            (synset_id, model_used),
+            """INSERT OR IGNORE INTO enrichment
+               (synset_id, model_used, usage_example)
+               VALUES (?, ?, ?)""",
+            (synset_id, model_used, usage_example),
         )
 
         for prop in synset.get("properties", [])[:MAX_PROPERTIES_PER_SYNSET]:
-            prop_filtered = filter_mwe(normalise(prop))
+            raw_text = _extract_property_text(prop)
+            if raw_text is None:
+                continue
+            prop_filtered = filter_mwe(normalise(raw_text))
             if prop_filtered is None:
                 continue
             if prop_filtered in prop_ids:
+                salience = 1.0
+                property_type = None
+                relation = None
+                if isinstance(prop, dict):
+                    salience = prop.get("salience", 1.0)
+                    property_type = prop.get("type")
+                    relation = prop.get("relation")
+
                 conn.execute(
-                    "INSERT OR IGNORE INTO synset_properties (synset_id, property_id) VALUES (?, ?)",
-                    (synset_id, prop_ids[prop_filtered]),
+                    """INSERT OR IGNORE INTO synset_properties
+                       (synset_id, property_id, salience, property_type, relation)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (synset_id, prop_ids[prop_filtered], salience, property_type, relation),
                 )
                 links += 1
 
