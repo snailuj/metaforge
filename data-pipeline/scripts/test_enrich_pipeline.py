@@ -19,6 +19,7 @@ from enrich_pipeline import (
     MAX_PROPERTIES_PER_SYNSET,
     SIMILARITY_CHUNK_SIZE,
     _fasttext_cache,
+    _ensure_v2_schema,
     curate_properties,
     filter_mwe,
     load_fasttext_vectors,
@@ -860,3 +861,33 @@ def test_store_lemma_embeddings_empty_vectors():
 
     count = store_lemma_embeddings(conn, {})
     assert count == 0
+
+
+# --- 20. _ensure_v2_schema migration -----------------------------------------
+
+def test_ensure_v2_schema_adds_columns():
+    """_ensure_v2_schema adds salience, property_type, relation to synset_properties
+    and creates lemma_metadata table."""
+    conn = _make_db()
+    # The test schema already has v2 columns, so create a minimal v1 schema
+    conn.executescript("""
+        DROP TABLE IF EXISTS synset_properties;
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            PRIMARY KEY (synset_id, property_id)
+        );
+    """)
+    _ensure_v2_schema(conn)
+
+    # Check synset_properties has new columns
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(synset_properties)").fetchall()}
+    assert "salience" in cols
+    assert "property_type" in cols
+    assert "relation" in cols
+
+    # Check lemma_metadata table exists
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    assert "lemma_metadata" in tables
