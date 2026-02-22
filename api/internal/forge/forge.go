@@ -26,20 +26,20 @@ func (t Tier) String() string {
 	return names[t]
 }
 
-// Thresholds for tier classification
+// Thresholds for tier classification (float64 for salience-weighted scoring)
 const (
-	MinOverlap    = 2 // Minimum shared properties for "moderate" overlap
-	StrongOverlap = 4 // Shared properties for "strong" overlap
+	MinOverlap    = 2.0 // Minimum salience sum for "moderate" overlap
+	StrongOverlap = 4.0 // Salience sum for "strong" overlap
 )
 
 // MinContrastOverlap is the minimum antonymous properties for contrast-based tiers.
 const MinContrastOverlap = 3
 
-// ClassifyTierCurated determines tier from shared and contrast property counts.
+// ClassifyTierCurated determines tier from salience sum and contrast property count.
 // Used with the curated vocabulary (set-intersection matching, no cosine distance).
-func ClassifyTierCurated(shared, contrast int) Tier {
-	highShared := shared >= StrongOverlap
-	moderateShared := shared >= MinOverlap
+func ClassifyTierCurated(salienceSum float64, contrast int) Tier {
+	highShared := salienceSum >= StrongOverlap
+	moderateShared := salienceSum >= MinOverlap
 	highContrast := contrast >= MinContrastOverlap
 
 	switch {
@@ -79,11 +79,11 @@ const (
 	Beta  = 0.5
 )
 
-// CompositeScore computes overlap^Beta × (1 + Alpha × domainDistance).
-// Beta < 1 compresses the overlap scale so domain distance has more
-// influence on ranking across overlap tiers.
-func CompositeScore(overlapCount int, domainDistance float64) float64 {
-	return math.Pow(float64(overlapCount), Beta) * (1.0 + Alpha*domainDistance)
+// CompositeScore computes salienceSum^Beta × (1 + Alpha × domainDistance).
+// Beta < 1 compresses the salience scale so domain distance has more
+// influence on ranking across salience tiers.
+func CompositeScore(salienceSum float64, domainDistance float64) float64 {
+	return math.Pow(salienceSum, Beta) * (1.0 + Alpha*domainDistance)
 }
 
 // SortByTier sorts matches by tier (best first), then by composite score.

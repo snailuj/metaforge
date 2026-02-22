@@ -392,7 +392,7 @@ type CuratedMatch struct {
 	Word             string   `json:"word"`
 	POS              string   `json:"pos"`
 	Definition       string   `json:"definition"`
-	SharedCount      int      `json:"shared_count"`
+	SalienceSum      float64  `json:"salience_sum"`
 	ContrastCount    int      `json:"contrast_count"`
 	SharedProps      []string `json:"shared_properties,omitempty"`
 	SourceSynsetID   string   `json:"source_synset_id,omitempty"`
@@ -409,7 +409,7 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 		),
 		shared AS (
 			SELECT spc.synset_id,
-			       COUNT(*) as shared_count,
+			       SUM(spc.salience_sum) as salience_sum,
 			       GROUP_CONCAT(pvc.lemma) as shared_props
 			FROM source_props sp
 			JOIN synset_properties_curated spc ON spc.cluster_id = sp.cluster_id
@@ -429,12 +429,12 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 		SELECT sub.synset_id,
 		       s.definition,
 		       l.lemma,
-		       sub.shared_count,
+		       sub.salience_sum,
 		       sub.contrast_count,
 		       sub.shared_props
 		FROM (
 			SELECT COALESCE(sh.synset_id, co.synset_id) as synset_id,
-			       COALESCE(sh.shared_count, 0) as shared_count,
+			       COALESCE(sh.salience_sum, 0.0) as salience_sum,
 			       COALESCE(co.contrast_count, 0) as contrast_count,
 			       COALESCE(sh.shared_props, '') as shared_props
 			FROM (
@@ -444,7 +444,7 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 			) all_matches
 			LEFT JOIN shared sh ON sh.synset_id = all_matches.synset_id
 			LEFT JOIN contrast co ON co.synset_id = all_matches.synset_id
-			ORDER BY COALESCE(sh.shared_count, 0) + COALESCE(co.contrast_count, 0) DESC
+			ORDER BY COALESCE(sh.salience_sum, 0.0) + COALESCE(co.contrast_count, 0) DESC
 			LIMIT ?
 		) sub
 		JOIN synsets s ON s.synset_id = sub.synset_id
@@ -465,7 +465,7 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 
 		if err := rows.Scan(
 			&m.SynsetID, &m.Definition, &m.Word,
-			&m.SharedCount, &m.ContrastCount, &sharedProps,
+			&m.SalienceSum, &m.ContrastCount, &sharedProps,
 		); err != nil {
 			slog.Warn("scan curated match failed", "err", err)
 			continue
@@ -507,11 +507,11 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 			WHERE l.lemma = ?
 			GROUP BY l.synset_id
 		),
-		-- For each (source_sense, target) pair, count shared properties
+		-- For each (source_sense, target) pair, sum salience weights
 		per_sense_shared AS (
 			SELECT ss.synset_id as source_id,
 			       tgt.synset_id as target_id,
-			       COUNT(*) as shared_count,
+			       SUM(tgt.salience_sum) as salience_sum,
 			       GROUP_CONCAT(pvc.lemma) as shared_props
 			FROM source_synsets ss
 			JOIN synset_properties_curated src ON src.synset_id = ss.synset_id
@@ -520,10 +520,10 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 			WHERE tgt.synset_id NOT IN (SELECT synset_id FROM source_synsets)
 			GROUP BY ss.synset_id, tgt.synset_id
 		),
-		-- Pick best source sense per target (most shared properties)
+		-- Pick best source sense per target (highest salience sum)
 		best_sense AS (
-			SELECT source_id, target_id, shared_count, shared_props,
-			       ROW_NUMBER() OVER (PARTITION BY target_id ORDER BY shared_count DESC) as rn
+			SELECT source_id, target_id, salience_sum, shared_props,
+			       ROW_NUMBER() OVER (PARTITION BY target_id ORDER BY salience_sum DESC) as rn
 			FROM per_sense_shared
 		),
 		-- Count antonymous properties per (source_sense, target) pair
@@ -547,7 +547,7 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 		       ts.pos,
 		       ts.definition,
 		       l.lemma,
-		       bs.shared_count,
+		       bs.salience_sum,
 		       COALESCE(bc.contrast_count, 0) as contrast_count,
 		       bs.shared_props,
 		       bs.source_id,
@@ -559,7 +559,7 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 		JOIN lemmas l ON l.synset_id = bs.target_id
 		LEFT JOIN best_contrast bc ON bc.target_id = bs.target_id AND bc.rn = 1
 		WHERE bs.rn = 1
-		ORDER BY bs.shared_count + COALESCE(bc.contrast_count, 0) DESC
+		ORDER BY bs.salience_sum + COALESCE(bc.contrast_count, 0) DESC
 		LIMIT ?
 	`, lemma, limit)
 
@@ -577,7 +577,7 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 
 		if err := rows.Scan(
 			&m.SynsetID, &m.POS, &m.Definition, &m.Word,
-			&m.SharedCount, &m.ContrastCount, &sharedProps,
+			&m.SalienceSum, &m.ContrastCount, &sharedProps,
 			&m.SourceSynsetID, &m.SourceDefinition, &m.SourcePOS,
 		); err != nil {
 			slog.Warn("scan curated-by-lemma match failed", "err", err)
