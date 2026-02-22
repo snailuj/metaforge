@@ -183,6 +183,9 @@ CREATE INDEX idx_property_vocabulary_oov ON property_vocabulary(is_oov);
 CREATE TABLE synset_properties (
     synset_id TEXT NOT NULL,
     property_id INTEGER NOT NULL,
+    salience REAL NOT NULL DEFAULT 1.0,
+    property_type TEXT,
+    relation TEXT,
     FOREIGN KEY (synset_id) REFERENCES enrichment(synset_id),
     FOREIGN KEY (property_id) REFERENCES property_vocabulary(property_id),
     PRIMARY KEY (synset_id, property_id)
@@ -201,6 +204,14 @@ CREATE TABLE synset_metonyms (
 );
 
 CREATE INDEX idx_synset_metonyms_synset ON synset_metonyms(synset_id);
+
+CREATE TABLE lemma_metadata (
+    lemma       TEXT NOT NULL,
+    synset_id   TEXT NOT NULL,
+    register    TEXT CHECK (register IN ('formal', 'neutral', 'informal', 'slang')),
+    connotation TEXT CHECK (connotation IN ('positive', 'neutral', 'negative')),
+    PRIMARY KEY (lemma, synset_id)
+);
 
 -- ============================================================
 -- Computed tables (populated by pipeline, empty at creation)
@@ -243,6 +254,7 @@ CREATE TABLE IF NOT EXISTS synset_properties_curated (
     vocab_id    INTEGER NOT NULL,
     snap_method TEXT NOT NULL,
     snap_score  REAL,
+    salience_sum REAL NOT NULL DEFAULT 1.0,
     FOREIGN KEY (vocab_id) REFERENCES property_vocab_curated(vocab_id),
     PRIMARY KEY (synset_id, vocab_id)
 );
