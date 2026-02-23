@@ -326,6 +326,11 @@ def store_lemma_embeddings(
         )
     """)
 
+    existing = conn.execute("SELECT COUNT(*) FROM lemma_embeddings").fetchone()[0]
+    if existing > 0:
+        print(f"  Lemma embeddings already populated ({existing} rows), skipping")
+        return 0
+
     cursor = conn.execute("SELECT DISTINCT lemma FROM lemmas")
 
     count = 0
@@ -333,7 +338,7 @@ def store_lemma_embeddings(
         if lemma in vectors:
             blob = struct.pack(f"{EMBEDDING_DIM}f", *vectors[lemma])
             conn.execute(
-                "INSERT OR REPLACE INTO lemma_embeddings (lemma, embedding) VALUES (?, ?)",
+                "INSERT OR IGNORE INTO lemma_embeddings (lemma, embedding) VALUES (?, ?)",
                 (lemma, blob),
             )
             count += 1
