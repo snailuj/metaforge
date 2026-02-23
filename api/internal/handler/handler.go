@@ -36,7 +36,7 @@ func NewHandler(dbPath string) (*Handler, error) {
 	}
 
 	// Validate required tables exist
-	requiredTables := []string{"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated", "frequencies"}
+	requiredTables := []string{"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated", "frequencies", "cluster_antonyms", "vocab_clusters", "lemma_embeddings"}
 	for _, table := range requiredTables {
 		var count int
 		err := database.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)
@@ -87,9 +87,13 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	candidates, err := db.GetForgeMatchesCuratedByLemma(h.database, word, limit)
+	if errors.Is(err, db.ErrLemmaNotFound) {
+		http.Error(w, `{"error": "word not found or has no curated properties"}`, http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		slog.Error("matching failed", "word", word, "err", err)
-		http.Error(w, `{"error": "word not found or has no curated properties"}`, http.StatusNotFound)
+		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
 		return
 	}
 

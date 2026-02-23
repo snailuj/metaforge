@@ -4,6 +4,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/snailuj/metaforge/internal/blobconv"
 )
+
+// ErrLemmaNotFound is returned when a lemma has no curated properties.
+var ErrLemmaNotFound = errors.New("lemma not found or has no curated properties")
 
 // Synset represents a WordNet synset with enrichment
 type Synset struct {
@@ -312,7 +316,7 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 	}
 
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("lemma not found or has no curated properties: %s", lemma)
+		return nil, fmt.Errorf("%w: %s", ErrLemmaNotFound, lemma)
 	}
 
 	return matches, nil
