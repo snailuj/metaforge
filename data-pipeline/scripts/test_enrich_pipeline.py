@@ -642,30 +642,29 @@ def test_store_lemma_embeddings_deduplicates():
 
 
 def test_store_lemma_embeddings_idempotent():
-    """Re-running updates existing embeddings without error or duplicates."""
+    """Re-running skips already-populated embeddings (returns 0)."""
     conn = _make_db()
     conn.execute("INSERT INTO lemmas (lemma, synset_id) VALUES ('anger', 's1')")
     conn.commit()
 
-    vectors_v1 = {"anger": _make_vec(0.1, 0.2, 0.3)}
-    count1 = store_lemma_embeddings(conn, vectors_v1)
+    vectors = {"anger": _make_vec(0.1, 0.2, 0.3)}
+    count1 = store_lemma_embeddings(conn, vectors)
     assert count1 == 1
 
-    # Re-run with updated vector — should replace, not duplicate
-    vectors_v2 = {"anger": _make_vec(0.9, 0.8, 0.7)}
-    count2 = store_lemma_embeddings(conn, vectors_v2)
-    assert count2 == 1
+    # Re-run — should skip entirely since table is populated
+    count2 = store_lemma_embeddings(conn, vectors)
+    assert count2 == 0
 
     # Still exactly one row
     rows = conn.execute("SELECT COUNT(*) FROM lemma_embeddings").fetchone()[0]
     assert rows == 1
 
-    # Value should be updated
+    # Original value preserved
     blob = conn.execute(
         "SELECT embedding FROM lemma_embeddings WHERE lemma = 'anger'"
     ).fetchone()[0]
     values = struct.unpack(f"{EMBEDDING_DIM}f", blob)
-    assert abs(values[0] - 0.9) < 0.01, f"expected 0.9, got {values[0]}"
+    assert abs(values[0] - 0.1) < 0.01, f"expected 0.1, got {values[0]}"
 
 
 def test_store_lemma_embeddings_empty_lemmas():
