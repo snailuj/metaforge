@@ -372,8 +372,12 @@ func GetLemmaEmbedding(db *sql.DB, lemma string) ([]float32, error) {
 	var blob []byte
 	err := db.QueryRow("SELECT embedding FROM lemma_embeddings WHERE lemma = ?", lemma).Scan(&blob)
 	if err != nil {
-		// Graceful degradation: table missing or lemma not found
-		if err == sql.ErrNoRows || strings.Contains(err.Error(), "no such table") {
+		if err == sql.ErrNoRows {
+			slog.Debug("lemma embedding not found", "lemma", lemma)
+			return nil, nil
+		}
+		if strings.Contains(err.Error(), "no such table") {
+			slog.Debug("lemma_embeddings table missing, skipping embedding lookup", "lemma", lemma)
 			return nil, nil
 		}
 		return nil, fmt.Errorf("GetLemmaEmbedding failed for %s: %w", lemma, err)
