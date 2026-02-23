@@ -512,16 +512,21 @@ def run_enrichment(
         for r in results:
             all_properties.extend(r.get('properties', []))
 
-        property_freq = Counter(all_properties)
+        # Extract text key for stats (v2 properties are dicts, v1 are strings)
+        property_texts = [
+            p["text"] if isinstance(p, dict) else p
+            for p in all_properties
+        ]
+        property_freq = Counter(property_texts)
 
         output = {
             "synsets": results,
-            "all_properties": list(set(all_properties)),
+            "all_properties": list(set(property_texts)),
             "property_frequency": dict(property_freq.most_common(100)),
             "stats": {
                 "total_synsets": len(results),
-                "total_properties": len(all_properties),
-                "unique_properties": len(set(all_properties)),
+                "total_properties": len(property_texts),
+                "unique_properties": len(set(property_texts)),
                 "avg_properties_per_synset": round(
                     len(all_properties) / len(results), 2
                 ) if results else 0,
