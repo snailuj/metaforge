@@ -17,6 +17,7 @@ const melancholy: LookupResult = {
         hypernyms: [{ word: 'emotion', synset_id: '1' }],
         hyponyms: [{ word: 'gloom', synset_id: '2' }],
         similar: [],
+        antonyms: [],
       },
     },
   ],
@@ -90,7 +91,7 @@ describe('MfResultsPanel', () => {
         pos: 'noun',
         definition: 'a test',
         synonyms: [],
-        relations: { hypernyms: [], hyponyms: [], similar: [] },
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
       }],
     }
     el.result = noRarity
@@ -160,14 +161,14 @@ describe('MfResultsPanel', () => {
           pos: 'noun',
           definition: 'financial institution',
           synonyms: [],
-          relations: { hypernyms: [], hyponyms: [], similar: [] },
+          relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
         },
         {
           synset_id: '2',
           pos: 'noun',
           definition: 'sloping land beside a river',
           synonyms: [],
-          relations: { hypernyms: [], hyponyms: [], similar: [] },
+          relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
         },
       ],
     }
@@ -295,5 +296,175 @@ describe('MfResultsPanel', () => {
 
     document.body.removeChild(mqEl)
     window.matchMedia = origMatchMedia
+  })
+
+  // --- Usage example, register, connotation, collocations ---
+
+  it('renders usage example as italic quote', async () => {
+    const withUsage: LookupResult = {
+      word: 'candle',
+      senses: [{
+        synset_id: '1',
+        pos: 'noun',
+        definition: 'stick of wax with a wick',
+        usage_example: 'She lit a candle in the draught.',
+        synonyms: [],
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+      }],
+    }
+    el.result = withUsage
+    await el.updateComplete
+
+    const example = el.shadowRoot!.querySelector('.usage-example')
+    expect(example).toBeTruthy()
+    expect(example?.textContent).toContain('She lit a candle')
+  })
+
+  it('does not render usage example when absent', async () => {
+    el.result = melancholy
+    await el.updateComplete
+
+    const example = el.shadowRoot!.querySelector('.usage-example')
+    expect(example).toBeNull()
+  })
+
+  it('renders register badge for non-neutral register', async () => {
+    const formal: LookupResult = {
+      word: 'taper',
+      senses: [{
+        synset_id: '1',
+        pos: 'noun',
+        definition: 'a slender candle',
+        register: 'formal',
+        synonyms: [],
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+      }],
+    }
+    el.result = formal
+    await el.updateComplete
+
+    const badge = el.shadowRoot!.querySelector('.meta-badge.register')
+    expect(badge).toBeTruthy()
+    expect(badge?.textContent?.trim()).toBe('register-formal')
+  })
+
+  it('does not render register badge for neutral', async () => {
+    const neutral: LookupResult = {
+      word: 'candle',
+      senses: [{
+        synset_id: '1',
+        pos: 'noun',
+        definition: 'stick of wax',
+        register: 'neutral',
+        synonyms: [],
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+      }],
+    }
+    el.result = neutral
+    await el.updateComplete
+
+    const badge = el.shadowRoot!.querySelector('.meta-badge.register')
+    expect(badge).toBeNull()
+  })
+
+  it('renders connotation badge for non-neutral connotation', async () => {
+    const negative: LookupResult = {
+      word: 'storm',
+      senses: [{
+        synset_id: '1',
+        pos: 'noun',
+        definition: 'violent weather',
+        connotation: 'negative',
+        synonyms: [],
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+      }],
+    }
+    el.result = negative
+    await el.updateComplete
+
+    const badge = el.shadowRoot!.querySelector('.meta-badge.connotation-negative')
+    expect(badge).toBeTruthy()
+    expect(badge?.textContent?.trim()).toBe('connotation-negative')
+  })
+
+  it('renders collocations section', async () => {
+    const withColloc: LookupResult = {
+      word: 'fire',
+      senses: [{
+        synset_id: '1',
+        pos: 'noun',
+        definition: 'combustion',
+        synonyms: [],
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+        collocations: [
+          { word: 'brigade', synset_id: '100' },
+          { word: 'alarm', synset_id: '101' },
+        ],
+      }],
+    }
+    el.result = withColloc
+    await el.updateComplete
+
+    const labels = el.shadowRoot!.querySelectorAll('.section-label')
+    const collocLabel = Array.from(labels).find(l => l.textContent === 'results-collocations')
+    expect(collocLabel).toBeTruthy()
+
+    const chips = el.shadowRoot!.querySelectorAll('.word-chip.collocation')
+    expect(chips.length).toBe(2)
+    expect(chips[0].textContent).toBe('brigade')
+    expect(chips[1].textContent).toBe('alarm')
+  })
+
+  it('does not render collocations when empty', async () => {
+    el.result = melancholy
+    await el.updateComplete
+
+    const chips = el.shadowRoot!.querySelectorAll('.word-chip.collocation')
+    expect(chips.length).toBe(0)
+  })
+
+  it('renders both register and connotation badges together', async () => {
+    const both: LookupResult = {
+      word: 'slaughter',
+      senses: [{
+        synset_id: '1',
+        pos: 'noun',
+        definition: 'killing of animals for food',
+        register: 'informal',
+        connotation: 'negative',
+        synonyms: [],
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+      }],
+    }
+    el.result = both
+    await el.updateComplete
+
+    const badges = el.shadowRoot!.querySelectorAll('.meta-badge')
+    expect(badges.length).toBe(2)
+  })
+
+  it('collocation chips fire navigation event', async () => {
+    const withColloc: LookupResult = {
+      word: 'fire',
+      senses: [{
+        synset_id: '1',
+        pos: 'noun',
+        definition: 'combustion',
+        synonyms: [],
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+        collocations: [{ word: 'brigade', synset_id: '100' }],
+      }],
+    }
+    el.result = withColloc
+    await el.updateComplete
+
+    const handler = vi.fn()
+    el.addEventListener('mf-word-navigate', handler)
+
+    const chip = el.shadowRoot!.querySelector('.word-chip.collocation')
+    chip?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    expect(handler).toHaveBeenCalledOnce()
+    expect(handler.mock.calls[0][0].detail.word).toBe('brigade')
   })
 })

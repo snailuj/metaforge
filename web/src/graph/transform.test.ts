@@ -19,6 +19,7 @@ const melancholy: LookupResult = {
         hypernyms: [{ word: 'bodily fluid', synset_id: '62054' }],
         hyponyms: [],
         similar: [],
+        antonyms: [],
       },
     },
     {
@@ -33,6 +34,7 @@ const melancholy: LookupResult = {
           { word: 'heavyheartedness', synset_id: '72860' },
         ],
         similar: [],
+        antonyms: [],
       },
     },
   ],
@@ -92,7 +94,7 @@ describe('transformLookupToGraph', () => {
             word: `syn${i}`,
             synset_id: `${i + 100}`,
           })),
-          relations: { hypernyms: [], hyponyms: [], similar: [] },
+          relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
         },
       ],
     }
@@ -122,6 +124,7 @@ describe('transformLookupToGraph', () => {
               synset_id: `${i + 300}`,
             })),
             similar: [],
+            antonyms: [],
           },
         },
       ],
@@ -172,7 +175,7 @@ describe('transformLookupToGraph', () => {
             { word: 'happy', synset_id: '1' },  // self-reference
             { word: 'joyful', synset_id: '2' },
           ],
-          relations: { hypernyms: [], hyponyms: [], similar: [] },
+          relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
         },
       ],
     }

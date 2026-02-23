@@ -43,7 +43,7 @@ const mockResult: LookupResult = {
       { word: 'blaze', synset_id: '1' },
       { word: 'flame', synset_id: '1' },
     ],
-    relations: { hypernyms: [], hyponyms: [], similar: [] },
+    relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
   }],
 }
 
@@ -54,7 +54,7 @@ const blazeLookup: LookupResult = {
     pos: 'noun',
     definition: 'a strong flame',
     synonyms: [{ word: 'inferno', synset_id: '10' }],
-    relations: { hypernyms: [], hyponyms: [], similar: [] },
+    relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
   }],
 }
 
@@ -246,7 +246,7 @@ describe('MfApp', () => {
         pos: 'adjective',
         definition: 'not fast',
         synonyms: [],
-        relations: { hypernyms: [], hyponyms: [], similar: [] },
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
       }],
     }
     const fastResult: LookupResult = {
@@ -256,7 +256,7 @@ describe('MfApp', () => {
         pos: 'adjective',
         definition: 'moving quickly',
         synonyms: [],
-        relations: { hypernyms: [], hyponyms: [], similar: [] },
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
       }],
     }
 
@@ -497,7 +497,7 @@ describe('MfApp', () => {
           pos: 'noun',
           definition: 'fire',
           synonyms: [{ word: 'spark', synset_id: '20' }],
-          relations: { hypernyms: [], hyponyms: [], similar: [] },
+          relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
         }],
       }
       vi.mocked(lookupWord).mockResolvedValue(flameLookup)
@@ -587,7 +587,7 @@ describe('MfApp', () => {
           pos: 'noun',
           definition: 'H2O',
           synonyms: [{ word: 'aqua', synset_id: '100' }],
-          relations: { hypernyms: [], hyponyms: [], similar: [] },
+          relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
         }],
       }
       vi.mocked(lookupWord).mockResolvedValueOnce(newResult)
