@@ -80,11 +80,14 @@ const (
 	Beta  = 0.5
 )
 
-// CompositeScore computes salienceSum^Beta × (1 + Alpha × domainDistance).
+// CompositeScore computes salienceSum^Beta × (1 + Alpha × clamp(domainDistance, 0, 1)).
 // Beta < 1 compresses the salience scale so domain distance has more
 // influence on ranking across salience tiers.
+// domainDistance is clamped to [0, 1] because CosineDistance returns [0, 2]
+// but the tuning formula assumes a [0, 1] range.
 func CompositeScore(salienceSum float64, domainDistance float64) float64 {
-	return math.Pow(salienceSum, Beta) * (1.0 + Alpha*domainDistance)
+	d := math.Max(0, math.Min(domainDistance, 1.0))
+	return math.Pow(salienceSum, Beta) * (1.0 + Alpha*d)
 }
 
 // SortByTier sorts matches by tier (best first), then by composite score.
