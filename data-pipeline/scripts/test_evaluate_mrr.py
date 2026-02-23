@@ -132,7 +132,6 @@ def test_query_forge_rank_found():
             target_word="fire",
             target_synsets={"syn-fire-01", "syn-fire-02"},
             port=9090,
-            threshold=0.7,
             limit=200,
         )
 
@@ -203,24 +202,24 @@ def test_compute_mrr_with_missing():
 def test_compute_secondary_metrics():
     conn = sqlite3.connect(":memory:")
     conn.execute("""
-        CREATE TABLE property_vocabulary (
-            property_id INTEGER PRIMARY KEY,
-            text TEXT NOT NULL UNIQUE,
-            is_oov INTEGER DEFAULT 0
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            lemma TEXT NOT NULL UNIQUE
         )
     """)
     conn.execute("""
-        CREATE TABLE synset_properties (
+        CREATE TABLE synset_properties_curated (
             synset_id TEXT NOT NULL,
-            property_id INTEGER NOT NULL,
-            PRIMARY KEY (synset_id, property_id)
+            vocab_id INTEGER NOT NULL,
+            PRIMARY KEY (synset_id, vocab_id)
         )
     """)
-    # 4 properties: "warm" in 1 synset, "hot" in 1 synset, "bright" in 2 synsets, "loud" in 1 synset
-    conn.executemany("INSERT INTO property_vocabulary VALUES (?, ?, 0)", [
+    # 4 curated vocab entries
+    conn.executemany("INSERT INTO property_vocab_curated VALUES (?, ?)", [
         (1, "warm"), (2, "hot"), (3, "bright"), (4, "loud"),
     ])
-    conn.executemany("INSERT INTO synset_properties VALUES (?, ?)", [
+    # "warm" in 1 synset, "hot" in 1 synset, "bright" in 2 synsets, "loud" in 1 synset
+    conn.executemany("INSERT INTO synset_properties_curated VALUES (?, ?)", [
         ("s1", 1), ("s1", 3),
         ("s2", 2), ("s2", 3), ("s2", 4),
     ])
@@ -351,7 +350,7 @@ def test_evaluate_enrich_mode_passes_synset_ids(tmp_path):
     mock_secondary = {"unique_properties": 3, "hapax_count": 2,
                        "hapax_rate": 0.67, "avg_properties_per_synset": 3.0}
 
-    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+    with patch("evaluate_mrr.DEFAULT_BASELINE_SQL", baseline_sql), \
          patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
          patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
          patch("evaluate_mrr.run_enrichment", mock_run_enrichment), \
@@ -429,7 +428,7 @@ def test_evaluate_threads_prompt_template(tmp_path):
 
     custom_prompt = "Custom: {batch_items}\nJSON: [{{}}]"
 
-    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+    with patch("evaluate_mrr.DEFAULT_BASELINE_SQL", baseline_sql), \
          patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
          patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
          patch("evaluate_mrr.run_enrichment", mock_run_enrichment), \
@@ -509,7 +508,7 @@ def test_evaluate_includes_enrichment_coverage(tmp_path):
     )
     pairs_file, baseline_sql, mock_enrich, mock_sec = _setup_evaluate_mocks(tmp_path, er)
 
-    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+    with patch("evaluate_mrr.DEFAULT_BASELINE_SQL", baseline_sql), \
          patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
          patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
          patch("evaluate_mrr.run_enrichment", mock_enrich), \
@@ -547,7 +546,7 @@ def test_evaluate_flags_low_coverage_as_invalid(tmp_path):
     )
     pairs_file, baseline_sql, mock_enrich, mock_sec = _setup_evaluate_mocks(tmp_path, er)
 
-    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+    with patch("evaluate_mrr.DEFAULT_BASELINE_SQL", baseline_sql), \
          patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
          patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
          patch("evaluate_mrr.run_enrichment", mock_enrich), \
@@ -584,7 +583,7 @@ def test_evaluate_high_coverage_is_valid(tmp_path):
     )
     pairs_file, baseline_sql, mock_enrich, mock_sec = _setup_evaluate_mocks(tmp_path, er)
 
-    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+    with patch("evaluate_mrr.DEFAULT_BASELINE_SQL", baseline_sql), \
          patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
          patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
          patch("evaluate_mrr.run_enrichment", mock_enrich), \
@@ -673,7 +672,7 @@ def test_evaluate_filters_to_eval_subset(tmp_path):
         queried_sources.append(source_word)
         return 1  # rank 1 for all
 
-    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+    with patch("evaluate_mrr.DEFAULT_BASELINE_SQL", baseline_sql), \
          patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
          patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
          patch("evaluate_mrr.run_enrichment", mock_run_enrichment), \
