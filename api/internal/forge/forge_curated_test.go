@@ -75,6 +75,24 @@ func TestCompositeScore_FloatInput(t *testing.T) {
 	}
 }
 
+func TestCompositeScore_ClampsDistanceAboveOne(t *testing.T) {
+	// CosineDistance can return up to 2.0 for opposite vectors.
+	// CompositeScore should clamp to 1.0 so the multiplier caps at (1 + Alpha).
+	atOne := CompositeScore(4.0, 1.0)
+	atTwo := CompositeScore(4.0, 2.0)
+	if atTwo != atOne {
+		t.Errorf("distance=2.0 (%.3f) should equal distance=1.0 (%.3f) after clamping", atTwo, atOne)
+	}
+}
+
+func TestCompositeScore_NegativeDistanceClampsToZero(t *testing.T) {
+	atZero := CompositeScore(4.0, 0.0)
+	atNeg := CompositeScore(4.0, -0.5)
+	if atNeg != atZero {
+		t.Errorf("negative distance (%.3f) should equal zero distance (%.3f) after clamping", atNeg, atZero)
+	}
+}
+
 func TestSortByTier_UsesCompositeScore(t *testing.T) {
 	matches := []Match{
 		{Word: "synonym", OverlapCount: 6, Tier: TierLegendary, CompositeScore: 6.6},
