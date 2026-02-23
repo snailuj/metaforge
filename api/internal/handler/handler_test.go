@@ -490,7 +490,7 @@ func TestNewHandler_RejectsDBMissingFrequencies(t *testing.T) {
 		t.Fatalf("failed to create temp DB: %v", err)
 	}
 	// Tables that NewHandler already validates (minus frequencies).
-	for _, tbl := range []string{"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated", "synset_properties", "property_vocabulary", "synset_centroids"} {
+	for _, tbl := range []string{"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated", "synset_properties", "property_vocabulary"} {
 		if _, err := database.Exec("CREATE TABLE " + tbl + " (id INTEGER)"); err != nil {
 			t.Fatalf("failed to create table %s: %v", tbl, err)
 		}
