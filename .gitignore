@@ -3,7 +3,7 @@
 
 # Data pipeline outputs (generated, large)
 data-pipeline/output/*.db
-data-pipeline/output/baseline_lexicon.sql
+data-pipeline/output/*.sql
 data-pipeline/raw/
 data-pipeline/.venv/
 
