@@ -3,9 +3,7 @@
 Takes enrichment JSON (from enrich_properties.py) and populates the lexicon DB:
   1. Curate properties — normalise, add FastText embeddings, flag OOV
   2. Populate synset_properties junction table
-  3. Compute property IDF weights
-  4. Compute pairwise property similarity matrix
-  5. Compute synset centroids
+  3. Build curated vocabulary, cluster, snap, and generate antonyms
 
 Each function takes a sqlite3.Connection and is independently importable.
 The run_pipeline() orchestrator calls them in sequence.
@@ -15,7 +13,6 @@ Usage as CLI:
 """
 import argparse
 import json
-import math
 import re
 import sqlite3
 import struct
@@ -24,7 +21,6 @@ from pathlib import Path
 from typing import Optional
 
 import nltk
-import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import EMBEDDING_DIM, FASTTEXT_VEC, normalise
@@ -40,7 +36,6 @@ except LookupError:
     nltk.download("averaged_perceptron_tagger_eng", quiet=True)
 
 MAX_PROPERTIES_PER_SYNSET = 15
-SIMILARITY_CHUNK_SIZE = 2048
 
 
 def _ensure_v2_schema(conn: sqlite3.Connection) -> None:
@@ -304,215 +299,7 @@ def populate_lemma_metadata(
 
 
 # =============================================================================
-# 3. Compute property IDF (from 06_compute_property_idf.py)
-# =============================================================================
-
-def _ensure_idf_column(conn: sqlite3.Connection) -> None:
-    """Add IDF column to property_vocabulary if it doesn't exist."""
-    cursor = conn.execute("PRAGMA table_info(property_vocabulary)")
-    columns = [row[1] for row in cursor.fetchall()]
-    if "idf" not in columns:
-        conn.execute("ALTER TABLE property_vocabulary ADD COLUMN idf REAL")
-        conn.commit()
-
-
-def compute_idf(conn: sqlite3.Connection) -> None:
-    """Compute IDF = log(N / df) for all properties."""
-    _ensure_idf_column(conn)
-
-    total_synsets = conn.execute(
-        "SELECT COUNT(DISTINCT synset_id) FROM synset_properties"
-    ).fetchone()[0]
-
-    if total_synsets == 0:
-        print("  Warning: no synset_properties entries — skipping IDF")
-        return
-
-    cursor = conn.execute("""
-        SELECT pv.property_id, COUNT(sp.synset_id) as doc_freq
-        FROM property_vocabulary pv
-        LEFT JOIN synset_properties sp ON sp.property_id = pv.property_id
-        GROUP BY pv.property_id
-    """)
-
-    updates = []
-    for property_id, doc_freq in cursor:
-        idf = math.log(total_synsets / doc_freq) if doc_freq > 0 else math.log(total_synsets)
-        updates.append((idf, property_id))
-
-    conn.executemany(
-        "UPDATE property_vocabulary SET idf = ? WHERE property_id = ?", updates
-    )
-    conn.commit()
-    print(f"  Computed IDF for {len(updates)} properties (N={total_synsets})")
-
-
-# =============================================================================
-# 4. Compute property similarity (from 07_compute_property_similarity.py)
-# =============================================================================
-
-def compute_property_similarity(
-    conn: sqlite3.Connection,
-    threshold: float = 0.5,
-    chunk_size: Optional[int] = None,
-) -> int:
-    """Compute pairwise cosine similarity and store pairs above threshold.
-
-    Uses block-wise processing to avoid allocating a full n×n matrix.
-    Peak memory: O(n × 300) for embeddings + O(chunk_size²) per sub-matrix.
-
-    Returns the number of unique pairs stored.
-    """
-    if chunk_size is None:
-        chunk_size = SIMILARITY_CHUNK_SIZE
-
-    # Drop and recreate table (without indexes — bulk insert first)
-    conn.executescript("""
-        DROP TABLE IF EXISTS property_similarity;
-        CREATE TABLE property_similarity (
-            property_id_a INTEGER NOT NULL,
-            property_id_b INTEGER NOT NULL,
-            similarity REAL NOT NULL,
-            PRIMARY KEY (property_id_a, property_id_b)
-        );
-    """)
-
-    cursor = conn.execute(
-        "SELECT property_id, embedding FROM property_vocabulary WHERE embedding IS NOT NULL"
-    )
-    property_ids = []
-    embeddings = []
-    for prop_id, blob in cursor:
-        vec = struct.unpack(f"{EMBEDDING_DIM}f", blob)
-        property_ids.append(prop_id)
-        embeddings.append(vec)
-
-    n = len(property_ids)
-    if n < 2:
-        print("  <2 properties with embeddings — skipping similarity")
-        return 0
-
-    # O(n²) pairwise similarity — n properties, chunked to limit memory
-    num_chunks = (n + chunk_size - 1) // chunk_size
-    total_chunk_pairs = num_chunks * (num_chunks + 1) // 2  # upper triangle of chunk grid
-    print(f"  Computing pairwise similarity: {n} properties, "
-          f"{num_chunks} chunks, {total_chunk_pairs} chunk pairs", flush=True)
-
-    matrix = np.array(embeddings, dtype=np.float32)
-    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-    norms[norms == 0] = 1
-    normalised = matrix / norms
-
-    unique_count = 0
-    chunk_pairs_done = 0
-    for ci in range(0, n, chunk_size):
-        ci_end = min(ci + chunk_size, n)
-        for cj in range(ci, n, chunk_size):
-            cj_end = min(cj + chunk_size, n)
-
-            sub_sim = np.dot(normalised[ci:ci_end], normalised[cj:cj_end].T)
-            pairs = []
-
-            if ci == cj:
-                # Diagonal chunk — upper triangle only (i < j)
-                for li in range(ci_end - ci):
-                    for lj in range(li + 1, cj_end - cj):
-                        s = float(sub_sim[li, lj])
-                        if s >= threshold:
-                            pairs.append((property_ids[ci + li], property_ids[cj + lj], s))
-                            pairs.append((property_ids[cj + lj], property_ids[ci + li], s))
-            else:
-                # Off-diagonal chunk — all pairs (ci < cj guaranteed)
-                for li in range(ci_end - ci):
-                    for lj in range(cj_end - cj):
-                        s = float(sub_sim[li, lj])
-                        if s >= threshold:
-                            pairs.append((property_ids[ci + li], property_ids[cj + lj], s))
-                            pairs.append((property_ids[cj + lj], property_ids[ci + li], s))
-
-            if pairs:
-                conn.executemany(
-                    "INSERT INTO property_similarity (property_id_a, property_id_b, similarity) VALUES (?, ?, ?)",
-                    pairs,
-                )
-                unique_count += len(pairs) // 2
-
-            chunk_pairs_done += 1
-            if chunk_pairs_done % 5 == 0 or chunk_pairs_done == total_chunk_pairs:
-                print(f"    Chunk {chunk_pairs_done}/{total_chunk_pairs} "
-                      f"({chunk_pairs_done * 100 // total_chunk_pairs}%), "
-                      f"pairs so far: {unique_count}", flush=True)
-
-    # Create indexes after bulk insert
-    conn.executescript("""
-        CREATE INDEX IF NOT EXISTS idx_property_similarity_a ON property_similarity(property_id_a);
-        CREATE INDEX IF NOT EXISTS idx_property_similarity_b ON property_similarity(property_id_b);
-        CREATE INDEX IF NOT EXISTS idx_property_similarity_score ON property_similarity(similarity);
-    """)
-    conn.commit()
-    print(f"  Stored {unique_count} unique similar property pairs (threshold={threshold})")
-    return unique_count
-
-
-# =============================================================================
-# 5. Compute synset centroids (from 08_compute_synset_centroids.py)
-# =============================================================================
-
-def compute_synset_centroids(conn: sqlite3.Connection) -> int:
-    """Compute per-synset centroid (mean of property embeddings).
-
-    Returns the number of centroids computed.
-    """
-    conn.executescript("""
-        DROP TABLE IF EXISTS synset_centroids;
-        CREATE TABLE synset_centroids (
-            synset_id TEXT PRIMARY KEY,
-            centroid BLOB NOT NULL,
-            property_count INTEGER NOT NULL
-        );
-    """)
-
-    cursor = conn.execute("""
-        SELECT sp.synset_id, pv.embedding
-        FROM synset_properties sp
-        JOIN property_vocabulary pv ON pv.property_id = sp.property_id
-        WHERE pv.embedding IS NOT NULL
-        ORDER BY sp.synset_id
-    """)
-
-    current_synset = None
-    embeddings = []
-    rows_to_insert = []
-
-    for synset_id, blob in cursor:
-        if synset_id != current_synset:
-            if current_synset is not None and embeddings:
-                centroid = np.stack(embeddings).mean(axis=0)
-                centroid_blob = struct.pack(f"{EMBEDDING_DIM}f", *centroid)
-                rows_to_insert.append((current_synset, centroid_blob, len(embeddings)))
-            current_synset = synset_id
-            embeddings = []
-
-        vec = np.array(struct.unpack(f"{EMBEDDING_DIM}f", blob), dtype=np.float32)
-        embeddings.append(vec)
-
-    # Last synset
-    if current_synset is not None and embeddings:
-        centroid = np.stack(embeddings).mean(axis=0)
-        centroid_blob = struct.pack(f"{EMBEDDING_DIM}f", *centroid)
-        rows_to_insert.append((current_synset, centroid_blob, len(embeddings)))
-
-    conn.executemany(
-        "INSERT INTO synset_centroids (synset_id, centroid, property_count) VALUES (?, ?, ?)",
-        rows_to_insert,
-    )
-    conn.commit()
-    print(f"  Computed {len(rows_to_insert)} synset centroids")
-    return len(rows_to_insert)
-
-
-# =============================================================================
-# 6. Store lemma embeddings
+# 3. Store lemma embeddings
 # =============================================================================
 
 def store_lemma_embeddings(
@@ -559,7 +346,6 @@ def run_pipeline(
     db_path: str,
     enrichment_files: list[str],
     fasttext_vec: str,
-    threshold: float = 0.5,
 ) -> dict:
     """Run the full downstream enrichment pipeline.
 
@@ -598,13 +384,8 @@ def run_pipeline(
             total_links += populate_synset_properties(conn, data, model_used)
             total_lemma_metadata += populate_lemma_metadata(conn, data)
 
-        # Downstream steps run once on the combined data
-        print("\n  --- Running downstream steps ---")
-        compute_idf(conn)
-        sim_pairs = compute_property_similarity(conn, threshold=threshold)
-        centroids = compute_synset_centroids(conn)
-
         # --- Curated vocabulary pipeline ---
+        print("\n  --- Running downstream steps ---")
         print("  Building curated vocabulary...")
         vocab_entries = build_and_store(conn)
         print("  Clustering vocabulary...")
@@ -623,8 +404,6 @@ def run_pipeline(
         "lemma_embeddings": lemma_emb_count,
         "synset_links": total_links,
         "lemma_metadata": total_lemma_metadata,
-        "similarity_pairs": sim_pairs,
-        "centroids": centroids,
         "vocab_entries": vocab_entries,
         "vocab_clusters": cluster_stats.get("num_clusters", 0),
         "vocab_singletons": cluster_stats.get("singletons", 0),
@@ -648,12 +427,9 @@ def main():
         default=str(FASTTEXT_VEC),
         help="Path to FastText .vec file",
     )
-    parser.add_argument(
-        "--threshold", type=float, default=0.5, help="Similarity threshold"
-    )
     args = parser.parse_args()
 
-    run_pipeline(args.db, args.enrichment, args.fasttext, args.threshold)
+    run_pipeline(args.db, args.enrichment, args.fasttext)
 
 
 if __name__ == "__main__":
