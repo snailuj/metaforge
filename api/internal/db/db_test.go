@@ -2,6 +2,7 @@
 package db
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -59,6 +60,22 @@ func TestGetSynsetWithEnrichment(t *testing.T) {
 
 // testDBPathV2 points to the v2 database
 const testDBPathV2 = "../../../data-pipeline/output/lexicon_v2.db"
+
+func TestGetForgeMatchesCuratedByLemma_ReturnsErrLemmaNotFound(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	_, err = GetForgeMatchesCuratedByLemma(db, "xyzzynotaword12345", 50)
+	if err == nil {
+		t.Fatal("Expected error for nonexistent lemma, got nil")
+	}
+	if !errors.Is(err, ErrLemmaNotFound) {
+		t.Errorf("Expected ErrLemmaNotFound, got: %v", err)
+	}
+}
 
 func TestGetSynsetIDForLemma(t *testing.T) {
 	db, err := Open(testDBPathV2)
