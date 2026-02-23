@@ -321,10 +321,10 @@ def store_lemma_embeddings(
         )
     """)
 
-    lemmas = conn.execute("SELECT DISTINCT lemma FROM lemmas").fetchall()
+    cursor = conn.execute("SELECT DISTINCT lemma FROM lemmas")
 
     count = 0
-    for (lemma,) in lemmas:
+    for (lemma,) in cursor:
         if lemma in vectors:
             blob = struct.pack(f"{EMBEDDING_DIM}f", *vectors[lemma])
             conn.execute(
