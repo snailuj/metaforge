@@ -70,7 +70,7 @@ The script reads synsets from `data-pipeline/output/lexicon_v2.db` (hardcoded de
 ## Operation 2: Import Enrichment
 
 Load an enrichment JSON into the database. Runs the full downstream pipeline:
-curate properties → link to synsets → compute IDF → pairwise similarity → centroids → rebuild curated vocab → snap → antonyms.
+curate properties → link to synsets → snap to curated vocab → antonyms.
 
 ```bash
 source .venv/bin/activate
@@ -84,9 +84,7 @@ python data-pipeline/scripts/enrich_pipeline.py \
 - `--db` (required) — path to lexicon DB
 - `--enrichment` (required) — enrichment JSON file
 - `--fasttext` — path to FastText .vec file (default: `~/.local/share/metaforge/wiki-news-300d-1M.vec`)
-- `--threshold` — similarity threshold (default: 0.5)
-
-**Expected duration:** ~5-10 min (dominated by FastText loading and pairwise similarity).
+**Expected duration:** ~5-10 min (dominated by FastText loading and snap cascade).
 
 **Verify after import:**
 ```sql

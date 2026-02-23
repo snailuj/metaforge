@@ -18,7 +18,7 @@ lexicon_v2.db (empty enrichment tables)
     ↓ enrich_properties.py (LLM → JSON)
 enrichment_*.json
     ↓ enrich_pipeline.py (JSON → DB)
-lexicon_v2.db (enriched: properties, similarity, centroids, snapped curated links)
+lexicon_v2.db (enriched: properties, snapped curated links)
     ↓ evaluate_mrr.py
 MRR score + results JSON
 ```
@@ -66,7 +66,7 @@ Output: JSON file in `data-pipeline/output/`.
 
 ### 2. Import Enrichment
 
-Load an enrichment JSON into the database. Runs the full pipeline: curate properties → link to synsets → compute IDF → pairwise similarity → centroids → rebuild curated vocab → snap → antonyms. **Requires FastText vectors.**
+Load an enrichment JSON into the database. Runs the full pipeline: curate properties → link to synsets → snap to curated vocab → antonyms. **Requires FastText vectors.**
 
 ```bash
 source .venv/bin/activate

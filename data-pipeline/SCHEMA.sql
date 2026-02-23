@@ -173,8 +173,7 @@ CREATE TABLE property_vocabulary (
     text TEXT NOT NULL UNIQUE,
     embedding BLOB,
     is_oov INTEGER NOT NULL DEFAULT 0,
-    source TEXT NOT NULL DEFAULT 'pilot',
-    idf REAL
+    source TEXT NOT NULL DEFAULT 'pilot'
 );
 
 CREATE INDEX idx_property_vocabulary_text ON property_vocabulary(text);
@@ -214,27 +213,6 @@ CREATE TABLE lemma_metadata (
 );
 
 -- ============================================================
--- Computed tables (populated by pipeline, empty at creation)
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS property_similarity (
-    property_id_a INTEGER NOT NULL,
-    property_id_b INTEGER NOT NULL,
-    similarity REAL NOT NULL,
-    PRIMARY KEY (property_id_a, property_id_b)
-);
-
-CREATE INDEX IF NOT EXISTS idx_property_similarity_a ON property_similarity(property_id_a);
-CREATE INDEX IF NOT EXISTS idx_property_similarity_b ON property_similarity(property_id_b);
-CREATE INDEX IF NOT EXISTS idx_property_similarity_score ON property_similarity(similarity);
-
-CREATE TABLE IF NOT EXISTS synset_centroids (
-    synset_id TEXT PRIMARY KEY,
-    centroid BLOB NOT NULL,
-    property_count INTEGER NOT NULL
-);
-
--- ============================================================
 -- Curated vocabulary (populated by build_vocab.py + build_antonyms.py)
 -- ============================================================
 
@@ -249,18 +227,32 @@ CREATE TABLE IF NOT EXISTS property_vocab_curated (
 
 CREATE INDEX IF NOT EXISTS idx_vocab_curated_lemma ON property_vocab_curated(lemma);
 
+CREATE TABLE IF NOT EXISTS lemma_embeddings (
+    lemma     TEXT PRIMARY KEY,
+    embedding BLOB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vocab_clusters (
+    vocab_id         INTEGER PRIMARY KEY,
+    cluster_id       INTEGER NOT NULL,
+    is_representative INTEGER NOT NULL DEFAULT 0,
+    is_singleton     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_vocab_clusters_cluster ON vocab_clusters(cluster_id);
+
 CREATE TABLE IF NOT EXISTS synset_properties_curated (
-    synset_id   TEXT NOT NULL,
-    vocab_id    INTEGER NOT NULL,
-    snap_method TEXT NOT NULL,
-    snap_score  REAL,
+    synset_id    TEXT NOT NULL,
+    vocab_id     INTEGER NOT NULL,
+    cluster_id   INTEGER NOT NULL,
+    snap_method  TEXT NOT NULL,
+    snap_score   REAL,
     salience_sum REAL NOT NULL DEFAULT 1.0,
-    FOREIGN KEY (vocab_id) REFERENCES property_vocab_curated(vocab_id),
-    PRIMARY KEY (synset_id, vocab_id)
+    PRIMARY KEY (synset_id, cluster_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_spc_synset ON synset_properties_curated(synset_id);
-CREATE INDEX IF NOT EXISTS idx_spc_vocab ON synset_properties_curated(vocab_id);
+CREATE INDEX IF NOT EXISTS idx_spc_cluster ON synset_properties_curated(cluster_id);
 
 CREATE TABLE IF NOT EXISTS property_antonyms (
     vocab_id_a  INTEGER NOT NULL,
@@ -268,4 +260,10 @@ CREATE TABLE IF NOT EXISTS property_antonyms (
     FOREIGN KEY (vocab_id_a) REFERENCES property_vocab_curated(vocab_id),
     FOREIGN KEY (vocab_id_b) REFERENCES property_vocab_curated(vocab_id),
     PRIMARY KEY (vocab_id_a, vocab_id_b)
+);
+
+CREATE TABLE IF NOT EXISTS cluster_antonyms (
+    cluster_id_a INTEGER NOT NULL,
+    cluster_id_b INTEGER NOT NULL,
+    PRIMARY KEY (cluster_id_a, cluster_id_b)
 );
