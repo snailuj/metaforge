@@ -362,6 +362,20 @@ def get_frequency_ranked_synsets(
             "pos": row[3],
         })
 
+    # Attach all lemmas per synset (for v2 prompt)
+    synset_ids = [s["id"] for s in synsets]
+    if synset_ids:
+        placeholders = ",".join("?" * len(synset_ids))
+        lemma_rows = conn.execute(
+            f"SELECT synset_id, lemma FROM lemmas WHERE synset_id IN ({placeholders})",
+            synset_ids,
+        ).fetchall()
+        lemma_map: dict[str, list[str]] = {}
+        for sid, lemma in lemma_rows:
+            lemma_map.setdefault(sid, []).append(lemma)
+        for s in synsets:
+            s["all_lemmas"] = lemma_map.get(s["id"], [s["lemma"]])
+
     return synsets
 
 
@@ -590,6 +604,11 @@ def main():
         "--verbose", "-v", action="store_true",
         help="Enable DEBUG logging for raw LLM request/response",
     )
+    parser.add_argument(
+        "--schema-version", type=str, default="v1",
+        choices=["v1", "v2"],
+        help="Enrichment schema version: v1 (plain strings) or v2 (structured with salience/type/relation/lemma_metadata)",
+    )
     args = parser.parse_args()
 
     if args.verbose:
@@ -607,6 +626,7 @@ def main():
         synset_ids_file=synset_ids_file,
         verbose=args.verbose,
         strategy=args.strategy,
+        schema_version=args.schema_version,
     )
 
 
