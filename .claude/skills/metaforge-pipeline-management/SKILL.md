@@ -41,49 +41,43 @@ Before running any operation:
 Extract semantic properties from an LLM for a batch of synsets. **This costs API calls — warn the user before running.**
 
 ```bash
-source .venv/bin/activate
-python data-pipeline/scripts/enrich_properties.py \
-  --size 2000 \
-  --model sonnet \
-  --strategy frequency \
-  --output data-pipeline/output/enrichment_NNNN_model_YYYYMMDD.json \
-  -v
+./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
+  --enrich --size 2000 --model sonnet --strategy frequency \
+  --output data-pipeline/output/enrichment_2000_sonnet_YYYYMMDD.json
 ```
 
-**Arguments:**
-- `--output` (required) — output file path. Follow naming convention: `enrichment_{size}_{model}_{YYYYMMDD}.json`
-- `--size` — number of synsets to enrich (default: 2000)
-- `--model` — Claude model alias: `haiku`, `sonnet`, `opus` (default: haiku)
-- `--strategy` — `random` (POS-stratified) or `frequency` (by familiarity, excludes already-enriched)
-- `--resume` — resume from checkpoint if interrupted
-- `--synset-ids` — JSON file with specific synset IDs to enrich
-- `--verbose` — debug logging for raw LLM request/response
+To resume an interrupted run:
+
+```bash
+./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
+  --enrich --resume --model sonnet \
+  --output data-pipeline/output/enrichment_2000_sonnet_YYYYMMDD.json
+```
+
+Run `./data-pipeline/enrich.sh --help` for full argument reference.
 
 **Output:** JSON file in `data-pipeline/output/`. Do not modify this file — it is the replayable source of truth for that enrichment batch.
 
 **Expected duration:** ~1 min per 20 synsets (1 batch). 2000 synsets ≈ 100 batches ≈ 2-3 min.
 
-The script reads synsets from `data-pipeline/output/lexicon_v2.db` (hardcoded default from `utils.LEXICON_V2`).
-
 ---
 
 ## Operation 2: Import Enrichment
 
-Load an enrichment JSON into the database. Runs the full downstream pipeline:
-curate properties → link to synsets → snap to curated vocab → antonyms.
+Load one or more enrichment JSONs into the database. Restores from `PRE_ENRICH.sql`, runs the full downstream pipeline (curate → link → snap → antonyms), and dumps the result.
 
 ```bash
-source .venv/bin/activate
-python data-pipeline/scripts/enrich_pipeline.py \
-  --db data-pipeline/output/lexicon_v2.db \
-  --enrichment data-pipeline/output/enrichment_NNNN_model_YYYYMMDD.json \
-  --fasttext ~/.local/share/metaforge/wiki-news-300d-1M.vec
+./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
+  --from-json data-pipeline/output/enrichment_NNNN_model_YYYYMMDD.json
 ```
 
-**Arguments:**
-- `--db` (required) — path to lexicon DB
-- `--enrichment` (required) — enrichment JSON file
-- `--fasttext` — path to FastText .vec file (default: `~/.local/share/metaforge/wiki-news-300d-1M.vec`)
+Multiple files:
+
+```bash
+./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
+  --from-json data-pipeline/output/enrichment_*.json
+```
+
 **Expected duration:** ~5-10 min (dominated by FastText loading and snap cascade).
 
 **Verify after import:**
@@ -160,42 +154,15 @@ The script starts and stops the Go API server automatically. The server must be 
 
 ## Restore from PRE_ENRICH.sql (clean slate)
 
-When the database is corrupted or you need to rebuild from scratch:
+When the database is corrupted or you need to rebuild from scratch, use `enrich.sh --from-json` which restores from `PRE_ENRICH.sql`, runs the full pipeline, and dumps the result:
 
 ```bash
-# 1. Restore clean baseline
-./data-pipeline/scripts/restore_db.sh \
-  data-pipeline/output/PRE_ENRICH.sql \
-  data-pipeline/output/lexicon_v2.db
-
-# 2. Replay each enrichment JSON in order
-source .venv/bin/activate
-python data-pipeline/scripts/enrich_pipeline.py \
-  --db data-pipeline/output/lexicon_v2.db \
-  --enrichment data-pipeline/output/enrichment_2000_sonnet_20260210.json \
-  --fasttext ~/.local/share/metaforge/wiki-news-300d-1M.vec
-
-python data-pipeline/scripts/enrich_pipeline.py \
-  --db data-pipeline/output/lexicon_v2.db \
-  --enrichment data-pipeline/output/enrichment_2000_sonnet_20260211.json \
-  --fasttext ~/.local/share/metaforge/wiki-news-300d-1M.vec
-
-# ... repeat for each enrichment JSON in chronological order
+# Replay all enrichment JSONs (restore + pipeline + dump in one step):
+./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
+  --from-json data-pipeline/output/enrichment_*.json
 ```
 
 `PRE_ENRICH.sql` contains: base WordNet data + frequencies + curated vocabulary (35k) + antonyms (576) + empty enrichment schema tables with indexes.
-
-**Alternative:** `enrich.sh` wraps the restore + enrich/import + pipeline + dump cycle in a single command:
-```bash
-# From existing JSON:
-./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
-  --from-json data-pipeline/output/enrichment_NNNN_model_YYYYMMDD.json
-
-# Full LLM enrichment:
-./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
-  --enrich --size 2000 --model sonnet \
-  --output data-pipeline/output/enrichment_NNNN_model_YYYYMMDD.json
-```
 
 ---
 

@@ -4,16 +4,16 @@ description: >
   Build the Metaforge lexicon database from raw linguistic sources. This is a
   rare operation — use it when creating the database from scratch, reproducing
   the build for a licensing audit, or verifying data provenance. Use this skill
-  when the user mentions creating the lexicon database, building the base
-  database, importing from scratch, or needs to understand where the raw data
-  comes from.
+  when the user mentions creating the lexicon database, missing or searching for PRE_ENRICH.sql, building the base database, importing from scratch, or needs to understand where the raw data comes from.
 ---
 
 # Metaforge Pipeline Creation
 
 Builds `lexicon_v2.db` from raw linguistic data sources. This is a one-time
-operation — once built, the database is managed via the
+operation — once built, updates and enrichments are managed via the
 `metaforge-pipeline-management` skill.
+
+Optionally outputs a snapshot as `PRE_ENRICH.sql`. Use this full-text dump of lexicon_v2.db to restore the database to its post-import state before any Metaforge-specific modications.
 
 **See also:** `data-pipeline/CLAUDE.md` for architecture overview and key concepts.
 

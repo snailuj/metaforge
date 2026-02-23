@@ -3,17 +3,7 @@
 #
 # Restores PRE_ENRICH.sql → fresh DB, then runs enrichment pipeline.
 #
-# Usage:
-#   # From existing enrichment JSON (one or more files):
-#   ./enrich.sh --db output/lexicon_v2.db --from-json output/enrichment_*.json
-#
-#   # Full LLM enrichment:
-#   ./enrich.sh --db output/lexicon_v2.db --enrich --size 2000 --model haiku \
-#               --output output/enrichment_2000_haiku_20260220.json
-#
-#   # With targeted synset IDs:
-#   ./enrich.sh --db output/lexicon_v2.db --enrich --size 500 --synset-ids ids.json \
-#               --output output/enrichment_500_haiku_20260220.json
+# Run ./enrich.sh --help for full usage.
 
 set -euo pipefail
 
@@ -26,6 +16,50 @@ OUTPUT_DIR="$PIPELINE_DIR/output"
 BASELINE_SQL="$OUTPUT_DIR/PRE_ENRICH.sql"
 FASTTEXT_VEC="$RAW_DIR/wiki-news-300d-1M.vec"
 
+# --- Usage ----------------------------------------------------------------
+
+usage() {
+    cat >&2 <<'USAGE'
+Usage: enrich.sh --db PATH (--enrich [opts] | --from-json FILE [FILE ...])
+
+Modes (mutually exclusive):
+  --enrich              Run LLM enrichment (requires claude CLI on PATH)
+  --from-json F [F ...] Import one or more pre-computed enrichment JSONs
+
+Required:
+  --db PATH             Target lexicon database
+
+Enrichment options (--enrich only):
+  --output FILE         Output JSON path (required with --enrich)
+  --size N              Number of synsets to enrich  (default: 2000)
+  --batch-size N        Synsets per LLM batch        (default: 20)
+  --model NAME          Claude model alias           (default: haiku)
+  --delay SECS          Seconds between batches      (default: 1.0)
+  --strategy STR        Selection strategy: random|frequency (default: random)
+  --schema-version VER  v1 (plain) or v2 (structured)       (default: v1)
+  --synset-ids FILE     JSON array of specific synset IDs
+  --resume              Resume from checkpoint
+  --verbose             Enable debug logging
+
+General:
+  --no-dump             Skip exporting lexicon_v2.sql after pipeline
+  --help                Show this message
+
+Examples:
+  # Import existing JSON:
+  ./enrich.sh --db output/lexicon_v2.db --from-json output/enrichment_*.json
+
+  # Full LLM enrichment:
+  ./enrich.sh --db output/lexicon_v2.db --enrich --size 2000 --model sonnet \
+              --output output/enrichment_2000_sonnet_20260223.json
+
+  # Resume interrupted enrichment:
+  ./enrich.sh --db output/lexicon_v2.db --enrich --resume --model sonnet \
+              --output output/enrichment_2000_sonnet_20260223.json
+USAGE
+    exit 1
+}
+
 # --- Parse arguments ------------------------------------------------------
 
 DB_PATH=""
@@ -35,8 +69,12 @@ SIZE=2000
 BATCH_SIZE=20
 MODEL="haiku"
 DELAY=1.0
+STRATEGY="random"
+SCHEMA_VERSION="v1"
 SYNSET_IDS=""
 OUTPUT_JSON=""
+RESUME=false
+VERBOSE=false
 DUMP_SQL=true
 
 while [[ $# -gt 0 ]]; do
@@ -50,25 +88,32 @@ while [[ $# -gt 0 ]]; do
                 shift
             done
             ;;
-        --size)     SIZE="$2"; shift 2 ;;
+        --size)       SIZE="$2"; shift 2 ;;
         --batch-size) BATCH_SIZE="$2"; shift 2 ;;
-        --model)    MODEL="$2"; shift 2 ;;
-        --delay)    DELAY="$2"; shift 2 ;;
+        --model)      MODEL="$2"; shift 2 ;;
+        --delay)      DELAY="$2"; shift 2 ;;
+        --strategy)   STRATEGY="$2"; shift 2 ;;
+        --schema-version) SCHEMA_VERSION="$2"; shift 2 ;;
         --synset-ids) SYNSET_IDS="$2"; shift 2 ;;
-        --output)   OUTPUT_JSON="$2"; shift 2 ;;
-        --no-dump)  DUMP_SQL=false; shift ;;
-        *)          echo "Unknown option: $1" >&2; exit 1 ;;
+        --output)     OUTPUT_JSON="$2"; shift 2 ;;
+        --resume|-r)  RESUME=true; shift ;;
+        --verbose|-v) VERBOSE=true; shift ;;
+        --no-dump)    DUMP_SQL=false; shift ;;
+        --help|-h)    usage ;;
+        *)            echo "Unknown option: $1" >&2; echo >&2; usage ;;
     esac
 done
 
 if [[ -z "$DB_PATH" ]]; then
     echo "ERROR: --db PATH is required" >&2
-    exit 1
+    echo >&2
+    usage
 fi
 
 if [[ "$ENRICH" == false && ${#FROM_JSON_FILES[@]} -eq 0 ]]; then
     echo "ERROR: specify --enrich or --from-json FILE [FILE ...]" >&2
-    exit 1
+    echo >&2
+    usage
 fi
 
 # --- Validation -----------------------------------------------------------
@@ -131,10 +176,18 @@ if [[ "$ENRICH" == true ]]; then
         --batch-size "$BATCH_SIZE"
         --model "$MODEL"
         --delay "$DELAY"
+        --strategy "$STRATEGY"
+        --schema-version "$SCHEMA_VERSION"
         --output "$OUTPUT_JSON"
     )
     if [[ -n "$SYNSET_IDS" ]]; then
         ENRICH_ARGS+=(--synset-ids "$SYNSET_IDS")
+    fi
+    if [[ "$RESUME" == true ]]; then
+        ENRICH_ARGS+=(--resume)
+    fi
+    if [[ "$VERBOSE" == true ]]; then
+        ENRICH_ARGS+=(--verbose)
     fi
 
     "${ENRICH_ARGS[@]}"

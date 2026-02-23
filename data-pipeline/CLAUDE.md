@@ -15,9 +15,9 @@ Raw Sources (OEWN, Brysbaert, SUBTLEX, SyntagNet, VerbNet)
 PRE_ENRICH.sql (base DB dump: WordNet + frequencies + curated vocab)
     ↓ restore_db.sh
 lexicon_v2.db (empty enrichment tables)
-    ↓ enrich_properties.py (LLM → JSON)
-enrichment_*.json
-    ↓ enrich_pipeline.py (JSON → DB)
+    ↓ enrich.sh DB --enrich TO_JSON (LLM → JSON)
+enrichment_*.json (full enrichment from LLM)
+    ↓ enrich.sh DB --from-json [JSON1, JSON2, ...] (JSON → DB)
 lexicon_v2.db (enriched: properties, snapped curated links)
     ↓ evaluate_mrr.py
 MRR score + results JSON
@@ -53,38 +53,25 @@ There are **4 primary operations**. Other scripts in this directory are internal
 Extract properties from an LLM for a batch of synsets. **Costs API calls.**
 
 ```bash
-source .venv/bin/activate
-python data-pipeline/scripts/enrich_properties.py \
-  --size 2000 \
-  --model sonnet \
-  --strategy frequency \
-  --output data-pipeline/output/enrichment_NNNN_model_YYYYMMDD.json \
-  -v
+./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
+  --enrich --size 2000 --model sonnet --strategy frequency \
+  --output data-pipeline/output/enrichment_2000_sonnet_YYYYMMDD.json
 ```
+
+Run `./data-pipeline/enrich.sh --help` for full argument reference (includes `--resume`, `--verbose`, `--schema-version`, etc.).
 
 Output: JSON file in `data-pipeline/output/`.
 
 ### 2. Import Enrichment
 
-Load an enrichment JSON into the database. Runs the full pipeline: curate properties → link to synsets → snap to curated vocab → antonyms. **Requires FastText vectors.**
+Load one or more enrichment JSONs into the database. Restores from `PRE_ENRICH.sql`, runs the full pipeline (curate → link → snap → antonyms), and dumps the result.
 
 ```bash
-source .venv/bin/activate
-python data-pipeline/scripts/enrich_pipeline.py \
-  --db data-pipeline/output/lexicon_v2.db \
-  --enrichment data-pipeline/output/enrichment_NNNN_model_YYYYMMDD.json \
-  --fasttext ~/.local/share/metaforge/wiki-news-300d-1M.vec
+./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
+  --from-json data-pipeline/output/enrichment_*.json
 ```
 
-**To rebuild from scratch** (e.g. after discovering data corruption):
-```bash
-# 1. Restore clean baseline
-./data-pipeline/scripts/restore_db.sh data-pipeline/output/PRE_ENRICH.sql data-pipeline/output/lexicon_v2.db
-
-# 2. Replay each enrichment JSON in order
-python data-pipeline/scripts/enrich_pipeline.py --db ... --enrichment enrichment_1.json ...
-python data-pipeline/scripts/enrich_pipeline.py --db ... --enrichment enrichment_2.json ...
-```
+**To rebuild from scratch** (e.g. after discovering data corruption), use the same command — `enrich.sh --from-json` restores from `PRE_ENRICH.sql` automatically.
 
 **Critical:** The pipeline uses `INSERT OR IGNORE` for idempotency. Never change this to `INSERT OR REPLACE` — it breaks property_id foreign keys and causes silent data loss.
 
