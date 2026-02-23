@@ -13,6 +13,15 @@ results-synonyms = Synonyms
 results-broader = Broader terms
 results-narrower = Narrower terms
 results-similar = Similar
+results-antonyms = Antonyms
+results-collocations = Often with
+
+## Register & connotation badges
+register-formal = formal
+register-informal = informal
+register-slang = slang
+connotation-positive = positive
+connotation-negative = negative
 
 word-chip-title = Click to look up, right-click to copy
 toast-copied = Copied "{$word}"

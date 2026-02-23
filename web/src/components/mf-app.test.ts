@@ -40,7 +40,7 @@ const mockResult: LookupResult = {
     pos: 'noun',
     definition: 'combustion',
     synonyms: [],
-    relations: { hypernyms: [], hyponyms: [], similar: [] },
+    relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
   }],
 }
 
@@ -232,7 +232,7 @@ describe('MfApp', () => {
         pos: 'adjective',
         definition: 'not fast',
         synonyms: [],
-        relations: { hypernyms: [], hyponyms: [], similar: [] },
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
       }],
     }
     const fastResult: LookupResult = {
@@ -242,7 +242,7 @@ describe('MfApp', () => {
         pos: 'adjective',
         definition: 'moving quickly',
         synonyms: [],
-        relations: { hypernyms: [], hyponyms: [], similar: [] },
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
       }],
     }
 
