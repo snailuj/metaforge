@@ -633,7 +633,7 @@ def test_evaluate_passes_verbose_to_enrichment(tmp_path):
     mock_sec = {"unique_properties": 2, "hapax_count": 1,
                 "hapax_rate": 0.5, "avg_properties_per_synset": 2.0}
 
-    with patch("evaluate_mrr.BASELINE_SQL", baseline_sql), \
+    with patch("evaluate_mrr.DEFAULT_BASELINE_SQL", baseline_sql), \
          patch("evaluate_mrr.EVAL_WORK_DB", tmp_path / "eval_work.db"), \
          patch("evaluate_mrr.OUTPUT_DIR", tmp_path), \
          patch("evaluate_mrr.run_enrichment", mock_run_enrichment), \
