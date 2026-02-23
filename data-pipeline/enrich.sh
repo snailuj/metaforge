@@ -4,8 +4,8 @@
 # Restores PRE_ENRICH.sql → fresh DB, then runs enrichment pipeline.
 #
 # Usage:
-#   # From existing enrichment JSON:
-#   ./enrich.sh --db output/lexicon_v2.db --from-json output/enrichment_2000_gemini-flash_20260215.json
+#   # From existing enrichment JSON (one or more files):
+#   ./enrich.sh --db output/lexicon_v2.db --from-json output/enrichment_*.json
 #
 #   # Full LLM enrichment:
 #   ./enrich.sh --db output/lexicon_v2.db --enrich --size 2000 --model haiku \
@@ -30,7 +30,7 @@ FASTTEXT_VEC="$RAW_DIR/wiki-news-300d-1M.vec"
 
 DB_PATH=""
 ENRICH=false
-FROM_JSON=""
+FROM_JSON_FILES=()
 SIZE=2000
 BATCH_SIZE=20
 MODEL="haiku"
@@ -43,7 +43,13 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --db)       DB_PATH="$2"; shift 2 ;;
         --enrich)   ENRICH=true; shift ;;
-        --from-json) FROM_JSON="$2"; shift 2 ;;
+        --from-json)
+            shift
+            while [[ $# -gt 0 && ! "$1" == --* ]]; do
+                FROM_JSON_FILES+=("$1")
+                shift
+            done
+            ;;
         --size)     SIZE="$2"; shift 2 ;;
         --batch-size) BATCH_SIZE="$2"; shift 2 ;;
         --model)    MODEL="$2"; shift 2 ;;
@@ -60,8 +66,8 @@ if [[ -z "$DB_PATH" ]]; then
     exit 1
 fi
 
-if [[ "$ENRICH" == false && -z "$FROM_JSON" ]]; then
-    echo "ERROR: specify --enrich or --from-json FILE" >&2
+if [[ "$ENRICH" == false && ${#FROM_JSON_FILES[@]} -eq 0 ]]; then
+    echo "ERROR: specify --enrich or --from-json FILE [FILE ...]" >&2
     exit 1
 fi
 
@@ -82,10 +88,12 @@ if [[ ! -f "$FASTTEXT_VEC" ]]; then
     errors=1
 fi
 
-if [[ -n "$FROM_JSON" && ! -f "$FROM_JSON" ]]; then
-    echo "ERROR: JSON file not found: $FROM_JSON"
-    errors=1
-fi
+for f in "${FROM_JSON_FILES[@]}"; do
+    if [[ ! -f "$f" ]]; then
+        echo "ERROR: JSON file not found: $f"
+        errors=1
+    fi
+done
 
 if [[ "$ENRICH" == true ]] && ! command -v claude &>/dev/null; then
     echo "ERROR: claude CLI not found on PATH (required for --enrich)"
@@ -108,7 +116,7 @@ echo ""
 
 # --- Step 2: Enrichment (LLM or pre-computed) -----------------------------
 
-ENRICHMENT_JSON=""
+ENRICHMENT_FILES=()
 
 if [[ "$ENRICH" == true ]]; then
     if [[ -z "$OUTPUT_JSON" ]]; then
@@ -116,7 +124,6 @@ if [[ "$ENRICH" == true ]]; then
         exit 1
     fi
     echo "--- Running LLM enrichment (size=$SIZE, model=$MODEL) ---"
-    ENRICHMENT_JSON="$OUTPUT_JSON"
 
     ENRICH_ARGS=(
         python "$SCRIPTS_DIR/enrich_properties.py"
@@ -124,17 +131,21 @@ if [[ "$ENRICH" == true ]]; then
         --batch-size "$BATCH_SIZE"
         --model "$MODEL"
         --delay "$DELAY"
-        --output "$ENRICHMENT_JSON"
+        --output "$OUTPUT_JSON"
     )
     if [[ -n "$SYNSET_IDS" ]]; then
         ENRICH_ARGS+=(--synset-ids "$SYNSET_IDS")
     fi
 
     "${ENRICH_ARGS[@]}"
+    ENRICHMENT_FILES+=("$OUTPUT_JSON")
     echo ""
-elif [[ -n "$FROM_JSON" ]]; then
-    ENRICHMENT_JSON="$FROM_JSON"
-    echo "--- Using existing enrichment: $FROM_JSON ---"
+elif [[ ${#FROM_JSON_FILES[@]} -gt 0 ]]; then
+    ENRICHMENT_FILES=("${FROM_JSON_FILES[@]}")
+    echo "--- Using existing enrichment: ${#ENRICHMENT_FILES[@]} file(s) ---"
+    for f in "${ENRICHMENT_FILES[@]}"; do
+        echo "  $f"
+    done
     echo ""
 fi
 
@@ -143,7 +154,7 @@ fi
 echo "--- Running downstream enrichment pipeline ---"
 python "$SCRIPTS_DIR/enrich_pipeline.py" \
     --db "$DB_PATH" \
-    --enrichment "$ENRICHMENT_JSON" \
+    --enrichment "${ENRICHMENT_FILES[@]}" \
     --fasttext "$FASTTEXT_VEC"
 echo ""
 

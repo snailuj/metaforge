@@ -395,7 +395,7 @@ def evaluate(
         print("  Running enrichment pipeline...")
         run_pipeline(
             db_path=db_path,
-            enrichment_file=enrichment_file,
+            enrichment_files=[enrichment_file],
             fasttext_vec=str(FASTTEXT_VEC),
         )
 
