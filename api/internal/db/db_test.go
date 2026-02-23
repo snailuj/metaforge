@@ -61,6 +61,22 @@ func TestGetSynsetWithEnrichment(t *testing.T) {
 // testDBPathV2 points to the v2 database
 const testDBPathV2 = "../../../data-pipeline/output/lexicon_v2.db"
 
+func TestGetLemmaEmbedding_NotFound(t *testing.T) {
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	emb, err := GetLemmaEmbedding(db, "xyzzynotaword12345")
+	if err != nil {
+		t.Fatalf("Expected nil error for missing lemma, got: %v", err)
+	}
+	if emb != nil {
+		t.Error("Expected nil embedding for missing lemma")
+	}
+}
+
 func TestGetForgeMatchesCuratedByLemma_ReturnsErrLemmaNotFound(t *testing.T) {
 	db, err := Open(testDBPathV2)
 	if err != nil {
