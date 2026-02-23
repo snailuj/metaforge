@@ -109,6 +109,11 @@ def load_fasttext_vectors(vec_path: str) -> dict[str, tuple[float, ...]]:
         num_words, dim = int(header[0]), int(header[1])
         print(f"  Header: {num_words} words, {dim}d")
 
+        if dim != EMBEDDING_DIM:
+            raise ValueError(
+                f"FastText dimension mismatch: file has {dim}d, expected {EMBEDDING_DIM}d"
+            )
+
         for i, line in enumerate(f):
             parts = line.rstrip().split(" ")
             word = parts[0]

@@ -334,6 +334,7 @@ def test_populate_synset_properties_caps_per_synset():
 
 # --- 8. FastText vector caching -----------------------------------------------
 
+@patch("enrich_pipeline.EMBEDDING_DIM", 3)
 def test_load_fasttext_vectors_caches(tmp_path):
     """Second call with same path returns cached vectors without re-reading."""
     vec_file = tmp_path / "test.vec"
@@ -350,6 +351,19 @@ def test_load_fasttext_vectors_caches(tmp_path):
 
     v2 = load_fasttext_vectors(str(vec_file))
     assert v1 is v2
+
+    _fasttext_cache.clear()
+
+
+def test_load_fasttext_vectors_rejects_wrong_dimension(tmp_path):
+    """Loading vectors with dimension != EMBEDDING_DIM raises ValueError."""
+    vec_file = tmp_path / "wrong_dim.vec"
+    vec_file.write_text("2 5\nhello 1.0 0.0 0.0 0.0 0.0\nworld 0.0 1.0 0.0 0.0 0.0\n")
+
+    _fasttext_cache.clear()
+
+    with pytest.raises(ValueError, match=r"dimension.*5.*300"):
+        load_fasttext_vectors(str(vec_file))
 
     _fasttext_cache.clear()
 
