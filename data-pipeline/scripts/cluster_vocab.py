@@ -119,7 +119,7 @@ def cluster_vocab(
         norms[norms == 0] = 1
         matrix /= norms
 
-        # Chunked pairwise cosine similarity
+        # Chunked pairwise cosine similarity with vectorised threshold
         for ci in range(0, n, chunk_size):
             ci_end = min(ci + chunk_size, n)
             for cj in range(ci, n, chunk_size):
@@ -129,16 +129,13 @@ def cluster_vocab(
 
                 if ci == cj:
                     # Diagonal chunk — upper triangle only
-                    for li in range(ci_end - ci):
-                        for lj in range(li + 1, cj_end - cj):
-                            if float(sub_sim[li, lj]) >= threshold:
-                                uf.union(embedded_vids[ci + li], embedded_vids[cj + lj])
+                    rows, cols = np.where(np.triu(sub_sim >= threshold, k=1))
                 else:
                     # Off-diagonal chunk
-                    for li in range(ci_end - ci):
-                        for lj in range(cj_end - cj):
-                            if float(sub_sim[li, lj]) >= threshold:
-                                uf.union(embedded_vids[ci + li], embedded_vids[cj + lj])
+                    rows, cols = np.where(sub_sim >= threshold)
+
+                for li, lj in zip(rows, cols):
+                    uf.union(embedded_vids[ci + li], embedded_vids[cj + lj])
 
     # Resolve clusters: cluster_id = smallest vocab_id in component
     components = uf.components()
