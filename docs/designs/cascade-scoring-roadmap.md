@@ -91,7 +91,7 @@ Items 3 are co-prioritised because they solve the same problem (evaluation metho
 ## Progress
 
 - [x] Priority 1: Salience scoring — v2 enrichment schema, pipeline, Go scoring (Phases 1-7 complete, Phase 8 in progress)
-- [ ] Priority 2: Concreteness gate
+- [x] Priority 2: Concreteness gate — max aggregation, soft margin +0.5, noun-noun POS gate, startup telemetry. MRR 0.0372 (+3.9% vs 0.0358 baseline). Coverage 48.5%. See `docs/plans/2026-02-25-concreteness-gate-design.md`.
 - [ ] Priority 3: Discriminative evaluation
 - [ ] Priority 3: MuseScorer-style novelty
 - [ ] Priority 4: Affective alignment

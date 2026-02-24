@@ -33,6 +33,7 @@ MRR score + results JSON
 | SyntagNet | Collocation pairs | (bundled in sqlunet) | TODO | TODO |
 | VerbNet | Verb classes, roles, examples | (bundled in sqlunet) | TODO | TODO |
 | FastText (wiki-news-300d) | Word embeddings (300d) | `~/.local/share/metaforge/wiki-news-300d-1M.vec` | TODO | TODO |
+| Brysbaert Concreteness | Concreteness ratings (1-5) for 37k lemmas | `data-pipeline/input/brysbaert-concreteness/` | [GitHub](https://github.com/ArtsEngine/concreteness) | CC-BY |
 
 > **Large files live in `~/.local/share/metaforge/`, NOT in the repo.** Worktrees symlink into the shared location: `data-pipeline/raw/wiki-news-300d-1M.vec`
 
