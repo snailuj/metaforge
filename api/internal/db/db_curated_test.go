@@ -94,6 +94,10 @@ func setupCuratedTestDB(t *testing.T) *sql.DB {
 		INSERT INTO lemmas VALUES ('balloon', 'tgt2');
 		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt2', 4, 4, 'exact', NULL);
 
+		CREATE TABLE synset_concreteness (
+			synset_id TEXT PRIMARY KEY, score REAL NOT NULL, source TEXT NOT NULL
+		);
+
 		-- Antonym: heavy <-> light (vocab-level)
 		INSERT INTO property_antonyms VALUES (1, 4);
 		INSERT INTO property_antonyms VALUES (4, 1);
@@ -235,6 +239,10 @@ func setupSenseAlignmentTestDB(t *testing.T) *sql.DB {
 			cluster_id_a INTEGER NOT NULL,
 			cluster_id_b INTEGER NOT NULL,
 			PRIMARY KEY (cluster_id_a, cluster_id_b)
+		);
+
+		CREATE TABLE synset_concreteness (
+			synset_id TEXT PRIMARY KEY, score REAL NOT NULL, source TEXT NOT NULL
 		);
 
 		-- Source lemma "bank" maps to TWO synsets (polysemous)
@@ -534,6 +542,10 @@ func setupLimitTestDB(t *testing.T) *sql.DB {
 			PRIMARY KEY (cluster_id_a, cluster_id_b)
 		);
 
+		CREATE TABLE synset_concreteness (
+			synset_id TEXT PRIMARY KEY, score REAL NOT NULL, source TEXT NOT NULL
+		);
+
 		-- Curated vocab (all singletons)
 		INSERT INTO property_vocab_curated VALUES (1, 'v1', 'hot', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (2, 'v2', 'bright', 'a', 1);
@@ -593,6 +605,448 @@ func TestGetForgeMatchesCurated_LimitCountsUniqueSynsets(t *testing.T) {
 		for _, m := range matches {
 			t.Logf("  %s (salience_sum=%.2f)", m.SynsetID, m.SalienceSum)
 		}
+	}
+}
+
+// --- Concreteness gate tests for GetForgeMatchesCurated ---
+
+func setupConcretenessTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+		CREATE TABLE lemmas (lemma TEXT, synset_id TEXT, PRIMARY KEY (lemma, synset_id));
+
+		CREATE TABLE property_vocab_curated (
+			vocab_id INTEGER PRIMARY KEY,
+			synset_id TEXT NOT NULL,
+			lemma TEXT NOT NULL,
+			pos TEXT NOT NULL,
+			polysemy INTEGER NOT NULL
+		);
+
+		CREATE TABLE vocab_clusters (
+			vocab_id INTEGER PRIMARY KEY,
+			cluster_id INTEGER NOT NULL,
+			is_representative INTEGER NOT NULL DEFAULT 0,
+			is_singleton INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX idx_vc_cluster_conc ON vocab_clusters(cluster_id);
+
+		CREATE TABLE synset_properties_curated (
+			synset_id TEXT NOT NULL,
+			vocab_id INTEGER NOT NULL,
+			cluster_id INTEGER NOT NULL,
+			snap_method TEXT NOT NULL,
+			snap_score REAL,
+			salience_sum REAL NOT NULL DEFAULT 1.0,
+			PRIMARY KEY (synset_id, cluster_id)
+		);
+		CREATE INDEX idx_spc_conc_synset ON synset_properties_curated(synset_id);
+		CREATE INDEX idx_spc_conc_cluster ON synset_properties_curated(cluster_id);
+
+		CREATE TABLE cluster_antonyms (
+			cluster_id_a INTEGER NOT NULL,
+			cluster_id_b INTEGER NOT NULL,
+			PRIMARY KEY (cluster_id_a, cluster_id_b)
+		);
+
+		CREATE TABLE synset_concreteness (
+			synset_id TEXT PRIMARY KEY,
+			score REAL NOT NULL,
+			source TEXT NOT NULL
+		);
+
+		-- Vocab (all singletons)
+		INSERT INTO property_vocab_curated VALUES (1, 'v1', 'hot', 'a', 1);
+		INSERT INTO property_vocab_curated VALUES (2, 'v2', 'destructive', 'a', 1);
+		INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+		INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
+
+		-- Source: anger (noun, concreteness 1.8)
+		INSERT INTO synsets VALUES ('src-anger', 'n', 'strong displeasure');
+		INSERT INTO lemmas VALUES ('anger', 'src-anger');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src-anger', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src-anger', 2, 2, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('src-anger', 1.8, 'brysbaert');
+
+		-- Target: volcano (noun, concreteness 4.9) — SHOULD PASS gate
+		INSERT INTO synsets VALUES ('tgt-volcano', 'n', 'a mountain that erupts');
+		INSERT INTO lemmas VALUES ('volcano', 'tgt-volcano');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-volcano', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-volcano', 2, 2, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-volcano', 4.9, 'brysbaert');
+
+		-- Target: fury (noun, concreteness 1.5) — SHOULD PASS (within 0.5 margin: 1.5+0.5=2.0 >= 1.8)
+		INSERT INTO synsets VALUES ('tgt-fury', 'n', 'wild rage');
+		INSERT INTO lemmas VALUES ('fury', 'tgt-fury');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-fury', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-fury', 2, 2, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-fury', 1.5, 'brysbaert');
+
+		-- Target: serenity (noun, concreteness 1.0) — SHOULD FAIL (1.0+0.5=1.5 < 1.8, exceeds margin)
+		INSERT INTO synsets VALUES ('tgt-serenity', 'n', 'calm peacefulness');
+		INSERT INTO lemmas VALUES ('serenity', 'tgt-serenity');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-serenity', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-serenity', 2, 2, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-serenity', 1.0, 'brysbaert');
+
+		-- Target: blaze (noun, concreteness 1.8) — SHOULD PASS (equal to source)
+		INSERT INTO synsets VALUES ('tgt-blaze', 'n', 'a fierce fire');
+		INSERT INTO lemmas VALUES ('blaze', 'tgt-blaze');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-blaze', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-blaze', 2, 2, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-blaze', 1.8, 'brysbaert');
+
+		-- Target: storm (noun, no concreteness data) — SHOULD PASS (missing = pass through)
+		INSERT INTO synsets VALUES ('tgt-storm', 'n', 'violent weather');
+		INSERT INTO lemmas VALUES ('storm', 'tgt-storm');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-storm', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-storm', 2, 2, 'exact', NULL);
+		-- No synset_concreteness row for storm
+
+		-- Target: erupt (VERB, concreteness 3.0) — SHOULD PASS (POS bypass: candidate is verb)
+		INSERT INTO synsets VALUES ('tgt-erupt', 'v', 'to burst forth violently');
+		INSERT INTO lemmas VALUES ('erupt', 'tgt-erupt');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-erupt', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-erupt', 2, 2, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-erupt', 3.0, 'brysbaert');
+
+		-- Target: furious (ADJECTIVE, concreteness 1.2) — SHOULD PASS (POS bypass: candidate is adj)
+		INSERT INTO synsets VALUES ('tgt-furious', 'a', 'extremely angry');
+		INSERT INTO lemmas VALUES ('furious', 'tgt-furious');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-furious', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-furious', 2, 2, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-furious', 1.2, 'brysbaert');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return db
+}
+
+func TestGetForgeMatchesCurated_ConcretenessGateKeepsConcreteVehicle(t *testing.T) {
+	db := setupConcretenessTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCurated(db, "src-anger", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var found bool
+	for _, m := range matches {
+		if m.SynsetID == "tgt-volcano" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected volcano (more concrete than anger) to pass gate")
+	}
+}
+
+func TestGetForgeMatchesCurated_ConcretenessGateAllowsWithinMargin(t *testing.T) {
+	db := setupConcretenessTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCurated(db, "src-anger", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var found bool
+	for _, m := range matches {
+		if m.SynsetID == "tgt-fury" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected fury (1.5, within 0.5 margin of source 1.8) to pass gate")
+	}
+}
+
+func TestGetForgeMatchesCurated_ConcretenessGateFiltersExceedsMargin(t *testing.T) {
+	db := setupConcretenessTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCurated(db, "src-anger", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, m := range matches {
+		if m.SynsetID == "tgt-serenity" {
+			t.Error("expected serenity (1.0, exceeds 0.5 margin below source 1.8) to be filtered")
+		}
+	}
+}
+
+func TestGetForgeMatchesCurated_ConcretenessGateAllowsEqual(t *testing.T) {
+	db := setupConcretenessTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCurated(db, "src-anger", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var found bool
+	for _, m := range matches {
+		if m.SynsetID == "tgt-blaze" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected blaze (equal concreteness to anger) to pass gate")
+	}
+}
+
+func TestGetForgeMatchesCurated_ConcretenessGateMissingScorePassesThrough(t *testing.T) {
+	db := setupConcretenessTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCurated(db, "src-anger", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var found bool
+	for _, m := range matches {
+		if m.SynsetID == "tgt-storm" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected storm (no concreteness data) to pass through gate")
+	}
+}
+
+func TestGetForgeMatchesCurated_ConcretenessGatePOSBypassVerb(t *testing.T) {
+	db := setupConcretenessTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCurated(db, "src-anger", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var found bool
+	for _, m := range matches {
+		if m.SynsetID == "tgt-erupt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected erupt (verb, POS bypass) to pass through gate")
+	}
+}
+
+func TestGetForgeMatchesCurated_ConcretenessGatePOSBypassAdjective(t *testing.T) {
+	db := setupConcretenessTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCurated(db, "src-anger", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var found bool
+	for _, m := range matches {
+		if m.SynsetID == "tgt-furious" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected furious (adjective, POS bypass) to pass through gate")
+	}
+}
+
+// --- Concreteness gate tests for GetForgeMatchesCuratedByLemma ---
+
+func setupSenseAlignmentConcretenessTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+		CREATE TABLE lemmas (lemma TEXT, synset_id TEXT, PRIMARY KEY (lemma, synset_id));
+		CREATE TABLE property_vocab_curated (
+			vocab_id INTEGER PRIMARY KEY, synset_id TEXT NOT NULL,
+			lemma TEXT NOT NULL, pos TEXT NOT NULL, polysemy INTEGER NOT NULL
+		);
+		CREATE TABLE vocab_clusters (
+			vocab_id INTEGER PRIMARY KEY, cluster_id INTEGER NOT NULL,
+			is_representative INTEGER NOT NULL DEFAULT 0, is_singleton INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX idx_vc_cluster_sc ON vocab_clusters(cluster_id);
+		CREATE TABLE synset_properties_curated (
+			synset_id TEXT NOT NULL, vocab_id INTEGER NOT NULL, cluster_id INTEGER NOT NULL,
+			snap_method TEXT NOT NULL, snap_score REAL, salience_sum REAL NOT NULL DEFAULT 1.0,
+			PRIMARY KEY (synset_id, cluster_id)
+		);
+		CREATE INDEX idx_spc_sc_synset ON synset_properties_curated(synset_id);
+		CREATE INDEX idx_spc_sc_cluster ON synset_properties_curated(cluster_id);
+		CREATE TABLE cluster_antonyms (
+			cluster_id_a INTEGER NOT NULL, cluster_id_b INTEGER NOT NULL,
+			PRIMARY KEY (cluster_id_a, cluster_id_b)
+		);
+		CREATE TABLE synset_concreteness (
+			synset_id TEXT PRIMARY KEY, score REAL NOT NULL, source TEXT NOT NULL
+		);
+
+		-- Source "light" has two senses
+		-- light-photon (noun, concrete: 4.5) and light-weight (adjective, abstract: 2.0)
+		INSERT INTO synsets VALUES ('light-photon', 'n', 'electromagnetic radiation');
+		INSERT INTO synsets VALUES ('light-weight', 'a', 'not heavy');
+		INSERT INTO lemmas VALUES ('light', 'light-photon');
+		INSERT INTO lemmas VALUES ('light', 'light-weight');
+		INSERT INTO synset_concreteness VALUES ('light-photon', 4.5, 'brysbaert');
+		INSERT INTO synset_concreteness VALUES ('light-weight', 2.0, 'brysbaert');
+
+		-- Properties (all singletons)
+		INSERT INTO property_vocab_curated VALUES (1, 'v1', 'bright', 'a', 1);
+		INSERT INTO property_vocab_curated VALUES (2, 'v2', 'warm', 'a', 1);
+		INSERT INTO property_vocab_curated VALUES (3, 'v3', 'airy', 'a', 1);
+		INSERT INTO property_vocab_curated VALUES (4, 'v4', 'floating', 'a', 1);
+		INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+		INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
+		INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
+		INSERT INTO vocab_clusters VALUES (4, 4, 1, 1);
+
+		-- light-photon has: bright, warm
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('light-photon', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('light-photon', 2, 2, 'exact', NULL);
+
+		-- light-weight has: airy, floating
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('light-weight', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('light-weight', 4, 4, 'exact', NULL);
+
+		-- Target: sun (noun, concrete 4.8, shares bright+warm with light-photon)
+		-- Source sense light-photon is noun with 4.5, sun is 4.8 → both nouns, 4.8+0.5>=4.5 → PASS
+		INSERT INTO synsets VALUES ('tgt-sun', 'n', 'the star');
+		INSERT INTO lemmas VALUES ('sun', 'tgt-sun');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('tgt-sun', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('tgt-sun', 2, 2, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-sun', 4.8, 'brysbaert');
+
+		-- Target: feather (noun, concrete 4.9, shares airy+floating with light-weight)
+		-- Source sense light-weight is adjective → POS bypass, gate doesn't fire → PASS
+		INSERT INTO synsets VALUES ('tgt-feather', 'n', 'a plume');
+		INSERT INTO lemmas VALUES ('feather', 'tgt-feather');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('tgt-feather', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('tgt-feather', 4, 4, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-feather', 4.9, 'brysbaert');
+
+		-- Target: mood (noun, abstract 1.5, shares airy+floating with light-weight)
+		-- Source sense light-weight is adjective → POS bypass, gate doesn't fire → PASS
+		INSERT INTO synsets VALUES ('tgt-mood', 'n', 'emotional state');
+		INSERT INTO lemmas VALUES ('mood', 'tgt-mood');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('tgt-mood', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('tgt-mood', 4, 4, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-mood', 1.5, 'brysbaert');
+
+		-- Target: abstraction (noun, abstract 1.0, shares bright+warm with light-photon)
+		-- Source sense light-photon is noun with 4.5, both nouns → gate fires
+		-- 1.0+0.5=1.5 < 4.5 → FAIL
+		INSERT INTO synsets VALUES ('tgt-abstraction', 'n', 'a general concept');
+		INSERT INTO lemmas VALUES ('abstraction', 'tgt-abstraction');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('tgt-abstraction', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score)
+			VALUES ('tgt-abstraction', 2, 2, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-abstraction', 1.0, 'brysbaert');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return db
+}
+
+func TestGetForgeMatchesCuratedByLemma_ConcretenessGatePassesConcrete(t *testing.T) {
+	db := setupSenseAlignmentConcretenessTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCuratedByLemma(db, "light", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var foundSun, foundFeather bool
+	for _, m := range matches {
+		if m.Word == "sun" {
+			foundSun = true
+		}
+		if m.Word == "feather" {
+			foundFeather = true
+		}
+	}
+	if !foundSun {
+		t.Error("expected sun to pass concreteness gate (noun source, within margin)")
+	}
+	if !foundFeather {
+		t.Error("expected feather to pass concreteness gate (adjective source, POS bypass)")
+	}
+}
+
+func TestGetForgeMatchesCuratedByLemma_ConcretenessGateFiltersAbstract(t *testing.T) {
+	db := setupSenseAlignmentConcretenessTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCuratedByLemma(db, "light", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, m := range matches {
+		if m.Word == "abstraction" {
+			t.Error("expected abstraction (1.0+0.5=1.5 < source noun 4.5) to be filtered")
+		}
+	}
+}
+
+func TestGetForgeMatchesCuratedByLemma_ConcretenessGateAdjectiveSourceBypass(t *testing.T) {
+	db := setupSenseAlignmentConcretenessTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCuratedByLemma(db, "light", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// mood matches light-weight (adjective source) → POS bypass, should pass
+	var found bool
+	for _, m := range matches {
+		if m.Word == "mood" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected mood to pass gate (source sense light-weight is adjective, POS bypass)")
 	}
 }
 
