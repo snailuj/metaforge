@@ -473,3 +473,17 @@ func GetLemmaForSynset(db *sql.DB, synsetID string) (string, error) {
 	}
 	return lemma, err
 }
+
+// GetConcretenessStats returns the number of synsets with concreteness scores
+// and the total number of synsets in the database.
+func GetConcretenessStats(db *sql.DB) (scored int, total int, err error) {
+	err = db.QueryRow("SELECT COUNT(*) FROM synset_concreteness").Scan(&scored)
+	if err != nil {
+		return 0, 0, fmt.Errorf("GetConcretenessStats scored count failed: %w", err)
+	}
+	err = db.QueryRow("SELECT COUNT(*) FROM synsets").Scan(&total)
+	if err != nil {
+		return 0, 0, fmt.Errorf("GetConcretenessStats total count failed: %w", err)
+	}
+	return scored, total, nil
+}

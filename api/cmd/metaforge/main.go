@@ -27,6 +27,7 @@ func main() {
 	}
 	defer h.Close()
 	h.SetStringsDir(*stringsDir)
+	h.LogConcretenessStats()
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)

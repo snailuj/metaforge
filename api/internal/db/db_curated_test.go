@@ -1052,6 +1052,56 @@ func TestGetForgeMatchesCuratedByLemma_ConcretenessGateAdjectiveSourceBypass(t *
 
 // --- Lemma embedding tests ---
 
+// --- GetConcretenessStats tests ---
+
+func TestGetConcretenessStats(t *testing.T) {
+	db := setupConcretenessTestDB(t)
+	defer db.Close()
+
+	scored, total, err := GetConcretenessStats(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// setupConcretenessTestDB has 8 synsets total (1 source + 7 targets)
+	// 7 have concreteness scores (all except tgt-storm)
+	if scored != 7 {
+		t.Errorf("expected 7 scored, got %d", scored)
+	}
+	if total != 8 {
+		t.Errorf("expected 8 total synsets, got %d", total)
+	}
+}
+
+func TestGetConcretenessStats_EmptyDB(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+		CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL NOT NULL, source TEXT NOT NULL);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scored, total, err := GetConcretenessStats(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scored != 0 {
+		t.Errorf("expected 0 scored, got %d", scored)
+	}
+	if total != 0 {
+		t.Errorf("expected 0 total, got %d", total)
+	}
+}
+
 // makeLemmaEmbeddingBlob creates a 300-dimensional embedding BLOB from the
 // given float32 values. Remaining dimensions are zero-filled.
 func makeLemmaEmbeddingBlob(vals ...float32) []byte {

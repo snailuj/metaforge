@@ -61,6 +61,23 @@ func (h *Handler) Close() error {
 	return h.database.Close()
 }
 
+// LogConcretenessStats logs concreteness coverage at startup.
+func (h *Handler) LogConcretenessStats() {
+	scored, total, err := db.GetConcretenessStats(h.database)
+	if err != nil {
+		slog.Warn("failed to get concreteness stats", "err", err)
+		return
+	}
+	var pct float64
+	if total > 0 {
+		pct = float64(scored) / float64(total) * 100
+	}
+	slog.Info("concreteness coverage", "scored", scored, "total", total, "pct", fmt.Sprintf("%.1f%%", pct))
+	if total > 0 && pct < 80.0 {
+		slog.Warn("concreteness coverage below 80%", "pct", fmt.Sprintf("%.1f%%", pct))
+	}
+}
+
 // SuggestResponse is the JSON response for /forge/suggest.
 // Each suggestion carries its own source context (synset, definition, POS)
 // since polysemous words may align different targets to different senses.
@@ -96,6 +113,15 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
 		return
 	}
+
+	// Log POS bypass stats at debug level
+	var nonNounCount int
+	for _, c := range candidates {
+		if c.POS != "n" || c.SourcePOS != "n" {
+			nonNounCount++
+		}
+	}
+	slog.Debug("forge gate stats", "word", word, "results", len(candidates), "non_noun_candidates", nonNounCount)
 
 	// Fetch source lemma embedding for cross-domain distance
 	sourceEmb, err := db.GetLemmaEmbedding(h.database, word)
