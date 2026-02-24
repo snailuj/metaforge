@@ -171,7 +171,7 @@ if [[ "$ENRICH" == true ]]; then
     echo "--- Running LLM enrichment (size=$SIZE, model=$MODEL) ---"
 
     ENRICH_ARGS=(
-        python "$SCRIPTS_DIR/enrich_properties.py"
+        python -u "$SCRIPTS_DIR/enrich_properties.py"
         --size "$SIZE"
         --batch-size "$BATCH_SIZE"
         --model "$MODEL"
@@ -205,7 +205,7 @@ fi
 # --- Step 3: Downstream pipeline ------------------------------------------
 
 echo "--- Running downstream enrichment pipeline ---"
-python "$SCRIPTS_DIR/enrich_pipeline.py" \
+python -u "$SCRIPTS_DIR/enrich_pipeline.py" \
     --db "$DB_PATH" \
     --enrichment "${ENRICHMENT_FILES[@]}" \
     --fasttext "$FASTTEXT_VEC"

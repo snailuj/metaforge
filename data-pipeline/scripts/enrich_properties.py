@@ -310,57 +310,112 @@ def get_pilot_synsets(
 def get_frequency_ranked_synsets(
     conn: sqlite3.Connection,
     limit: int,
+    required_ids: list | None = None,
 ) -> List[Dict]:
     """Get synsets ranked by max lemma familiarity, excluding already-enriched.
 
+    If required_ids is provided, those synsets are included first, then
+    remaining slots are filled with frequency-ranked synsets up to limit.
+
     For each synset, picks the most familiar lemma (for the enrichment prompt).
-    Synsets already present in the enrichment table are excluded.
+    Synsets already present in the enrichment table are excluded (padding only).
     """
-    # Check if enrichment table exists (fresh DBs may not have it)
-    has_enrichment = conn.execute(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='enrichment'"
-    ).fetchone()[0] > 0
-
-    exclude_clause = (
-        "AND s.synset_id NOT IN (SELECT synset_id FROM enrichment)"
-        if has_enrichment else ""
-    )
-
-    cursor = conn.execute(f"""
-        WITH ranked_lemmas AS (
-            SELECT
-                s.synset_id,
-                s.definition,
-                s.pos,
-                l.lemma,
-                COALESCE(f.familiarity, 0) AS fam,
-                ROW_NUMBER() OVER (
-                    PARTITION BY s.synset_id
-                    ORDER BY COALESCE(f.familiarity, 0) DESC, l.lemma
-                ) AS rn,
-                MAX(COALESCE(f.familiarity, 0)) OVER (
-                    PARTITION BY s.synset_id
-                ) AS max_fam
-            FROM synsets s
-            JOIN lemmas l ON l.synset_id = s.synset_id
-            LEFT JOIN frequencies f ON f.lemma = l.lemma
-            WHERE 1=1 {exclude_clause}
-        )
-        SELECT synset_id, definition, lemma, pos
-        FROM ranked_lemmas
-        WHERE rn = 1
-        ORDER BY max_fam DESC
-        LIMIT ?
-    """, (limit,))
-
     synsets = []
-    for row in cursor.fetchall():
-        synsets.append({
-            "id": str(row[0]),
-            "definition": row[1],
-            "lemma": row[2],
-            "pos": row[3],
-        })
+    seen_ids = set()
+
+    # Phase 1: fetch required synsets by ID (unconditional — not excluded by enrichment)
+    if required_ids:
+        placeholders = ",".join("?" for _ in required_ids)
+        cursor = conn.execute(f"""
+            WITH ranked_lemmas AS (
+                SELECT
+                    s.synset_id,
+                    s.definition,
+                    s.pos,
+                    l.lemma,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY s.synset_id
+                        ORDER BY COALESCE(f.familiarity, 0) DESC, l.lemma
+                    ) AS rn
+                FROM synsets s
+                JOIN lemmas l ON l.synset_id = s.synset_id
+                LEFT JOIN frequencies f ON f.lemma = l.lemma
+                WHERE s.synset_id IN ({placeholders})
+            )
+            SELECT synset_id, definition, lemma, pos
+            FROM ranked_lemmas
+            WHERE rn = 1
+        """, required_ids)
+        for row in cursor.fetchall():
+            sid = str(row[0])
+            if sid not in seen_ids:
+                synsets.append({
+                    "id": sid,
+                    "definition": row[1],
+                    "lemma": row[2],
+                    "pos": row[3],
+                })
+                seen_ids.add(sid)
+
+    # Phase 2: pad remaining slots with frequency-ranked synsets
+    remaining = limit - len(synsets)
+    if remaining > 0:
+        # Check if enrichment table exists (fresh DBs may not have it)
+        has_enrichment = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='enrichment'"
+        ).fetchone()[0] > 0
+
+        exclude_clause = (
+            "AND s.synset_id NOT IN (SELECT synset_id FROM enrichment)"
+            if has_enrichment else ""
+        )
+
+        # Also exclude already-selected required IDs
+        if seen_ids:
+            seen_placeholders = ",".join("?" for _ in seen_ids)
+            seen_clause = f"AND s.synset_id NOT IN ({seen_placeholders})"
+            seen_params = list(seen_ids)
+        else:
+            seen_clause = ""
+            seen_params = []
+
+        cursor = conn.execute(f"""
+            WITH ranked_lemmas AS (
+                SELECT
+                    s.synset_id,
+                    s.definition,
+                    s.pos,
+                    l.lemma,
+                    COALESCE(f.familiarity, 0) AS fam,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY s.synset_id
+                        ORDER BY COALESCE(f.familiarity, 0) DESC, l.lemma
+                    ) AS rn,
+                    MAX(COALESCE(f.familiarity, 0)) OVER (
+                        PARTITION BY s.synset_id
+                    ) AS max_fam
+                FROM synsets s
+                JOIN lemmas l ON l.synset_id = s.synset_id
+                LEFT JOIN frequencies f ON f.lemma = l.lemma
+                WHERE 1=1 {exclude_clause} {seen_clause}
+            )
+            SELECT synset_id, definition, lemma, pos
+            FROM ranked_lemmas
+            WHERE rn = 1
+            ORDER BY max_fam DESC
+            LIMIT ?
+        """, (*seen_params, remaining))
+
+        for row in cursor.fetchall():
+            sid = str(row[0])
+            if sid not in seen_ids:
+                synsets.append({
+                    "id": sid,
+                    "definition": row[1],
+                    "lemma": row[2],
+                    "pos": row[3],
+                })
+                seen_ids.add(sid)
 
     # Attach all lemmas per synset (for v2 prompt)
     synset_ids = [s["id"] for s in synsets]
@@ -446,7 +501,7 @@ def run_enrichment(
         print(f"  Database: {db_path}")
 
         if strategy == "frequency":
-            synsets = get_frequency_ranked_synsets(conn, size)
+            synsets = get_frequency_ranked_synsets(conn, size, required_ids=required_ids)
         else:
             synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
         print(f"  Retrieved {len(synsets)} synsets")
