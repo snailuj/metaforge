@@ -533,6 +533,44 @@ def test_frequency_ranked_populates_all_fields():
     assert s["pos"] == "v"
 
 
+@patch("enrich_properties.extract_batch")
+@patch("enrich_properties.get_pilot_synsets")
+def test_run_enrichment_v2_property_stats(mock_get_synsets, mock_extract, tmp_path):
+    """run_enrichment with v2 structured properties computes stats without crashing."""
+    db_path = _make_test_db(tmp_path)
+
+    mock_get_synsets.return_value = SAMPLE_SYNSETS
+    mock_extract.return_value = [
+        {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n",
+         "properties": [
+             {"text": "warm", "salience": 0.9, "type": "physical", "relation": "emits warmth"},
+             {"text": "flickering", "salience": 0.8, "type": "behaviour", "relation": "flame flickers"},
+         ]},
+        {"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v",
+         "properties": [
+             {"text": "quiet", "salience": 0.9, "type": "physical", "relation": "low volume"},
+             {"text": "warm", "salience": 0.5, "type": "emotional", "relation": "feels warm"},
+         ]},
+    ]
+
+    with patch("enrich_properties.OUTPUT_DIR", tmp_path):
+        result = run_enrichment(
+            size=2,
+            batch_size=20,
+            delay=0,
+            output_file=tmp_path / "out.json",
+            db_path=db_path,
+            schema_version="v2",
+        )
+
+    assert result.succeeded == 2
+
+    output = json.loads((tmp_path / "out.json").read_text())
+    assert output["stats"]["total_properties"] == 4
+    assert output["stats"]["unique_properties"] == 3  # warm appears twice
+    assert "warm" in output["property_frequency"]
+
+
 def test_frequency_ranked_no_enrichment_table():
     """Works when enrichment table doesn't exist (fresh DB)."""
     conn = sqlite3.connect(":memory:")

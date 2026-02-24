@@ -2,6 +2,8 @@ package db
 
 import (
 	"database/sql"
+	"encoding/binary"
+	"math"
 	"path/filepath"
 	"testing"
 
@@ -30,20 +32,37 @@ func setupCuratedTestDB(t *testing.T) *sql.DB {
 			polysemy INTEGER NOT NULL
 		);
 
+		CREATE TABLE vocab_clusters (
+			vocab_id         INTEGER PRIMARY KEY,
+			cluster_id       INTEGER NOT NULL,
+			is_representative INTEGER NOT NULL DEFAULT 0,
+			is_singleton     INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
+
 		CREATE TABLE synset_properties_curated (
 			synset_id TEXT NOT NULL,
 			vocab_id INTEGER NOT NULL,
+			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
-			PRIMARY KEY (synset_id, vocab_id)
+			salience_sum REAL NOT NULL DEFAULT 1.0,
+			PRIMARY KEY (synset_id, cluster_id)
 		);
 		CREATE INDEX idx_spc_synset ON synset_properties_curated(synset_id);
 		CREATE INDEX idx_spc_vocab ON synset_properties_curated(vocab_id);
+		CREATE INDEX idx_spc_cluster ON synset_properties_curated(cluster_id);
 
 		CREATE TABLE property_antonyms (
 			vocab_id_a INTEGER NOT NULL,
 			vocab_id_b INTEGER NOT NULL,
 			PRIMARY KEY (vocab_id_a, vocab_id_b)
+		);
+
+		CREATE TABLE cluster_antonyms (
+			cluster_id_a INTEGER NOT NULL,
+			cluster_id_b INTEGER NOT NULL,
+			PRIMARY KEY (cluster_id_a, cluster_id_b)
 		);
 
 		-- Source synset: grief (properties: heavy, isolating, waves)
@@ -54,24 +73,33 @@ func setupCuratedTestDB(t *testing.T) *sql.DB {
 		INSERT INTO property_vocab_curated VALUES (3, 'v3', 'waves', 'n', 2);
 		INSERT INTO property_vocab_curated VALUES (4, 'v4', 'light', 'a', 3);
 
-		INSERT INTO synset_properties_curated VALUES ('src1', 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('src1', 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('src1', 3, 'exact', NULL);
+		-- All singletons for this fixture
+		INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+		INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
+		INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
+		INSERT INTO vocab_clusters VALUES (4, 4, 1, 1);
+
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src1', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src1', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src1', 3, 3, 'exact', NULL);
 
 		-- Target synset: anchor (shares heavy + waves)
 		INSERT INTO synsets VALUES ('tgt1', 'n', 'a device for holding');
 		INSERT INTO lemmas VALUES ('anchor', 'tgt1');
-		INSERT INTO synset_properties_curated VALUES ('tgt1', 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt1', 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt1', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt1', 3, 3, 'exact', NULL);
 
 		-- Target synset: balloon (has light, antonym of heavy)
 		INSERT INTO synsets VALUES ('tgt2', 'n', 'inflatable bag');
 		INSERT INTO lemmas VALUES ('balloon', 'tgt2');
-		INSERT INTO synset_properties_curated VALUES ('tgt2', 4, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt2', 4, 4, 'exact', NULL);
 
-		-- Antonym: heavy <-> light
+		-- Antonym: heavy <-> light (vocab-level)
 		INSERT INTO property_antonyms VALUES (1, 4);
 		INSERT INTO property_antonyms VALUES (4, 1);
+		-- Antonym: heavy <-> light (cluster-level)
+		INSERT INTO cluster_antonyms VALUES (1, 4);
+		INSERT INTO cluster_antonyms VALUES (4, 1);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -99,8 +127,32 @@ func TestGetForgeMatchesCurated_SharedProperties(t *testing.T) {
 	if anchor == nil {
 		t.Fatal("expected anchor in results")
 	}
-	if anchor.SharedCount != 2 {
-		t.Errorf("expected 2 shared, got %d", anchor.SharedCount)
+	if anchor.SalienceSum != 2.0 {
+		t.Errorf("expected salience_sum 2.0, got %.2f", anchor.SalienceSum)
+	}
+}
+
+func TestGetForgeMatchesCurated_SalienceSum(t *testing.T) {
+	db := setupCuratedTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCurated(db, "src1", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var anchor *CuratedMatch
+	for i := range matches {
+		if matches[i].SynsetID == "tgt1" {
+			anchor = &matches[i]
+		}
+	}
+	if anchor == nil {
+		t.Fatal("expected anchor in results")
+	}
+	// tgt1 has 2 properties each with salience_sum=1.0, so total = 2.0
+	if anchor.SalienceSum != 2.0 {
+		t.Errorf("expected salience_sum 2.0, got %.2f", anchor.SalienceSum)
 	}
 }
 
@@ -152,20 +204,37 @@ func setupSenseAlignmentTestDB(t *testing.T) *sql.DB {
 			polysemy INTEGER NOT NULL
 		);
 
+		CREATE TABLE vocab_clusters (
+			vocab_id         INTEGER PRIMARY KEY,
+			cluster_id       INTEGER NOT NULL,
+			is_representative INTEGER NOT NULL DEFAULT 0,
+			is_singleton     INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX idx_vc_cluster_sense ON vocab_clusters(cluster_id);
+
 		CREATE TABLE synset_properties_curated (
 			synset_id TEXT NOT NULL,
 			vocab_id INTEGER NOT NULL,
+			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
-			PRIMARY KEY (synset_id, vocab_id)
+			salience_sum REAL NOT NULL DEFAULT 1.0,
+			PRIMARY KEY (synset_id, cluster_id)
 		);
 		CREATE INDEX idx_spc_sense_synset ON synset_properties_curated(synset_id);
 		CREATE INDEX idx_spc_sense_vocab ON synset_properties_curated(vocab_id);
+		CREATE INDEX idx_spc_sense_cluster ON synset_properties_curated(cluster_id);
 
 		CREATE TABLE property_antonyms (
 			vocab_id_a INTEGER NOT NULL,
 			vocab_id_b INTEGER NOT NULL,
 			PRIMARY KEY (vocab_id_a, vocab_id_b)
+		);
+
+		CREATE TABLE cluster_antonyms (
+			cluster_id_a INTEGER NOT NULL,
+			cluster_id_b INTEGER NOT NULL,
+			PRIMARY KEY (cluster_id_a, cluster_id_b)
 		);
 
 		-- Source lemma "bank" maps to TWO synsets (polysemous)
@@ -174,29 +243,33 @@ func setupSenseAlignmentTestDB(t *testing.T) *sql.DB {
 		INSERT INTO lemmas VALUES ('bank', 'bank-money');
 		INSERT INTO lemmas VALUES ('bank', 'bank-river');
 
-		-- Properties for bank-money: valuable, secure
+		-- Properties for bank-money: valuable, secure (all singletons)
 		INSERT INTO property_vocab_curated VALUES (1, 'v1', 'valuable', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (2, 'v2', 'secure', 'a', 1);
-		INSERT INTO synset_properties_curated VALUES ('bank-money', 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('bank-money', 2, 'exact', NULL);
+		INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+		INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('bank-money', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('bank-money', 2, 2, 'exact', NULL);
 
-		-- Properties for bank-river: wet, flowing
+		-- Properties for bank-river: wet, flowing (all singletons)
 		INSERT INTO property_vocab_curated VALUES (3, 'v3', 'wet', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (4, 'v4', 'flowing', 'a', 1);
-		INSERT INTO synset_properties_curated VALUES ('bank-river', 3, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('bank-river', 4, 'exact', NULL);
+		INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
+		INSERT INTO vocab_clusters VALUES (4, 4, 1, 1);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('bank-river', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('bank-river', 4, 4, 'exact', NULL);
 
 		-- Target: vault (shares valuable + secure with bank-money)
 		INSERT INTO synsets VALUES ('tgt-vault', 'n', 'secure storage room');
 		INSERT INTO lemmas VALUES ('vault', 'tgt-vault');
-		INSERT INTO synset_properties_curated VALUES ('tgt-vault', 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt-vault', 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-vault', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-vault', 2, 2, 'exact', NULL);
 
 		-- Target: stream (shares wet + flowing with bank-river)
 		INSERT INTO synsets VALUES ('tgt-stream', 'n', 'small river');
 		INSERT INTO lemmas VALUES ('stream', 'tgt-stream');
-		INSERT INTO synset_properties_curated VALUES ('tgt-stream', 3, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt-stream', 4, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-stream', 3, 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt-stream', 4, 4, 'exact', NULL);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -313,9 +386,11 @@ func setupSynsetIDTestDB(t *testing.T) *sql.DB {
 		CREATE TABLE synset_properties_curated (
 			synset_id TEXT NOT NULL,
 			vocab_id INTEGER NOT NULL,
+			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
-			PRIMARY KEY (synset_id, vocab_id)
+			salience_sum REAL NOT NULL DEFAULT 1.0,
+			PRIMARY KEY (synset_id, cluster_id)
 		);
 
 		-- Lemma "tyranny" maps to two synsets
@@ -332,9 +407,9 @@ func setupSynsetIDTestDB(t *testing.T) *sql.DB {
 		INSERT INTO property_vocab_curated VALUES (10, 'v1', 'authoritarian', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (11, 'v2', 'controlling', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (12, 'v3', 'unjust', 'a', 1);
-		INSERT INTO synset_properties_curated VALUES ('syn-curated', 10, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-curated', 11, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('syn-curated', 12, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-curated', 10, 10, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-curated', 11, 11, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('syn-curated', 12, 12, 'exact', NULL);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -426,15 +501,26 @@ func setupLimitTestDB(t *testing.T) *sql.DB {
 			polysemy INTEGER NOT NULL
 		);
 
+		CREATE TABLE vocab_clusters (
+			vocab_id         INTEGER PRIMARY KEY,
+			cluster_id       INTEGER NOT NULL,
+			is_representative INTEGER NOT NULL DEFAULT 0,
+			is_singleton     INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX idx_vc_cluster_limit ON vocab_clusters(cluster_id);
+
 		CREATE TABLE synset_properties_curated (
 			synset_id TEXT NOT NULL,
 			vocab_id INTEGER NOT NULL,
+			cluster_id INTEGER NOT NULL,
 			snap_method TEXT NOT NULL,
 			snap_score REAL,
-			PRIMARY KEY (synset_id, vocab_id)
+			salience_sum REAL NOT NULL DEFAULT 1.0,
+			PRIMARY KEY (synset_id, cluster_id)
 		);
 		CREATE INDEX idx_spc_synset2 ON synset_properties_curated(synset_id);
 		CREATE INDEX idx_spc_vocab2 ON synset_properties_curated(vocab_id);
+		CREATE INDEX idx_spc_cluster2 ON synset_properties_curated(cluster_id);
 
 		CREATE TABLE property_antonyms (
 			vocab_id_a INTEGER NOT NULL,
@@ -442,37 +528,46 @@ func setupLimitTestDB(t *testing.T) *sql.DB {
 			PRIMARY KEY (vocab_id_a, vocab_id_b)
 		);
 
-		-- Curated vocab
+		CREATE TABLE cluster_antonyms (
+			cluster_id_a INTEGER NOT NULL,
+			cluster_id_b INTEGER NOT NULL,
+			PRIMARY KEY (cluster_id_a, cluster_id_b)
+		);
+
+		-- Curated vocab (all singletons)
 		INSERT INTO property_vocab_curated VALUES (1, 'v1', 'hot', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (2, 'v2', 'bright', 'a', 1);
 		INSERT INTO property_vocab_curated VALUES (3, 'v3', 'loud', 'a', 1);
+		INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+		INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
+		INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
 
 		-- Source: src (props: hot, bright, loud)
 		INSERT INTO synsets VALUES ('src', 'n', 'source concept');
 		INSERT INTO lemmas VALUES ('source', 'src');
-		INSERT INTO synset_properties_curated VALUES ('src', 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('src', 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('src', 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('src', 3, 3, 'exact', NULL);
 
 		-- tgt_a: shares hot+bright+loud (score 3), has 3 lemmas
 		INSERT INTO synsets VALUES ('tgt_a', 'n', 'target A');
 		INSERT INTO lemmas VALUES ('alpha1', 'tgt_a');
 		INSERT INTO lemmas VALUES ('alpha2', 'tgt_a');
 		INSERT INTO lemmas VALUES ('alpha3', 'tgt_a');
-		INSERT INTO synset_properties_curated VALUES ('tgt_a', 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt_a', 2, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt_a', 3, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_a', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_a', 2, 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_a', 3, 3, 'exact', NULL);
 
 		-- tgt_b: shares hot+bright (score 2), 1 lemma
 		INSERT INTO synsets VALUES ('tgt_b', 'n', 'target B');
 		INSERT INTO lemmas VALUES ('beta', 'tgt_b');
-		INSERT INTO synset_properties_curated VALUES ('tgt_b', 1, 'exact', NULL);
-		INSERT INTO synset_properties_curated VALUES ('tgt_b', 2, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_b', 1, 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_b', 2, 2, 'exact', NULL);
 
 		-- tgt_c: shares hot (score 1), 1 lemma
 		INSERT INTO synsets VALUES ('tgt_c', 'n', 'target C');
 		INSERT INTO lemmas VALUES ('gamma', 'tgt_c');
-		INSERT INTO synset_properties_curated VALUES ('tgt_c', 1, 'exact', NULL);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES ('tgt_c', 1, 1, 'exact', NULL);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -496,7 +591,170 @@ func TestGetForgeMatchesCurated_LimitCountsUniqueSynsets(t *testing.T) {
 	if len(matches) != 3 {
 		t.Errorf("expected 3 unique synsets, got %d", len(matches))
 		for _, m := range matches {
-			t.Logf("  %s (shared=%d)", m.SynsetID, m.SharedCount)
+			t.Logf("  %s (salience_sum=%.2f)", m.SynsetID, m.SalienceSum)
 		}
+	}
+}
+
+// --- Lemma embedding tests ---
+
+// makeLemmaEmbeddingBlob creates a 300-dimensional embedding BLOB from the
+// given float32 values. Remaining dimensions are zero-filled.
+func makeLemmaEmbeddingBlob(vals ...float32) []byte {
+	buf := make([]byte, 300*4) // 300 floats * 4 bytes
+	for i := 0; i < len(vals) && i < 300; i++ {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(vals[i]))
+	}
+	return buf
+}
+
+func setupLemmaEmbeddingTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = db.Exec(`CREATE TABLE lemma_embeddings (lemma TEXT PRIMARY KEY, embedding BLOB NOT NULL)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return db
+}
+
+func TestGetLemmaEmbedding(t *testing.T) {
+	db := setupLemmaEmbeddingTestDB(t)
+	defer db.Close()
+
+	blob := makeLemmaEmbeddingBlob(0.1, 0.2, 0.3)
+	_, err := db.Exec(`INSERT INTO lemma_embeddings VALUES (?, ?)`, "anger", blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vec, err := GetLemmaEmbedding(db, "anger")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vec == nil {
+		t.Fatal("expected non-nil embedding")
+	}
+	if len(vec) != 300 {
+		t.Fatalf("expected 300 floats, got %d", len(vec))
+	}
+
+	// Verify the first three values match what we inserted
+	const epsilon = 1e-6
+	if diff := vec[0] - 0.1; diff < -epsilon || diff > epsilon {
+		t.Errorf("vec[0]: got %f, want 0.1", vec[0])
+	}
+	if diff := vec[1] - 0.2; diff < -epsilon || diff > epsilon {
+		t.Errorf("vec[1]: got %f, want 0.2", vec[1])
+	}
+	if diff := vec[2] - 0.3; diff < -epsilon || diff > epsilon {
+		t.Errorf("vec[2]: got %f, want 0.3", vec[2])
+	}
+
+	// Remaining dimensions should be zero
+	if vec[3] != 0 {
+		t.Errorf("vec[3]: got %f, want 0", vec[3])
+	}
+}
+
+func TestGetLemmaEmbedding_Missing(t *testing.T) {
+	db := setupLemmaEmbeddingTestDB(t)
+	defer db.Close()
+
+	vec, err := GetLemmaEmbedding(db, "nonexistent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vec != nil {
+		t.Errorf("expected nil for missing lemma, got %v", vec)
+	}
+}
+
+func TestGetLemmaEmbedding_NoTable(t *testing.T) {
+	// DB without lemma_embeddings table
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Create a dummy table so the DB file is valid, but no lemma_embeddings
+	_, err = db.Exec(`CREATE TABLE synsets (synset_id TEXT PRIMARY KEY)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vec, err := GetLemmaEmbedding(db, "anger")
+	if err != nil {
+		t.Fatalf("expected graceful degradation, got error: %v", err)
+	}
+	if vec != nil {
+		t.Errorf("expected nil for missing table, got %v", vec)
+	}
+}
+
+func TestGetLemmaEmbeddingsBatch(t *testing.T) {
+	db := setupLemmaEmbeddingTestDB(t)
+	defer db.Close()
+
+	// Insert embeddings for anger, fire, hope
+	angerBlob := makeLemmaEmbeddingBlob(0.1, 0.2, 0.3)
+	fireBlob := makeLemmaEmbeddingBlob(0.4, 0.5, 0.6)
+	hopeBlob := makeLemmaEmbeddingBlob(0.7, 0.8, 0.9)
+
+	_, err := db.Exec(`INSERT INTO lemma_embeddings VALUES (?, ?)`, "anger", angerBlob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO lemma_embeddings VALUES (?, ?)`, "fire", fireBlob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO lemma_embeddings VALUES (?, ?)`, "hope", hopeBlob)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := GetLemmaEmbeddingsBatch(db, []string{"anger", "fire", "missing"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// anger and fire should be present
+	if _, ok := result["anger"]; !ok {
+		t.Error("expected 'anger' in result map")
+	}
+	if _, ok := result["fire"]; !ok {
+		t.Error("expected 'fire' in result map")
+	}
+
+	// missing should be absent
+	if _, ok := result["missing"]; ok {
+		t.Error("expected 'missing' to be absent from result map")
+	}
+
+	// Verify values
+	const epsilon = 1e-6
+	if diff := result["anger"][0] - 0.1; diff < -epsilon || diff > epsilon {
+		t.Errorf("anger[0]: got %f, want 0.1", result["anger"][0])
+	}
+	if diff := result["fire"][0] - 0.4; diff < -epsilon || diff > epsilon {
+		t.Errorf("fire[0]: got %f, want 0.4", result["fire"][0])
+	}
+
+	// Verify dimension count
+	if len(result["anger"]) != 300 {
+		t.Errorf("anger embedding: expected 300 floats, got %d", len(result["anger"]))
 	}
 }

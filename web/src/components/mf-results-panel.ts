@@ -136,6 +136,53 @@ export class MfResultsPanel extends LitElement {
     .word-chip.hypernym { color: #8b6f47; }
     .word-chip.hyponym { color: #6a8b6f; }
     .word-chip.similar { color: #7a6a8b; }
+    .word-chip.collocation { color: #8ba4b8; }
+    .word-chip.antonym { color: #b88b8b; }
+
+    .usage-example {
+      font-style: italic;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      color: var(--colour-text-secondary, #a89f94);
+      margin-bottom: var(--space-sm, 0.5rem);
+      padding-left: var(--space-sm, 0.5rem);
+      border-left: 2px solid rgba(212, 175, 55, 0.3);
+    }
+
+    .meta-badges {
+      display: flex;
+      gap: var(--space-xs, 0.25rem);
+      margin-bottom: var(--space-xs, 0.25rem);
+    }
+
+    .meta-badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      padding: 1px 6px;
+      border-radius: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .meta-badge.register {
+      background: rgba(139, 164, 184, 0.2);
+      color: #8ba4b8;
+    }
+
+    .meta-badge.connotation-positive {
+      background: rgba(106, 139, 111, 0.2);
+      color: #8bb89a;
+    }
+
+    .meta-badge.connotation-neutral {
+      background: rgba(168, 159, 148, 0.2);
+      color: #a89f94;
+    }
+
+    .meta-badge.connotation-negative {
+      background: rgba(184, 139, 139, 0.2);
+      color: #b88b8b;
+    }
 
     .word-chip:focus {
       outline: 1px solid var(--colour-accent-gold, #d4af37);
@@ -243,11 +290,27 @@ export class MfResultsPanel extends LitElement {
     `
   }
 
+  private renderMetaBadges(sense: Sense) {
+    const badges = []
+    if (sense.register && sense.register !== 'neutral') {
+      badges.push(html`<span class="meta-badge register">${getString(`register-${sense.register}`)}</span>`)
+    }
+    if (sense.connotation && sense.connotation !== 'neutral') {
+      badges.push(html`<span class="meta-badge connotation-${sense.connotation}">${getString(`connotation-${sense.connotation}`)}</span>`)
+    }
+    return badges.length ? html`<div class="meta-badges">${badges}</div>` : nothing
+  }
+
   private renderSense(sense: Sense) {
     return html`
       <div class="sense">
         <span class="pos-badge">${sense.pos}</span>
+        ${this.renderMetaBadges(sense)}
         <div class="definition">${sense.definition}</div>
+
+        ${sense.usage_example
+          ? html`<div class="usage-example">${sense.usage_example}</div>`
+          : nothing}
 
         ${sense.synonyms.length
           ? html`
@@ -281,6 +344,24 @@ export class MfResultsPanel extends LitElement {
               <div class="section-label">${getString('results-similar')}</div>
               <div class="word-list">
                 ${sense.relations.similar.map(s => this.renderWordChip(s, 'similar'))}
+              </div>
+            `
+          : nothing}
+
+        ${sense.relations.antonyms.length
+          ? html`
+              <div class="section-label">${getString('results-antonyms')}</div>
+              <div class="word-list">
+                ${sense.relations.antonyms.map(a => this.renderWordChip(a, 'antonym'))}
+              </div>
+            `
+          : nothing}
+
+        ${sense.collocations?.length
+          ? html`
+              <div class="section-label">${getString('results-collocations')}</div>
+              <div class="word-list">
+                ${sense.collocations.map(c => this.renderWordChip(c, 'collocation'))}
               </div>
             `
           : nothing}

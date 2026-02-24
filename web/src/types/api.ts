@@ -10,6 +10,7 @@ export interface Relations {
   hypernyms: RelatedWord[]
   hyponyms: RelatedWord[]
   similar: RelatedWord[]
+  antonyms: RelatedWord[]
 }
 
 /** Mirrors Go thesaurus.Sense */
@@ -17,8 +18,12 @@ export interface Sense {
   synset_id: string
   pos: string
   definition: string
+  register?: string
+  connotation?: string
+  usage_example?: string
   synonyms: RelatedWord[]
   relations: Relations
+  collocations?: RelatedWord[]
 }
 
 /** Mirrors Go thesaurus.LookupResult */

@@ -38,15 +38,20 @@ type Relations struct {
 	Hypernyms []RelatedWord `json:"hypernyms"`
 	Hyponyms  []RelatedWord `json:"hyponyms"`
 	Similar   []RelatedWord `json:"similar"`
+	Antonyms  []RelatedWord `json:"antonyms"`
 }
 
 // Sense represents a single word sense (synset) with its synonyms and relations.
 type Sense struct {
-	SynsetID   string    `json:"synset_id"`
-	POS        string    `json:"pos"`
-	Definition string    `json:"definition"`
-	Synonyms   []RelatedWord `json:"synonyms"`
-	Relations  Relations `json:"relations"`
+	SynsetID     string        `json:"synset_id"`
+	POS          string        `json:"pos"`
+	Definition   string        `json:"definition"`
+	Register     string        `json:"register,omitempty"`
+	Connotation  string        `json:"connotation,omitempty"`
+	UsageExample string        `json:"usage_example,omitempty"`
+	Synonyms     []RelatedWord `json:"synonyms"`
+	Relations    Relations     `json:"relations"`
+	Collocations []RelatedWord `json:"collocations,omitempty"`
 }
 
 // LookupResult is the full response for a thesaurus lookup.
@@ -89,6 +94,18 @@ func GetLookup(database *sql.DB, lemma string) (*LookupResult, error) {
 	if err := attachRarity(database, result); err != nil {
 		// Non-fatal: rarity is optional enrichment
 		slog.Warn("attachRarity failed", "lemma", lemma, "err", err)
+	}
+
+	// Query 4: enrichment metadata (register, connotation, usage_example)
+	if err := attachEnrichment(database, result.Senses, synsetIDs, senseIndex); err != nil {
+		// Non-fatal: enrichment is optional
+		slog.Warn("attachEnrichment failed", "lemma", lemma, "err", err)
+	}
+
+	// Query 5: collocations from syntagms
+	if err := attachCollocations(database, result.Senses, synsetIDs, senseIndex); err != nil {
+		// Non-fatal: collocations are optional
+		slog.Warn("attachCollocations failed", "lemma", lemma, "err", err)
 	}
 
 	return result, nil
@@ -134,6 +151,7 @@ func querySenses(database *sql.DB, lemma string) ([]Sense, error) {
 			Hypernyms: []RelatedWord{},
 			Hyponyms:  []RelatedWord{},
 			Similar:   []RelatedWord{},
+			Antonyms:  []RelatedWord{},
 		}
 		senses = append(senses, s)
 	}
@@ -264,6 +282,130 @@ func attachRarity(database *sql.DB, result *LookupResult) error {
 	}
 
 	return nil
+}
+
+// attachEnrichment fetches register, connotation, and usage_example from the
+// enrichment table and populates the corresponding fields on each sense in-place.
+// Non-fatal: returns an error but callers should log and continue.
+func attachEnrichment(database *sql.DB, senses []Sense, synsetIDs []string, senseIndex map[string]int) error {
+	if len(synsetIDs) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(synsetIDs))
+	args := make([]interface{}, len(synsetIDs))
+	for i, id := range synsetIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := `SELECT synset_id, connotation, register, usage_example
+		FROM enrichment
+		WHERE synset_id IN (` + strings.Join(placeholders, ",") + `)`
+
+	rows, err := database.Query(query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var synsetID string
+		var connotation, register, usageExample sql.NullString
+		if err := rows.Scan(&synsetID, &connotation, &register, &usageExample); err != nil {
+			continue
+		}
+		idx, ok := senseIndex[synsetID]
+		if !ok {
+			continue
+		}
+		if connotation.Valid {
+			senses[idx].Connotation = connotation.String
+		}
+		if register.Valid {
+			senses[idx].Register = register.String
+		}
+		if usageExample.Valid {
+			senses[idx].UsageExample = usageExample.String
+		}
+	}
+	return rows.Err()
+}
+
+// maxCollocationsPerSense caps the number of collocations returned per sense.
+const maxCollocationsPerSense = 10
+
+// attachCollocations queries the syntagms table to find collocation partners
+// for each sense and populates the Collocations field in-place.
+// Collocations are deduplicated by word and capped at maxCollocationsPerSense per sense.
+// Non-fatal: returns an error but callers should log and continue.
+func attachCollocations(database *sql.DB, senses []Sense, synsetIDs []string, senseIndex map[string]int) error {
+	if len(synsetIDs) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(synsetIDs))
+	args := make([]interface{}, 0, len(synsetIDs)*2)
+	for i, id := range synsetIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	inClause := strings.Join(placeholders, ",")
+
+	// Duplicate the args for the second half of the UNION
+	args = append(args, args...)
+
+	query := `
+		SELECT source_id, target_id, lemma FROM (
+			SELECT st.synset1id AS source_id, st.synset2id AS target_id, l.lemma
+			FROM syntagms st
+			JOIN lemmas l ON l.synset_id = st.synset2id
+			WHERE st.synset1id IN (` + inClause + `)
+			UNION
+			SELECT st.synset2id AS source_id, st.synset1id AS target_id, l.lemma
+			FROM syntagms st
+			JOIN lemmas l ON l.synset_id = st.synset1id
+			WHERE st.synset2id IN (` + inClause + `)
+		)
+		ORDER BY source_id, lemma
+	`
+
+	rows, err := database.Query(query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	// Track seen words per sense for deduplication
+	seenPerSense := make(map[int]map[string]bool)
+
+	for rows.Next() {
+		var sourceID, targetID, word string
+		if err := rows.Scan(&sourceID, &targetID, &word); err != nil {
+			continue
+		}
+		idx, ok := senseIndex[sourceID]
+		if !ok {
+			continue
+		}
+
+		if seenPerSense[idx] == nil {
+			seenPerSense[idx] = make(map[string]bool)
+		}
+		if seenPerSense[idx][word] {
+			continue
+		}
+		if len(senses[idx].Collocations) >= maxCollocationsPerSense {
+			continue
+		}
+
+		seenPerSense[idx][word] = true
+		senses[idx].Collocations = append(senses[idx].Collocations, RelatedWord{
+			Word:     word,
+			SynsetID: targetID,
+		})
+	}
+	return rows.Err()
 }
 
 // AutocompleteSuggestion represents a single autocomplete result with

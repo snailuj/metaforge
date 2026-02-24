@@ -1,3 +1,12 @@
+-- DEPRECATED 22nd Feb 2026
+-- NOTE
+-- DEPRECATED 22nd Feb 2026
+--
+-- This file is not maintained and may be out of date.
+-- Canonical DDL: data-pipeline/SCHEMA.sql
+-- Full baseline dump: data-pipeline/output/PRE_ENRICH.sql
+--
+-- -------------------------------------------------------------------------------- --
 -- Schema v2: OEWN + VerbNet (selective) + SyntagNet + FrameNet frames + Property vocabulary
 --
 -- Migration from sch.v1:
@@ -242,6 +251,15 @@ CREATE TABLE IF NOT EXISTS synset_centroids (
     synset_id TEXT PRIMARY KEY,
     centroid BLOB NOT NULL,
     property_count INTEGER NOT NULL
+);
+
+-- Per-lemma FastText embeddings for cross-domain distance computation.
+-- Populated by store_lemma_embeddings() in the enrichment pipeline.
+-- Used by the Go API to compute domain_distance between source and candidate
+-- lemmas, enabling cross-domain metaphor boosting via composite scoring.
+CREATE TABLE IF NOT EXISTS lemma_embeddings (
+    lemma TEXT PRIMARY KEY,
+    embedding BLOB NOT NULL  -- 300 × float32 = 1200 bytes
 );
 
 -- ============================================================

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/snailuj/metaforge/internal/db"
+	"github.com/snailuj/metaforge/internal/embeddings"
 	"github.com/snailuj/metaforge/internal/forge"
 	"github.com/snailuj/metaforge/internal/thesaurus"
 )
@@ -35,7 +36,7 @@ func NewHandler(dbPath string) (*Handler, error) {
 	}
 
 	// Validate required tables exist
-	requiredTables := []string{"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated", "frequencies"}
+	requiredTables := []string{"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated", "frequencies", "cluster_antonyms", "vocab_clusters", "lemma_embeddings"}
 	for _, table := range requiredTables {
 		var count int
 		err := database.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)
@@ -86,26 +87,59 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	candidates, err := db.GetForgeMatchesCuratedByLemma(h.database, word, limit)
-	if err != nil {
-		slog.Error("matching failed", "word", word, "err", err)
+	if errors.Is(err, db.ErrLemmaNotFound) {
 		http.Error(w, `{"error": "word not found or has no curated properties"}`, http.StatusNotFound)
 		return
+	}
+	if err != nil {
+		slog.Error("matching failed", "word", word, "err", err)
+		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch source lemma embedding for cross-domain distance
+	sourceEmb, err := db.GetLemmaEmbedding(h.database, word)
+	if err != nil {
+		slog.Warn("source embedding lookup failed", "word", word, "err", err)
+	}
+
+	// Batch-fetch candidate embeddings
+	candidateWords := make([]string, len(candidates))
+	for i, c := range candidates {
+		candidateWords[i] = c.Word
+	}
+	candidateEmbs, err := db.GetLemmaEmbeddingsBatch(h.database, candidateWords)
+	if err != nil {
+		slog.Warn("candidate embeddings batch lookup failed", "word", word, "err", err)
 	}
 
 	var matches []forge.Match
 	for _, c := range candidates {
-		tier := forge.ClassifyTierCurated(c.SharedCount, c.ContrastCount)
+		// Compute domain distance if both embeddings available
+		var domainDist float64
+		if sourceEmb != nil && candidateEmbs != nil {
+			if candEmb, ok := candidateEmbs[c.Word]; ok {
+				domainDist = embeddings.CosineDistance(sourceEmb, candEmb)
+			}
+		}
+
+		compositeScore := forge.CompositeScore(c.SalienceSum, domainDist)
+		tier := forge.ClassifyTierCurated(c.SalienceSum, c.ContrastCount)
+
 		matches = append(matches, forge.Match{
 			SynsetID:         c.SynsetID,
 			Word:             c.Word,
 			Definition:       c.Definition,
 			SharedProperties: c.SharedProps,
-			OverlapCount:     c.SharedCount,
+			OverlapCount:     int(c.SalienceSum), // backward compat
+			SalienceSum:      c.SalienceSum,
 			Tier:             tier,
 			TierName:         tier.String(),
 			SourceSynsetID:   c.SourceSynsetID,
 			SourceDefinition: c.SourceDefinition,
 			SourcePOS:        c.SourcePOS,
+			DomainDistance:    domainDist,
+			CompositeScore:   compositeScore,
 		})
 	}
 

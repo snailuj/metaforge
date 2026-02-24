@@ -65,9 +65,9 @@ func TestForgeSuggestWithThreshold(t *testing.T) {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	// Verify threshold is included in response
-	if resp.Threshold != 0.5 {
-		t.Errorf("Expected threshold=0.5, got %f", resp.Threshold)
+	// Threshold was removed from the curated API — just verify response parsed
+	if resp.Source == "" {
+		t.Error("Expected source word in response")
 	}
 }
 
@@ -131,7 +131,7 @@ func TestForgeSuggestUnknownWord(t *testing.T) {
 	}
 }
 
-func TestForgeSuggestDefaultThresholdAndLimit(t *testing.T) {
+func TestForgeSuggestDefaultLimitAndLimit(t *testing.T) {
 	h, err := NewHandler(testDBPath)
 	if err != nil {
 		t.Fatalf("Failed to create handler: %v", err)
@@ -151,11 +151,6 @@ func TestForgeSuggestDefaultThresholdAndLimit(t *testing.T) {
 	var resp SuggestResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
-	}
-
-	// Verify default threshold
-	if resp.Threshold != DefaultThreshold {
-		t.Errorf("Expected default threshold=%f, got %f", DefaultThreshold, resp.Threshold)
 	}
 
 	// Verify limit is applied (max 50 suggestions by default)
@@ -186,9 +181,9 @@ func TestForgeSuggestInvalidThreshold(t *testing.T) {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	// Should use default threshold for invalid value
-	if resp.Threshold != DefaultThreshold {
-		t.Errorf("Expected default threshold for invalid input, got %f", resp.Threshold)
+	// Threshold was removed from curated API — just verify response parsed
+	if resp.Source == "" {
+		t.Error("Expected source word in response")
 	}
 }
 
@@ -242,9 +237,9 @@ func TestForgeSuggestNonNumericThreshold(t *testing.T) {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	// Should use default threshold for non-numeric input
-	if resp.Threshold != DefaultThreshold {
-		t.Errorf("Expected default threshold=%f, got %f", DefaultThreshold, resp.Threshold)
+	// Threshold was removed from curated API — just verify response parsed
+	if resp.Source == "" {
+		t.Error("Expected source word in response")
 	}
 }
 
@@ -298,9 +293,9 @@ func TestForgeSuggestNegativeThreshold(t *testing.T) {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	// Should use default threshold for negative value
-	if resp.Threshold != DefaultThreshold {
-		t.Errorf("Expected default threshold=%f, got %f", DefaultThreshold, resp.Threshold)
+	// Threshold was removed from curated API — just verify response parsed
+	if resp.Source == "" {
+		t.Error("Expected source word in response")
 	}
 }
 
@@ -494,8 +489,11 @@ func TestNewHandler_RejectsDBMissingFrequencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp DB: %v", err)
 	}
-	// Tables that NewHandler already validates (minus frequencies).
-	for _, tbl := range []string{"synsets", "lemmas", "synset_properties", "property_vocabulary", "synset_centroids"} {
+	// All required tables EXCEPT frequencies.
+	for _, tbl := range []string{
+		"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated",
+		"cluster_antonyms", "vocab_clusters", "lemma_embeddings",
+	} {
 		if _, err := database.Exec("CREATE TABLE " + tbl + " (id INTEGER)"); err != nil {
 			t.Fatalf("failed to create table %s: %v", tbl, err)
 		}
@@ -512,4 +510,31 @@ func TestNewHandler_RejectsDBMissingFrequencies(t *testing.T) {
 
 	// Clean up
 	os.Remove(dbPath)
+}
+
+func TestNewHandler_RejectsDBMissingClusterAntonyms(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	database, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("failed to create temp DB: %v", err)
+	}
+	// All required tables EXCEPT cluster_antonyms.
+	for _, tbl := range []string{
+		"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated",
+		"frequencies", "vocab_clusters", "lemma_embeddings",
+	} {
+		if _, err := database.Exec("CREATE TABLE " + tbl + " (id INTEGER)"); err != nil {
+			t.Fatalf("failed to create table %s: %v", tbl, err)
+		}
+	}
+	database.Close()
+
+	_, err = NewHandler(dbPath)
+	if err == nil {
+		t.Fatal("expected error when cluster_antonyms table is missing, got nil")
+	}
+	if !strings.Contains(err.Error(), "cluster_antonyms") {
+		t.Errorf("error should mention 'cluster_antonyms', got: %v", err)
+	}
 }

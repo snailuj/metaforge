@@ -500,3 +500,84 @@ func TestAutocompletePrefix_CaseInsensitive(t *testing.T) {
 		t.Error("expected 'fire' among suggestions for uppercase prefix 'FIR'")
 	}
 }
+
+func TestGetLookup_EnrichmentFields(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	result, err := GetLookup(database, "fire")
+	if err != nil {
+		t.Fatalf("GetLookup(fire) returned error: %v", err)
+	}
+
+	// Verify that each sense has the enrichment fields (may be empty for v1 data).
+	// The struct must expose Register, Connotation, and UsageExample.
+	for i, sense := range result.Senses {
+		// Access the fields to confirm they exist on the struct.
+		// With v1 data these are expected to be empty strings.
+		_ = sense.Register
+		_ = sense.Connotation
+		_ = sense.UsageExample
+		// Antonyms must be initialised as an empty slice, not nil.
+		if sense.Relations.Antonyms == nil {
+			t.Errorf("sense[%d] Relations.Antonyms should be initialised (empty slice), got nil", i)
+		}
+	}
+
+	// If any enrichment data IS present, validate its values.
+	validRegisters := map[string]bool{"": true, "formal": true, "neutral": true, "informal": true, "slang": true}
+	validConnotations := map[string]bool{"": true, "positive": true, "neutral": true, "negative": true}
+	for i, sense := range result.Senses {
+		if !validRegisters[sense.Register] {
+			t.Errorf("sense[%d] has invalid Register %q", i, sense.Register)
+		}
+		if !validConnotations[sense.Connotation] {
+			t.Errorf("sense[%d] has invalid Connotation %q", i, sense.Connotation)
+		}
+	}
+}
+
+func TestGetLookup_Collocations(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	result, err := GetLookup(database, "fire")
+	if err != nil {
+		t.Fatalf("GetLookup(fire) returned error: %v", err)
+	}
+
+	// "fire" has 324 syntagms — at least some senses must have collocations.
+	hasCollocations := false
+	for _, sense := range result.Senses {
+		if len(sense.Collocations) > 0 {
+			hasCollocations = true
+			// Verify each collocation has required fields.
+			for _, col := range sense.Collocations {
+				if col.Word == "" {
+					t.Errorf("collocation in sense %s has empty Word", sense.SynsetID)
+				}
+				if col.SynsetID == "" {
+					t.Errorf("collocation in sense %s has empty SynsetID", sense.SynsetID)
+				}
+			}
+			// No more than 10 collocations per sense.
+			if len(sense.Collocations) > 10 {
+				t.Errorf("sense %s has %d collocations, expected at most 10", sense.SynsetID, len(sense.Collocations))
+			}
+		}
+	}
+	if !hasCollocations {
+		t.Error("expected at least one sense of 'fire' to have collocations")
+	}
+
+	// Collocations must not contain duplicate words within a sense.
+	for _, sense := range result.Senses {
+		seen := map[string]bool{}
+		for _, col := range sense.Collocations {
+			if seen[col.Word] {
+				t.Errorf("sense %s has duplicate collocation word %q", sense.SynsetID, col.Word)
+			}
+			seen[col.Word] = true
+		}
+	}
+}

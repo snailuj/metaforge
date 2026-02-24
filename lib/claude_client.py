@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import time
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -70,6 +71,9 @@ def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
     return _strip_fences(text.strip())
 
 
+_EMPTY_MCP = str(Path(__file__).parent / "empty_mcp.json")
+
+
 def _invoke(prompt: str, model: str, verbose: bool = False) -> str:
     """Call claude CLI and return the parsed result text."""
     if verbose:
@@ -84,11 +88,13 @@ def _invoke(prompt: str, model: str, verbose: bool = False) -> str:
             "--model", model,
             "--max-turns", "1",
             "--no-session-persistence",
+            "--strict-mcp-config",
+            "--mcp-config", _EMPTY_MCP,
         ],
         input=prompt,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=300,
         env=env,
     )
     if verbose:
