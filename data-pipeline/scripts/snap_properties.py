@@ -10,6 +10,7 @@ Usage:
     python snap_properties.py --db PATH [--threshold 0.7]
 """
 import argparse
+import json
 import sqlite3
 import struct
 import sys
@@ -151,6 +152,8 @@ def snap_properties(
     stats = {"exact": 0, "morphological": 0, "embedding": 0, "dropped": 0}
     # accumulated: key=(synset_id, cluster_id) -> (vocab_id, snap_method, snap_score, salience_sum)
     accumulated: dict[tuple[str, int], tuple[int, str, float | None, float]] = {}
+    # Track dropped properties for diagnostics
+    dropped_props: list[dict] = []
 
     # Collect unmatched properties for batched embedding lookup
     # (index in synset_props, synset_id, embedding_bytes, salience)
@@ -200,6 +203,8 @@ def snap_properties(
             embedding_candidates.append((i, sid, prop_emb, salience))
         else:
             stats["dropped"] += 1
+            dropped_props.append({"text": prop_text, "synset_id": sid,
+                                  "salience": salience, "reason": "no_embedding"})
 
     # Stage 3: Batch embedding similarity via numpy
     # Each candidate gets a single matrix-vector dot product: O(V × 300)
@@ -219,6 +224,8 @@ def snap_properties(
         norm = np.linalg.norm(vec)
         if norm == 0:
             stats["dropped"] += 1
+            dropped_props.append({"text": synset_props[idx][1], "synset_id": sid,
+                                  "salience": salience, "reason": "zero_norm"})
             continue
         vec /= norm
 
@@ -239,6 +246,9 @@ def snap_properties(
                 stats["embedding"] += 1
         else:
             stats["dropped"] += 1
+            dropped_props.append({"text": synset_props[idx][1], "synset_id": sid,
+                                  "salience": salience, "reason": "below_threshold",
+                                  "best_score": best_score})
 
     inserts = [
         (sid, vid, cid, method, score, sal_sum)
@@ -263,6 +273,14 @@ def snap_properties(
     print(f"  Snapped {total} property links:")
     print(f"    exact: {stats['exact']}, morphological: {stats['morphological']}, "
           f"embedding: {stats['embedding']}, dropped: {stats['dropped']}")
+
+    if dropped_props:
+        db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+        dropped_path = Path(db_path).parent / "snap_dropped.json"
+        with open(dropped_path, "w") as f:
+            json.dump(dropped_props, f, indent=2)
+        print(f"    Dropped properties written to {dropped_path}")
+
     return stats
 
 
