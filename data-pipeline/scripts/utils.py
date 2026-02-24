@@ -28,6 +28,10 @@ MULTILEX_XLSX = MULTILEX_DIR / "Multilex English.xlsx"
 SUBTLEX_FLEMMAS_XLSX = SUBTLEX_DIR / "SUBTLEX-UK-flemmas.xlsx"
 SUBTLEX_UK_XLSX = SUBTLEX_DIR / "SUBTLEX-UK.xlsx"
 
+# Brysbaert concreteness ratings
+BRYSBAERT_CONCRETENESS_DIR = INPUT_DIR / "brysbaert-concreteness"
+BRYSBAERT_CONCRETENESS_TSV = BRYSBAERT_CONCRETENESS_DIR / "Concreteness_ratings_Brysbaert_et_al_BRM.txt"
+
 # Familiarity thresholds (from Brysbaert 2025, tuneable)
 FAMILIARITY_COMMON_THRESHOLD = 5.5   # >= 5.5 → common
 FAMILIARITY_UNUSUAL_THRESHOLD = 3.5  # >= 3.5 → unusual, below → rare
