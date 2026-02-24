@@ -94,7 +94,7 @@ def _invoke(prompt: str, model: str, verbose: bool = False) -> str:
         input=prompt,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=300,
         env=env,
     )
     if verbose:
