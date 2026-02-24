@@ -5,6 +5,7 @@
 data-pipeline/output/*.db
 data-pipeline/output/*.sql
 data-pipeline/raw/
+data-pipeline/input/brysbaert-concreteness/
 
 # Python virtual env
 *.venv/
