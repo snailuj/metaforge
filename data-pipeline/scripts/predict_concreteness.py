@@ -176,3 +176,113 @@ def run_model_shootout(
         "train_size": len(X_train),
         "test_size": len(X_test),
     }
+
+
+_MODEL_CLASSES = {
+    "Ridge": lambda params: Ridge(**params),
+    "SVR (RBF)": lambda params: SVR(kernel="rbf", **params),
+    "k-NN": lambda params: KNeighborsRegressor(**params),
+    "Random Forest": lambda params: RandomForestRegressor(**params),
+}
+
+
+def retrain_winner(
+    X: np.ndarray,
+    y: np.ndarray,
+    shootout_results: dict,
+) -> object:
+    """Reconstruct and refit the winning model from shootout results.
+
+    Uses ALL training data (no holdout) for maximum production accuracy.
+    The shootout JSON provides the model name and best hyperparameters.
+    """
+    name = shootout_results["best_model_name"]
+
+    if name not in _MODEL_CLASSES:
+        raise ValueError(f"Unknown model: {name!r}")
+
+    # Find the best_params for the winner
+    winner_entry = next(
+        (m for m in shootout_results["models"] if m["name"] == name), None
+    )
+    if winner_entry is None:
+        raise ValueError(f"Model {name!r} not found in shootout results")
+
+    params = winner_entry.get("best_params", {})
+    model = _MODEL_CLASSES[name](params)
+    model.fit(X, y)
+
+    log.info("Retrained %s on %d samples with params %s", name, len(y), params)
+    return model
+
+
+def fill_concreteness_gaps(
+    conn: sqlite3.Connection,
+    synset_embeddings: dict[str, np.ndarray],
+    model,
+) -> dict[str, int]:
+    """Predict concreteness for unrated synsets and write to DB.
+
+    Only fills synsets that:
+    - Have no existing score in synset_concreteness
+    - Have a synset embedding (at least one lemma in FastText)
+
+    Predictions are clamped to [1.0, 5.0] and stored with
+    source='fasttext_regression'.
+    """
+    scored = set(
+        r[0] for r in conn.execute(
+            "SELECT synset_id FROM synset_concreteness"
+        ).fetchall()
+    )
+
+    unscored_ids = []
+    unscored_vecs = []
+    for sid, vec in synset_embeddings.items():
+        if sid not in scored:
+            unscored_ids.append(sid)
+            unscored_vecs.append(vec)
+
+    if not unscored_vecs:
+        return {"predicted": 0, "already_scored": len(scored), "no_embedding": 0}
+
+    X = np.array(unscored_vecs)
+    predictions = model.predict(X)
+
+    # Clamp to valid Brysbaert range
+    predictions = np.clip(predictions, 1.0, 5.0)
+
+    rows = [
+        (sid, round(float(score), 4), "fasttext_regression")
+        for sid, score in zip(unscored_ids, predictions)
+    ]
+    conn.executemany(
+        "INSERT OR REPLACE INTO synset_concreteness (synset_id, score, source) VALUES (?, ?, ?)",
+        rows,
+    )
+    conn.commit()
+
+    all_synsets = set(synset_embeddings.keys())
+    no_embedding = len(all_synsets - scored - set(unscored_ids))
+
+    return {
+        "predicted": len(rows),
+        "already_scored": len(scored),
+        "no_embedding": no_embedding,
+    }
+
+
+def revert_concreteness_predictions(conn: sqlite3.Connection) -> dict[str, int]:
+    """Delete all fasttext_regression predictions, restoring Brysbaert-only state.
+
+    Idempotent — safe to call even if no regression predictions exist.
+    """
+    before = conn.execute("SELECT COUNT(*) FROM synset_concreteness").fetchone()[0]
+    conn.execute("DELETE FROM synset_concreteness WHERE source = 'fasttext_regression'")
+    conn.commit()
+    after = conn.execute("SELECT COUNT(*) FROM synset_concreteness").fetchone()[0]
+
+    deleted = before - after
+    log.info("Reverted: deleted %d regression predictions, %d Brysbaert retained", deleted, after)
+
+    return {"deleted": deleted, "brysbaert_retained": after}

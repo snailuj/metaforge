@@ -8,7 +8,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from predict_concreteness import build_synset_embeddings, build_training_data, run_model_shootout
+from predict_concreteness import (
+    build_synset_embeddings, build_training_data, run_model_shootout,
+    retrain_winner, fill_concreteness_gaps, revert_concreteness_predictions,
+)
 
 
 def _make_test_db():
@@ -186,3 +189,123 @@ def test_run_model_shootout_deterministic():
 
     for m1, m2 in zip(r1["models"], r2["models"]):
         assert m1["pearson_r"] == pytest.approx(m2["pearson_r"], abs=1e-6)
+
+
+def test_retrain_winner_from_shootout():
+    X, y = _make_synthetic_data()
+    shootout = run_model_shootout(X, y)
+
+    # Serialise and reconstruct — simulates reading from JSON
+    shootout_json = {
+        "best_model_name": shootout["best_model_name"],
+        "models": shootout["models"],
+    }
+    model = retrain_winner(X, y, shootout_json)
+
+    # Model should predict reasonable values
+    preds = model.predict(X[:5])
+    assert len(preds) == 5
+    for p in preds:
+        assert 0.0 <= p <= 6.0  # loose check — synthetic data
+
+
+def test_retrain_winner_unknown_model():
+    X, y = _make_synthetic_data()
+    bad_json = {
+        "best_model_name": "Nonexistent Model",
+        "models": [{"name": "Nonexistent Model", "best_params": {}}],
+    }
+    with pytest.raises(ValueError, match="Unknown model"):
+        retrain_winner(X, y, bad_json)
+
+
+def test_fill_concreteness_gaps():
+    conn = _make_test_db()
+    # synset 100 has Brysbaert score, 200 and 300 do not
+    conn.execute(
+        "INSERT INTO synset_concreteness VALUES ('100', 4.82, 'brysbaert')"
+    )
+    conn.commit()
+
+    vectors = _make_vectors()
+    embeddings = build_synset_embeddings(conn, vectors)
+
+    # Simple mock model that always predicts 3.0
+    class MockModel:
+        def predict(self, X):
+            return np.full(X.shape[0], 3.0)
+
+    stats = fill_concreteness_gaps(conn, embeddings, MockModel())
+
+    assert stats["predicted"] == 2  # synsets 200 and 300
+    assert stats["already_scored"] == 1  # synset 100
+
+    # Check DB — synsets 200 and 300 should now have predictions
+    rows = conn.execute(
+        "SELECT synset_id, score, source FROM synset_concreteness ORDER BY synset_id"
+    ).fetchall()
+    scored_ids = {r[0] for r in rows}
+    assert "200" in scored_ids
+    assert "300" in scored_ids
+
+    # Verify source is fasttext_regression
+    for sid, score, source in rows:
+        if sid != "100":
+            assert source == "fasttext_regression"
+            assert score == pytest.approx(3.0)
+
+
+def test_fill_concreteness_gaps_clamps_scores():
+    conn = _make_test_db()
+    conn.commit()
+
+    vectors = _make_vectors()
+    embeddings = build_synset_embeddings(conn, vectors)
+
+    # Model that predicts out-of-range values
+    class WildModel:
+        def predict(self, X):
+            return np.array([0.5, 6.0, 3.0])  # below 1, above 5, normal
+
+    stats = fill_concreteness_gaps(conn, embeddings, WildModel())
+
+    rows = conn.execute(
+        "SELECT score FROM synset_concreteness WHERE source = 'fasttext_regression' ORDER BY score"
+    ).fetchall()
+    scores = [r[0] for r in rows]
+    assert min(scores) >= 1.0
+    assert max(scores) <= 5.0
+
+
+def test_revert_concreteness_predictions():
+    conn = _make_test_db()
+    conn.executemany(
+        "INSERT INTO synset_concreteness VALUES (?, ?, ?)",
+        [
+            ("100", 4.82, "brysbaert"),
+            ("200", 3.50, "fasttext_regression"),
+            ("300", 2.10, "fasttext_regression"),
+        ],
+    )
+    conn.commit()
+
+    stats = revert_concreteness_predictions(conn)
+
+    assert stats["deleted"] == 2
+    assert stats["brysbaert_retained"] == 1
+
+    # Only Brysbaert rows remain
+    rows = conn.execute("SELECT synset_id, source FROM synset_concreteness").fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "100"
+    assert rows[0][1] == "brysbaert"
+
+
+def test_revert_idempotent():
+    conn = _make_test_db()
+    conn.execute("INSERT INTO synset_concreteness VALUES ('100', 4.82, 'brysbaert')")
+    conn.commit()
+
+    stats = revert_concreteness_predictions(conn)
+    assert stats["deleted"] == 0
+    assert stats["brysbaert_retained"] == 1
