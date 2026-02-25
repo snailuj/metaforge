@@ -43,6 +43,7 @@ MRR score + results JSON
 - **Curated vocabulary** (`property_vocab_curated`) — 35k canonical vocabulary entries built from WordNet by `build_vocab.py`. The least-polysemous lemma per synset. Independent of enrichment.
 - **Snapping** (`snap_properties.py`) — maps LLM-extracted properties to curated vocabulary entries via a 3-stage cascade: exact match → morphological normalisation → embedding cosine similarity → drop.
 - **Enrichment** — LLM extracts 10-15 semantic properties per synset. Stored as JSON, then imported into the DB by `enrich_pipeline.py`.
+- **Concreteness regression** (`predict_concreteness.py`) — trains Ridge/SVR/k-NN/Random Forest regressors on Brysbaert concreteness scores + FastText 300d embeddings. The winning model fills concreteness scores for unrated synsets (target: 80%+ coverage). Reversible via `evals.sh revert`.
 - **MRR evaluation** — queries the Go API's `/forge/suggest` endpoint against a set of known metaphor pairs. Measures how well the forge ranks known metaphorical targets.
 
 ## Operations
@@ -104,6 +105,23 @@ python data-pipeline/scripts/evaluate_mrr.py --enrichment FILE --port 9091 -v -o
 python data-pipeline/scripts/evaluate_mrr.py --enrich --size 700 --model sonnet --port 9091 -v -o results.json
 ```
 
+### 5. Concreteness Regression
+
+Predict concreteness scores for unrated synsets using FastText embeddings + scikit-learn regression. Three side-effect-free subcommands:
+
+```bash
+# Evaluate 4 models — writes JSON only, never touches the DB
+./data-pipeline/evals.sh shootout -o data-pipeline/output/concreteness_shootout.json
+
+# Fill gaps with the winning model — writes predictions to DB
+./data-pipeline/evals.sh fill --shootout data-pipeline/output/concreteness_shootout.json
+
+# Revert to Brysbaert-only state — deletes all regression predictions
+./data-pipeline/evals.sh revert
+```
+
+Run `./data-pipeline/evals.sh --help` for full argument reference.
+
 ## Skills
 
 - **`metaforge-pipeline-management`** — detailed workflow for the 4 operations above
@@ -118,6 +136,7 @@ python data-pipeline/scripts/evaluate_mrr.py --enrich --size 700 --model sonnet 
 | `export.sh` | VACUUM + dump enriched DB as `lexicon_v2.sql` |
 | `scripts/restore_db.sh` | Restore any SQL dump into a fresh DB |
 | `evolve_trials.sh` | Crash-recovery wrapper for evolutionary prompt optimisation |
+| `evals.sh` | Concreteness regression: shootout / fill / revert |
 
 ## Database Policy
 

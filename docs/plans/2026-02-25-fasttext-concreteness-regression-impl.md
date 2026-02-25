@@ -1053,26 +1053,50 @@ def cmd_revert(conn: sqlite3.Connection) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Concreteness regression: shootout / fill / revert"
+        prog="predict_concreteness.py",
+        description="Predict concreteness for unrated synsets using FastText embeddings.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+commands:
+  shootout   Train and evaluate 4 regression models (no DB writes)
+  fill       Fill concreteness gaps using the shootout winner
+  revert     Delete all regression predictions, restore Brysbaert-only
+
+examples:
+  %(prog)s shootout --db DB --fasttext VEC -o shootout.json
+  %(prog)s fill --db DB --fasttext VEC --shootout shootout.json
+  %(prog)s revert --db DB
+""",
     )
-    parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="enable debug logging")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # shootout
-    p_shootout = sub.add_parser("shootout", help="Train and evaluate models (no DB writes)")
-    p_shootout.add_argument("--db", default=str(LEXICON_V2))
-    p_shootout.add_argument("--fasttext", default=str(FASTTEXT_VEC))
-    p_shootout.add_argument("--output", "-o", required=True, help="Path for results JSON")
+    p_shootout = sub.add_parser("shootout",
+        help="Train and evaluate models (no DB writes)")
+    p_shootout.add_argument("--db", default=str(LEXICON_V2),
+        help="lexicon database path (default: %(default)s)")
+    p_shootout.add_argument("--fasttext", default=str(FASTTEXT_VEC),
+        help="FastText .vec file (default: %(default)s)")
+    p_shootout.add_argument("--output", "-o", required=True,
+        help="path for results JSON")
 
     # fill
-    p_fill = sub.add_parser("fill", help="Fill gaps using shootout winner")
-    p_fill.add_argument("--db", default=str(LEXICON_V2))
-    p_fill.add_argument("--fasttext", default=str(FASTTEXT_VEC))
-    p_fill.add_argument("--shootout", required=True, help="Path to shootout results JSON")
+    p_fill = sub.add_parser("fill",
+        help="Fill gaps using shootout winner")
+    p_fill.add_argument("--db", default=str(LEXICON_V2),
+        help="lexicon database path (default: %(default)s)")
+    p_fill.add_argument("--fasttext", default=str(FASTTEXT_VEC),
+        help="FastText .vec file (default: %(default)s)")
+    p_fill.add_argument("--shootout", required=True,
+        help="path to shootout results JSON")
 
     # revert
-    p_revert = sub.add_parser("revert", help="Delete regression predictions, restore Brysbaert-only")
-    p_revert.add_argument("--db", default=str(LEXICON_V2))
+    p_revert = sub.add_parser("revert",
+        help="Delete regression predictions, restore Brysbaert-only")
+    p_revert.add_argument("--db", default=str(LEXICON_V2),
+        help="lexicon database path (default: %(default)s)")
 
     args = parser.parse_args()
 
@@ -1130,19 +1154,167 @@ git commit -m "feat(concreteness): CLI subcommands — shootout / fill / revert"
 
 ---
 
-### Task 6: Live run against real DB
+### Task 6: Shell wrapper (`evals.sh`) and documentation
 
-Run shootout, fill, and verify coverage reaches 80%+.
+Create `data-pipeline/evals.sh` — a thin wrapper that activates the venv and delegates to `predict_concreteness.py`. This keeps the concreteness commands discoverable alongside `enrich.sh`, `import_raw.sh`, etc. Also update `data-pipeline/CLAUDE.md` to document the new operation.
+
+**Files:**
+- Create: `data-pipeline/evals.sh`
+- Modify: `data-pipeline/CLAUDE.md`
+
+**Step 1: Create `data-pipeline/evals.sh`**
+
+```bash
+#!/usr/bin/env bash
+# Concreteness regression: model shootout, gap-fill, and revert.
+#
+# Thin wrapper around predict_concreteness.py that activates the venv
+# and provides default paths. Delegates all argument parsing to argparse.
+#
+# Run ./evals.sh --help for usage, or ./evals.sh <command> --help for
+# subcommand help.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPTS_DIR="$SCRIPT_DIR/scripts"
+
+# --- Usage -------------------------------------------------------------------
+
+usage() {
+    cat >&2 <<'USAGE'
+Usage: evals.sh <command> [options]
+
+Commands:
+  shootout       Train and evaluate 4 regression models (no DB writes)
+  fill           Fill concreteness gaps using the shootout winner
+  revert         Delete regression predictions, restore Brysbaert-only state
+
+Common options:
+  --db PATH          Target lexicon database    (default: output/lexicon_v2.db)
+  --fasttext PATH    FastText .vec file         (default: raw/wiki-news-300d-1M.vec)
+  --verbose, -v      Enable debug logging
+  --help, -h         Show this message
+
+Shootout options:
+  --output, -o FILE  Path for results JSON      (required)
+
+Fill options:
+  --shootout FILE    Path to shootout JSON       (required)
+
+Examples:
+  # Evaluate models (pure, no DB writes):
+  ./evals.sh shootout -o output/concreteness_shootout.json
+
+  # Fill gaps with the winner:
+  ./evals.sh fill --shootout output/concreteness_shootout.json
+
+  # Revert to Brysbaert-only:
+  ./evals.sh revert
+
+  # Full cycle:
+  ./evals.sh shootout -o output/concreteness_shootout.json
+  ./evals.sh fill --shootout output/concreteness_shootout.json
+USAGE
+    exit 1
+}
+
+# --- Activate venv -----------------------------------------------------------
+
+if [[ -z "${VIRTUAL_ENV:-}" ]]; then
+    VENV_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/.venv"
+    if [[ -f "$VENV_DIR/bin/activate" ]]; then
+        # shellcheck disable=SC1091
+        source "$VENV_DIR/bin/activate"
+    else
+        echo "ERROR: Python venv not found at $VENV_DIR" >&2
+        echo "  Run: python3 -m venv .venv && pip install -r data-pipeline/requirements.txt" >&2
+        exit 1
+    fi
+fi
+
+# --- Route command -----------------------------------------------------------
+
+if [[ $# -eq 0 ]]; then
+    usage
+fi
+
+case "$1" in
+    shootout|fill|revert) ;;
+    --help|-h) usage ;;
+    *) echo "Unknown command: $1" >&2; echo >&2; usage ;;
+esac
+
+# Delegate to Python — argparse handles all argument parsing and --help
+exec python -u "$SCRIPTS_DIR/predict_concreteness.py" "$@"
+```
+
+**Step 2: Make executable**
+
+Run: `chmod +x data-pipeline/evals.sh`
+
+**Step 3: Verify --help and invalid args produce GNU-standard output**
+
+Run: `./data-pipeline/evals.sh --help` → shell-level usage
+Run: `./data-pipeline/evals.sh shootout --help` → argparse-level help
+Run: `./data-pipeline/evals.sh badcommand` → error + shell usage
+Run: `source .venv/bin/activate && python data-pipeline/scripts/predict_concreteness.py --help` → argparse usage
+Run: `python data-pipeline/scripts/predict_concreteness.py shootout` → argparse error (missing --output)
+
+**Step 4: Update `data-pipeline/CLAUDE.md`**
+
+Add to the **Operations** section (after "4. Evaluate MRR"):
+
+```markdown
+### 5. Concreteness Regression
+
+Predict concreteness scores for unrated synsets using FastText embeddings + scikit-learn regression. Three side-effect-free subcommands:
+
+```bash
+# Evaluate 4 models — writes JSON only, never touches the DB
+./data-pipeline/evals.sh shootout -o data-pipeline/output/concreteness_shootout.json
+
+# Fill gaps with the winning model — writes predictions to DB
+./data-pipeline/evals.sh fill --shootout data-pipeline/output/concreteness_shootout.json
+
+# Revert to Brysbaert-only state — deletes all regression predictions
+./data-pipeline/evals.sh revert
+```
+
+Run `./data-pipeline/evals.sh --help` for full argument reference.
+```
+
+Add to the **Shell Scripts** table:
+
+```markdown
+| `evals.sh` | Concreteness regression: shootout / fill / revert |
+```
+
+Add to the **Key Concepts** section:
+
+```markdown
+- **Concreteness regression** (`predict_concreteness.py`) — trains Ridge/SVR/k-NN/Random Forest regressors on Brysbaert concreteness scores + FastText 300d embeddings. The winning model fills concreteness scores for unrated synsets (target: 80%+ coverage). Reversible via `evals.sh revert`.
+```
+
+**Step 5: Commit**
+
+```bash
+git add data-pipeline/evals.sh data-pipeline/CLAUDE.md
+git commit -m "docs: add evals.sh wrapper and concreteness regression to pipeline docs"
+```
+
+---
+
+### Task 7: Live run against real DB
+
+Run shootout, fill, and verify coverage reaches 80%+. Uses `evals.sh` throughout — the wrapper activates the venv and provides defaults.
 
 **Files:** None (manual verification)
 
 **Step 1: Run shootout (no DB changes)**
 
 ```bash
-source .venv/bin/activate
-python data-pipeline/scripts/predict_concreteness.py shootout \
-  --db data-pipeline/output/lexicon_v2.db \
-  --fasttext data-pipeline/raw/wiki-news-300d-1M.vec \
+./data-pipeline/evals.sh shootout \
   -o data-pipeline/output/concreteness_shootout.json -v
 ```
 
@@ -1156,9 +1328,7 @@ Check that:
 **Step 3: Fill gaps**
 
 ```bash
-python data-pipeline/scripts/predict_concreteness.py fill \
-  --db data-pipeline/output/lexicon_v2.db \
-  --fasttext data-pipeline/raw/wiki-news-300d-1M.vec \
+./data-pipeline/evals.sh fill \
   --shootout data-pipeline/output/concreteness_shootout.json -v
 ```
 
@@ -1172,22 +1342,20 @@ Check that:
 **Step 5: Verify revert works**
 
 ```bash
-python data-pipeline/scripts/predict_concreteness.py revert \
-  --db data-pipeline/output/lexicon_v2.db
+./data-pipeline/evals.sh revert
 ```
 
 Should show deletion count and Brysbaert retention. Then re-fill:
 
 ```bash
-python data-pipeline/scripts/predict_concreteness.py fill \
-  --db data-pipeline/output/lexicon_v2.db \
-  --fasttext data-pipeline/raw/wiki-news-300d-1M.vec \
+./data-pipeline/evals.sh fill \
   --shootout data-pipeline/output/concreteness_shootout.json -v
 ```
 
 **Step 6: Run full test suite**
 
 ```bash
+source .venv/bin/activate
 python -m pytest data-pipeline/scripts/ -v
 cd api && go test ./...
 ```
@@ -1195,6 +1363,7 @@ cd api && go test ./...
 **Step 7: Re-run evals with improved coverage**
 
 ```bash
+source .venv/bin/activate
 python data-pipeline/scripts/evaluate_mrr.py --db data-pipeline/output/lexicon_v2.db --port 8080 -v -o data-pipeline/output/eval_mrr.json
 python data-pipeline/scripts/evaluate_discrimination.py --db data-pipeline/output/lexicon_v2.db --port 8080 --max-words 50 --limit 100 -o data-pipeline/output/eval_discrimination.json -v
 ```
@@ -1212,34 +1381,41 @@ git commit -m "data: concreteness regression shootout — [MODEL] r=[R] coverage
 
 ```bash
 # 1. Evaluate models (pure, no DB writes)
-python predict_concreteness.py shootout --db DB --fasttext VEC -o shootout.json
+./data-pipeline/evals.sh shootout -o output/concreteness_shootout.json
 
 # 2. Fill gaps with winner (writes to DB)
-python predict_concreteness.py fill --db DB --fasttext VEC --shootout shootout.json
+./data-pipeline/evals.sh fill --shootout output/concreteness_shootout.json
 
 # 3. Revert to Brysbaert-only (undo fill)
-python predict_concreteness.py revert --db DB
+./data-pipeline/evals.sh revert
 
 # Re-run shootout after pipeline changes, then re-fill:
-python predict_concreteness.py revert --db DB
-python predict_concreteness.py shootout --db DB --fasttext VEC -o shootout.json
-python predict_concreteness.py fill --db DB --fasttext VEC --shootout shootout.json
+./data-pipeline/evals.sh revert
+./data-pipeline/evals.sh shootout -o output/concreteness_shootout.json
+./data-pipeline/evals.sh fill --shootout output/concreteness_shootout.json
+
+# Direct Python invocation (if needed):
+python data-pipeline/scripts/predict_concreteness.py shootout --db DB --fasttext VEC -o shootout.json
+python data-pipeline/scripts/predict_concreteness.py fill --db DB --fasttext VEC --shootout shootout.json
+python data-pipeline/scripts/predict_concreteness.py revert --db DB
 ```
 
 ---
 
 ## Summary
 
-| Task | What | Tests | New functions |
-|------|------|-------|---------------|
+| Task | What | Tests | New functions / files |
+|------|------|-------|----------------------|
 | 1 | scikit-learn dep + vector loader refactor + synset embeddings | 2 | `build_synset_embeddings` |
 | 2 | Training data extraction | 3 | `build_training_data` |
 | 3 | 4-model shootout with GridSearchCV | 3 | `run_model_shootout` |
 | 4 | Retrain winner + gap-fill + revert | 7 | `retrain_winner`, `fill_concreteness_gaps`, `revert_concreteness_predictions` |
 | 5 | CLI subcommands (shootout / fill / revert) | 4 | `cmd_shootout`, `cmd_fill`, `cmd_revert`, `main` |
-| 6 | Live run + verification | 0 (manual) | — |
+| 6 | Shell wrapper (`evals.sh`) + docs | 0 | `data-pipeline/evals.sh`, `data-pipeline/CLAUDE.md` update |
+| 7 | Live run + verification | 0 (manual) | — |
 
-**Total: 6 tasks, 19 tests, ~6 commits**
+**Total: 7 tasks, 19 tests, ~7 commits**
 
 **Dependencies added:** scikit-learn (requirements.txt)
 **Refactor:** `load_fasttext_vectors` moved from enrich_pipeline.py → utils.py
+**Documentation:** `data-pipeline/CLAUDE.md` updated with Operation 5 (concreteness regression) + `evals.sh` in shell scripts table
