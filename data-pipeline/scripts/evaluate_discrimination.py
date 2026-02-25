@@ -6,7 +6,13 @@ same-domain candidates — the core signal that metaphors beat synonyms.
 Usage:
     python evaluate_discrimination.py --db PATH [--port 8080] [-o results.json]
 """
+import logging
 import sqlite3
+from typing import Optional
+
+import requests
+
+log = logging.getLogger(__name__)
 
 
 # POS codes in our DB: 'n'=noun, 'v'=verb, 'a'=adjective head, 's'=adjective satellite
@@ -72,3 +78,55 @@ def select_source_words(
             result.append(c)
 
     return result
+
+
+def query_forge_results(
+    word: str, port: int = 8080, limit: int = 100,
+) -> list[dict]:
+    """Query /forge/suggest and return the suggestions list.
+
+    Returns empty list on error or missing word.
+    """
+    url = f"http://localhost:{port}/forge/suggest"
+    try:
+        resp = requests.get(url, params={"word": word, "limit": limit}, timeout=30)
+    except requests.RequestException as exc:
+        log.error("Request failed for %r: %s", word, exc)
+        return []
+
+    if resp.status_code != 200:
+        log.warning("API %d for %r: %s", resp.status_code, word, resp.text[:200])
+        return []
+
+    return resp.json().get("suggestions", [])
+
+
+def _get_distance(suggestion: dict) -> Optional[float]:
+    """Extract domain_distance, returning None if missing or not a number."""
+    d = suggestion.get("domain_distance")
+    if d is None or not isinstance(d, (int, float)):
+        return None
+    return float(d)
+
+
+def classify_by_domain(
+    suggestions: list[dict],
+    cross_threshold: float = 0.7,
+    same_threshold: float = 0.3,
+) -> tuple[list[dict], list[dict]]:
+    """Split suggestions into cross-domain and same-domain sets.
+
+    Suggestions with missing/None domain_distance or values between
+    the thresholds are excluded (ambiguous zone).
+    """
+    cross = []
+    same = []
+    for s in suggestions:
+        d = _get_distance(s)
+        if d is None:
+            continue
+        if d > cross_threshold:
+            cross.append(s)
+        elif d < same_threshold:
+            same.append(s)
+    return cross, same

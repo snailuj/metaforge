@@ -7,7 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from evaluate_discrimination import select_source_words
+from unittest.mock import patch, MagicMock
+from evaluate_discrimination import select_source_words, query_forge_results, classify_by_domain
 
 
 def _make_test_db():
@@ -126,3 +127,72 @@ def test_select_source_words_respects_pos_quotas():
     assert "blaze" in lemmas
     assert "glow" in lemmas
     assert "swift" in lemmas
+
+
+def _make_forge_response(suggestions):
+    return {"source": "anger", "suggestions": suggestions}
+
+
+def test_query_forge_results_returns_suggestions():
+    resp_data = _make_forge_response([
+        {"word": "fire", "domain_distance": 0.8, "composite_score": 3.0,
+         "synset_id": "s1", "tier": "legendary", "overlap_count": 4,
+         "salience_sum": 4.0, "shared_properties": ["hot", "intense"]},
+    ])
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = resp_data
+
+    with patch("evaluate_discrimination.requests.get", return_value=mock_resp):
+        results = query_forge_results("anger", port=8080, limit=100)
+
+    assert len(results) == 1
+    assert results[0]["word"] == "fire"
+
+
+def test_query_forge_results_returns_empty_on_error():
+    mock_resp = MagicMock()
+    mock_resp.status_code = 404
+    mock_resp.text = "not found"
+
+    with patch("evaluate_discrimination.requests.get", return_value=mock_resp):
+        results = query_forge_results("nonexistent", port=8080, limit=100)
+
+    assert results == []
+
+
+def test_classify_by_domain_widened_thresholds():
+    suggestions = [
+        {"word": "fire", "domain_distance": 0.8, "composite_score": 3.0},
+        {"word": "rage", "domain_distance": 0.2, "composite_score": 2.5},
+        {"word": "storm", "domain_distance": 0.75, "composite_score": 2.8},
+        {"word": "fury", "domain_distance": 0.15, "composite_score": 2.3},
+        {"word": "wave", "domain_distance": 0.5, "composite_score": 2.0},    # ambiguous
+        {"word": "cloud", "domain_distance": 0.65, "composite_score": 1.8},  # ambiguous
+    ]
+
+    cross, same = classify_by_domain(
+        suggestions, cross_threshold=0.7, same_threshold=0.3
+    )
+
+    # fire (0.8), storm (0.75) are cross-domain
+    assert len(cross) == 2
+    # rage (0.2), fury (0.15) are same-domain
+    assert len(same) == 2
+    # wave (0.5), cloud (0.65) are ambiguous — excluded from both
+
+
+def test_classify_by_domain_excludes_none_distances():
+    suggestions = [
+        {"word": "fire", "domain_distance": 0.8, "composite_score": 3.0},
+        {"word": "mystery", "composite_score": 2.5},  # no domain_distance key
+        {"word": "rage", "domain_distance": None, "composite_score": 2.3},
+    ]
+
+    cross, same = classify_by_domain(suggestions)
+
+    # Only "fire" has a valid distance > 0.7
+    assert len(cross) == 1
+    assert cross[0]["word"] == "fire"
+    # None/missing should NOT count as same-domain (distance 0)
+    assert len(same) == 0
