@@ -327,6 +327,47 @@ func TestForgeSuggestZeroLimit(t *testing.T) {
 	}
 }
 
+func TestForgeSuggestNormalisesInput(t *testing.T) {
+	h, err := NewHandler(testDBPath)
+	if err != nil {
+		t.Fatalf("Failed to create handler: %v", err)
+	}
+	defer h.Close()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"uppercase", "Fire"},
+		{"mixed case", "FIRE"},
+		{"leading spaces", "%20%20fire"},
+		{"trailing spaces", "fire%20%20"},
+		{"spaces and case", "%20%20Fire%20%20"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/forge/suggest?word="+tc.input, nil)
+			w := httptest.NewRecorder()
+
+			h.HandleSuggest(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("Expected 200 for input %q, got %d: %s", tc.input, w.Code, w.Body.String())
+			}
+
+			var resp SuggestResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("Failed to parse response: %v", err)
+			}
+
+			if resp.Source != "fire" {
+				t.Errorf("Expected normalised source 'fire', got %q", resp.Source)
+			}
+		})
+	}
+}
+
 // --- Autocomplete endpoint tests ---
 
 func TestAutocompleteEndpoint(t *testing.T) {

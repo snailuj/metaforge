@@ -71,7 +71,7 @@ type SuggestResponse struct {
 
 // HandleSuggest handles GET /forge/suggest?word=<word>&limit=<n>
 func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
-	word := r.URL.Query().Get("word")
+	word := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("word")))
 	if word == "" {
 		http.Error(w, `{"error": "missing 'word' parameter"}`, http.StatusBadRequest)
 		return
