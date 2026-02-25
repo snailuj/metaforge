@@ -596,6 +596,52 @@ func TestGetForgeMatchesCurated_LimitCountsUniqueSynsets(t *testing.T) {
 	}
 }
 
+func TestGetForgeMatchesCuratedByLemma_LimitCountsUniqueSynsets(t *testing.T) {
+	// Same fixture as setupLimitTestDB but tested via ByLemma variant.
+	// tgt_a has 3 lemmas — without the fix, LIMIT 3 returns only tgt_a
+	// because its 3 lemma-expanded rows consume the entire limit.
+	db := setupLimitTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCuratedByLemma(db, "source", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(matches) != 3 {
+		t.Errorf("expected 3 unique synsets, got %d", len(matches))
+		for _, m := range matches {
+			t.Logf("  %s / %s (salience_sum=%.2f)", m.SynsetID, m.Word, m.SalienceSum)
+		}
+	}
+}
+
+func TestGetForgeMatchesCuratedByLemma_DeterministicLemma(t *testing.T) {
+	// When a target synset has multiple lemmas, the chosen lemma should
+	// be deterministic (alphabetically first via MIN).
+	db := setupLimitTestDB(t)
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCuratedByLemma(db, "source", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var tgtA *CuratedMatch
+	for i := range matches {
+		if matches[i].SynsetID == "tgt_a" {
+			tgtA = &matches[i]
+		}
+	}
+	if tgtA == nil {
+		t.Fatal("expected tgt_a in results")
+	}
+	// tgt_a has lemmas: alpha1, alpha2, alpha3 — MIN gives "alpha1"
+	if tgtA.Word != "alpha1" {
+		t.Errorf("expected deterministic lemma 'alpha1', got %q", tgtA.Word)
+	}
+}
+
 // --- Lemma embedding tests ---
 
 // makeLemmaEmbeddingBlob creates a 300-dimensional embedding BLOB from the

@@ -142,7 +142,7 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 		)
 		SELECT sub.synset_id,
 		       s.definition,
-		       l.lemma,
+		       (SELECT MIN(l.lemma) FROM lemmas l WHERE l.synset_id = sub.synset_id) as lemma,
 		       sub.salience_sum,
 		       sub.contrast_count,
 		       sub.shared_props
@@ -162,7 +162,6 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 			LIMIT ?
 		) sub
 		JOIN synsets s ON s.synset_id = sub.synset_id
-		JOIN lemmas l ON l.synset_id = sub.synset_id
 	`, sourceID, sourceID, sourceID, limit)
 
 	if err != nil {
@@ -260,7 +259,7 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 		SELECT bs.target_id,
 		       ts.pos,
 		       ts.definition,
-		       l.lemma,
+		       (SELECT MIN(l.lemma) FROM lemmas l WHERE l.synset_id = bs.target_id) as lemma,
 		       bs.salience_sum,
 		       COALESCE(bc.contrast_count, 0) as contrast_count,
 		       bs.shared_props,
@@ -270,7 +269,6 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 		FROM best_sense bs
 		JOIN synsets ts ON ts.synset_id = bs.target_id
 		JOIN synsets ss ON ss.synset_id = bs.source_id
-		JOIN lemmas l ON l.synset_id = bs.target_id
 		LEFT JOIN best_contrast bc ON bc.target_id = bs.target_id AND bc.rn = 1
 		WHERE bs.rn = 1
 		ORDER BY bs.salience_sum + COALESCE(bc.contrast_count, 0) DESC
