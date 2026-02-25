@@ -402,35 +402,34 @@ examples:
   %(prog)s revert --db DB
 """,
     )
-    parser.add_argument("--verbose", "-v", action="store_true",
-                        help="enable debug logging")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    # Shared flags — added to each subparser so they work after the subcommand
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--verbose", "-v", action="store_true",
+                        help="enable debug logging")
+    common.add_argument("--db", default=str(LEXICON_V2),
+                        help="lexicon database path (default: %(default)s)")
+
     # shootout
-    p_shootout = sub.add_parser("shootout",
+    p_shootout = sub.add_parser("shootout", parents=[common],
         help="Train and evaluate models (no DB writes)")
-    p_shootout.add_argument("--db", default=str(LEXICON_V2),
-        help="lexicon database path (default: %(default)s)")
     p_shootout.add_argument("--fasttext", default=str(FASTTEXT_VEC),
         help="FastText .vec file (default: %(default)s)")
     p_shootout.add_argument("--output", "-o", required=True,
         help="path for results JSON")
 
     # fill
-    p_fill = sub.add_parser("fill",
+    p_fill = sub.add_parser("fill", parents=[common],
         help="Fill gaps using shootout winner")
-    p_fill.add_argument("--db", default=str(LEXICON_V2),
-        help="lexicon database path (default: %(default)s)")
     p_fill.add_argument("--fasttext", default=str(FASTTEXT_VEC),
         help="FastText .vec file (default: %(default)s)")
     p_fill.add_argument("--shootout", required=True,
         help="path to shootout results JSON")
 
     # revert
-    p_revert = sub.add_parser("revert",
+    sub.add_parser("revert", parents=[common],
         help="Delete regression predictions, restore Brysbaert-only")
-    p_revert.add_argument("--db", default=str(LEXICON_V2),
-        help="lexicon database path (default: %(default)s)")
 
     args = parser.parse_args()
 
