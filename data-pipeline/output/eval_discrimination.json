@@ -1,0 +1,101 @@
+{
+  "aggregate": {
+    "mean_rank_auc": null,
+    "mean_cross_domain_ratio": 0.1361,
+    "mean_synonym_contamination": 0.055,
+    "words_evaluated": 10,
+    "words_with_results": 10
+  },
+  "per_word": [
+    {
+      "cross_domain_ratio_top10": 0.14285714285714285,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 7,
+      "word": "make",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.125,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 8,
+      "word": "light",
+      "pos": "a"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 11,
+      "word": "get",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 10,
+      "word": "line",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.2,
+      "rank_auc": null,
+      "total_results": 11,
+      "word": "black",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.25,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 8,
+      "word": "blue",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 10,
+      "word": "hand",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.25,
+      "rank_auc": null,
+      "total_results": 8,
+      "word": "house",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 13,
+      "word": "air",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.14285714285714285,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 7,
+      "word": "wind",
+      "pos": "n"
+    }
+  ],
+  "git_commit": "a7f3bbbf",
+  "config": {
+    "limit": 20,
+    "min_properties": 3,
+    "noun_quota": 4,
+    "verb_quota": 3,
+    "adj_quota": 3,
+    "cross_threshold": 0.7,
+    "same_threshold": 0.3
+  }
+}
