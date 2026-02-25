@@ -23,7 +23,7 @@ from typing import Optional
 import nltk
 
 sys.path.insert(0, str(Path(__file__).parent))
-from utils import EMBEDDING_DIM, FASTTEXT_VEC, normalise
+from utils import EMBEDDING_DIM, FASTTEXT_VEC, normalise, load_fasttext_vectors, _fasttext_cache
 from build_vocab import build_and_store
 from cluster_vocab import cluster_vocab
 from snap_properties import snap_properties
@@ -88,49 +88,6 @@ def filter_mwe(text: str) -> str | None:
 # =============================================================================
 # 1. Curate properties (from curate_properties.py)
 # =============================================================================
-
-_fasttext_cache: dict[str, dict[str, tuple[float, ...]]] = {}
-
-
-def load_fasttext_vectors(vec_path: str) -> dict[str, tuple[float, ...]]:
-    """Load FastText vectors from .vec file into memory.
-
-    Results are cached by path — subsequent calls return the same dict.
-    """
-    if vec_path in _fasttext_cache:
-        print(f"  Using cached vectors for {vec_path}")
-        return _fasttext_cache[vec_path]
-
-    vectors = {}
-    print(f"  Loading {vec_path}...")
-
-    with open(vec_path, "r", encoding="utf-8") as f:
-        header = f.readline().strip().split()
-        num_words, dim = int(header[0]), int(header[1])
-        print(f"  Header: {num_words} words, {dim}d")
-
-        if dim != EMBEDDING_DIM:
-            raise ValueError(
-                f"FastText dimension mismatch: file has {dim}d, expected {EMBEDDING_DIM}d"
-            )
-
-        for i, line in enumerate(f):
-            parts = line.rstrip().split(" ")
-            word = parts[0]
-            try:
-                vec = tuple(float(x) for x in parts[1:])
-                if len(vec) == dim:
-                    vectors[word] = vec
-            except ValueError:
-                continue
-
-            if (i + 1) % 200000 == 0:
-                print(f"    Loaded {i + 1} words...")
-
-    print(f"  Loaded {len(vectors)} vectors")
-    _fasttext_cache[vec_path] = vectors
-    return vectors
-
 
 def _get_embedding(
     word: str, vectors: dict[str, tuple[float, ...]]
