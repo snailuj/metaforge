@@ -406,6 +406,7 @@ func GetLemmaEmbeddingsBatch(db *sql.DB, lemmas []string) (map[string][]float32,
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table") {
+			slog.Debug("lemma_embeddings table missing, skipping batch embedding lookup", "count", len(lemmas))
 			return nil, nil
 		}
 		return nil, fmt.Errorf("GetLemmaEmbeddingsBatch query failed: %w", err)
