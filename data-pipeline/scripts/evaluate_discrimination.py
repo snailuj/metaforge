@@ -6,11 +6,19 @@ same-domain candidates — the core signal that metaphors beat synonyms.
 Usage:
     python evaluate_discrimination.py --db PATH [--port 8080] [-o results.json]
 """
+import argparse
+import json
 import logging
 import sqlite3
+import subprocess
+import sys
+from pathlib import Path
 from typing import Optional
 
 import requests
+
+sys.path.insert(0, str(Path(__file__).parent))
+from utils import LEXICON_V2
 
 log = logging.getLogger(__name__)
 
@@ -281,3 +289,122 @@ def aggregate_metrics(per_word: list[dict]) -> dict:
         "words_evaluated": n,
         "words_with_results": len(with_results),
     }
+
+
+def _get_git_commit() -> str:
+    """Return short git commit hash, or 'unknown' if not in a repo."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return result.stdout.strip() if result.returncode == 0 else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def evaluate_discrimination(
+    conn: sqlite3.Connection,
+    port: int = 8080,
+    limit: int = 100,
+    min_properties: int = 3,
+    noun_quota: int = 20,
+    verb_quota: int = 15,
+    adj_quota: int = 15,
+    cross_threshold: float = 0.7,
+    same_threshold: float = 0.3,
+) -> dict:
+    """Run structural discrimination evaluation.
+
+    Selects POS-stratified source words, queries the forge for each,
+    computes per-word rank AUC and metrics, aggregates into a summary.
+    """
+    words = select_source_words(
+        conn, min_properties, noun_quota, verb_quota, adj_quota,
+    )
+    log.info("Selected %d source words for evaluation", len(words))
+
+    per_word = []
+    for w in words:
+        suggestions = query_forge_results(w["lemma"], port=port, limit=limit)
+        synonyms = lookup_synonyms(conn, w["lemma"])
+        metrics = compute_word_metrics(
+            suggestions, synonyms, cross_threshold, same_threshold,
+        )
+        metrics["word"] = w["lemma"]
+        metrics["pos"] = w["pos"]
+        per_word.append(metrics)
+
+        log.info(
+            "  %s (%s): %d results, cross=%.2f, syn=%.2f, auc=%s",
+            w["lemma"], w["pos"], metrics["total_results"],
+            metrics["cross_domain_ratio_top10"],
+            metrics["synonym_contamination_top10"],
+            f'{metrics["rank_auc"]:.3f}' if metrics["rank_auc"] is not None else "N/A",
+        )
+
+    agg = aggregate_metrics(per_word)
+
+    return {
+        "aggregate": agg,
+        "per_word": per_word,
+        "git_commit": _get_git_commit(),
+        "config": {
+            "limit": limit,
+            "min_properties": min_properties,
+            "noun_quota": noun_quota,
+            "verb_quota": verb_quota,
+            "adj_quota": adj_quota,
+            "cross_threshold": cross_threshold,
+            "same_threshold": same_threshold,
+        },
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Structural discrimination evaluation for forge output"
+    )
+    parser.add_argument(
+        "--db", default=str(LEXICON_V2),
+        help=f"Path to lexicon_v2.db (default: {LEXICON_V2})",
+    )
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument("--max-words", type=int, default=50,
+                        help="Total words (split across POS quotas)")
+    parser.add_argument("--output", "-o", default=None)
+    parser.add_argument("--verbose", "-v", action="store_true")
+    args = parser.parse_args()
+
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
+
+    # Split max-words into POS quotas (40/30/30 ratio)
+    total = args.max_words
+    noun_q = round(total * 0.4)
+    verb_q = round(total * 0.3)
+    adj_q = total - noun_q - verb_q
+
+    conn = sqlite3.connect(args.db)
+    results = evaluate_discrimination(
+        conn=conn, port=args.port, limit=args.limit,
+        noun_quota=noun_q, verb_quota=verb_q, adj_quota=adj_q,
+    )
+    conn.close()
+
+    agg = results["aggregate"]
+    print(f"\n=== Discrimination Eval ({results['git_commit']}) ===")
+    print(f"  Words evaluated: {agg['words_evaluated']}")
+    print(f"  Mean rank AUC: {agg['mean_rank_auc']:.4f}" if agg["mean_rank_auc"] else "  Mean rank AUC: N/A")
+    print(f"  Mean cross-domain ratio (top 10): {agg['mean_cross_domain_ratio']:.4f}")
+    print(f"  Mean synonym contamination (top 10): {agg['mean_synonym_contamination']:.4f}")
+
+    if args.output:
+        with open(args.output, "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"  Results written to {args.output}")
+
+
+if __name__ == "__main__":
+    main()

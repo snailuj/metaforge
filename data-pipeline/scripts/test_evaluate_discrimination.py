@@ -11,7 +11,7 @@ from unittest.mock import patch, MagicMock
 from evaluate_discrimination import (
     select_source_words, query_forge_results, classify_by_domain,
     compute_rank_auc, compute_word_metrics, lookup_synonyms,
-    aggregate_metrics,
+    aggregate_metrics, evaluate_discrimination,
 )
 
 
@@ -344,3 +344,84 @@ def test_aggregate_metrics_empty():
     assert agg["mean_rank_auc"] is None
     assert agg["mean_cross_domain_ratio"] == 0.0
     assert agg["words_evaluated"] == 0
+
+
+def test_evaluate_discrimination_orchestrator():
+    """Integration test with mocked API responses."""
+    conn = _make_test_db()
+    conn.executemany("INSERT INTO lemmas VALUES (?, ?)", [
+        ("flame", "100"),
+        ("gleam", "200"),
+    ])
+    conn.commit()
+
+    def mock_get(url, params=None, timeout=None):
+        word = params.get("word", "")
+        resp = MagicMock()
+        resp.status_code = 200
+
+        if word == "blaze":
+            resp.json.return_value = {
+                "source": "blaze",
+                "suggestions": [
+                    {"word": "inferno", "domain_distance": 0.2, "composite_score": 3.0,
+                     "synset_id": "x1", "tier": "legendary", "overlap_count": 5,
+                     "salience_sum": 5.0, "shared_properties": ["hot"]},
+                    {"word": "passion", "domain_distance": 0.8, "composite_score": 2.8,
+                     "synset_id": "x2", "tier": "strong", "overlap_count": 3,
+                     "salience_sum": 3.0, "shared_properties": ["intense"]},
+                ],
+            }
+        elif word == "glow":
+            resp.json.return_value = {
+                "source": "glow",
+                "suggestions": [
+                    {"word": "warmth", "domain_distance": 0.8, "composite_score": 2.5,
+                     "synset_id": "x3", "tier": "strong", "overlap_count": 3,
+                     "salience_sum": 3.0, "shared_properties": ["warm"]},
+                ],
+            }
+        elif word == "swift":
+            resp.json.return_value = {
+                "source": "swift",
+                "suggestions": [
+                    {"word": "arrow", "domain_distance": 0.75, "composite_score": 2.0,
+                     "synset_id": "x4", "tier": "strong", "overlap_count": 2,
+                     "salience_sum": 2.0, "shared_properties": ["quick"]},
+                ],
+            }
+        else:
+            resp.status_code = 404
+            resp.text = "not found"
+            resp.json.return_value = {"error": "not found"}
+
+        return resp
+
+    with patch("evaluate_discrimination.requests.get", side_effect=mock_get):
+        results = evaluate_discrimination(
+            conn=conn, port=8080, limit=100, min_properties=3,
+        )
+
+    assert results["aggregate"]["words_evaluated"] >= 2
+    assert "per_word" in results
+    assert isinstance(results["per_word"], list)
+    assert all("word" in w for w in results["per_word"])
+    assert "git_commit" in results
+
+
+def test_evaluate_discrimination_includes_config():
+    conn = _make_test_db()
+
+    with patch("evaluate_discrimination.requests.get") as mock_get:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        mock_resp.text = "not found"
+        mock_get.return_value = mock_resp
+
+        results = evaluate_discrimination(
+            conn=conn, port=9090, limit=50, min_properties=3,
+        )
+
+    assert results["config"]["limit"] == 50
+    assert results["config"]["cross_threshold"] == 0.7
+    assert results["config"]["same_threshold"] == 0.3
