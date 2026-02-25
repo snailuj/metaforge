@@ -9,16 +9,28 @@
 **Tech Stack:** Python 3, sqlite3, requests, pytest. Go API running on localhost.
 
 **Design doc:** `docs/plans/2026-02-25-P3-discriminative-eval-design.md`
+**Council review:** `docs/designs/20260225-cascade-scoring-P3-design-council-review.md`
+
+### Council refinements incorporated
+
+1. **Rank-based AUC separation** as primary Tier 2 metric (replaces `median_score_ratio`)
+2. **Wider threshold gap** — same <0.3, cross >0.7 (symmetric ambiguity zone)
+3. **Handle None/missing distances** — exclude from counts, don't default to 0
+4. **POS-stratified source word selection** — fixed quotas (20N/15V/15A)
+5. **Primary synset focus** — cap at lowest synset_id per lemma to avoid polysemy mud
+6. **Expanded synonym detection** — same-synset + `similar_to` (relation_type 40) lemmas
+7. **Blind LLM judge** — noted for Tier 3: no scores or tiers in prompt
+8. **`git_commit` in output JSON** — for tracking across runs
 
 ---
 
-### Task 1: Select source words for evaluation
+### Task 1: Select source words with POS stratification
 
-Build a function that picks ~50 source words with good forge coverage from the DB.
+Build a function that picks ~50 source words with good forge coverage, stratified by POS (20 nouns, 15 verbs, 15 adjectives), focusing on the primary synset per lemma.
 
 **Files:**
 - Create: `data-pipeline/scripts/evaluate_discrimination.py`
-- Test: `data-pipeline/scripts/test_evaluate_discrimination.py`
+- Create: `data-pipeline/scripts/test_evaluate_discrimination.py`
 
 **Step 1: Write the failing test**
 
@@ -36,7 +48,7 @@ from evaluate_discrimination import select_source_words
 
 
 def _make_test_db():
-    """In-memory DB with lemmas + synsets + curated properties."""
+    """In-memory DB with lemmas + synsets + curated properties + relations."""
     conn = sqlite3.connect(":memory:")
     conn.executescript("""
         CREATE TABLE synsets (
@@ -59,37 +71,53 @@ def _make_test_db():
             vocab_id INTEGER PRIMARY KEY,
             property TEXT NOT NULL
         );
+        CREATE TABLE relations (
+            source_synset TEXT NOT NULL,
+            target_synset TEXT NOT NULL,
+            relation_type TEXT NOT NULL
+        );
 
-        -- Word "blaze" (noun): 2 synsets, 5 curated properties each
-        INSERT INTO synsets VALUES ('s1', 'n', 'a strong flame');
-        INSERT INTO synsets VALUES ('s2', 'n', 'a bright light');
-        INSERT INTO lemmas VALUES ('blaze', 's1');
-        INSERT INTO lemmas VALUES ('blaze', 's2');
+        -- Properties
         INSERT INTO property_vocab_curated VALUES (1, 'hot');
         INSERT INTO property_vocab_curated VALUES (2, 'bright');
         INSERT INTO property_vocab_curated VALUES (3, 'dangerous');
         INSERT INTO property_vocab_curated VALUES (4, 'consuming');
         INSERT INTO property_vocab_curated VALUES (5, 'radiant');
-        INSERT INTO synset_properties_curated VALUES ('s1', 1, 1, 1.0);
-        INSERT INTO synset_properties_curated VALUES ('s1', 2, 2, 1.0);
-        INSERT INTO synset_properties_curated VALUES ('s1', 3, 3, 1.0);
-        INSERT INTO synset_properties_curated VALUES ('s1', 4, 4, 1.0);
-        INSERT INTO synset_properties_curated VALUES ('s1', 5, 5, 1.0);
-        INSERT INTO synset_properties_curated VALUES ('s2', 1, 1, 1.0);
-        INSERT INTO synset_properties_curated VALUES ('s2', 2, 2, 1.0);
-        INSERT INTO synset_properties_curated VALUES ('s2', 5, 5, 1.0);
+        INSERT INTO property_vocab_curated VALUES (6, 'gentle');
+        INSERT INTO property_vocab_curated VALUES (7, 'quick');
 
-        -- Word "dim" (adjective): 1 synset, 1 property (too few)
-        INSERT INTO synsets VALUES ('s3', 's', 'lacking light');
-        INSERT INTO lemmas VALUES ('dim', 's3');
-        INSERT INTO synset_properties_curated VALUES ('s3', 2, 2, 1.0);
+        -- "blaze" (noun): 2 synsets, 5+3 curated properties
+        INSERT INTO synsets VALUES ('100', 'n', 'a strong flame');
+        INSERT INTO synsets VALUES ('200', 'n', 'a bright light');
+        INSERT INTO lemmas VALUES ('blaze', '100');
+        INSERT INTO lemmas VALUES ('blaze', '200');
+        INSERT INTO synset_properties_curated VALUES ('100', 1, 1, 1.0);
+        INSERT INTO synset_properties_curated VALUES ('100', 2, 2, 1.0);
+        INSERT INTO synset_properties_curated VALUES ('100', 3, 3, 1.0);
+        INSERT INTO synset_properties_curated VALUES ('100', 4, 4, 1.0);
+        INSERT INTO synset_properties_curated VALUES ('100', 5, 5, 1.0);
+        INSERT INTO synset_properties_curated VALUES ('200', 1, 1, 1.0);
+        INSERT INTO synset_properties_curated VALUES ('200', 2, 2, 1.0);
+        INSERT INTO synset_properties_curated VALUES ('200', 5, 5, 1.0);
 
-        -- Word "glow" (verb): 1 synset, 3 properties
-        INSERT INTO synsets VALUES ('s4', 'v', 'emit light');
-        INSERT INTO lemmas VALUES ('glow', 's4');
-        INSERT INTO synset_properties_curated VALUES ('s4', 1, 1, 1.0);
-        INSERT INTO synset_properties_curated VALUES ('s4', 2, 2, 1.0);
-        INSERT INTO synset_properties_curated VALUES ('s4', 5, 5, 1.0);
+        -- "dim" (adjective): 1 synset, 1 property (too few — excluded)
+        INSERT INTO synsets VALUES ('300', 's', 'lacking light');
+        INSERT INTO lemmas VALUES ('dim', '300');
+        INSERT INTO synset_properties_curated VALUES ('300', 2, 2, 1.0);
+
+        -- "glow" (verb): 1 synset, 3 properties
+        INSERT INTO synsets VALUES ('400', 'v', 'emit light');
+        INSERT INTO lemmas VALUES ('glow', '400');
+        INSERT INTO synset_properties_curated VALUES ('400', 1, 1, 1.0);
+        INSERT INTO synset_properties_curated VALUES ('400', 2, 2, 1.0);
+        INSERT INTO synset_properties_curated VALUES ('400', 5, 5, 1.0);
+
+        -- "swift" (adjective): 1 synset, 3 properties
+        INSERT INTO synsets VALUES ('500', 'a', 'moving very fast');
+        INSERT INTO lemmas VALUES ('swift', '500');
+        INSERT INTO synset_properties_curated VALUES ('500', 6, 6, 1.0);
+        INSERT INTO synset_properties_curated VALUES ('500', 7, 7, 1.0);
+        INSERT INTO synset_properties_curated VALUES ('500', 2, 2, 1.0);
     """)
     conn.commit()
     return conn
@@ -97,30 +125,50 @@ def _make_test_db():
 
 def test_select_source_words_filters_by_min_properties():
     conn = _make_test_db()
-    words = select_source_words(conn, min_properties=3, max_words=50)
-    # "blaze" has 5+3=8 props across synsets, "glow" has 3, "dim" has 1 (excluded)
-    assert "blaze" in words
-    assert "glow" in words
-    assert "dim" not in words
+    words = select_source_words(conn, min_properties=3)
+    lemmas = [w["lemma"] for w in words]
+    assert "blaze" in lemmas
+    assert "glow" in lemmas
+    assert "swift" in lemmas
+    assert "dim" not in lemmas  # only 1 property
 
 
-def test_select_source_words_respects_max():
+def test_select_source_words_returns_pos():
     conn = _make_test_db()
-    words = select_source_words(conn, min_properties=1, max_words=2)
-    assert len(words) <= 2
+    words = select_source_words(conn, min_properties=1)
+    for w in words:
+        assert "lemma" in w
+        assert "pos" in w
+        assert "primary_synset_id" in w
 
 
-def test_select_source_words_returns_list_of_strings():
+def test_select_source_words_uses_primary_synset():
     conn = _make_test_db()
-    words = select_source_words(conn, min_properties=1, max_words=50)
-    assert isinstance(words, list)
-    assert all(isinstance(w, str) for w in words)
+    words = select_source_words(conn, min_properties=3)
+    blaze = next(w for w in words if w["lemma"] == "blaze")
+    # primary synset = lowest synset_id = '100'
+    assert blaze["primary_synset_id"] == "100"
+
+
+def test_select_source_words_respects_pos_quotas():
+    conn = _make_test_db()
+    words = select_source_words(
+        conn, min_properties=3,
+        noun_quota=1, verb_quota=1, adj_quota=1,
+    )
+    lemmas = [w["lemma"] for w in words]
+    # Should get at most 1 noun, 1 verb, 1 adj
+    assert len(words) <= 3
+    # blaze=noun, glow=verb, swift=adj — all should fit
+    assert "blaze" in lemmas
+    assert "glow" in lemmas
+    assert "swift" in lemmas
 ```
 
 **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'evaluate_discrimination'` or `ImportError`
+Expected: FAIL with `ModuleNotFoundError` or `ImportError`
 
 **Step 3: Write minimal implementation**
 
@@ -136,47 +184,88 @@ Usage:
 import sqlite3
 
 
+# POS codes in our DB: 'n'=noun, 'v'=verb, 'a'=adjective head, 's'=adjective satellite
+_NOUN_POS = ('n',)
+_VERB_POS = ('v',)
+_ADJ_POS = ('a', 's')
+
+
 def select_source_words(
     conn: sqlite3.Connection,
     min_properties: int = 3,
-    max_words: int = 50,
-) -> list[str]:
-    """Select source words with sufficient curated property coverage.
+    noun_quota: int = 20,
+    verb_quota: int = 15,
+    adj_quota: int = 15,
+) -> list[dict]:
+    """Select source words with POS-stratified quotas.
 
-    Picks lemmas that have at least `min_properties` distinct curated
-    properties across all their synsets. Returns up to `max_words`,
-    ordered by property count descending (richest words first).
+    For each lemma, picks the primary synset (lowest synset_id) and
+    counts distinct curated properties across ALL synsets. Filters by
+    min_properties, then fills quotas per POS category.
+
+    Returns list of dicts with keys: lemma, pos, primary_synset_id.
     """
     rows = conn.execute("""
-        SELECT l.lemma, COUNT(DISTINCT spc.vocab_id) AS prop_count
+        SELECT
+            l.lemma,
+            MIN(CAST(l.synset_id AS INTEGER)) AS primary_sid,
+            COUNT(DISTINCT spc.vocab_id) AS prop_count
         FROM lemmas l
         JOIN synset_properties_curated spc ON l.synset_id = spc.synset_id
         GROUP BY l.lemma
         HAVING prop_count >= ?
         ORDER BY prop_count DESC
-        LIMIT ?
-    """, (min_properties, max_words)).fetchall()
+    """, (min_properties,)).fetchall()
 
-    return [row[0] for row in rows]
+    # Look up POS for primary synset
+    candidates = []
+    for lemma, primary_sid, prop_count in rows:
+        pos_row = conn.execute(
+            "SELECT pos FROM synsets WHERE synset_id = ?",
+            (str(primary_sid),)
+        ).fetchone()
+        if pos_row:
+            candidates.append({
+                "lemma": lemma,
+                "pos": pos_row[0],
+                "primary_synset_id": str(primary_sid),
+            })
+
+    # Fill POS quotas
+    result = []
+    counts = {"n": 0, "v": 0, "a": 0}
+    quotas = {"n": noun_quota, "v": verb_quota, "a": adj_quota}
+
+    for c in candidates:
+        pos = c["pos"]
+        # Map satellite adjectives to adjective bucket
+        bucket = "a" if pos in _ADJ_POS else pos
+        if bucket not in quotas:
+            continue
+        if counts[bucket] < quotas[bucket]:
+            counts[bucket] += 1
+            result.append(c)
+
+    return result
 ```
 
 **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py -v`
-Expected: 3 PASS
+Expected: 4 PASS
 
 **Step 5: Commit**
 
 ```bash
 git add data-pipeline/scripts/evaluate_discrimination.py data-pipeline/scripts/test_evaluate_discrimination.py
-git commit -m "feat(eval): add source word selection for discrimination eval"
+git commit -m "feat(eval): POS-stratified source word selection with primary synset focus"
 ```
 
 ---
 
 ### Task 2: Query forge and classify results by domain distance
 
-Fetch forge results for a source word and classify each as cross-domain or same-domain based on domain_distance thresholds.
+Fetch forge results for a source word and classify each as cross-domain or same-domain. Use widened thresholds (same <0.3, cross >0.7). Handle None/missing distances by excluding them.
 
 **Files:**
 - Modify: `data-pipeline/scripts/evaluate_discrimination.py`
@@ -195,7 +284,7 @@ def _make_forge_response(suggestions):
 
 def test_query_forge_results_returns_suggestions():
     resp_data = _make_forge_response([
-        {"word": "fire", "domain_distance": 0.6, "composite_score": 3.0,
+        {"word": "fire", "domain_distance": 0.8, "composite_score": 3.0,
          "synset_id": "s1", "tier": "legendary", "overlap_count": 4,
          "salience_sum": 4.0, "shared_properties": ["hot", "intense"]},
     ])
@@ -208,7 +297,6 @@ def test_query_forge_results_returns_suggestions():
 
     assert len(results) == 1
     assert results[0]["word"] == "fire"
-    assert results[0]["domain_distance"] == 0.6
 
 
 def test_query_forge_results_returns_empty_on_error():
@@ -222,30 +310,47 @@ def test_query_forge_results_returns_empty_on_error():
     assert results == []
 
 
-def test_classify_by_domain():
+def test_classify_by_domain_widened_thresholds():
     suggestions = [
-        {"word": "fire", "domain_distance": 0.7, "composite_score": 3.0},
+        {"word": "fire", "domain_distance": 0.8, "composite_score": 3.0},
         {"word": "rage", "domain_distance": 0.2, "composite_score": 2.5},
-        {"word": "storm", "domain_distance": 0.6, "composite_score": 2.8},
+        {"word": "storm", "domain_distance": 0.75, "composite_score": 2.8},
         {"word": "fury", "domain_distance": 0.15, "composite_score": 2.3},
-        {"word": "wave", "domain_distance": 0.4, "composite_score": 2.0},  # ambiguous
+        {"word": "wave", "domain_distance": 0.5, "composite_score": 2.0},    # ambiguous
+        {"word": "cloud", "domain_distance": 0.65, "composite_score": 1.8},  # ambiguous
     ]
 
     cross, same = classify_by_domain(
-        suggestions, cross_threshold=0.5, same_threshold=0.3
+        suggestions, cross_threshold=0.7, same_threshold=0.3
     )
 
-    assert len(cross) == 2  # fire (0.7), storm (0.6)
-    assert len(same) == 2   # rage (0.2), fury (0.15)
-    # "wave" (0.4) is ambiguous — excluded from both
-    assert all(s["domain_distance"] > 0.5 for s in cross)
-    assert all(s["domain_distance"] < 0.3 for s in same)
+    # fire (0.8), storm (0.75) are cross-domain
+    assert len(cross) == 2
+    # rage (0.2), fury (0.15) are same-domain
+    assert len(same) == 2
+    # wave (0.5), cloud (0.65) are ambiguous — excluded from both
+
+
+def test_classify_by_domain_excludes_none_distances():
+    suggestions = [
+        {"word": "fire", "domain_distance": 0.8, "composite_score": 3.0},
+        {"word": "mystery", "composite_score": 2.5},  # no domain_distance key
+        {"word": "rage", "domain_distance": None, "composite_score": 2.3},
+    ]
+
+    cross, same = classify_by_domain(suggestions)
+
+    # Only "fire" has a valid distance > 0.7
+    assert len(cross) == 1
+    assert cross[0]["word"] == "fire"
+    # None/missing should NOT count as same-domain (distance 0)
+    assert len(same) == 0
 ```
 
 **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py::test_query_forge_results_returns_suggestions -v`
-Expected: FAIL with `ImportError: cannot import name 'query_forge_results'`
+Expected: FAIL with `ImportError`
 
 **Step 3: Write minimal implementation**
 
@@ -253,6 +358,8 @@ Add to `evaluate_discrimination.py`:
 
 ```python
 import logging
+from typing import Optional
+
 import requests
 
 log = logging.getLogger(__name__)
@@ -279,38 +386,54 @@ def query_forge_results(
     return resp.json().get("suggestions", [])
 
 
+def _get_distance(suggestion: dict) -> Optional[float]:
+    """Extract domain_distance, returning None if missing or not a number."""
+    d = suggestion.get("domain_distance")
+    if d is None or not isinstance(d, (int, float)):
+        return None
+    return float(d)
+
+
 def classify_by_domain(
     suggestions: list[dict],
-    cross_threshold: float = 0.5,
+    cross_threshold: float = 0.7,
     same_threshold: float = 0.3,
 ) -> tuple[list[dict], list[dict]]:
     """Split suggestions into cross-domain and same-domain sets.
 
-    Suggestions with domain_distance between the thresholds are
-    excluded (ambiguous zone).
+    Suggestions with missing/None domain_distance or values between
+    the thresholds are excluded (ambiguous zone).
     """
-    cross = [s for s in suggestions if s.get("domain_distance", 0) > cross_threshold]
-    same = [s for s in suggestions if s.get("domain_distance", 0) < same_threshold]
+    cross = []
+    same = []
+    for s in suggestions:
+        d = _get_distance(s)
+        if d is None:
+            continue
+        if d > cross_threshold:
+            cross.append(s)
+        elif d < same_threshold:
+            same.append(s)
     return cross, same
 ```
 
 **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py -v`
-Expected: 6 PASS (3 old + 3 new)
+Expected: 8 PASS (4 old + 4 new)
 
 **Step 5: Commit**
 
 ```bash
 git add data-pipeline/scripts/evaluate_discrimination.py data-pipeline/scripts/test_evaluate_discrimination.py
-git commit -m "feat(eval): query forge and classify results by domain distance"
+git commit -m "feat(eval): query forge + classify by domain with widened thresholds"
 ```
 
 ---
 
-### Task 3: Compute per-word discrimination metrics
+### Task 3: Compute rank-based AUC separation and per-word metrics
 
-For a single source word, compute cross_domain_ratio_top10, median_score_ratio, and synonym_contamination.
+For a single source word, compute the primary metric: **rank AUC** (probability a random cross-domain result outranks a random same-domain result), plus cross_domain_ratio_top10 and synonym_contamination.
 
 **Files:**
 - Modify: `data-pipeline/scripts/evaluate_discrimination.py`
@@ -319,84 +442,124 @@ For a single source word, compute cross_domain_ratio_top10, median_score_ratio, 
 **Step 1: Write the failing test**
 
 ```python
-from evaluate_discrimination import compute_word_metrics
+from evaluate_discrimination import compute_rank_auc, compute_word_metrics
+
+
+def test_compute_rank_auc_perfect_separation():
+    # All cross-domain ranked above all same-domain
+    cross_ranks = [1, 2, 3]
+    same_ranks = [4, 5, 6]
+    auc = compute_rank_auc(cross_ranks, same_ranks)
+    assert auc == pytest.approx(1.0)
+
+
+def test_compute_rank_auc_no_separation():
+    # Same-domain ranked above cross-domain
+    cross_ranks = [4, 5, 6]
+    same_ranks = [1, 2, 3]
+    auc = compute_rank_auc(cross_ranks, same_ranks)
+    assert auc == pytest.approx(0.0)
+
+
+def test_compute_rank_auc_random():
+    # Interleaved — roughly 0.5
+    cross_ranks = [1, 3, 5]
+    same_ranks = [2, 4, 6]
+    auc = compute_rank_auc(cross_ranks, same_ranks)
+    # Each cross-domain beats: 1 beats all 3, 3 beats 2, 5 beats 0 = 5/9
+    assert auc == pytest.approx(5 / 9, abs=0.01)
+
+
+def test_compute_rank_auc_empty():
+    assert compute_rank_auc([], [1, 2]) is None
+    assert compute_rank_auc([1, 2], []) is None
 
 
 def test_compute_word_metrics_basic():
     suggestions = [
-        # top 10 by position in list (pre-sorted by API)
-        {"word": "fire", "domain_distance": 0.7, "composite_score": 3.5},
-        {"word": "volcano", "domain_distance": 0.8, "composite_score": 3.2},
-        {"word": "rage", "domain_distance": 0.2, "composite_score": 3.0},
-        {"word": "storm", "domain_distance": 0.6, "composite_score": 2.9},
-        {"word": "fury", "domain_distance": 0.15, "composite_score": 2.8},
-        {"word": "blaze", "domain_distance": 0.55, "composite_score": 2.7},
-        {"word": "ire", "domain_distance": 0.1, "composite_score": 2.6},
-        {"word": "wave", "domain_distance": 0.65, "composite_score": 2.5},
-        {"word": "wrath", "domain_distance": 0.18, "composite_score": 2.4},
-        {"word": "crack", "domain_distance": 0.7, "composite_score": 2.3},
-        # beyond top 10
-        {"word": "boom", "domain_distance": 0.9, "composite_score": 2.0},
+        # Ranked 1-10 by position (pre-sorted by API)
+        {"word": "fire",    "domain_distance": 0.8,  "composite_score": 3.5},
+        {"word": "volcano", "domain_distance": 0.9,  "composite_score": 3.2},
+        {"word": "rage",    "domain_distance": 0.2,  "composite_score": 3.0},
+        {"word": "storm",   "domain_distance": 0.75, "composite_score": 2.9},
+        {"word": "fury",    "domain_distance": 0.15, "composite_score": 2.8},
+        {"word": "blaze",   "domain_distance": 0.5,  "composite_score": 2.7},  # ambiguous
+        {"word": "ire",     "domain_distance": 0.1,  "composite_score": 2.6},
+        {"word": "wave",    "domain_distance": 0.8,  "composite_score": 2.5},
+        {"word": "wrath",   "domain_distance": 0.18, "composite_score": 2.4},
+        {"word": "crack",   "domain_distance": 0.75, "composite_score": 2.3},
     ]
     synonyms = {"rage", "fury", "ire", "wrath"}
 
     m = compute_word_metrics(suggestions, synonyms)
 
-    # top 10: fire(C), volcano(C), rage(S), storm(C), fury(S), blaze(C), ire(S), wave(C), wrath(S), crack(C)
-    # Cross-domain (dist > 0.5): fire, volcano, storm, blaze, wave, crack = 6/10
-    assert m["cross_domain_ratio_top10"] == pytest.approx(0.6)
-    # Synonym contamination: rage, fury, ire, wrath = 4/10
+    # top 10 cross-domain (>0.7): fire(1), volcano(2), storm(4), wave(8), crack(10) = 5/10
+    assert m["cross_domain_ratio_top10"] == pytest.approx(0.5)
+    # synonym contamination: rage(3), fury(5), ire(7), wrath(9) = 4/10
     assert m["synonym_contamination_top10"] == pytest.approx(0.4)
-    # median_score_ratio: cross median / same median
-    # cross scores: 3.5, 3.2, 2.9, 2.7, 2.5, 2.3 → median = (2.9+2.7)/2 = 2.8
-    # same scores: 3.0, 2.8, 2.6, 2.4 → median = (2.8+2.6)/2 = 2.7
-    assert m["median_score_ratio"] == pytest.approx(2.8 / 2.7, rel=0.01)
-    assert m["total_results"] == 11
-
-
-def test_compute_word_metrics_no_same_domain():
-    suggestions = [
-        {"word": "fire", "domain_distance": 0.7, "composite_score": 3.0},
-        {"word": "storm", "domain_distance": 0.6, "composite_score": 2.5},
-    ]
-
-    m = compute_word_metrics(suggestions, set())
-
-    assert m["cross_domain_ratio_top10"] == pytest.approx(1.0)
-    assert m["synonym_contamination_top10"] == pytest.approx(0.0)
-    assert m["median_score_ratio"] is None  # no same-domain to compare
+    # rank_auc: cross ranks [1,2,4,8,10] vs same ranks [3,5,7,9]
+    # Each cross-domain rank vs each same-domain rank: how often cross < same
+    assert m["rank_auc"] is not None
+    assert 0.0 <= m["rank_auc"] <= 1.0
+    assert m["total_results"] == 10
 
 
 def test_compute_word_metrics_empty():
     m = compute_word_metrics([], set())
-
     assert m["cross_domain_ratio_top10"] == 0.0
     assert m["synonym_contamination_top10"] == 0.0
-    assert m["median_score_ratio"] is None
+    assert m["rank_auc"] is None
     assert m["total_results"] == 0
 ```
 
 **Step 2: Run test to verify it fails**
 
-Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py::test_compute_word_metrics_basic -v`
-Expected: FAIL with `ImportError: cannot import name 'compute_word_metrics'`
+Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py::test_compute_rank_auc_perfect_separation -v`
+Expected: FAIL with `ImportError`
 
 **Step 3: Write minimal implementation**
 
 Add to `evaluate_discrimination.py`:
 
 ```python
-import statistics
-from typing import Optional
+def compute_rank_auc(
+    cross_ranks: list[int], same_ranks: list[int],
+) -> Optional[float]:
+    """Compute rank-based AUC: P(random cross-domain outranks random same-domain).
+
+    This is the Mann-Whitney U statistic normalised to [0, 1].
+    1.0 = perfect separation (all cross-domain ranked above all same-domain).
+    0.5 = random (no discrimination).
+    0.0 = inverted (all same-domain ranked above all cross-domain).
+
+    Returns None if either list is empty.
+    """
+    if not cross_ranks or not same_ranks:
+        return None
+
+    wins = 0
+    total = len(cross_ranks) * len(same_ranks)
+
+    for c in cross_ranks:
+        for s in same_ranks:
+            if c < s:   # lower rank = better position
+                wins += 1
+            elif c == s:
+                wins += 0.5
+
+    return wins / total
 
 
 def compute_word_metrics(
     suggestions: list[dict],
     synonyms: set[str],
-    cross_threshold: float = 0.5,
+    cross_threshold: float = 0.7,
     same_threshold: float = 0.3,
 ) -> dict:
     """Compute discrimination metrics for a single source word's results.
+
+    Primary metric: rank_auc — probability that a random cross-domain
+    result outranks a random same-domain result.
 
     Args:
         suggestions: forge results (pre-sorted by API ranking)
@@ -408,7 +571,7 @@ def compute_word_metrics(
         return {
             "cross_domain_ratio_top10": 0.0,
             "synonym_contamination_top10": 0.0,
-            "median_score_ratio": None,
+            "rank_auc": None,
             "total_results": 0,
         }
 
@@ -416,31 +579,34 @@ def compute_word_metrics(
     n = len(top10)
 
     # Cross-domain ratio in top 10
-    cross_top10 = [s for s in top10 if s.get("domain_distance", 0) > cross_threshold]
+    cross_top10 = [
+        s for s in top10
+        if _get_distance(s) is not None and _get_distance(s) > cross_threshold
+    ]
     cross_ratio = len(cross_top10) / n if n > 0 else 0.0
 
     # Synonym contamination in top 10
     syn_top10 = [s for s in top10 if s.get("word", "") in synonyms]
     syn_ratio = len(syn_top10) / n if n > 0 else 0.0
 
-    # Median composite score: cross vs same (across ALL results, not just top 10)
-    cross_all, same_all = classify_by_domain(
-        suggestions, cross_threshold, same_threshold,
-    )
-    cross_scores = [s["composite_score"] for s in cross_all]
-    same_scores = [s["composite_score"] for s in same_all]
+    # Rank-based AUC across ALL results
+    cross_ranks = []
+    same_ranks = []
+    for rank, s in enumerate(suggestions, 1):
+        d = _get_distance(s)
+        if d is None:
+            continue
+        if d > cross_threshold:
+            cross_ranks.append(rank)
+        elif d < same_threshold:
+            same_ranks.append(rank)
 
-    median_ratio: Optional[float] = None
-    if cross_scores and same_scores:
-        cross_median = statistics.median(cross_scores)
-        same_median = statistics.median(same_scores)
-        if same_median > 0:
-            median_ratio = cross_median / same_median
+    rank_auc = compute_rank_auc(cross_ranks, same_ranks)
 
     return {
         "cross_domain_ratio_top10": cross_ratio,
         "synonym_contamination_top10": syn_ratio,
-        "median_score_ratio": median_ratio,
+        "rank_auc": rank_auc,
         "total_results": len(suggestions),
     }
 ```
@@ -448,20 +614,20 @@ def compute_word_metrics(
 **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py -v`
-Expected: 9 PASS
+Expected: 15 PASS
 
 **Step 5: Commit**
 
 ```bash
 git add data-pipeline/scripts/evaluate_discrimination.py data-pipeline/scripts/test_evaluate_discrimination.py
-git commit -m "feat(eval): compute per-word discrimination metrics"
+git commit -m "feat(eval): rank-based AUC separation + per-word discrimination metrics"
 ```
 
 ---
 
-### Task 4: Look up WordNet synonyms for a lemma
+### Task 4: Expanded synonym lookup (same-synset + similar_to)
 
-Build a helper that returns same-synset lemmas for generating synonym controls.
+Build a helper that returns same-synset lemmas AND `similar_to` (relation_type 40) lemmas for richer synonym detection.
 
 **Files:**
 - Modify: `data-pipeline/scripts/evaluate_discrimination.py`
@@ -473,13 +639,12 @@ Build a helper that returns same-synset lemmas for generating synonym controls.
 from evaluate_discrimination import lookup_synonyms
 
 
-def test_lookup_synonyms():
+def test_lookup_synonyms_same_synset():
     conn = _make_test_db()
-    # "blaze" is in synsets s1 and s2. Need other lemmas in those synsets.
     conn.executemany("INSERT INTO lemmas VALUES (?, ?)", [
-        ("flame", "s1"),
-        ("flare", "s1"),
-        ("gleam", "s2"),
+        ("flame", "100"),
+        ("flare", "100"),
+        ("gleam", "200"),
     ])
     conn.commit()
 
@@ -490,6 +655,20 @@ def test_lookup_synonyms():
     assert "blaze" not in syns  # exclude self
 
 
+def test_lookup_synonyms_includes_similar_to():
+    conn = _make_test_db()
+    # Add a similar_to relation from blaze's synset 100 to a new synset 600
+    conn.executescript("""
+        INSERT INTO synsets VALUES ('600', 'n', 'an intense fire');
+        INSERT INTO lemmas VALUES ('inferno', '600');
+        INSERT INTO relations VALUES ('100', '600', '40');
+    """)
+    conn.commit()
+
+    syns = lookup_synonyms(conn, "blaze")
+    assert "inferno" in syns  # via similar_to relation
+
+
 def test_lookup_synonyms_no_results():
     conn = _make_test_db()
     syns = lookup_synonyms(conn, "nonexistent")
@@ -498,7 +677,7 @@ def test_lookup_synonyms_no_results():
 
 **Step 2: Run test to verify it fails**
 
-Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py::test_lookup_synonyms -v`
+Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py::test_lookup_synonyms_same_synset -v`
 Expected: FAIL with `ImportError`
 
 **Step 3: Write minimal implementation**
@@ -507,16 +686,30 @@ Add to `evaluate_discrimination.py`:
 
 ```python
 def lookup_synonyms(conn: sqlite3.Connection, lemma: str) -> set[str]:
-    """Return same-synset lemmas for a word (WordNet synonyms).
+    """Return synonyms and near-synonyms for a word.
+
+    Combines two sources:
+    1. Same-synset lemmas (WordNet synonyms)
+    2. Lemmas in synsets linked via similar_to (relation_type 40)
 
     Excludes the input lemma itself.
     """
     rows = conn.execute("""
+        -- Same-synset synonyms
         SELECT DISTINCT l2.lemma
         FROM lemmas l1
         JOIN lemmas l2 ON l1.synset_id = l2.synset_id
         WHERE l1.lemma = ? AND l2.lemma != ?
-    """, (lemma, lemma)).fetchall()
+
+        UNION
+
+        -- similar_to relation (type 40) synonyms
+        SELECT DISTINCT l2.lemma
+        FROM lemmas l1
+        JOIN relations r ON l1.synset_id = r.source_synset AND r.relation_type = '40'
+        JOIN lemmas l2 ON r.target_synset = l2.synset_id
+        WHERE l1.lemma = ? AND l2.lemma != ?
+    """, (lemma, lemma, lemma, lemma)).fetchall()
 
     return {row[0] for row in rows}
 ```
@@ -524,20 +717,20 @@ def lookup_synonyms(conn: sqlite3.Connection, lemma: str) -> set[str]:
 **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py -v`
-Expected: 11 PASS
+Expected: 18 PASS
 
 **Step 5: Commit**
 
 ```bash
 git add data-pipeline/scripts/evaluate_discrimination.py data-pipeline/scripts/test_evaluate_discrimination.py
-git commit -m "feat(eval): add WordNet synonym lookup for controls"
+git commit -m "feat(eval): expanded synonym lookup with similar_to relations"
 ```
 
 ---
 
 ### Task 5: Aggregate metrics across all source words
 
-Combine per-word metrics into a single discrimination report with means and the MRR regression check.
+Combine per-word metrics into a summary report. Primary metric is mean rank AUC.
 
 **Files:**
 - Modify: `data-pipeline/scripts/evaluate_discrimination.py`
@@ -552,41 +745,40 @@ from evaluate_discrimination import aggregate_metrics
 def test_aggregate_metrics():
     per_word = [
         {
-            "word": "anger",
+            "word": "anger", "pos": "n",
             "cross_domain_ratio_top10": 0.6,
             "synonym_contamination_top10": 0.3,
-            "median_score_ratio": 1.1,
+            "rank_auc": 0.8,
             "total_results": 20,
         },
         {
-            "word": "fire",
+            "word": "fire", "pos": "n",
             "cross_domain_ratio_top10": 0.8,
             "synonym_contamination_top10": 0.1,
-            "median_score_ratio": 1.3,
+            "rank_auc": 0.9,
             "total_results": 15,
         },
         {
-            "word": "light",
+            "word": "glow", "pos": "v",
             "cross_domain_ratio_top10": 0.4,
             "synonym_contamination_top10": 0.5,
-            "median_score_ratio": None,  # no same-domain results
-            "total_results": 5,
+            "rank_auc": None,  # too few results to compute
+            "total_results": 2,
         },
     ]
 
     agg = aggregate_metrics(per_word)
 
+    assert agg["mean_rank_auc"] == pytest.approx(0.85, abs=0.01)  # (0.8+0.9)/2
     assert agg["mean_cross_domain_ratio"] == pytest.approx(0.6, abs=0.01)
     assert agg["mean_synonym_contamination"] == pytest.approx(0.3, abs=0.01)
-    # median_score_ratio: mean of non-None values (1.1 + 1.3) / 2 = 1.2
-    assert agg["mean_median_score_ratio"] == pytest.approx(1.2, abs=0.01)
     assert agg["words_evaluated"] == 3
     assert agg["words_with_results"] == 3
 
 
 def test_aggregate_metrics_empty():
     agg = aggregate_metrics([])
-
+    assert agg["mean_rank_auc"] is None
     assert agg["mean_cross_domain_ratio"] == 0.0
     assert agg["words_evaluated"] == 0
 ```
@@ -604,15 +796,14 @@ Add to `evaluate_discrimination.py`:
 def aggregate_metrics(per_word: list[dict]) -> dict:
     """Aggregate per-word discrimination metrics into a summary.
 
-    Computes means across all evaluated words. Metrics with None values
-    (e.g. median_score_ratio when no same-domain results exist) are
-    excluded from the mean calculation.
+    Primary metric: mean_rank_auc — averaged across words that have
+    enough results to compute AUC. Higher = better cross-domain separation.
     """
     if not per_word:
         return {
+            "mean_rank_auc": None,
             "mean_cross_domain_ratio": 0.0,
             "mean_synonym_contamination": 0.0,
-            "mean_median_score_ratio": None,
             "words_evaluated": 0,
             "words_with_results": 0,
         }
@@ -623,13 +814,13 @@ def aggregate_metrics(per_word: list[dict]) -> dict:
     mean_cross = sum(w["cross_domain_ratio_top10"] for w in per_word) / n
     mean_syn = sum(w["synonym_contamination_top10"] for w in per_word) / n
 
-    ratios = [w["median_score_ratio"] for w in per_word if w["median_score_ratio"] is not None]
-    mean_ratio = sum(ratios) / len(ratios) if ratios else None
+    aucs = [w["rank_auc"] for w in per_word if w["rank_auc"] is not None]
+    mean_auc = sum(aucs) / len(aucs) if aucs else None
 
     return {
+        "mean_rank_auc": round(mean_auc, 4) if mean_auc is not None else None,
         "mean_cross_domain_ratio": round(mean_cross, 4),
         "mean_synonym_contamination": round(mean_syn, 4),
-        "mean_median_score_ratio": round(mean_ratio, 4) if mean_ratio is not None else None,
         "words_evaluated": n,
         "words_with_results": len(with_results),
     }
@@ -638,20 +829,20 @@ def aggregate_metrics(per_word: list[dict]) -> dict:
 **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py -v`
-Expected: 13 PASS
+Expected: 20 PASS
 
 **Step 5: Commit**
 
 ```bash
 git add data-pipeline/scripts/evaluate_discrimination.py data-pipeline/scripts/test_evaluate_discrimination.py
-git commit -m "feat(eval): aggregate discrimination metrics across source words"
+git commit -m "feat(eval): aggregate discrimination metrics with rank AUC primary"
 ```
 
 ---
 
-### Task 6: Main orchestrator and CLI
+### Task 6: Main orchestrator and CLI with git_commit tracking
 
-Wire everything together: select words, query forge, compute metrics, write results JSON.
+Wire everything together: select words, query forge, compute metrics, write results JSON with git_commit.
 
 **Files:**
 - Modify: `data-pipeline/scripts/evaluate_discrimination.py`
@@ -666,14 +857,12 @@ from evaluate_discrimination import evaluate_discrimination
 def test_evaluate_discrimination_orchestrator():
     """Integration test with mocked API responses."""
     conn = _make_test_db()
-    # Add synonym data
     conn.executemany("INSERT INTO lemmas VALUES (?, ?)", [
-        ("flame", "s1"),
-        ("gleam", "s2"),
+        ("flame", "100"),
+        ("gleam", "200"),
     ])
     conn.commit()
 
-    # Mock forge responses for "blaze" and "glow"
     def mock_get(url, params=None, timeout=None):
         word = params.get("word", "")
         resp = MagicMock()
@@ -683,10 +872,10 @@ def test_evaluate_discrimination_orchestrator():
             resp.json.return_value = {
                 "source": "blaze",
                 "suggestions": [
-                    {"word": "inferno", "domain_distance": 0.3, "composite_score": 3.0,
+                    {"word": "inferno", "domain_distance": 0.2, "composite_score": 3.0,
                      "synset_id": "x1", "tier": "legendary", "overlap_count": 5,
                      "salience_sum": 5.0, "shared_properties": ["hot"]},
-                    {"word": "passion", "domain_distance": 0.7, "composite_score": 2.8,
+                    {"word": "passion", "domain_distance": 0.8, "composite_score": 2.8,
                      "synset_id": "x2", "tier": "strong", "overlap_count": 3,
                      "salience_sum": 3.0, "shared_properties": ["intense"]},
                 ],
@@ -695,9 +884,18 @@ def test_evaluate_discrimination_orchestrator():
             resp.json.return_value = {
                 "source": "glow",
                 "suggestions": [
-                    {"word": "warmth", "domain_distance": 0.6, "composite_score": 2.5,
+                    {"word": "warmth", "domain_distance": 0.8, "composite_score": 2.5,
                      "synset_id": "x3", "tier": "strong", "overlap_count": 3,
                      "salience_sum": 3.0, "shared_properties": ["warm"]},
+                ],
+            }
+        elif word == "swift":
+            resp.json.return_value = {
+                "source": "swift",
+                "suggestions": [
+                    {"word": "arrow", "domain_distance": 0.75, "composite_score": 2.0,
+                     "synset_id": "x4", "tier": "strong", "overlap_count": 2,
+                     "salience_sum": 2.0, "shared_properties": ["quick"]},
                 ],
             }
         else:
@@ -709,14 +907,32 @@ def test_evaluate_discrimination_orchestrator():
 
     with patch("evaluate_discrimination.requests.get", side_effect=mock_get):
         results = evaluate_discrimination(
-            conn=conn, port=8080, limit=100,
-            min_properties=3, max_words=50,
+            conn=conn, port=8080, limit=100, min_properties=3,
         )
 
     assert results["aggregate"]["words_evaluated"] >= 2
     assert "per_word" in results
     assert isinstance(results["per_word"], list)
     assert all("word" in w for w in results["per_word"])
+    assert "git_commit" in results
+
+
+def test_evaluate_discrimination_includes_config():
+    conn = _make_test_db()
+
+    with patch("evaluate_discrimination.requests.get") as mock_get:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        mock_resp.text = "not found"
+        mock_get.return_value = mock_resp
+
+        results = evaluate_discrimination(
+            conn=conn, port=9090, limit=50, min_properties=3,
+        )
+
+    assert results["config"]["limit"] == 50
+    assert results["config"]["cross_threshold"] == 0.7
+    assert results["config"]["same_threshold"] == 0.3
 ```
 
 **Step 2: Run test to verify it fails**
@@ -731,6 +947,7 @@ Add to `evaluate_discrimination.py`:
 ```python
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -738,38 +955,56 @@ sys.path.insert(0, str(Path(__file__).parent))
 from utils import LEXICON_V2
 
 
+def _get_git_commit() -> str:
+    """Return short git commit hash, or 'unknown' if not in a repo."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return result.stdout.strip() if result.returncode == 0 else "unknown"
+    except Exception:
+        return "unknown"
+
+
 def evaluate_discrimination(
     conn: sqlite3.Connection,
     port: int = 8080,
     limit: int = 100,
     min_properties: int = 3,
-    max_words: int = 50,
-    cross_threshold: float = 0.5,
+    noun_quota: int = 20,
+    verb_quota: int = 15,
+    adj_quota: int = 15,
+    cross_threshold: float = 0.7,
     same_threshold: float = 0.3,
 ) -> dict:
     """Run structural discrimination evaluation.
 
-    Selects source words, queries the forge for each, computes per-word
-    metrics, and aggregates into a summary.
+    Selects POS-stratified source words, queries the forge for each,
+    computes per-word rank AUC and metrics, aggregates into a summary.
     """
-    words = select_source_words(conn, min_properties, max_words)
+    words = select_source_words(
+        conn, min_properties, noun_quota, verb_quota, adj_quota,
+    )
     log.info("Selected %d source words for evaluation", len(words))
 
     per_word = []
-    for word in words:
-        suggestions = query_forge_results(word, port=port, limit=limit)
-        synonyms = lookup_synonyms(conn, word)
+    for w in words:
+        suggestions = query_forge_results(w["lemma"], port=port, limit=limit)
+        synonyms = lookup_synonyms(conn, w["lemma"])
         metrics = compute_word_metrics(
             suggestions, synonyms, cross_threshold, same_threshold,
         )
-        metrics["word"] = word
+        metrics["word"] = w["lemma"]
+        metrics["pos"] = w["pos"]
         per_word.append(metrics)
 
         log.info(
-            "  %s: %d results, cross_ratio=%.2f, syn_contam=%.2f",
-            word, metrics["total_results"],
+            "  %s (%s): %d results, cross=%.2f, syn=%.2f, auc=%s",
+            w["lemma"], w["pos"], metrics["total_results"],
             metrics["cross_domain_ratio_top10"],
             metrics["synonym_contamination_top10"],
+            f'{metrics["rank_auc"]:.3f}' if metrics["rank_auc"] is not None else "N/A",
         )
 
     agg = aggregate_metrics(per_word)
@@ -777,10 +1012,13 @@ def evaluate_discrimination(
     return {
         "aggregate": agg,
         "per_word": per_word,
+        "git_commit": _get_git_commit(),
         "config": {
             "limit": limit,
             "min_properties": min_properties,
-            "max_words": max_words,
+            "noun_quota": noun_quota,
+            "verb_quota": verb_quota,
+            "adj_quota": adj_quota,
             "cross_threshold": cross_threshold,
             "same_threshold": same_threshold,
         },
@@ -795,28 +1033,36 @@ def main():
         "--db", default=str(LEXICON_V2),
         help=f"Path to lexicon_v2.db (default: {LEXICON_V2})",
     )
-    parser.add_argument("--port", type=int, default=8080, help="API port (default: 8080)")
-    parser.add_argument("--limit", type=int, default=100, help="Max results per query (default: 100)")
-    parser.add_argument("--max-words", type=int, default=50, help="Source words to evaluate (default: 50)")
-    parser.add_argument("--output", "-o", default=None, help="Output JSON file")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument("--max-words", type=int, default=50,
+                        help="Total words (split across POS quotas)")
+    parser.add_argument("--output", "-o", default=None)
+    parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 
+    # Split max-words into POS quotas (40/30/30 ratio)
+    total = args.max_words
+    noun_q = round(total * 0.4)
+    verb_q = round(total * 0.3)
+    adj_q = total - noun_q - verb_q
+
     conn = sqlite3.connect(args.db)
     results = evaluate_discrimination(
-        conn=conn, port=args.port, limit=args.limit, max_words=args.max_words,
+        conn=conn, port=args.port, limit=args.limit,
+        noun_quota=noun_q, verb_quota=verb_q, adj_quota=adj_q,
     )
     conn.close()
 
-    print(f"\n=== Discrimination Eval ===")
-    print(f"  Words evaluated: {results['aggregate']['words_evaluated']}")
-    print(f"  Mean cross-domain ratio (top 10): {results['aggregate']['mean_cross_domain_ratio']:.4f}")
-    print(f"  Mean synonym contamination (top 10): {results['aggregate']['mean_synonym_contamination']:.4f}")
-    ratio = results["aggregate"]["mean_median_score_ratio"]
-    print(f"  Mean median score ratio (cross/same): {ratio:.4f}" if ratio else "  Mean median score ratio: N/A")
+    agg = results["aggregate"]
+    print(f"\n=== Discrimination Eval ({results['git_commit']}) ===")
+    print(f"  Words evaluated: {agg['words_evaluated']}")
+    print(f"  Mean rank AUC: {agg['mean_rank_auc']:.4f}" if agg["mean_rank_auc"] else "  Mean rank AUC: N/A")
+    print(f"  Mean cross-domain ratio (top 10): {agg['mean_cross_domain_ratio']:.4f}")
+    print(f"  Mean synonym contamination (top 10): {agg['mean_synonym_contamination']:.4f}")
 
     if args.output:
         with open(args.output, "w") as f:
@@ -831,13 +1077,13 @@ if __name__ == "__main__":
 **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest data-pipeline/scripts/test_evaluate_discrimination.py -v`
-Expected: 14 PASS
+Expected: 22 PASS
 
 **Step 5: Commit**
 
 ```bash
 git add data-pipeline/scripts/evaluate_discrimination.py data-pipeline/scripts/test_evaluate_discrimination.py
-git commit -m "feat(eval): discrimination eval orchestrator and CLI"
+git commit -m "feat(eval): discrimination eval orchestrator with git_commit tracking"
 ```
 
 ---
@@ -863,9 +1109,11 @@ python data-pipeline/scripts/evaluate_discrimination.py \
 
 Check that:
 - Script completes without errors
-- `mean_cross_domain_ratio` > 0 (cross-domain results exist)
+- `mean_rank_auc` > 0.5 (cross-domain results tend to outrank same-domain)
+- `mean_cross_domain_ratio` > 0 (cross-domain results exist in top 10)
 - `mean_synonym_contamination` < 1.0 (not all synonyms)
-- Per-word breakdowns look reasonable
+- Per-word breakdowns include POS labels and look reasonable
+- `git_commit` is populated
 - Output JSON is well-formed
 
 **Step 3: Commit results**
@@ -879,16 +1127,16 @@ git commit -m "data: baseline discrimination eval results"
 
 ## Summary
 
-| Task | What | Tests added |
-|------|------|-------------|
-| 1 | Source word selection | 3 |
-| 2 | Query forge + classify by domain | 3 |
-| 3 | Per-word metrics | 3 |
-| 4 | Synonym lookup | 2 |
-| 5 | Aggregate metrics | 2 |
-| 6 | Orchestrator + CLI | 1 |
-| 7 | Live smoke test | 0 (manual) |
+| Task | What | Tests | Council refinement |
+|------|------|-------|--------------------|
+| 1 | POS-stratified source word selection + primary synset | 4 | §2: POS quotas, primary synset focus |
+| 2 | Query forge + classify by domain (widened thresholds) | 4 | §1: symmetric thresholds, §3: handle None distances |
+| 3 | Rank-based AUC + per-word metrics | 7 | §1: AUC replaces median_score_ratio |
+| 4 | Expanded synonym lookup (same-synset + similar_to) | 3 | §1: similar_to expansion |
+| 5 | Aggregate metrics | 2 | — |
+| 6 | Orchestrator + CLI + git_commit | 2 | §3: git_commit tracking |
+| 7 | Live smoke test | 0 (manual) | — |
 
-**Total: 7 tasks, 14 tests, ~6 commits**
+**Total: 7 tasks, 22 tests, ~7 commits**
 
-Tier 3 (LLM aptness judge) is a follow-up task after Tier 2 is validated against real data.
+Tier 3 (LLM aptness judge) is a follow-up task after Tier 2 is validated against real data. Council note for Tier 3: **blind the judge** — do not pass composite scores or tier labels.
