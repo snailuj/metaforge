@@ -1,4 +1,5 @@
 """Tests for predict_concreteness.py — FastText concreteness regression."""
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from predict_concreteness import (
     build_synset_embeddings, build_training_data, run_model_shootout,
     retrain_winner, fill_concreteness_gaps, revert_concreteness_predictions,
+    cmd_shootout, cmd_fill, cmd_revert,
 )
 
 
@@ -309,3 +311,106 @@ def test_revert_idempotent():
     stats = revert_concreteness_predictions(conn)
     assert stats["deleted"] == 0
     assert stats["brysbaert_retained"] == 1
+
+
+def _make_cmd_test_db_and_vectors(n=80):
+    """Create DB + vectors with enough data for cmd_shootout (needs >=50 samples).
+
+    Generates n synsets, each with one lemma and a Brysbaert score, plus
+    10 extra unscored synsets for gap-fill testing.
+    """
+    rng = np.random.RandomState(99)
+    dim = 4
+    conn = sqlite3.connect(":memory:")
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+        CREATE TABLE lemmas (lemma TEXT, synset_id TEXT, PRIMARY KEY (lemma, synset_id));
+        CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL NOT NULL, source TEXT NOT NULL);
+    """)
+    vectors = {}
+    scored_rows = []
+    for i in range(n):
+        sid = str(1000 + i)
+        lemma = f"word{i}"
+        conn.execute("INSERT INTO synsets VALUES (?, 'n', ?)", (sid, f"def {i}"))
+        conn.execute("INSERT INTO lemmas VALUES (?, ?)", (lemma, sid))
+        vectors[lemma] = tuple(rng.randn(dim).tolist())
+        scored_rows.append((sid, round(1.0 + rng.rand() * 4.0, 2), "brysbaert"))
+
+    # Extra unscored synsets for gap-fill
+    for i in range(n, n + 10):
+        sid = str(1000 + i)
+        lemma = f"word{i}"
+        conn.execute("INSERT INTO synsets VALUES (?, 'n', ?)", (sid, f"def {i}"))
+        conn.execute("INSERT INTO lemmas VALUES (?, ?)", (lemma, sid))
+        vectors[lemma] = tuple(rng.randn(dim).tolist())
+
+    conn.executemany("INSERT INTO synset_concreteness VALUES (?, ?, ?)", scored_rows)
+    conn.commit()
+    return conn, vectors, n
+
+
+def test_cmd_shootout_writes_json_not_db(tmp_path):
+    conn, vectors, n_scored = _make_cmd_test_db_and_vectors()
+    output = tmp_path / "shootout.json"
+
+    cmd_shootout(conn, vectors, str(output))
+
+    # JSON was written
+    assert output.exists()
+    data = json.loads(output.read_text())
+    assert "models" in data
+    assert "best_model_name" in data
+    assert len(data["models"]) == 4
+
+    # DB was NOT modified — still only n_scored Brysbaert rows
+    count = conn.execute("SELECT COUNT(*) FROM synset_concreteness").fetchone()[0]
+    assert count == n_scored
+
+
+def test_cmd_fill_requires_shootout(tmp_path):
+    conn = _make_test_db()
+    conn.execute("INSERT INTO synset_concreteness VALUES ('100', 4.82, 'brysbaert')")
+    conn.commit()
+
+    vectors = _make_vectors()
+    missing_path = str(tmp_path / "nonexistent.json")
+
+    with pytest.raises(FileNotFoundError, match="run shootout"):
+        cmd_fill(conn, vectors, missing_path)
+
+
+def test_cmd_fill_uses_shootout_winner(tmp_path):
+    conn, vectors, _ = _make_cmd_test_db_and_vectors()
+    output = tmp_path / "shootout.json"
+
+    # Run shootout first
+    cmd_shootout(conn, vectors, str(output))
+
+    # Then fill — 10 extra synsets have no Brysbaert score but have embeddings
+    stats = cmd_fill(conn, vectors, str(output))
+    assert stats["gap_fill"]["predicted"] >= 1
+
+    # DB now has regression predictions
+    reg_count = conn.execute(
+        "SELECT COUNT(*) FROM synset_concreteness WHERE source = 'fasttext_regression'"
+    ).fetchone()[0]
+    assert reg_count >= 1
+
+
+def test_cmd_revert():
+    conn = _make_test_db()
+    conn.executemany(
+        "INSERT INTO synset_concreteness VALUES (?, ?, ?)",
+        [
+            ("100", 4.82, "brysbaert"),
+            ("200", 3.50, "fasttext_regression"),
+        ],
+    )
+    conn.commit()
+
+    stats = cmd_revert(conn)
+    assert stats["deleted"] == 1
+
+    count = conn.execute("SELECT COUNT(*) FROM synset_concreteness").fetchone()[0]
+    assert count == 1
