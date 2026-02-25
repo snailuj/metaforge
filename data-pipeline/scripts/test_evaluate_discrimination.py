@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from unittest.mock import patch, MagicMock
 from evaluate_discrimination import (
     select_source_words, query_forge_results, classify_by_domain,
-    compute_rank_auc, compute_word_metrics,
+    compute_rank_auc, compute_word_metrics, lookup_synonyms,
 )
 
 
@@ -266,3 +266,39 @@ def test_compute_word_metrics_empty():
     assert m["synonym_contamination_top10"] == 0.0
     assert m["rank_auc"] is None
     assert m["total_results"] == 0
+
+
+def test_lookup_synonyms_same_synset():
+    conn = _make_test_db()
+    conn.executemany("INSERT INTO lemmas VALUES (?, ?)", [
+        ("flame", "100"),
+        ("flare", "100"),
+        ("gleam", "200"),
+    ])
+    conn.commit()
+
+    syns = lookup_synonyms(conn, "blaze")
+    assert "flame" in syns
+    assert "flare" in syns
+    assert "gleam" in syns
+    assert "blaze" not in syns  # exclude self
+
+
+def test_lookup_synonyms_includes_similar_to():
+    conn = _make_test_db()
+    # Add a similar_to relation from blaze's synset 100 to a new synset 600
+    conn.executescript("""
+        INSERT INTO synsets VALUES ('600', 'n', 'an intense fire');
+        INSERT INTO lemmas VALUES ('inferno', '600');
+        INSERT INTO relations VALUES ('100', '600', '40');
+    """)
+    conn.commit()
+
+    syns = lookup_synonyms(conn, "blaze")
+    assert "inferno" in syns  # via similar_to relation
+
+
+def test_lookup_synonyms_no_results():
+    conn = _make_test_db()
+    syns = lookup_synonyms(conn, "nonexistent")
+    assert syns == set()

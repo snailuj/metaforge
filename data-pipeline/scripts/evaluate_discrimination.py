@@ -132,6 +132,35 @@ def classify_by_domain(
     return cross, same
 
 
+def lookup_synonyms(conn: sqlite3.Connection, lemma: str) -> set[str]:
+    """Return synonyms and near-synonyms for a word.
+
+    Combines two sources:
+    1. Same-synset lemmas (WordNet synonyms)
+    2. Lemmas in synsets linked via similar_to (relation_type 40)
+
+    Excludes the input lemma itself.
+    """
+    rows = conn.execute("""
+        -- Same-synset synonyms
+        SELECT DISTINCT l2.lemma
+        FROM lemmas l1
+        JOIN lemmas l2 ON l1.synset_id = l2.synset_id
+        WHERE l1.lemma = ? AND l2.lemma != ?
+
+        UNION
+
+        -- similar_to relation (type 40) synonyms
+        SELECT DISTINCT l2.lemma
+        FROM lemmas l1
+        JOIN relations r ON l1.synset_id = r.source_synset AND r.relation_type = '40'
+        JOIN lemmas l2 ON r.target_synset = l2.synset_id
+        WHERE l1.lemma = ? AND l2.lemma != ?
+    """, (lemma, lemma, lemma, lemma)).fetchall()
+
+    return {row[0] for row in rows}
+
+
 def compute_rank_auc(
     cross_ranks: list[int], same_ranks: list[int],
 ) -> Optional[float]:
