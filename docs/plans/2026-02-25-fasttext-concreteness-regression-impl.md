@@ -4,7 +4,13 @@
 
 **Goal:** Train regression models on Brysbaert concreteness scores + FastText 300d embeddings, pick the best, and fill the concreteness gap from 48.5% to 80%+ coverage.
 
-**Architecture:** A new `predict_concreteness.py` script follows existing pipeline patterns. Loads FastText vectors, builds mean synset embeddings, runs a 4-model shootout (Ridge, SVR, k-NN, Random Forest) with cross-validated hyperparameter tuning, then gap-fills unrated synsets with the winner. Pure Python + scikit-learn + numpy.
+**Architecture:** A new `predict_concreteness.py` script with three side-effect-free subcommands:
+
+1. **`shootout`** — Pure evaluation: trains 4 models (Ridge, SVR, k-NN, Random Forest) with GridSearchCV, writes results JSON. Never modifies the DB.
+2. **`fill`** — Reads shootout JSON, retrains the winner on ALL training data (not 80/20 — max accuracy for production), fills unrated synsets. Requires prior shootout.
+3. **`revert`** — Deletes all `source='fasttext_regression'` rows, restoring Brysbaert-only state.
+
+Each operation is independently runnable and idempotent. The shootout can be re-run without filling gaps. Gap-filling can be re-run (after revert) with a different shootout.
 
 **Tech Stack:** Python 3, sqlite3, numpy, scikit-learn (new dep), pytest.
 
@@ -570,18 +576,48 @@ git commit -m "feat(concreteness): 4-model shootout with GridSearchCV"
 
 ---
 
-### Task 4: Gap-fill unrated synsets with best model
+### Task 4: Retrain winner from shootout JSON + gap-fill + revert
 
-Predict concreteness for all unrated synsets that have embeddings and write to DB.
+Three composable operations: `retrain_winner` reconstructs the winning model from shootout JSON and fits on ALL training data; `fill_concreteness_gaps` writes predictions to DB; `revert_concreteness_predictions` restores Brysbaert-only state.
 
 **Files:**
 - Modify: `data-pipeline/scripts/predict_concreteness.py`
 - Modify: `data-pipeline/scripts/test_predict_concreteness.py`
 
-**Step 1: Write the failing test**
+**Step 1: Write the failing tests**
 
 ```python
-from predict_concreteness import fill_concreteness_gaps
+from predict_concreteness import (
+    retrain_winner, fill_concreteness_gaps, revert_concreteness_predictions,
+)
+
+
+def test_retrain_winner_from_shootout():
+    X, y = _make_synthetic_data()
+    shootout = run_model_shootout(X, y)
+
+    # Serialise and reconstruct — simulates reading from JSON
+    shootout_json = {
+        "best_model_name": shootout["best_model_name"],
+        "models": shootout["models"],
+    }
+    model = retrain_winner(X, y, shootout_json)
+
+    # Model should predict reasonable values
+    preds = model.predict(X[:5])
+    assert len(preds) == 5
+    for p in preds:
+        assert 0.0 <= p <= 6.0  # loose check — synthetic data
+
+
+def test_retrain_winner_unknown_model():
+    X, y = _make_synthetic_data()
+    bad_json = {
+        "best_model_name": "Nonexistent Model",
+        "models": [{"name": "Nonexistent Model", "best_params": {}}],
+    }
+    with pytest.raises(ValueError, match="Unknown model"):
+        retrain_winner(X, y, bad_json)
 
 
 def test_fill_concreteness_gaps():
@@ -640,11 +676,45 @@ def test_fill_concreteness_gaps_clamps_scores():
     scores = [r[0] for r in rows]
     assert min(scores) >= 1.0
     assert max(scores) <= 5.0
+
+
+def test_revert_concreteness_predictions():
+    conn = _make_test_db()
+    conn.executemany(
+        "INSERT INTO synset_concreteness VALUES (?, ?, ?)",
+        [
+            ("100", 4.82, "brysbaert"),
+            ("200", 3.50, "fasttext_regression"),
+            ("300", 2.10, "fasttext_regression"),
+        ],
+    )
+    conn.commit()
+
+    stats = revert_concreteness_predictions(conn)
+
+    assert stats["deleted"] == 2
+    assert stats["brysbaert_retained"] == 1
+
+    # Only Brysbaert rows remain
+    rows = conn.execute("SELECT synset_id, source FROM synset_concreteness").fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "100"
+    assert rows[0][1] == "brysbaert"
+
+
+def test_revert_idempotent():
+    conn = _make_test_db()
+    conn.execute("INSERT INTO synset_concreteness VALUES ('100', 4.82, 'brysbaert')")
+    conn.commit()
+
+    stats = revert_concreteness_predictions(conn)
+    assert stats["deleted"] == 0
+    assert stats["brysbaert_retained"] == 1
 ```
 
 **Step 2: Run test to verify it fails**
 
-Run: `python -m pytest data-pipeline/scripts/test_predict_concreteness.py::test_fill_concreteness_gaps -v`
+Run: `python -m pytest data-pipeline/scripts/test_predict_concreteness.py::test_retrain_winner_from_shootout -v`
 Expected: FAIL with `ImportError`
 
 **Step 3: Write minimal implementation**
@@ -652,6 +722,44 @@ Expected: FAIL with `ImportError`
 Add to `predict_concreteness.py`:
 
 ```python
+_MODEL_CLASSES = {
+    "Ridge": lambda params: Ridge(**params),
+    "SVR (RBF)": lambda params: SVR(kernel="rbf", **params),
+    "k-NN": lambda params: KNeighborsRegressor(**params),
+    "Random Forest": lambda params: RandomForestRegressor(**params),
+}
+
+
+def retrain_winner(
+    X: np.ndarray,
+    y: np.ndarray,
+    shootout_results: dict,
+) -> object:
+    """Reconstruct and refit the winning model from shootout results.
+
+    Uses ALL training data (no holdout) for maximum production accuracy.
+    The shootout JSON provides the model name and best hyperparameters.
+    """
+    name = shootout_results["best_model_name"]
+
+    if name not in _MODEL_CLASSES:
+        raise ValueError(f"Unknown model: {name!r}")
+
+    # Find the best_params for the winner
+    winner_entry = next(
+        (m for m in shootout_results["models"] if m["name"] == name), None
+    )
+    if winner_entry is None:
+        raise ValueError(f"Model {name!r} not found in shootout results")
+
+    params = winner_entry.get("best_params", {})
+    model = _MODEL_CLASSES[name](params)
+    model.fit(X, y)
+
+    log.info("Retrained %s on %d samples with params %s", name, len(y), params)
+    return model
+
+
 def fill_concreteness_gaps(
     conn: sqlite3.Connection,
     synset_embeddings: dict[str, np.ndarray],
@@ -706,40 +814,55 @@ def fill_concreteness_gaps(
         "already_scored": len(scored),
         "no_embedding": no_embedding,
     }
+
+
+def revert_concreteness_predictions(conn: sqlite3.Connection) -> dict[str, int]:
+    """Delete all fasttext_regression predictions, restoring Brysbaert-only state.
+
+    Idempotent — safe to call even if no regression predictions exist.
+    """
+    before = conn.execute("SELECT COUNT(*) FROM synset_concreteness").fetchone()[0]
+    conn.execute("DELETE FROM synset_concreteness WHERE source = 'fasttext_regression'")
+    conn.commit()
+    after = conn.execute("SELECT COUNT(*) FROM synset_concreteness").fetchone()[0]
+
+    deleted = before - after
+    log.info("Reverted: deleted %d regression predictions, %d Brysbaert retained", deleted, after)
+
+    return {"deleted": deleted, "brysbaert_retained": after}
 ```
 
 **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest data-pipeline/scripts/test_predict_concreteness.py -v`
-Expected: 10 PASS
+Expected: 15 PASS (8 old + 7 new)
 
 **Step 5: Commit**
 
 ```bash
 git add data-pipeline/scripts/predict_concreteness.py \
   data-pipeline/scripts/test_predict_concreteness.py
-git commit -m "feat(concreteness): gap-fill unrated synsets with clamped predictions"
+git commit -m "feat(concreteness): retrain winner, gap-fill, and revert operations"
 ```
 
 ---
 
-### Task 5: CLI orchestrator with JSON output
+### Task 5: CLI with subcommands (shootout / fill / revert)
 
-Wire everything together: load vectors, build embeddings, train, fill gaps, output results.
+Three independent subcommands. `shootout` never touches DB. `fill` requires prior shootout JSON. `revert` restores Brysbaert-only state.
 
 **Files:**
 - Modify: `data-pipeline/scripts/predict_concreteness.py`
 - Modify: `data-pipeline/scripts/test_predict_concreteness.py`
 
-**Step 1: Write the failing test**
+**Step 1: Write the failing tests**
 
 ```python
-from unittest.mock import patch, MagicMock
-from predict_concreteness import predict_concreteness
+import json
+from predict_concreteness import cmd_shootout, cmd_fill, cmd_revert
 
 
-def test_predict_concreteness_orchestrator():
-    """Integration test with small synthetic data."""
+def test_cmd_shootout_writes_json_not_db(tmp_path):
     conn = _make_test_db()
     conn.executemany(
         "INSERT INTO synset_concreteness VALUES (?, ?, ?)",
@@ -748,17 +871,35 @@ def test_predict_concreteness_orchestrator():
     conn.commit()
 
     vectors = _make_vectors()
-    results = predict_concreteness(conn, vectors)
+    output = tmp_path / "shootout.json"
 
-    assert "shootout" in results
-    assert "gap_fill" in results
-    assert "coverage" in results
-    assert results["shootout"]["best_model_name"] is not None
-    assert results["coverage"]["total_synsets"] > 0
-    assert results["coverage"]["pct"] > 0
+    cmd_shootout(conn, vectors, str(output))
+
+    # JSON was written
+    assert output.exists()
+    data = json.loads(output.read_text())
+    assert "models" in data
+    assert "best_model_name" in data
+    assert len(data["models"]) == 4
+
+    # DB was NOT modified — still only 2 Brysbaert rows
+    count = conn.execute("SELECT COUNT(*) FROM synset_concreteness").fetchone()[0]
+    assert count == 2
 
 
-def test_predict_concreteness_includes_git_commit():
+def test_cmd_fill_requires_shootout(tmp_path):
+    conn = _make_test_db()
+    conn.execute("INSERT INTO synset_concreteness VALUES ('100', 4.82, 'brysbaert')")
+    conn.commit()
+
+    vectors = _make_vectors()
+    missing_path = str(tmp_path / "nonexistent.json")
+
+    with pytest.raises(FileNotFoundError, match="run shootout"):
+        cmd_fill(conn, vectors, missing_path)
+
+
+def test_cmd_fill_uses_shootout_winner(tmp_path):
     conn = _make_test_db()
     conn.executemany(
         "INSERT INTO synset_concreteness VALUES (?, ?, ?)",
@@ -767,14 +908,43 @@ def test_predict_concreteness_includes_git_commit():
     conn.commit()
 
     vectors = _make_vectors()
-    results = predict_concreteness(conn, vectors)
+    output = tmp_path / "shootout.json"
 
-    assert "git_commit" in results
+    # Run shootout first
+    cmd_shootout(conn, vectors, str(output))
+
+    # Then fill — synset 300 has no Brysbaert score but has embeddings
+    stats = cmd_fill(conn, vectors, str(output))
+    assert stats["gap_fill"]["predicted"] >= 1
+
+    # DB now has regression predictions
+    reg_count = conn.execute(
+        "SELECT COUNT(*) FROM synset_concreteness WHERE source = 'fasttext_regression'"
+    ).fetchone()[0]
+    assert reg_count >= 1
+
+
+def test_cmd_revert():
+    conn = _make_test_db()
+    conn.executemany(
+        "INSERT INTO synset_concreteness VALUES (?, ?, ?)",
+        [
+            ("100", 4.82, "brysbaert"),
+            ("200", 3.50, "fasttext_regression"),
+        ],
+    )
+    conn.commit()
+
+    stats = cmd_revert(conn)
+    assert stats["deleted"] == 1
+
+    count = conn.execute("SELECT COUNT(*) FROM synset_concreteness").fetchone()[0]
+    assert count == 1
 ```
 
 **Step 2: Run test to verify it fails**
 
-Run: `python -m pytest data-pipeline/scripts/test_predict_concreteness.py::test_predict_concreteness_orchestrator -v`
+Run: `python -m pytest data-pipeline/scripts/test_predict_concreteness.py::test_cmd_shootout_writes_json_not_db -v`
 Expected: FAIL with `ImportError`
 
 **Step 3: Write minimal implementation**
@@ -804,113 +974,141 @@ def _get_git_commit() -> str:
         return "unknown"
 
 
-def predict_concreteness(
+def cmd_shootout(
     conn: sqlite3.Connection,
     vectors: dict[str, tuple[float, ...]],
+    output_path: str,
     random_state: int = 42,
 ) -> dict:
-    """Run full concreteness prediction pipeline.
-
-    1. Build synset embeddings from FastText vectors
-    2. Build training data from Brysbaert scores
-    3. Run 4-model shootout
-    4. Fill gaps with best model
-    5. Report coverage
-    """
-    log.info("Building synset embeddings...")
+    """Run model shootout and write results JSON. Never modifies DB."""
     embeddings = build_synset_embeddings(conn, vectors)
-    log.info("  %d synsets with embeddings", len(embeddings))
+    log.info("Built %d synset embeddings", len(embeddings))
 
-    log.info("Building training data...")
     X, y, synset_ids = build_training_data(conn, embeddings)
-    log.info("  %d training samples", len(y))
+    log.info("Training data: %d samples", len(y))
 
     if len(y) < 50:
-        log.warning("Too few training samples (%d) — skipping model training", len(y))
-        return {
-            "error": f"Too few training samples ({len(y)})",
-            "git_commit": _get_git_commit(),
-        }
+        raise ValueError(f"Too few training samples ({len(y)}) — need at least 50")
 
-    log.info("Running model shootout...")
     shootout = run_model_shootout(X, y, random_state=random_state)
 
-    log.info("Best model: %s (r=%.4f)",
-             shootout["best_model_name"],
-             shootout["models"][0]["pearson_r"])
+    results = {
+        "models": shootout["models"],
+        "best_model_name": shootout["best_model_name"],
+        "train_size": shootout["train_size"],
+        "test_size": shootout["test_size"],
+        "git_commit": _get_git_commit(),
+    }
 
-    log.info("Filling concreteness gaps...")
-    gap_stats = fill_concreteness_gaps(conn, embeddings, shootout["best_model"])
+    with open(output_path, "w") as f:
+        json.dump(results, f, indent=2)
+    log.info("Shootout results written to %s", output_path)
 
-    # Coverage stats
+    return results
+
+
+def cmd_fill(
+    conn: sqlite3.Connection,
+    vectors: dict[str, tuple[float, ...]],
+    shootout_path: str,
+) -> dict:
+    """Fill concreteness gaps using the winner from a prior shootout.
+
+    Reads shootout JSON, retrains the winner on ALL training data,
+    then predicts for unrated synsets.
+    """
+    if not Path(shootout_path).exists():
+        raise FileNotFoundError(
+            f"Shootout results not found: {shootout_path} — run shootout before gap-filling"
+        )
+
+    with open(shootout_path) as f:
+        shootout_results = json.load(f)
+
+    embeddings = build_synset_embeddings(conn, vectors)
+    X, y, _ = build_training_data(conn, embeddings)
+
+    log.info("Retraining %s on %d samples (full training set)...",
+             shootout_results["best_model_name"], len(y))
+    model = retrain_winner(X, y, shootout_results)
+
+    gap_stats = fill_concreteness_gaps(conn, embeddings, model)
+
     total = conn.execute("SELECT COUNT(*) FROM synsets").fetchone()[0]
     scored = conn.execute("SELECT COUNT(*) FROM synset_concreteness").fetchone()[0]
     pct = round(scored / total * 100, 1) if total > 0 else 0
 
-    log.info("Coverage: %d/%d (%.1f%%)", scored, total, pct)
-
     return {
-        "shootout": {
-            "models": shootout["models"],
-            "best_model_name": shootout["best_model_name"],
-            "train_size": shootout["train_size"],
-            "test_size": shootout["test_size"],
-        },
         "gap_fill": gap_stats,
-        "coverage": {
-            "total_synsets": total,
-            "scored": scored,
-            "pct": pct,
-        },
+        "model_used": shootout_results["best_model_name"],
+        "coverage": {"total_synsets": total, "scored": scored, "pct": pct},
         "git_commit": _get_git_commit(),
     }
 
 
+def cmd_revert(conn: sqlite3.Connection) -> dict:
+    """Revert to Brysbaert-only concreteness state."""
+    return revert_concreteness_predictions(conn)
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Predict concreteness for unrated synsets via FastText regression"
+        description="Concreteness regression: shootout / fill / revert"
     )
-    parser.add_argument(
-        "--db", default=str(LEXICON_V2),
-        help=f"Path to lexicon_v2.db (default: {LEXICON_V2})",
-    )
-    parser.add_argument(
-        "--fasttext", default=str(FASTTEXT_VEC),
-        help=f"Path to FastText .vec file (default: {FASTTEXT_VEC})",
-    )
-    parser.add_argument("--output", "-o", default=None)
     parser.add_argument("--verbose", "-v", action="store_true")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    # shootout
+    p_shootout = sub.add_parser("shootout", help="Train and evaluate models (no DB writes)")
+    p_shootout.add_argument("--db", default=str(LEXICON_V2))
+    p_shootout.add_argument("--fasttext", default=str(FASTTEXT_VEC))
+    p_shootout.add_argument("--output", "-o", required=True, help="Path for results JSON")
+
+    # fill
+    p_fill = sub.add_parser("fill", help="Fill gaps using shootout winner")
+    p_fill.add_argument("--db", default=str(LEXICON_V2))
+    p_fill.add_argument("--fasttext", default=str(FASTTEXT_VEC))
+    p_fill.add_argument("--shootout", required=True, help="Path to shootout results JSON")
+
+    # revert
+    p_revert = sub.add_parser("revert", help="Delete regression predictions, restore Brysbaert-only")
+    p_revert.add_argument("--db", default=str(LEXICON_V2))
+
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 
-    from utils import load_fasttext_vectors
-
-    vectors = load_fasttext_vectors(args.fasttext)
-
     conn = sqlite3.connect(args.db)
     try:
-        results = predict_concreteness(conn, vectors)
+        if args.command == "shootout":
+            from utils import load_fasttext_vectors
+            vectors = load_fasttext_vectors(args.fasttext)
+            results = cmd_shootout(conn, vectors, args.output)
+            print(f"\n=== Shootout ({results.get('git_commit', '?')}) ===")
+            for m in results["models"]:
+                print(f"  {m['name']:20s}  r={m['pearson_r']:.4f}  R²={m['r2']:.4f}  RMSE={m['rmse']:.4f}")
+            print(f"\n  Winner: {results['best_model_name']}")
+            print(f"  Results: {args.output}")
+
+        elif args.command == "fill":
+            from utils import load_fasttext_vectors
+            vectors = load_fasttext_vectors(args.fasttext)
+            results = cmd_fill(conn, vectors, args.shootout)
+            cov = results["coverage"]
+            gap = results["gap_fill"]
+            print(f"\n=== Fill ({results.get('git_commit', '?')}) ===")
+            print(f"  Model: {results['model_used']}")
+            print(f"  Predicted: {gap['predicted']} synsets")
+            print(f"  Coverage: {cov['scored']}/{cov['total_synsets']} ({cov['pct']}%)")
+
+        elif args.command == "revert":
+            stats = cmd_revert(conn)
+            print(f"\n=== Revert ===")
+            print(f"  Deleted: {stats['deleted']} regression predictions")
+            print(f"  Retained: {stats['brysbaert_retained']} Brysbaert scores")
     finally:
         conn.close()
-
-    shootout = results.get("shootout", {})
-    models = shootout.get("models", [])
-    coverage = results.get("coverage", {})
-
-    print(f"\n=== Concreteness Regression ({results.get('git_commit', '?')}) ===")
-    if models:
-        print(f"\nModel shootout:")
-        for m in models:
-            print(f"  {m['name']:20s}  r={m['pearson_r']:.4f}  R²={m['r2']:.4f}  RMSE={m['rmse']:.4f}")
-        print(f"\n  Winner: {shootout['best_model_name']}")
-    print(f"\nCoverage: {coverage.get('scored', 0)}/{coverage.get('total_synsets', 0)} ({coverage.get('pct', 0)}%)")
-
-    if args.output:
-        with open(args.output, "w") as f:
-            json.dump(results, f, indent=2)
-        print(f"Results written to {args.output}")
 
 
 if __name__ == "__main__":
@@ -920,67 +1118,112 @@ if __name__ == "__main__":
 **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest data-pipeline/scripts/test_predict_concreteness.py -v`
-Expected: 12 PASS
+Expected: 19 PASS (15 old + 4 new)
 
 **Step 5: Commit**
 
 ```bash
 git add data-pipeline/scripts/predict_concreteness.py \
   data-pipeline/scripts/test_predict_concreteness.py
-git commit -m "feat(concreteness): CLI orchestrator with model shootout and gap-fill"
+git commit -m "feat(concreteness): CLI subcommands — shootout / fill / revert"
 ```
 
 ---
 
 ### Task 6: Live run against real DB
 
-Run the full pipeline against the live database and verify coverage reaches 80%+.
+Run shootout, fill, and verify coverage reaches 80%+.
 
 **Files:** None (manual verification)
 
-**Step 1: Run against live DB**
+**Step 1: Run shootout (no DB changes)**
 
-Run:
 ```bash
 source .venv/bin/activate
-python data-pipeline/scripts/predict_concreteness.py \
+python data-pipeline/scripts/predict_concreteness.py shootout \
   --db data-pipeline/output/lexicon_v2.db \
   --fasttext data-pipeline/raw/wiki-news-300d-1M.vec \
-  -o data-pipeline/output/concreteness_regression.json -v
+  -o data-pipeline/output/concreteness_shootout.json -v
 ```
 
-**Step 2: Verify output**
+**Step 2: Verify shootout output**
 
 Check that:
-- Script completes without errors
 - All 4 models trained and evaluated
-- Best model pearson_r > 0.7 (literature suggests ~0.8-0.9 for FastText)
+- Best model pearson_r > 0.7 (literature: ~0.8-0.9 for FastText)
+- JSON is well-formed, contains model rankings and best_params
+
+**Step 3: Fill gaps**
+
+```bash
+python data-pipeline/scripts/predict_concreteness.py fill \
+  --db data-pipeline/output/lexicon_v2.db \
+  --fasttext data-pipeline/raw/wiki-news-300d-1M.vec \
+  --shootout data-pipeline/output/concreteness_shootout.json -v
+```
+
+**Step 4: Verify fill output**
+
+Check that:
 - Coverage >= 80% (target)
-- Predictions are in valid range [1.0, 5.0]
-- `git_commit` is populated
-- Output JSON is well-formed
+- Predictions in valid range [1.0, 5.0]
+- Log shows sensible prediction counts
 
-**Step 3: Run full test suite to verify nothing broke**
+**Step 5: Verify revert works**
 
-Run:
+```bash
+python data-pipeline/scripts/predict_concreteness.py revert \
+  --db data-pipeline/output/lexicon_v2.db
+```
+
+Should show deletion count and Brysbaert retention. Then re-fill:
+
+```bash
+python data-pipeline/scripts/predict_concreteness.py fill \
+  --db data-pipeline/output/lexicon_v2.db \
+  --fasttext data-pipeline/raw/wiki-news-300d-1M.vec \
+  --shootout data-pipeline/output/concreteness_shootout.json -v
+```
+
+**Step 6: Run full test suite**
+
 ```bash
 python -m pytest data-pipeline/scripts/ -v
 cd api && go test ./...
 ```
 
-**Step 4: Re-run MRR eval and discrimination eval**
+**Step 7: Re-run evals with improved coverage**
 
-Check whether the improved coverage changes the forge quality metrics:
 ```bash
 python data-pipeline/scripts/evaluate_mrr.py --db data-pipeline/output/lexicon_v2.db --port 8080 -v -o data-pipeline/output/eval_mrr.json
 python data-pipeline/scripts/evaluate_discrimination.py --db data-pipeline/output/lexicon_v2.db --port 8080 --max-words 50 --limit 100 -o data-pipeline/output/eval_discrimination.json -v
 ```
 
-**Step 5: Commit results**
+**Step 8: Commit results**
 
 ```bash
-git add data-pipeline/output/concreteness_regression.json
-git commit -m "data: concreteness regression results — [MODEL] r=[R] coverage [PCT]%"
+git add data-pipeline/output/concreteness_shootout.json
+git commit -m "data: concreteness regression shootout — [MODEL] r=[R] coverage [PCT]%"
+```
+
+---
+
+## CLI Usage Summary
+
+```bash
+# 1. Evaluate models (pure, no DB writes)
+python predict_concreteness.py shootout --db DB --fasttext VEC -o shootout.json
+
+# 2. Fill gaps with winner (writes to DB)
+python predict_concreteness.py fill --db DB --fasttext VEC --shootout shootout.json
+
+# 3. Revert to Brysbaert-only (undo fill)
+python predict_concreteness.py revert --db DB
+
+# Re-run shootout after pipeline changes, then re-fill:
+python predict_concreteness.py revert --db DB
+python predict_concreteness.py shootout --db DB --fasttext VEC -o shootout.json
+python predict_concreteness.py fill --db DB --fasttext VEC --shootout shootout.json
 ```
 
 ---
@@ -992,11 +1235,11 @@ git commit -m "data: concreteness regression results — [MODEL] r=[R] coverage 
 | 1 | scikit-learn dep + vector loader refactor + synset embeddings | 2 | `build_synset_embeddings` |
 | 2 | Training data extraction | 3 | `build_training_data` |
 | 3 | 4-model shootout with GridSearchCV | 3 | `run_model_shootout` |
-| 4 | Gap-fill unrated synsets | 2 | `fill_concreteness_gaps` |
-| 5 | CLI orchestrator + JSON output | 2 | `predict_concreteness`, `main` |
+| 4 | Retrain winner + gap-fill + revert | 7 | `retrain_winner`, `fill_concreteness_gaps`, `revert_concreteness_predictions` |
+| 5 | CLI subcommands (shootout / fill / revert) | 4 | `cmd_shootout`, `cmd_fill`, `cmd_revert`, `main` |
 | 6 | Live run + verification | 0 (manual) | — |
 
-**Total: 6 tasks, 12 tests, ~6 commits**
+**Total: 6 tasks, 19 tests, ~6 commits**
 
 **Dependencies added:** scikit-learn (requirements.txt)
 **Refactor:** `load_fasttext_vectors` moved from enrich_pipeline.py → utils.py
