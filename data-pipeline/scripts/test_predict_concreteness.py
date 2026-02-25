@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from predict_concreteness import build_synset_embeddings
+from predict_concreteness import build_synset_embeddings, build_training_data
 
 
 def _make_test_db():
@@ -76,3 +76,66 @@ def test_build_synset_embeddings_skips_oov():
     assert "100" in embeddings  # apple covers synset 100
     assert "200" not in embeddings  # justice is OOV
     assert "300" not in embeddings  # run+sprint OOV
+
+
+def test_build_training_data():
+    conn = _make_test_db()
+    # Add Brysbaert scores
+    conn.executemany(
+        "INSERT INTO synset_concreteness VALUES (?, ?, ?)",
+        [("100", 4.82, "brysbaert"), ("200", 1.78, "brysbaert")],
+    )
+    conn.commit()
+
+    vectors = _make_vectors()
+    embeddings = build_synset_embeddings(conn, vectors)
+    X, y, synset_ids = build_training_data(conn, embeddings)
+
+    assert X.shape[0] == 2  # 2 scored synsets with embeddings
+    assert X.shape[1] == 4  # 4d test vectors
+    assert len(y) == 2
+    assert len(synset_ids) == 2
+    # Verify scores match
+    idx_100 = synset_ids.index("100")
+    assert y[idx_100] == pytest.approx(4.82)
+    idx_200 = synset_ids.index("200")
+    assert y[idx_200] == pytest.approx(1.78)
+
+
+def test_build_training_data_skips_unembedded():
+    conn = _make_test_db()
+    conn.executemany(
+        "INSERT INTO synset_concreteness VALUES (?, ?, ?)",
+        [("100", 4.82, "brysbaert"), ("200", 1.78, "brysbaert")],
+    )
+    conn.commit()
+
+    # Only apple in vectors — synset 200 (justice) has no embedding
+    vectors = {"apple": (1.0, 0.0, 0.0, 0.0)}
+    embeddings = build_synset_embeddings(conn, vectors)
+    X, y, synset_ids = build_training_data(conn, embeddings)
+
+    assert X.shape[0] == 1  # only synset 100
+    assert "100" in synset_ids
+    assert "200" not in synset_ids
+
+
+def test_build_training_data_ignores_regression_source():
+    """Only use Brysbaert ground truth, not previously predicted values."""
+    conn = _make_test_db()
+    conn.executemany(
+        "INSERT INTO synset_concreteness VALUES (?, ?, ?)",
+        [
+            ("100", 4.82, "brysbaert"),
+            ("200", 2.50, "fasttext_regression"),  # predicted — skip
+        ],
+    )
+    conn.commit()
+
+    vectors = _make_vectors()
+    embeddings = build_synset_embeddings(conn, vectors)
+    X, y, synset_ids = build_training_data(conn, embeddings)
+
+    assert X.shape[0] == 1  # only brysbaert source
+    assert "100" in synset_ids
+    assert "200" not in synset_ids
