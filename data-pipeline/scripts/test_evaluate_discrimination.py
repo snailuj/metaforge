@@ -11,6 +11,7 @@ from unittest.mock import patch, MagicMock
 from evaluate_discrimination import (
     select_source_words, query_forge_results, classify_by_domain,
     compute_rank_auc, compute_word_metrics, lookup_synonyms,
+    aggregate_metrics,
 )
 
 
@@ -302,3 +303,44 @@ def test_lookup_synonyms_no_results():
     conn = _make_test_db()
     syns = lookup_synonyms(conn, "nonexistent")
     assert syns == set()
+
+
+def test_aggregate_metrics():
+    per_word = [
+        {
+            "word": "anger", "pos": "n",
+            "cross_domain_ratio_top10": 0.6,
+            "synonym_contamination_top10": 0.3,
+            "rank_auc": 0.8,
+            "total_results": 20,
+        },
+        {
+            "word": "fire", "pos": "n",
+            "cross_domain_ratio_top10": 0.8,
+            "synonym_contamination_top10": 0.1,
+            "rank_auc": 0.9,
+            "total_results": 15,
+        },
+        {
+            "word": "glow", "pos": "v",
+            "cross_domain_ratio_top10": 0.4,
+            "synonym_contamination_top10": 0.5,
+            "rank_auc": None,  # too few results to compute
+            "total_results": 2,
+        },
+    ]
+
+    agg = aggregate_metrics(per_word)
+
+    assert agg["mean_rank_auc"] == pytest.approx(0.85, abs=0.01)  # (0.8+0.9)/2
+    assert agg["mean_cross_domain_ratio"] == pytest.approx(0.6, abs=0.01)
+    assert agg["mean_synonym_contamination"] == pytest.approx(0.3, abs=0.01)
+    assert agg["words_evaluated"] == 3
+    assert agg["words_with_results"] == 3
+
+
+def test_aggregate_metrics_empty():
+    agg = aggregate_metrics([])
+    assert agg["mean_rank_auc"] is None
+    assert agg["mean_cross_domain_ratio"] == 0.0
+    assert agg["words_evaluated"] == 0

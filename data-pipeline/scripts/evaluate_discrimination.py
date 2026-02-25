@@ -248,3 +248,36 @@ def compute_word_metrics(
         "rank_auc": rank_auc,
         "total_results": len(suggestions),
     }
+
+
+def aggregate_metrics(per_word: list[dict]) -> dict:
+    """Aggregate per-word discrimination metrics into a summary.
+
+    Primary metric: mean_rank_auc — averaged across words that have
+    enough results to compute AUC. Higher = better cross-domain separation.
+    """
+    if not per_word:
+        return {
+            "mean_rank_auc": None,
+            "mean_cross_domain_ratio": 0.0,
+            "mean_synonym_contamination": 0.0,
+            "words_evaluated": 0,
+            "words_with_results": 0,
+        }
+
+    n = len(per_word)
+    with_results = [w for w in per_word if w["total_results"] > 0]
+
+    mean_cross = sum(w["cross_domain_ratio_top10"] for w in per_word) / n
+    mean_syn = sum(w["synonym_contamination_top10"] for w in per_word) / n
+
+    aucs = [w["rank_auc"] for w in per_word if w["rank_auc"] is not None]
+    mean_auc = sum(aucs) / len(aucs) if aucs else None
+
+    return {
+        "mean_rank_auc": round(mean_auc, 4) if mean_auc is not None else None,
+        "mean_cross_domain_ratio": round(mean_cross, 4),
+        "mean_synonym_contamination": round(mean_syn, 4),
+        "words_evaluated": n,
+        "words_with_results": len(with_results),
+    }
