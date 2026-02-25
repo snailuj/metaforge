@@ -49,6 +49,11 @@ def _ensure_v2_schema(conn: sqlite3.Connection) -> None:
     if "relation" not in cols:
         conn.execute("ALTER TABLE synset_properties ADD COLUMN relation TEXT")
 
+    # Add usage_example to enrichment if missing
+    enrich_cols = {r[1] for r in conn.execute("PRAGMA table_info(enrichment)").fetchall()}
+    if "usage_example" not in enrich_cols:
+        conn.execute("ALTER TABLE enrichment ADD COLUMN usage_example TEXT")
+
     # Create lemma_metadata table if missing
     conn.execute("""
         CREATE TABLE IF NOT EXISTS lemma_metadata (

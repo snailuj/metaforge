@@ -716,6 +716,23 @@ def test_ensure_v2_schema_adds_columns():
     assert "lemma_metadata" in tables
 
 
+def test_ensure_v2_schema_adds_usage_example_to_enrichment():
+    """_ensure_v2_schema adds usage_example column to enrichment table if missing."""
+    conn = _make_db()
+    # Recreate enrichment table without usage_example (v1 schema)
+    conn.executescript("""
+        DROP TABLE IF EXISTS enrichment;
+        CREATE TABLE enrichment (
+            synset_id TEXT PRIMARY KEY,
+            model_used TEXT NOT NULL
+        );
+    """)
+    _ensure_v2_schema(conn)
+
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(enrichment)").fetchall()}
+    assert "usage_example" in cols
+
+
 # --- 21. populate_lemma_metadata ----------------------------------------------
 
 def test_populate_lemma_metadata_inserts():
