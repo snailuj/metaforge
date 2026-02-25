@@ -591,3 +591,54 @@ def test_snap_creates_salience_sum_column(tmp_path):
         conn.close()
 
     assert "salience_sum" in columns
+
+
+def test_snap_logs_warning_when_vocab_clusters_missing(tmp_path, capsys):
+    """snap_properties logs when vocab_clusters table is missing instead of silently swallowing."""
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "no_clusters.db"
+    conn = sqlite3.connect(str(db_path))
+    # Create schema WITHOUT vocab_clusters table
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX idx_vocab_lemma ON property_vocab_curated(lemma);
+
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm', 'a', 1);
+        INSERT INTO property_vocabulary VALUES (10, 'warm', NULL, 0, 'pilot');
+        INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
+    """)
+    conn.commit()
+
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    captured = capsys.readouterr()
+    # Must contain an explicit warning about the missing table, not just a progress line
+    assert "vocab_clusters table not found" in captured.out

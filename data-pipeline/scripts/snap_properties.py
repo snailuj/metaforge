@@ -128,8 +128,11 @@ def snap_properties(
     try:
         for vid, cid in conn.execute("SELECT vocab_id, cluster_id FROM vocab_clusters"):
             cluster_lookup[vid] = cid
-    except Exception:
-        pass  # Table may not exist yet — all cluster_ids default to vocab_id
+    except sqlite3.OperationalError as e:
+        if "no such table" in str(e):
+            print("    vocab_clusters table not found — cluster_ids will default to vocab_id", flush=True)
+        else:
+            raise
     print(f"    Cluster lookup loaded: {len(cluster_lookup)} entries", flush=True)
 
     # Build normalised vocab embedding matrix for Stage 3
