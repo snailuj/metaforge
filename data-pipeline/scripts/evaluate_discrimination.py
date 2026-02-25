@@ -130,3 +130,92 @@ def classify_by_domain(
         elif d < same_threshold:
             same.append(s)
     return cross, same
+
+
+def compute_rank_auc(
+    cross_ranks: list[int], same_ranks: list[int],
+) -> Optional[float]:
+    """Compute rank-based AUC: P(random cross-domain outranks random same-domain).
+
+    This is the Mann-Whitney U statistic normalised to [0, 1].
+    1.0 = perfect separation (all cross-domain ranked above all same-domain).
+    0.5 = random (no discrimination).
+    0.0 = inverted (all same-domain ranked above all cross-domain).
+
+    Returns None if either list is empty.
+    """
+    if not cross_ranks or not same_ranks:
+        return None
+
+    wins = 0
+    total = len(cross_ranks) * len(same_ranks)
+
+    for c in cross_ranks:
+        for s in same_ranks:
+            if c < s:   # lower rank = better position
+                wins += 1
+            elif c == s:
+                wins += 0.5
+
+    return wins / total
+
+
+def compute_word_metrics(
+    suggestions: list[dict],
+    synonyms: set[str],
+    cross_threshold: float = 0.7,
+    same_threshold: float = 0.3,
+) -> dict:
+    """Compute discrimination metrics for a single source word's results.
+
+    Primary metric: rank_auc — probability that a random cross-domain
+    result outranks a random same-domain result.
+
+    Args:
+        suggestions: forge results (pre-sorted by API ranking)
+        synonyms: set of known synonym lemmas for the source word
+        cross_threshold: domain_distance above which = cross-domain
+        same_threshold: domain_distance below which = same-domain
+    """
+    if not suggestions:
+        return {
+            "cross_domain_ratio_top10": 0.0,
+            "synonym_contamination_top10": 0.0,
+            "rank_auc": None,
+            "total_results": 0,
+        }
+
+    top10 = suggestions[:10]
+    n = len(top10)
+
+    # Cross-domain ratio in top 10
+    cross_top10 = [
+        s for s in top10
+        if _get_distance(s) is not None and _get_distance(s) > cross_threshold
+    ]
+    cross_ratio = len(cross_top10) / n if n > 0 else 0.0
+
+    # Synonym contamination in top 10
+    syn_top10 = [s for s in top10 if s.get("word", "") in synonyms]
+    syn_ratio = len(syn_top10) / n if n > 0 else 0.0
+
+    # Rank-based AUC across ALL results
+    cross_ranks = []
+    same_ranks = []
+    for rank, s in enumerate(suggestions, 1):
+        d = _get_distance(s)
+        if d is None:
+            continue
+        if d > cross_threshold:
+            cross_ranks.append(rank)
+        elif d < same_threshold:
+            same_ranks.append(rank)
+
+    rank_auc = compute_rank_auc(cross_ranks, same_ranks)
+
+    return {
+        "cross_domain_ratio_top10": cross_ratio,
+        "synonym_contamination_top10": syn_ratio,
+        "rank_auc": rank_auc,
+        "total_results": len(suggestions),
+    }

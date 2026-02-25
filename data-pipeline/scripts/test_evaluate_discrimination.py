@@ -8,7 +8,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 
 from unittest.mock import patch, MagicMock
-from evaluate_discrimination import select_source_words, query_forge_results, classify_by_domain
+from evaluate_discrimination import (
+    select_source_words, query_forge_results, classify_by_domain,
+    compute_rank_auc, compute_word_metrics,
+)
 
 
 def _make_test_db():
@@ -196,3 +199,70 @@ def test_classify_by_domain_excludes_none_distances():
     assert cross[0]["word"] == "fire"
     # None/missing should NOT count as same-domain (distance 0)
     assert len(same) == 0
+
+
+def test_compute_rank_auc_perfect_separation():
+    # All cross-domain ranked above all same-domain
+    cross_ranks = [1, 2, 3]
+    same_ranks = [4, 5, 6]
+    auc = compute_rank_auc(cross_ranks, same_ranks)
+    assert auc == pytest.approx(1.0)
+
+
+def test_compute_rank_auc_no_separation():
+    # Same-domain ranked above cross-domain
+    cross_ranks = [4, 5, 6]
+    same_ranks = [1, 2, 3]
+    auc = compute_rank_auc(cross_ranks, same_ranks)
+    assert auc == pytest.approx(0.0)
+
+
+def test_compute_rank_auc_random():
+    # Interleaved — roughly 0.5
+    cross_ranks = [1, 3, 5]
+    same_ranks = [2, 4, 6]
+    auc = compute_rank_auc(cross_ranks, same_ranks)
+    # Each cross-domain beats: 1 beats all 3, 3 beats 2, 5 beats 1 = 6/9
+    assert auc == pytest.approx(6 / 9, abs=0.01)
+
+
+def test_compute_rank_auc_empty():
+    assert compute_rank_auc([], [1, 2]) is None
+    assert compute_rank_auc([1, 2], []) is None
+
+
+def test_compute_word_metrics_basic():
+    suggestions = [
+        # Ranked 1-10 by position (pre-sorted by API)
+        {"word": "fire",    "domain_distance": 0.8,  "composite_score": 3.5},
+        {"word": "volcano", "domain_distance": 0.9,  "composite_score": 3.2},
+        {"word": "rage",    "domain_distance": 0.2,  "composite_score": 3.0},
+        {"word": "storm",   "domain_distance": 0.75, "composite_score": 2.9},
+        {"word": "fury",    "domain_distance": 0.15, "composite_score": 2.8},
+        {"word": "blaze",   "domain_distance": 0.5,  "composite_score": 2.7},  # ambiguous
+        {"word": "ire",     "domain_distance": 0.1,  "composite_score": 2.6},
+        {"word": "wave",    "domain_distance": 0.8,  "composite_score": 2.5},
+        {"word": "wrath",   "domain_distance": 0.18, "composite_score": 2.4},
+        {"word": "crack",   "domain_distance": 0.75, "composite_score": 2.3},
+    ]
+    synonyms = {"rage", "fury", "ire", "wrath"}
+
+    m = compute_word_metrics(suggestions, synonyms)
+
+    # top 10 cross-domain (>0.7): fire(1), volcano(2), storm(4), wave(8), crack(10) = 5/10
+    assert m["cross_domain_ratio_top10"] == pytest.approx(0.5)
+    # synonym contamination: rage(3), fury(5), ire(7), wrath(9) = 4/10
+    assert m["synonym_contamination_top10"] == pytest.approx(0.4)
+    # rank_auc: cross ranks [1,2,4,8,10] vs same ranks [3,5,7,9]
+    # Each cross-domain rank vs each same-domain rank: how often cross < same
+    assert m["rank_auc"] is not None
+    assert 0.0 <= m["rank_auc"] <= 1.0
+    assert m["total_results"] == 10
+
+
+def test_compute_word_metrics_empty():
+    m = compute_word_metrics([], set())
+    assert m["cross_domain_ratio_top10"] == 0.0
+    assert m["synonym_contamination_top10"] == 0.0
+    assert m["rank_auc"] is None
+    assert m["total_results"] == 0
