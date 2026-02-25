@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from predict_concreteness import build_synset_embeddings, build_training_data
+from predict_concreteness import build_synset_embeddings, build_training_data, run_model_shootout
 
 
 def _make_test_db():
@@ -139,3 +139,50 @@ def test_build_training_data_ignores_regression_source():
     assert X.shape[0] == 1  # only brysbaert source
     assert "100" in synset_ids
     assert "200" not in synset_ids
+
+
+def _make_synthetic_data(n=200, dim=4, seed=42):
+    """Synthetic data where concreteness ~ first dimension (linear relationship)."""
+    rng = np.random.RandomState(seed)
+    X = rng.randn(n, dim)
+    y = 3.0 + X[:, 0] * 0.8 + rng.randn(n) * 0.2  # mostly linear
+    y = np.clip(y, 1.0, 5.0)
+    return X, y
+
+
+def test_run_model_shootout_returns_results():
+    X, y = _make_synthetic_data()
+    results = run_model_shootout(X, y)
+
+    assert "models" in results
+    assert len(results["models"]) == 4  # Ridge, SVR, k-NN, RF
+    assert "best_model_name" in results
+    assert "best_model" in results
+
+    # Each model has metrics
+    for m in results["models"]:
+        assert "name" in m
+        assert "pearson_r" in m
+        assert "r2" in m
+        assert "rmse" in m
+        # Metrics should be reasonable on synthetic linear data
+        assert m["pearson_r"] > 0.5
+        assert m["rmse"] < 2.0
+
+
+def test_run_model_shootout_best_is_highest_pearson():
+    X, y = _make_synthetic_data()
+    results = run_model_shootout(X, y)
+
+    pearson_values = [m["pearson_r"] for m in results["models"]]
+    best_idx = np.argmax(pearson_values)
+    assert results["best_model_name"] == results["models"][best_idx]["name"]
+
+
+def test_run_model_shootout_deterministic():
+    X, y = _make_synthetic_data()
+    r1 = run_model_shootout(X, y, random_state=42)
+    r2 = run_model_shootout(X, y, random_state=42)
+
+    for m1, m2 in zip(r1["models"], r2["models"]):
+        assert m1["pearson_r"] == pytest.approx(m2["pearson_r"], abs=1e-6)
