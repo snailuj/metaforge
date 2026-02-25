@@ -92,14 +92,19 @@ def run_model_shootout(
     y: np.ndarray,
     test_size: float = 0.2,
     random_state: int = 42,
+    svr_max_samples: int = 10_000,
 ) -> dict:
     """Train 4 models, evaluate on held-out test set, return ranked results.
 
     Models: Ridge, SVR (RBF), k-NN, Random Forest.
     Hyperparameters tuned via 5-fold cross-validation on training set.
 
+    SVR is O(n²+) per fit, so its grid search subsamples the training data
+    when it exceeds svr_max_samples. All models evaluate on the same held-out
+    test set for a fair comparison.
+
     Returns dict with:
-        models: list of {name, pearson_r, r2, rmse, params}
+        models: list of {name, pearson_r, r2, rmse, params, train_samples}
         best_model_name: name of model with highest pearson_r
         best_model: fitted sklearn estimator
     """
@@ -121,6 +126,7 @@ def run_model_shootout(
                 "gamma": ["scale", "auto"],
                 "epsilon": [0.05, 0.1, 0.2],
             },
+            "max_samples": svr_max_samples,
         },
         {
             "name": "k-NN",
@@ -146,12 +152,23 @@ def run_model_shootout(
     best_name = None
 
     for cfg in configs:
-        log.info("Training %s...", cfg["name"])
+        # Subsample training data for models that don't scale well
+        max_n = cfg.get("max_samples")
+        if max_n and len(X_train) > max_n:
+            log.info("Training %s (subsampled to %d/%d)...",
+                     cfg["name"], max_n, len(X_train))
+            rng = np.random.RandomState(random_state)
+            idx = rng.choice(len(X_train), size=max_n, replace=False)
+            X_fit, y_fit = X_train[idx], y_train[idx]
+        else:
+            log.info("Training %s...", cfg["name"])
+            X_fit, y_fit = X_train, y_train
+
         grid = GridSearchCV(
             cfg["estimator"], cfg["params"],
             cv=5, scoring="r2", n_jobs=-1,
         )
-        grid.fit(X_train, y_train)
+        grid.fit(X_fit, y_fit)
         y_pred = grid.predict(X_test)
 
         r, _ = pearsonr(y_test, y_pred)
@@ -164,6 +181,7 @@ def run_model_shootout(
             "r2": round(float(r2), 4),
             "rmse": round(rmse, 4),
             "best_params": grid.best_params_,
+            "train_samples": len(X_fit),
         })
 
         log.info("  %s: r=%.4f  R²=%.4f  RMSE=%.4f  params=%s",

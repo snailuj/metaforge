@@ -193,6 +193,22 @@ def test_run_model_shootout_deterministic():
         assert m1["pearson_r"] == pytest.approx(m2["pearson_r"], abs=1e-6)
 
 
+def test_run_model_shootout_svr_subsamples_large_data():
+    """SVR grid search subsamples when training data exceeds svr_max_samples."""
+    X, y = _make_synthetic_data(n=500, dim=4)
+    # Cap at 100 — SVR trains on subsample, evaluates on same test set
+    results = run_model_shootout(X, y, svr_max_samples=100)
+
+    assert len(results["models"]) == 4
+    svr = next(m for m in results["models"] if m["name"] == "SVR (RBF)")
+    assert svr["pearson_r"] > 0.0  # still produces valid results
+    assert svr["train_samples"] == 100
+
+    # Other models trained on full training set
+    ridge = next(m for m in results["models"] if m["name"] == "Ridge")
+    assert ridge["train_samples"] == 400  # 500 * 0.8
+
+
 def test_retrain_winner_from_shootout():
     X, y = _make_synthetic_data()
     shootout = run_model_shootout(X, y)
