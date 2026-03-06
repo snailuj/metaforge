@@ -1,122 +1,146 @@
-"""Audit physical property coverage per synset.
+"""Audit enrichment data for physical property coverage.
 
-Reads v2 enrichment data from the DB (synset_properties.property_type)
-and flags synsets below POS-dependent physical property thresholds.
+Reads enrichment JSON (or live checkpoint) and flags synsets with
+insufficient physical properties based on POS-dependent thresholds.
 
 Usage:
-    python audit_physical_coverage.py --db PATH [-o report.json]
+    python audit_physical_coverage.py --input checkpoint_enrich.json --output flagged.json
+    python audit_physical_coverage.py --input enrichment_8000.json --exclude gap_fill.json -o flagged.json
 """
+
 import argparse
 import json
-import logging
-import sqlite3
 import sys
+import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from utils import LEXICON_V2
 
-log = logging.getLogger(__name__)
-
-# Minimum physical properties per POS before flagging
 POS_THRESHOLDS = {
-    "n": 4,  # nouns are primary metaphor vehicles
-    "v": 2,  # verbs have physical dimensions but fewer
-    "a": 2,  # adjectives — sensory ones are valuable
-    "r": 0,  # adverbs — no physical requirement
+    "n": 4,
+    "v": 2,
+    "a": 2,
+    "s": 2,  # satellite adjective — same threshold as adjective
 }
 
+DEFAULT_THRESHOLD = 2  # fallback for unknown POS (adverbs, etc.)
 
-def audit_physical_coverage(conn: sqlite3.Connection) -> dict:
-    """Audit physical property coverage per enriched synset.
 
-    Returns dict with:
-        total_audited: int
-        total_flagged: int
-        by_pos: {pos: {total, flagged, threshold}}
-        flagged: [{synset_id, pos, physical_count, total_count, properties}]
+def audit_physical_coverage(
+    data: dict,
+    exclude_ids: set[str] | None = None,
+) -> dict:
+    """Audit enrichment data for physical property coverage.
+
+    Args:
+        data: Enrichment JSON ({"synsets": [...]}) or checkpoint ({"results": [...]}).
+        exclude_ids: Synset IDs to skip (already gap-filled).
+
+    Returns:
+        Dict with flagged_ids, total_synsets, flagged_count, pos_breakdown.
     """
-    rows = conn.execute("""
-        SELECT s.synset_id, s.pos,
-               COUNT(sp.property_id) as total_props,
-               COUNT(CASE WHEN sp.property_type = 'physical' THEN 1 END) as physical_count
-        FROM synsets s
-        JOIN synset_properties sp ON sp.synset_id = s.synset_id
-        GROUP BY s.synset_id, s.pos
-    """).fetchall()
+    # Handle both enrichment format and checkpoint format
+    synsets = data.get("synsets") or data.get("results") or []
+    exclude = exclude_ids or set()
 
-    flagged = []
-    by_pos: dict[str, dict] = {}
+    flagged_ids = []
+    pos_breakdown = {}
 
-    for synset_id, pos, total_props, physical_count in rows:
-        threshold = POS_THRESHOLDS.get(pos, 0)
+    for synset in synsets:
+        sid = synset["id"]
+        if sid in exclude:
+            continue
 
-        if pos not in by_pos:
-            by_pos[pos] = {"total": 0, "flagged": 0, "threshold": threshold}
-        by_pos[pos]["total"] += 1
+        pos = synset.get("pos", "n")
+        threshold = POS_THRESHOLDS.get(pos, DEFAULT_THRESHOLD)
+
+        physical_count = sum(
+            1 for p in synset.get("properties", [])
+            if isinstance(p, dict) and p.get("type") == "physical"
+        )
+
+        # Track POS stats
+        if pos not in pos_breakdown:
+            pos_breakdown[pos] = {"total": 0, "flagged": 0, "avg_physical": 0, "physical_sum": 0}
+        pos_breakdown[pos]["total"] += 1
+        pos_breakdown[pos]["physical_sum"] += physical_count
 
         if physical_count < threshold:
-            prop_rows = conn.execute("""
-                SELECT pv.text, sp.property_type
-                FROM synset_properties sp
-                JOIN property_vocabulary pv ON pv.property_id = sp.property_id
-                WHERE sp.synset_id = ?
-            """, (synset_id,)).fetchall()
+            flagged_ids.append(sid)
+            pos_breakdown[pos]["flagged"] += 1
 
-            existing_props = [{"text": r[0], "type": r[1]} for r in prop_rows]
+    # Compute averages
+    for stats in pos_breakdown.values():
+        if stats["total"] > 0:
+            stats["avg_physical"] = round(stats["physical_sum"] / stats["total"], 2)
+        del stats["physical_sum"]
 
-            flagged.append({
-                "synset_id": synset_id,
-                "pos": pos,
-                "physical_count": physical_count,
-                "total_count": total_props,
-                "threshold": threshold,
-                "properties": existing_props,
-            })
-            by_pos[pos]["flagged"] += 1
+    total = len([s for s in synsets if s["id"] not in exclude])
 
     return {
-        "total_audited": len(rows),
-        "total_flagged": len(flagged),
-        "by_pos": by_pos,
-        "flagged": flagged,
+        "flagged_ids": flagged_ids,
+        "total_synsets": total,
+        "flagged_count": len(flagged_ids),
+        "flagged_pct": round(len(flagged_ids) / total * 100, 1) if total else 0,
+        "pos_breakdown": pos_breakdown,
     }
+
+
+def load_json_with_retry(path: Path, retries: int = 1) -> dict:
+    """Load JSON, retrying once on decode error (concurrent write tolerance)."""
+    for attempt in range(retries + 1):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            if attempt < retries:
+                print(f"  JSON decode error, retrying in 1s...", file=sys.stderr)
+                time.sleep(1)
+            else:
+                raise
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Audit physical property coverage per synset.",
+        description="Audit enrichment data for physical property coverage"
     )
-    parser.add_argument("--db", default=str(LEXICON_V2), help="lexicon database path")
-    parser.add_argument("-o", "--output", help="output JSON report path")
-    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument(
+        "--input", "-i", type=str, required=True,
+        help="Enrichment JSON or checkpoint file to audit",
+    )
+    parser.add_argument(
+        "--output", "-o", type=str, required=True,
+        help="Output JSON with flagged synset IDs",
+    )
+    parser.add_argument(
+        "--exclude", "-x", type=str, default=None,
+        help="JSON file with synset IDs to exclude (already gap-filled)",
+    )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s",
-    )
+    data = load_json_with_retry(Path(args.input))
 
-    conn = sqlite3.connect(args.db)
-    try:
-        result = audit_physical_coverage(conn)
-    finally:
-        conn.close()
+    exclude_ids = set()
+    if args.exclude:
+        exclude_data = json.loads(Path(args.exclude).read_text())
+        # Accept either a plain list or an enrichment-format dict
+        if isinstance(exclude_data, list):
+            exclude_ids = set(str(i) for i in exclude_data)
+        elif isinstance(exclude_data, dict) and "synsets" in exclude_data:
+            exclude_ids = {s["id"] for s in exclude_data["synsets"]}
 
+    result = audit_physical_coverage(data, exclude_ids=exclude_ids)
+
+    # Write output
+    Path(args.output).write_text(json.dumps(result, indent=2))
+
+    # Print summary to stdout
     print(f"\n=== Physical Coverage Audit ===")
-    print(f"  Audited: {result['total_audited']} synsets")
-    if result['total_audited']:
-        print(f"  Flagged: {result['total_flagged']} ({result['total_flagged']/result['total_audited']*100:.1f}%)")
-    else:
-        print(f"  Flagged: 0")
-    for pos, stats in sorted(result["by_pos"].items()):
-        pct = stats["flagged"] / stats["total"] * 100 if stats["total"] else 0
-        print(f"  POS={pos}: {stats['flagged']}/{stats['total']} flagged ({pct:.0f}%), threshold={stats['threshold']}")
-
-    if args.output:
-        with open(args.output, "w") as f:
-            json.dump(result, f, indent=2)
-        print(f"\n  Report: {args.output}")
+    print(f"Total synsets: {result['total_synsets']}")
+    print(f"Flagged: {result['flagged_count']} ({result['flagged_pct']}%)")
+    print(f"\nBreakdown by POS:")
+    for pos, stats in sorted(result["pos_breakdown"].items()):
+        print(f"  {pos}: {stats['flagged']}/{stats['total']} flagged "
+              f"(avg {stats['avg_physical']} physical)")
 
 
 if __name__ == "__main__":
