@@ -88,6 +88,21 @@ def test_merge_gap_fill_ignores_unknown_synset():
     assert len(merged["synsets"]) == 1
 
 
+def test_merge_gap_fill_does_not_mutate_input():
+    """merge_gap_fill must not modify the existing_data argument."""
+    existing = {
+        "synsets": [{"id": "s1", "properties": [
+            {"text": "hard", "salience": 0.9, "type": "physical", "relation": "x"},
+        ]}],
+    }
+    gap_fill = [{"id": "s1", "properties": [
+        {"text": "heavy", "salience": 0.7, "type": "physical", "relation": "y"},
+    ]}]
+    original_len = len(existing["synsets"][0]["properties"])
+    merge_gap_fill(existing, gap_fill)
+    assert len(existing["synsets"][0]["properties"]) == original_len
+
+
 def test_build_gap_fill_prompt_inserts_items():
     """build_gap_fill_prompt inserts batch items text into the template."""
     text = build_gap_fill_prompt("ITEMS_HERE")

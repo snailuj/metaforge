@@ -80,7 +80,10 @@ def merge_gap_fill(existing_data: dict, gap_fill_results: list[dict]) -> dict:
             log.warning("gap-fill synset %s not in existing data, skipping", sid)
             continue
 
-        existing_texts = {p["text"] for p in synset_map[sid].get("properties", [])
+        if "properties" not in synset_map[sid]:
+            synset_map[sid]["properties"] = []
+
+        existing_texts = {p["text"] for p in synset_map[sid]["properties"]
                          if isinstance(p, dict)}
 
         for prop in entry.get("properties", []):
@@ -152,16 +155,21 @@ def main():
         batch_text = format_gap_fill_items(batch)
         prompt = build_gap_fill_prompt(batch_text)
 
+        batch_num = i // args.batch_size + 1
         log.info("[%d/%d] Processing batch of %d synsets...",
-                 i // args.batch_size + 1,
+                 batch_num,
                  (len(items) + args.batch_size - 1) // args.batch_size,
                  len(batch))
 
+        batch_num = i // args.batch_size + 1
         try:
             results = prompt_json(prompt, model=args.model, expect=list)
             all_results.extend(results)
-        except (RateLimitError, Exception) as exc:
-            log.error("Batch %d failed: %s", i // args.batch_size + 1, exc)
+        except RateLimitError as exc:
+            log.error("Rate limited at batch %d: %s — stopping.", batch_num, exc)
+            break
+        except Exception as exc:
+            log.error("Batch %d failed: %s", batch_num, exc)
             continue
 
     output = {"synsets": all_results, "source": "gap_fill", "model": args.model}
