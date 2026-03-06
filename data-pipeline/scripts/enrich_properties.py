@@ -96,6 +96,8 @@ Output ONLY a valid JSON array (no markdown, no explanation):
 
 BATCH_PROMPT_V2 = """You are extracting sensory and behavioural properties for specific word senses, with salience weights and metadata.
 
+These properties power a metaphor discovery engine that finds cross-domain conceptual links between unrelated words. For example, "anger" connects to "fire" via shared properties like "destructive", "consuming", "intense". Prioritise properties that could bridge between concepts from different domains — the more transferable and evocative a property, the more valuable it is.
+
 CRITICAL: The definition tells you WHICH sense of the word to analyse. Many words have multiple meanings — focus ONLY on the sense described in the definition.
 
 For each word sense, provide:
@@ -115,7 +117,7 @@ For each word sense, provide:
    - "relation": short phrase linking word to property (e.g. "fire emits heat")
 
    Property types:
-   - physical: texture, weight, temperature, luminosity, sound, colour, shape, size, material, smell, taste
+   - physical: texture, weight, temperature, luminosity, sound, colour, shape, size, material, smell, taste. Physical properties are the primary bridge for cross-domain metaphors (concrete → abstract).
    - behaviour: speed, rhythm, intensity, duration, pattern of movement
    - effect: what it causes, its consequences, its aftermath
    - functional: what it does, enables, or is used for
