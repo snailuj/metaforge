@@ -16,17 +16,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 from enrich_pipeline import (
     MAX_PROPERTIES_PER_SYNSET,
     _extract_property_text,  # noqa: F401 — exported for downstream test coverage
-    _fasttext_cache,
     _ensure_v2_schema,
     curate_properties,
     filter_mwe,
-    load_fasttext_vectors,
     populate_lemma_metadata,
     populate_synset_properties,
     store_lemma_embeddings,
     run_pipeline,
 )
-from utils import EMBEDDING_DIM
+from utils import EMBEDDING_DIM, _fasttext_cache, load_fasttext_vectors
 
 
 # --- Helpers ------------------------------------------------------------------
@@ -334,7 +332,7 @@ def test_populate_synset_properties_caps_per_synset():
 
 # --- 8. FastText vector caching -----------------------------------------------
 
-@patch("enrich_pipeline.EMBEDDING_DIM", 3)
+@patch("utils.EMBEDDING_DIM", 3)
 def test_load_fasttext_vectors_caches(tmp_path):
     """Second call with same path returns cached vectors without re-reading."""
     vec_file = tmp_path / "test.vec"

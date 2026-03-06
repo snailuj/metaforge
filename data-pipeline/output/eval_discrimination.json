@@ -1,0 +1,421 @@
+{
+  "aggregate": {
+    "mean_rank_auc": 0.5608,
+    "mean_cross_domain_ratio": 0.328,
+    "mean_synonym_contamination": 0.026,
+    "words_evaluated": 50,
+    "words_with_results": 50
+  },
+  "per_word": [
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 33,
+      "word": "make",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 44,
+      "word": "light",
+      "pos": "a"
+    },
+    {
+      "cross_domain_ratio_top10": 0.5,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 40,
+      "word": "get",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 47,
+      "word": "line",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.7,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 38,
+      "word": "go",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 37,
+      "word": "work",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 44,
+      "word": "key",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": 0.8571428571428571,
+      "total_results": 39,
+      "word": "black",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 41,
+      "word": "face",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 43,
+      "word": "crack",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 0.8518518518518519,
+      "total_results": 48,
+      "word": "blue",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 0.9166666666666666,
+      "total_results": 42,
+      "word": "white",
+      "pos": "a"
+    },
+    {
+      "cross_domain_ratio_top10": 0.7,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 35,
+      "word": "have",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 37,
+      "word": "change",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.7,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 33,
+      "word": "rack",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.5,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 44,
+      "word": "stop",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 56,
+      "word": "fire",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": 0.08333333333333333,
+      "total_results": 39,
+      "word": "big",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 44,
+      "word": "move",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 40,
+      "word": "hand",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 43,
+      "word": "pit",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.2,
+      "rank_auc": null,
+      "total_results": 50,
+      "word": "house",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.2,
+      "rank_auc": null,
+      "total_results": 43,
+      "word": "easy",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 37,
+      "word": "game",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 43,
+      "word": "air",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 38,
+      "word": "wind",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 49,
+      "word": "box",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 44,
+      "word": "life",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 0.6666666666666666,
+      "total_results": 44,
+      "word": "green",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.7,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 52,
+      "word": "time",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 30,
+      "word": "use",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.8,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 47,
+      "word": "bridge",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.7,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 41,
+      "word": "large",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 47,
+      "word": "circle",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 24,
+      "word": "thing",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 40,
+      "word": "business",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 0.7777777777777778,
+      "total_results": 47,
+      "word": "day",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 45,
+      "word": "vote",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.5,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 49,
+      "word": "joint",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 40,
+      "word": "heart",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 42,
+      "word": "speed",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 41,
+      "word": "best",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 0.3333333333333333,
+      "total_results": 62,
+      "word": "blade",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.6,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 54,
+      "word": "stage",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 51,
+      "word": "world",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 41,
+      "word": "love",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 34,
+      "word": "one",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 43,
+      "word": "old",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 45,
+      "word": "hammer",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": 0.0,
+      "total_results": 43,
+      "word": "great",
+      "pos": "s"
+    }
+  ],
+  "git_commit": "8daccb7c",
+  "config": {
+    "limit": 100,
+    "min_properties": 3,
+    "noun_quota": 20,
+    "verb_quota": 15,
+    "adj_quota": 15,
+    "cross_threshold": 0.7,
+    "same_threshold": 0.3
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "models": [
+    {
+      "name": "k-NN",
+      "pearson_r": 0.9077,
+      "r2": 0.8118,
+      "rmse": 0.4361,
+      "best_params": {
+        "n_neighbors": 10,
+        "weights": "distance"
+      },
+      "train_samples": 41274
+    },
+    {
+      "name": "SVR (RBF)",
+      "pearson_r": 0.9008,
+      "r2": 0.8111,
+      "rmse": 0.4369,
+      "best_params": {
+        "C": 1.0,
+        "epsilon": 0.05,
+        "gamma": "scale"
+      },
+      "train_samples": 10000
+    },
+    {
+      "name": "Random Forest",
+      "pearson_r": 0.8993,
+      "r2": 0.8021,
+      "rmse": 0.4472,
+      "best_params": {
+        "max_depth": null,
+        "n_estimators": 100
+      },
+      "train_samples": 41274
+    },
+    {
+      "name": "Ridge",
+      "pearson_r": 0.8413,
+      "r2": 0.7077,
+      "rmse": 0.5435,
+      "best_params": {
+        "alpha": 10.0
+      },
+      "train_samples": 41274
+    }
+  ],
+  "best_model_name": "k-NN",
+  "train_size": 41274,
+  "test_size": 10319,
+  "git_commit": "c478adf"
+}

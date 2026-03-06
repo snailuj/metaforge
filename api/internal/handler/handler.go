@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -36,7 +37,7 @@ func NewHandler(dbPath string) (*Handler, error) {
 	}
 
 	// Validate required tables exist
-	requiredTables := []string{"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated", "frequencies", "cluster_antonyms", "vocab_clusters", "lemma_embeddings"}
+	requiredTables := []string{"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated", "frequencies", "cluster_antonyms", "vocab_clusters", "lemma_embeddings", "synset_concreteness"}
 	for _, table := range requiredTables {
 		var count int
 		err := database.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)
@@ -59,6 +60,23 @@ func (h *Handler) SetStringsDir(dir string) {
 // Close releases database resources.
 func (h *Handler) Close() error {
 	return h.database.Close()
+}
+
+// LogConcretenessStats logs concreteness coverage at startup.
+func (h *Handler) LogConcretenessStats() {
+	scored, total, err := db.GetConcretenessStats(h.database)
+	if err != nil {
+		slog.Warn("failed to get concreteness stats", "err", err)
+		return
+	}
+	var pct float64
+	if total > 0 {
+		pct = float64(scored) / float64(total) * 100
+	}
+	slog.Info("concreteness coverage", "scored", scored, "total", total, "pct", fmt.Sprintf("%.1f%%", pct))
+	if total > 0 && pct < 80.0 {
+		slog.Warn("concreteness coverage below 80%", "pct", fmt.Sprintf("%.1f%%", pct))
+	}
 }
 
 // SuggestResponse is the JSON response for /forge/suggest.
@@ -95,6 +113,17 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 		slog.Error("matching failed", "word", word, "err", err)
 		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
 		return
+	}
+
+	// Log POS bypass stats at debug level (gated to avoid hot-path iteration)
+	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		var nonNounCount int
+		for _, c := range candidates {
+			if c.POS != "n" || c.SourcePOS != "n" {
+				nonNounCount++
+			}
+		}
+		slog.Debug("forge gate stats", "word", word, "results", len(candidates), "non_noun_candidates", nonNounCount)
 	}
 
 	// Fetch source lemma embedding for cross-domain distance
