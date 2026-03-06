@@ -103,7 +103,10 @@ For each word sense, provide:
 1. **usage_example**: A natural sentence using the word in this specific sense.
 
 2. **properties**: 10-15 properties, each as a JSON object:
-   - "text": 1-2 word property (short, evocative)
+   - "text": exactly ONE word (no hyphens, no compounds, no spaces)
+     GOOD: flickering, frigid, shrill, dense, molten, conical, pungent
+     BAD: cold metal (two words), high-pitched (hyphenated), lava-formed (compound)
+     If you need "cold metal", choose ONE word: frigid, metallic, or icy
    - "salience": 0.0-1.0 — how immediately/strongly this property comes to mind for this concept
      - 0.9-1.0: Defining, inescapable (fire → hot, ice → cold)
      - 0.6-0.8: Strong association (fire → dangerous, ice → slippery)
@@ -112,25 +115,36 @@ For each word sense, provide:
    - "relation": short phrase linking word to property (e.g. "fire emits heat")
 
    Property types:
-   - physical: texture, weight, temperature, luminosity, sound, colour
+   - physical: texture, weight, temperature, luminosity, sound, colour, shape, size, material, smell, taste
    - behaviour: speed, rhythm, intensity, duration, pattern of movement
    - effect: what it causes, its consequences, its aftermath
    - functional: what it does, enables, or is used for
    - emotional: feelings it evokes or is associated with
    - social: cultural, relational, or status associations
 
+   IMPORTANT: At least 4 of your properties must have type "physical". Most concrete nouns
+   have at least 4 physical qualities. If the concept genuinely has fewer, include as many
+   as truly apply.
+
 3. **lemma_metadata**: For EACH listed lemma, provide:
    - "lemma": the word form
    - "register": "formal", "neutral", "informal", or "slang"
    - "connotation": "positive", "neutral", or "negative"
 
-Example:
+Examples:
 
 Word: candle
 Lemmas: candle, taper
 Definition: stick of wax with a wick; gives light when burning
 
 {{"id": "oewn-candle-n", "usage_example": "She lit a candle and watched the flame flicker in the draught.", "properties": [{{"text": "warm", "salience": 0.9, "type": "physical", "relation": "candle emits warmth"}}, {{"text": "flickering", "salience": 0.85, "type": "behaviour", "relation": "flame flickers"}}, {{"text": "ephemeral", "salience": 0.7, "type": "effect", "relation": "candle burns away"}}, {{"text": "luminous", "salience": 0.8, "type": "physical", "relation": "candle gives light"}}, {{"text": "waxy", "salience": 0.75, "type": "physical", "relation": "made of wax"}}, {{"text": "fragile", "salience": 0.6, "type": "physical", "relation": "wick is delicate"}}, {{"text": "aromatic", "salience": 0.5, "type": "effect", "relation": "scented candles smell"}}, {{"text": "ceremonial", "salience": 0.4, "type": "social", "relation": "used in rituals"}}, {{"text": "intimate", "salience": 0.65, "type": "emotional", "relation": "evokes closeness"}}, {{"text": "ancient", "salience": 0.3, "type": "social", "relation": "pre-electric lighting"}}], "lemma_metadata": [{{"lemma": "candle", "register": "neutral", "connotation": "positive"}}, {{"lemma": "taper", "register": "formal", "connotation": "neutral"}}]}}
+
+Word: volcano
+Lemmas: volcano
+Definition: a mountain formed by volcanic material
+
+{{"id": "oewn-volcano-n", "usage_example": "The volcano erupted, sending a plume of ash into the sky.", "properties": [{{"text": "hot", "salience": 0.95, "type": "physical", "relation": "volcano radiates extreme heat"}}, {{"text": "conical", "salience": 0.8, "type": "physical", "relation": "volcano has cone shape"}}, {{"text": "towering", "salience": 0.85, "type": "physical", "relation": "volcano is very tall"}}, {{"text": "molten", "salience": 0.9, "type": "physical", "relation": "contains molten lava"}}, {{"text": "ashy", "salience": 0.7, "type": "physical", "relation": "produces ash"}}, {{"text": "eruptive", "salience": 0.85, "type": "behaviour", "relation": "volcano erupts violently"}}, {{"text": "destructive", "salience": 0.75, "type": "effect", "relation": "eruptions destroy surroundings"}}, {{"text": "dormant", "salience": 0.5, "type": "behaviour", "relation": "may be inactive for years"}}, {{"text": "rumbling", "salience": 0.65, "type": "physical", "relation": "produces low sounds"}}, {{"text": "ancient", "salience": 0.4, "type": "social", "relation": "geological timescale"}}], "lemma_metadata": [{{"lemma": "volcano", "register": "neutral", "connotation": "negative"}}]}}
+(NOT: magmatic, pyroclastic, geological — these are taxonomic labels, not experiential properties)
 
 Now extract properties for each of these word senses:
 
