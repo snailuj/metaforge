@@ -12,6 +12,7 @@ import logging
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -150,26 +151,31 @@ def run_model_shootout(
     best_score = -1.0
     best_model = None
     best_name = None
+    total_models = len(configs)
+    shootout_start = time.monotonic()
 
-    for cfg in configs:
+    for i, cfg in enumerate(configs, 1):
         # Subsample training data for models that don't scale well
         max_n = cfg.get("max_samples")
         if max_n and len(X_train) > max_n:
-            log.info("Training %s (subsampled to %d/%d)...",
-                     cfg["name"], max_n, len(X_train))
+            log.info("[%d/%d] Training %s (subsampled to %d/%d)...",
+                     i, total_models, cfg["name"], max_n, len(X_train))
             rng = np.random.RandomState(random_state)
             idx = rng.choice(len(X_train), size=max_n, replace=False)
             X_fit, y_fit = X_train[idx], y_train[idx]
         else:
-            log.info("Training %s...", cfg["name"])
+            log.info("[%d/%d] Training %s (%d samples, 5-fold CV)...",
+                     i, total_models, cfg["name"], len(X_train))
             X_fit, y_fit = X_train, y_train
 
+        model_start = time.monotonic()
         grid = GridSearchCV(
             cfg["estimator"], cfg["params"],
             cv=5, scoring="r2", n_jobs=-1,
         )
         grid.fit(X_fit, y_fit)
         y_pred = grid.predict(X_test)
+        model_elapsed = time.monotonic() - model_start
 
         r, _ = pearsonr(y_test, y_pred)
         r2 = grid.score(X_test, y_test)
@@ -184,13 +190,17 @@ def run_model_shootout(
             "train_samples": len(X_fit),
         })
 
-        log.info("  %s: r=%.4f  R²=%.4f  RMSE=%.4f  params=%s",
-                 cfg["name"], r, r2, rmse, grid.best_params_)
+        log.info("[%d/%d] %s done in %.1fs: r=%.4f  R²=%.4f  RMSE=%.4f  params=%s",
+                 i, total_models, cfg["name"], model_elapsed, r, r2, rmse, grid.best_params_)
 
         if r > best_score:
             best_score = r
             best_model = grid.best_estimator_
             best_name = cfg["name"]
+
+    total_elapsed = time.monotonic() - shootout_start
+    log.info("Shootout complete in %.1fs — winner: %s (r=%.4f)",
+             total_elapsed, best_name, best_score)
 
     # Sort by pearson_r descending
     results.sort(key=lambda m: m["pearson_r"], reverse=True)

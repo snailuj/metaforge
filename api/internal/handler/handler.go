@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -114,14 +115,16 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Log POS bypass stats at debug level
-	var nonNounCount int
-	for _, c := range candidates {
-		if c.POS != "n" || c.SourcePOS != "n" {
-			nonNounCount++
+	// Log POS bypass stats at debug level (gated to avoid hot-path iteration)
+	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		var nonNounCount int
+		for _, c := range candidates {
+			if c.POS != "n" || c.SourcePOS != "n" {
+				nonNounCount++
+			}
 		}
+		slog.Debug("forge gate stats", "word", word, "results", len(candidates), "non_noun_candidates", nonNounCount)
 	}
-	slog.Debug("forge gate stats", "word", word, "results", len(candidates), "non_noun_candidates", nonNounCount)
 
 	// Fetch source lemma embedding for cross-domain distance
 	sourceEmb, err := db.GetLemmaEmbedding(h.database, word)

@@ -122,7 +122,7 @@ type CuratedMatch struct {
 // GetForgeMatchesCurated finds forge candidates using curated vocabulary set intersection.
 // No embeddings or cosine distance — pure integer JOINs for shared + antonymous properties.
 func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMatch, error) {
-	rows, err := db.Query(fmt.Sprintf(`
+	rows, err := db.Query(`
 		WITH source_conc AS (
 			SELECT sc.score, syn.pos
 			FROM synset_concreteness sc
@@ -176,14 +176,14 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 				OR tgt_s.pos != 'n'
 				OR tc.score IS NULL
 				OR (SELECT score FROM source_conc) IS NULL
-				OR tc.score + %.1f >= (SELECT score FROM source_conc)
+				OR tc.score + ? >= (SELECT score FROM source_conc)
 			)
 			ORDER BY COALESCE(sh.salience_sum, 0.0) + COALESCE(co.contrast_count, 0) DESC
 			LIMIT ?
 		) sub
 		JOIN synsets s ON s.synset_id = sub.synset_id
 		JOIN lemmas l ON l.synset_id = sub.synset_id
-	`, ConcretenessMargin), sourceID, sourceID, sourceID, sourceID, limit)
+	`, sourceID, sourceID, sourceID, sourceID, ConcretenessMargin, limit)
 
 	if err != nil {
 		return nil, fmt.Errorf("GetForgeMatchesCurated query failed: %w", err)
@@ -233,7 +233,7 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 // carries source-side context (SourceSynsetID, SourceDefinition, SourcePOS) reflecting
 // the best-aligned source sense for that specific target.
 func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([]CuratedMatch, error) {
-	rows, err := database.Query(fmt.Sprintf(`
+	rows, err := database.Query(`
 		WITH source_synsets AS (
 			SELECT l.synset_id
 			FROM lemmas l
@@ -300,11 +300,11 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 			OR ts.pos != 'n'
 			OR sc_tgt.score IS NULL
 			OR sc_src.score IS NULL
-			OR sc_tgt.score + %.1f >= sc_src.score
+			OR sc_tgt.score + ? >= sc_src.score
 		  )
 		ORDER BY bs.salience_sum + COALESCE(bc.contrast_count, 0) DESC
 		LIMIT ?
-	`, ConcretenessMargin), lemma, limit)
+	`, lemma, ConcretenessMargin, limit)
 
 	if err != nil {
 		return nil, fmt.Errorf("GetForgeMatchesCuratedByLemma query failed: %w", err)

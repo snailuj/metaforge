@@ -58,7 +58,7 @@ Scores stored at **synset level**, aggregated from lemma ratings via **max** (no
 
 ### New script
 
-`data-pipeline/scripts/import_concreteness.py` — parses Brysbaert data, joins against `lemmas` table, computes mean per synset, writes to `synset_concreteness`.
+`data-pipeline/scripts/import_concreteness.py` — parses Brysbaert data, joins against `lemmas` table, computes max per synset, writes to `synset_concreteness`.
 
 ---
 
@@ -105,7 +105,7 @@ No changes. The gate is invisible to the frontend — same endpoint, same respon
 ### Python pipeline
 
 - Parsing Brysbaert data format
-- Mean aggregation across lemmas per synset
+- Max aggregation across lemmas per synset
 - Handling synsets with no Brysbaert coverage (no row written)
 - Round-trip integration: import sample data, verify scores in DB
 

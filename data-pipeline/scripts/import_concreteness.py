@@ -7,8 +7,11 @@ synset_concreteness table.
 Usage:
     python import_concreteness.py
 """
+import logging
 import sqlite3
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from utils import LEXICON_V2, BRYSBAERT_CONCRETENESS_TSV
 
@@ -43,7 +46,10 @@ def load_concreteness(tsv_path: Path) -> dict[str, float]:
 
             try:
                 score = float(fields[conc_m_idx])
-            except (ValueError, IndexError):
+            except (ValueError, IndexError) as exc:
+                log.warning("skipping row: word=%r raw_score=%r error=%s",
+                            word, fields[conc_m_idx] if len(fields) > conc_m_idx else "<missing>",
+                            exc)
                 continue
 
             if word not in data:  # keep first occurrence

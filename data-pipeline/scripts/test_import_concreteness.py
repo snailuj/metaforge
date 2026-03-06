@@ -1,4 +1,5 @@
 """Tests for import_concreteness.py — Brysbaert concreteness import."""
+import logging
 import sqlite3
 import sys
 from pathlib import Path
@@ -54,6 +55,28 @@ def test_load_concreteness_lowercases_words(tmp_path):
     )
     data = load_concreteness(tsv)
     assert "apple" in data
+
+
+def test_load_concreteness_logs_parse_errors(tmp_path, caplog):
+    """Malformed score fields are logged at WARNING with context."""
+    tsv = tmp_path / "concreteness.txt"
+    tsv.write_text(
+        "Word\tBigram\tConc.M\tConc.SD\tUnknown\tTotal\tPercent_known\tSUBTLEX\tDom_Pos\n"
+        "apple\t0\t4.82\t0.39\t0\t25\t100\t12345\tNoun\n"
+        "badword\t0\tNOTANUMBER\t0.50\t0\t25\t100\t2345\tNoun\n"
+        "justice\t0\t1.78\t1.22\t2\t25\t92\t5678\tNoun\n"
+    )
+    with caplog.at_level(logging.WARNING, logger="import_concreteness"):
+        data = load_concreteness(tsv)
+
+    # Good rows parsed, bad row skipped
+    assert "apple" in data
+    assert "justice" in data
+    assert "badword" not in data
+
+    # Warning logged with context
+    assert any("badword" in rec.message and "NOTANUMBER" in rec.message
+               for rec in caplog.records), f"Expected parse error log, got: {caplog.text}"
 
 
 def test_load_concreteness_skips_bigrams(tmp_path):
