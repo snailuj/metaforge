@@ -13,6 +13,7 @@ Usage as CLI:
 """
 import argparse
 import json
+import logging
 import re
 import sqlite3
 import struct
@@ -20,7 +21,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-import nltk
+log = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import EMBEDDING_DIM, FASTTEXT_VEC, normalise, load_fasttext_vectors, _fasttext_cache
@@ -28,12 +29,6 @@ from build_vocab import build_and_store
 from cluster_vocab import cluster_vocab
 from snap_properties import snap_properties
 from build_antonyms import build_antonym_table, build_cluster_antonym_table
-
-# Lazy-download NLTK tagger data on first import
-try:
-    nltk.data.find("taggers/averaged_perceptron_tagger_eng")
-except LookupError:
-    nltk.download("averaged_perceptron_tagger_eng", quiet=True)
 
 MAX_PROPERTIES_PER_SYNSET = 15
 
@@ -63,26 +58,25 @@ def _ensure_v2_schema(conn: sqlite3.Connection) -> None:
 
 
 # =============================================================================
-# MWE filter — strip adjectives/adverbs from multi-word properties
+# MWE filter — reject multi-word and hyphenated properties
 # =============================================================================
-
-_STRIP_PREFIXES = ("JJ", "RB")
 
 
 def filter_mwe(text: str) -> str | None:
-    """Filter multi-word expressions by stripping adjectives/adverbs.
+    """Filter multi-word and hyphenated expressions.
 
-    Single tokens pass through unchanged. For multi-word inputs, POS-tag
-    and remove JJ*/RB* words. Keep only if exactly 1 word remains.
+    Single unhyphenated tokens pass through unchanged. Hyphenated words
+    and multi-word expressions are rejected (returns None). This enforces
+    single-word-only properties for clean vocabulary snapping.
     """
+    # Reject multi-word
     tokens = text.split()
-    if len(tokens) <= 1:
-        return text
-    tagged = nltk.pos_tag(tokens)
-    kept = [word for word, tag in tagged if not tag.startswith(_STRIP_PREFIXES)]
-    if len(kept) == 1:
-        return kept[0]
-    return None
+    if len(tokens) > 1:
+        return None
+    # Reject hyphenated compounds
+    if "-" in text:
+        return None
+    return text
 
 
 # =============================================================================
@@ -141,6 +135,7 @@ def curate_properties(
     Returns the number of properties inserted.
     """
     all_props = set()
+    rejected_count = 0
     for synset in enrichment_data.get("synsets", []):
         for prop in synset.get("properties", [])[:MAX_PROPERTIES_PER_SYNSET]:
             raw_text = _extract_property_text(prop)
@@ -149,6 +144,11 @@ def curate_properties(
             filtered = filter_mwe(normalise(raw_text))
             if filtered is not None:
                 all_props.add(filtered)
+            else:
+                rejected_count += 1
+
+    if rejected_count > 0:
+        log.warning("rejected %d multi-word/hyphenated properties", rejected_count)
 
     count = 0
     for prop in sorted(all_props):
