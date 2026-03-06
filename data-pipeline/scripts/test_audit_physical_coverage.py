@@ -1,115 +1,116 @@
 """Tests for audit_physical_coverage.py."""
+
 import json
-import sqlite3
-import sys
-from pathlib import Path
-
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-
+from pathlib import Path
 from audit_physical_coverage import audit_physical_coverage, POS_THRESHOLDS
 
 
-def _make_test_db():
-    """Create in-memory DB with synsets, synset_properties, property_vocabulary."""
-    conn = sqlite3.connect(":memory:")
-    conn.execute("CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT)")
-    conn.execute("CREATE TABLE property_vocabulary (property_id INTEGER PRIMARY KEY, text TEXT)")
-    conn.execute("""CREATE TABLE synset_properties (
-        synset_id TEXT, property_id INTEGER, salience REAL DEFAULT 1.0,
-        property_type TEXT, relation TEXT,
-        PRIMARY KEY (synset_id, property_id)
-    )""")
-    return conn
+# --- Fixtures ---
+
+def make_synset(sid, pos, physical_count, total=10):
+    """Build a synset dict with N physical properties + padding."""
+    props = [{"text": f"phys{i}", "salience": 0.8, "type": "physical",
+              "relation": f"has phys{i}"} for i in range(physical_count)]
+    props += [{"text": f"social{i}", "salience": 0.5, "type": "social",
+               "relation": f"has social{i}"} for i in range(total - physical_count)]
+    return {"id": sid, "lemma": "test", "definition": "test def",
+            "pos": pos, "properties": props}
 
 
-def _add_synset(conn, synset_id, pos, props):
-    """Helper: add a synset with properties (list of (text, type) tuples)."""
-    conn.execute("INSERT INTO synsets VALUES (?, ?, 'test')", (synset_id, pos))
-    for i, (text, ptype) in enumerate(props):
-        pid = abs(hash(f"{synset_id}_{text}")) % 1000000
-        conn.execute("INSERT OR IGNORE INTO property_vocabulary VALUES (?, ?)", (pid, text))
-        conn.execute("INSERT INTO synset_properties VALUES (?, ?, 1.0, ?, NULL)",
-                     (synset_id, pid, ptype))
+def make_checkpoint(synsets):
+    """Build a checkpoint-format dict."""
+    return {"completed_ids": [s["id"] for s in synsets], "results": synsets}
 
 
-def test_noun_with_enough_physical_not_flagged():
-    """Noun with >= 4 physical properties passes audit."""
-    conn = _make_test_db()
-    _add_synset(conn, "syn-rock", "n", [
-        ("hard", "physical"), ("heavy", "physical"),
-        ("solid", "physical"), ("rough", "physical"),
-        ("ancient", "social"),
-    ])
-    result = audit_physical_coverage(conn)
-    assert len(result["flagged"]) == 0
+def make_enrichment(synsets):
+    """Build an enrichment-format dict."""
+    return {"synsets": synsets}
 
 
-def test_noun_with_few_physical_flagged():
-    """Noun with < 4 physical properties is flagged."""
-    conn = _make_test_db()
-    _add_synset(conn, "syn-justice", "n", [
-        ("abstract", "emotional"), ("balanced", "behaviour"),
-        ("impartial", "social"), ("cold", "physical"),
-    ])
-    result = audit_physical_coverage(conn)
-    assert len(result["flagged"]) == 1
-    assert result["flagged"][0]["synset_id"] == "syn-justice"
-    assert result["flagged"][0]["physical_count"] == 1
+class TestPosThresholds:
+    def test_noun_threshold_is_4(self):
+        assert POS_THRESHOLDS["n"] == 4
+
+    def test_verb_threshold_is_2(self):
+        assert POS_THRESHOLDS["v"] == 2
+
+    def test_adj_threshold_is_2(self):
+        assert POS_THRESHOLDS["a"] == 2
+        assert POS_THRESHOLDS["s"] == 2
 
 
-def test_verb_threshold_is_two():
-    """Verb with < 2 physical properties is flagged."""
-    conn = _make_test_db()
-    _add_synset(conn, "syn-run", "v", [
-        ("fast", "behaviour"), ("rhythmic", "behaviour"),
-        ("sweaty", "physical"),
-    ])
-    result = audit_physical_coverage(conn)
-    assert len(result["flagged"]) == 1
-    assert result["flagged"][0]["physical_count"] == 1
+class TestAuditPhysicalCoverage:
+    def test_noun_below_threshold_flagged(self):
+        synsets = [make_synset("s1", "n", 2)]
+        result = audit_physical_coverage(make_enrichment(synsets))
+        assert "s1" in result["flagged_ids"]
 
+    def test_noun_at_threshold_not_flagged(self):
+        synsets = [make_synset("s1", "n", 4)]
+        result = audit_physical_coverage(make_enrichment(synsets))
+        assert "s1" not in result["flagged_ids"]
 
-def test_verb_with_enough_physical_not_flagged():
-    """Verb with >= 2 physical properties passes."""
-    conn = _make_test_db()
-    _add_synset(conn, "syn-run", "v", [
-        ("fast", "behaviour"), ("sweaty", "physical"), ("loud", "physical"),
-    ])
-    result = audit_physical_coverage(conn)
-    assert len(result["flagged"]) == 0
+    def test_verb_below_threshold_flagged(self):
+        synsets = [make_synset("s1", "v", 1)]
+        result = audit_physical_coverage(make_enrichment(synsets))
+        assert "s1" in result["flagged_ids"]
 
+    def test_verb_at_threshold_not_flagged(self):
+        synsets = [make_synset("s1", "v", 2)]
+        result = audit_physical_coverage(make_enrichment(synsets))
+        assert "s1" not in result["flagged_ids"]
 
-def test_adjective_threshold_is_two():
-    """Adjective with < 2 physical properties is flagged."""
-    conn = _make_test_db()
-    _add_synset(conn, "syn-bright", "a", [
-        ("cheerful", "emotional"), ("optimistic", "emotional"),
-    ])
-    result = audit_physical_coverage(conn)
-    assert len(result["flagged"]) == 1
+    def test_adj_below_threshold_flagged(self):
+        synsets = [make_synset("s1", "s", 1)]
+        result = audit_physical_coverage(make_enrichment(synsets))
+        assert "s1" in result["flagged_ids"]
 
+    def test_mixed_pos_flags_correctly(self):
+        synsets = [
+            make_synset("n1", "n", 2),  # flagged
+            make_synset("n2", "n", 5),  # ok
+            make_synset("v1", "v", 0),  # flagged
+            make_synset("v2", "v", 3),  # ok
+        ]
+        result = audit_physical_coverage(make_enrichment(synsets))
+        assert set(result["flagged_ids"]) == {"n1", "v1"}
 
-def test_audit_returns_summary_stats():
-    """Audit result includes total, flagged count, and per-POS breakdown."""
-    conn = _make_test_db()
-    _add_synset(conn, "syn-rock", "n", [
-        ("hard", "physical"), ("heavy", "physical"),
-        ("solid", "physical"), ("rough", "physical"),
-    ])
-    _add_synset(conn, "syn-justice", "n", [("fair", "social")])
-    result = audit_physical_coverage(conn)
-    assert result["total_audited"] == 2
-    assert result["total_flagged"] == 1
-    assert result["by_pos"]["n"]["flagged"] == 1
+    def test_summary_stats(self):
+        synsets = [
+            make_synset("n1", "n", 2),
+            make_synset("n2", "n", 5),
+            make_synset("v1", "v", 0),
+        ]
+        result = audit_physical_coverage(make_enrichment(synsets))
+        assert result["total_synsets"] == 3
+        assert result["flagged_count"] == 2
 
+    def test_exclude_ids(self):
+        synsets = [
+            make_synset("n1", "n", 2),
+            make_synset("n2", "n", 1),
+        ]
+        result = audit_physical_coverage(make_enrichment(synsets), exclude_ids={"n1"})
+        assert result["flagged_ids"] == ["n2"]
 
-def test_synsets_without_type_annotation_flagged():
-    """Synsets with NULL property_type (v1 data) are flagged — no type = 0 physical."""
-    conn = _make_test_db()
-    conn.execute("INSERT INTO synsets VALUES ('syn-old', 'n', 'test')")
-    conn.execute("INSERT INTO property_vocabulary VALUES (1, 'hot')")
-    conn.execute("INSERT INTO synset_properties VALUES ('syn-old', 1, 1.0, NULL, NULL)")
-    result = audit_physical_coverage(conn)
-    assert len(result["flagged"]) == 1
+    def test_checkpoint_format(self):
+        """Audit reads checkpoint format (results key) as well as enrichment format."""
+        synsets = [make_synset("s1", "n", 1)]
+        result = audit_physical_coverage(make_checkpoint(synsets))
+        assert "s1" in result["flagged_ids"]
+
+    def test_empty_input(self):
+        result = audit_physical_coverage({"synsets": []})
+        assert result["flagged_ids"] == []
+        assert result["total_synsets"] == 0
+
+    def test_pos_breakdown(self):
+        synsets = [
+            make_synset("n1", "n", 1),
+            make_synset("n2", "n", 2),
+            make_synset("v1", "v", 0),
+        ]
+        result = audit_physical_coverage(make_enrichment(synsets))
+        assert result["pos_breakdown"]["n"]["flagged"] == 2
+        assert result["pos_breakdown"]["v"]["flagged"] == 1
