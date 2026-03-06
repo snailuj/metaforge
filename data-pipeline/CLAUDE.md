@@ -122,9 +122,32 @@ Predict concreteness scores for unrated synsets using FastText embeddings + scik
 
 Run `./data-pipeline/evals.sh --help` for full argument reference.
 
+### 6. Physical Coverage Audit & Gap-fill
+
+Audit physical property coverage per synset and gap-fill flagged synsets with a targeted prompt.
+
+```bash
+# Audit — writes JSON report with flagged synsets
+source .venv/bin/activate
+python data-pipeline/scripts/audit_physical_coverage.py \
+  --db data-pipeline/output/lexicon_v2.db -o data-pipeline/output/audit_physical.json
+
+# Gap-fill flagged synsets — runs LLM on flagged synsets only
+python data-pipeline/scripts/gap_fill_physical.py \
+  --db data-pipeline/output/lexicon_v2.db \
+  --audit data-pipeline/output/audit_physical.json \
+  -o data-pipeline/output/gap_fill_physical.json --model sonnet
+
+# Import gap-fill into DB (use enrich.sh --from-json with both files)
+./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
+  --from-json data-pipeline/output/enrichment_*.json data-pipeline/output/gap_fill_physical.json
+```
+
+POS-dependent thresholds: nouns >= 4, verbs >= 2, adjectives >= 2 physical properties.
+
 ## Skills
 
-- **`metaforge-pipeline-management`** — detailed workflow for the 4 operations above
+- **`metaforge-pipeline-management`** — detailed workflow for the 6 operations above
 - **`metaforge-pipeline-creation`** — building the base DB from raw sources (rare)
 
 ## Shell Scripts
@@ -137,6 +160,8 @@ Run `./data-pipeline/evals.sh --help` for full argument reference.
 | `scripts/restore_db.sh` | Restore any SQL dump into a fresh DB |
 | `evolve_trials.sh` | Crash-recovery wrapper for evolutionary prompt optimisation |
 | `evals.sh` | Concreteness regression: shootout / fill / revert |
+| `scripts/audit_physical_coverage.py` | Audit physical property coverage, flag under-covered synsets |
+| `scripts/gap_fill_physical.py` | Targeted LLM gap-fill for synsets lacking physical properties |
 
 ## Database Policy
 
