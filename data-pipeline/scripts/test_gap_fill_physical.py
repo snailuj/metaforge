@@ -1,110 +1,89 @@
 """Tests for gap_fill_physical.py."""
+
 import json
 import sqlite3
-import sys
-from pathlib import Path
-
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-from gap_fill_physical import build_gap_fill_prompt, format_gap_fill_items, merge_gap_fill
-
-
-def test_format_gap_fill_items_includes_existing_props():
-    """Batch item text includes existing properties for dedup."""
-    items = [{
-        "synset_id": "syn-justice",
-        "lemma": "justice",
-        "definition": "the quality of being just or fair",
-        "pos": "n",
-        "existing_properties": ["fair", "balanced", "impartial"],
-    }]
-    text = format_gap_fill_items(items)
-    assert "justice" in text
-    assert "fair, balanced, impartial" in text
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+from gap_fill_physical import (
+    format_gap_fill_batch,
+    load_synsets_from_db,
+    build_output,
+    GAP_FILL_PROMPT,
+)
 
 
-def test_format_gap_fill_items_multiple():
-    """Multiple items are separated."""
-    items = [
-        {"synset_id": "s1", "lemma": "a", "definition": "d1", "pos": "n",
-         "existing_properties": ["x"]},
-        {"synset_id": "s2", "lemma": "b", "definition": "d2", "pos": "n",
-         "existing_properties": ["y"]},
-    ]
-    text = format_gap_fill_items(items)
-    assert "s1" in text
-    assert "s2" in text
+# --- Prompt tests ---
+
+class TestGapFillPrompt:
+    def test_prompt_mentions_physical(self):
+        assert "physical" in GAP_FILL_PROMPT.lower()
+
+    def test_prompt_requires_single_word(self):
+        assert "single" in GAP_FILL_PROMPT.lower() or "one word" in GAP_FILL_PROMPT.lower()
+
+    def test_prompt_has_batch_items_placeholder(self):
+        assert "{batch_items}" in GAP_FILL_PROMPT
 
 
-def test_merge_gap_fill_appends_properties():
-    """Gap-fill properties are appended to existing enrichment data."""
-    existing = {
-        "synsets": [
-            {"id": "syn-justice", "properties": [
-                {"text": "fair", "salience": 0.8, "type": "social", "relation": "justice is fair"},
-            ]},
-        ],
-    }
-    gap_fill = [
-        {"id": "syn-justice", "properties": [
-            {"text": "cold", "salience": 0.6, "type": "physical", "relation": "justice feels cold"},
-        ]},
-    ]
-    merged = merge_gap_fill(existing, gap_fill)
-    props = merged["synsets"][0]["properties"]
-    assert len(props) == 2
-    assert props[1]["text"] == "cold"
+class TestFormatGapFillBatch:
+    def test_includes_id_and_definition(self):
+        synsets = [{"id": "s1", "lemma": "rock", "definition": "a hard mineral", "pos": "n"}]
+        result = format_gap_fill_batch(synsets)
+        assert "s1" in result
+        assert "rock" in result
+        assert "a hard mineral" in result
 
 
-def test_merge_gap_fill_skips_duplicates():
-    """Gap-fill properties that duplicate existing text are skipped."""
-    existing = {
-        "synsets": [
-            {"id": "syn-rock", "properties": [
-                {"text": "hard", "salience": 0.9, "type": "physical", "relation": "rock is hard"},
-            ]},
-        ],
-    }
-    gap_fill = [
-        {"id": "syn-rock", "properties": [
-            {"text": "hard", "salience": 0.8, "type": "physical", "relation": "dup"},
-            {"text": "heavy", "salience": 0.7, "type": "physical", "relation": "rock is heavy"},
-        ]},
-    ]
-    merged = merge_gap_fill(existing, gap_fill)
-    props = merged["synsets"][0]["properties"]
-    texts = [p["text"] for p in props]
-    assert texts.count("hard") == 1
-    assert "heavy" in texts
+# --- DB lookup tests ---
+
+class TestLoadSynsetsFromDb:
+    def test_loads_synset_by_id(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, definition TEXT, pos TEXT);
+            CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+            CREATE TABLE frequencies (lemma TEXT, familiarity REAL);
+            INSERT INTO synsets VALUES ('s1', 'a large rock', 'n');
+            INSERT INTO lemmas VALUES ('boulder', 's1');
+            INSERT INTO frequencies VALUES ('boulder', 5.5);
+        """)
+        conn.close()
+
+        result = load_synsets_from_db(str(db_path), ["s1"])
+        assert len(result) == 1
+        assert result[0]["id"] == "s1"
+        assert result[0]["lemma"] == "boulder"
+        assert result[0]["definition"] == "a large rock"
+
+    def test_missing_synset_skipped(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, definition TEXT, pos TEXT);
+            CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+            CREATE TABLE frequencies (lemma TEXT, familiarity REAL);
+        """)
+        conn.close()
+
+        result = load_synsets_from_db(str(db_path), ["nonexistent"])
+        assert len(result) == 0
 
 
-def test_merge_gap_fill_ignores_unknown_synset():
-    """Gap-fill for synsets not in existing data is ignored."""
-    existing = {"synsets": [{"id": "syn-rock", "properties": []}]}
-    gap_fill = [{"id": "syn-unknown", "properties": [{"text": "x", "salience": 0.5, "type": "physical", "relation": ""}]}]
-    merged = merge_gap_fill(existing, gap_fill)
-    assert len(merged["synsets"]) == 1
+# --- Output format tests ---
 
+class TestBuildOutput:
+    def test_output_has_synsets_key(self):
+        results = [{"id": "s1", "properties": [{"text": "hard", "type": "physical"}]}]
+        output = build_output(results, model="sonnet", batch_size=20)
+        assert "synsets" in output
 
-def test_merge_gap_fill_does_not_mutate_input():
-    """merge_gap_fill must not modify the existing_data argument."""
-    existing = {
-        "synsets": [{"id": "s1", "properties": [
-            {"text": "hard", "salience": 0.9, "type": "physical", "relation": "x"},
-        ]}],
-    }
-    gap_fill = [{"id": "s1", "properties": [
-        {"text": "heavy", "salience": 0.7, "type": "physical", "relation": "y"},
-    ]}]
-    original_len = len(existing["synsets"][0]["properties"])
-    merge_gap_fill(existing, gap_fill)
-    assert len(existing["synsets"][0]["properties"]) == original_len
+    def test_output_has_stats(self):
+        results = [{"id": "s1", "properties": [{"text": "hard", "type": "physical"}]}]
+        output = build_output(results, model="sonnet", batch_size=20)
+        assert output["stats"]["total_synsets"] == 1
 
-
-def test_build_gap_fill_prompt_inserts_items():
-    """build_gap_fill_prompt inserts batch items text into the template."""
-    text = build_gap_fill_prompt("ITEMS_HERE")
-    assert "ITEMS_HERE" in text
-    assert "physical" in text.lower()
+    def test_output_has_config(self):
+        output = build_output([], model="sonnet", batch_size=20)
+        assert output["config"]["model"] == "sonnet"
