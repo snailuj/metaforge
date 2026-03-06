@@ -1,40 +1,49 @@
-"""Gap-fill physical properties for synsets flagged by coverage audit.
+"""Gap-fill physical properties for flagged synsets.
 
-Takes an audit report JSON (from audit_physical_coverage.py) and runs
-a targeted prompt asking the LLM to add missing physical/sensory
-properties. Existing properties are shown to avoid duplication.
+Targeted second-pass enrichment: calls the LLM with a physical-only prompt
+for synsets that have insufficient physical properties (as identified by
+audit_physical_coverage.py).
+
+Output is enrichment-format JSON compatible with enrich.sh --from-json.
 
 Usage:
-    python gap_fill_physical.py --db PATH --audit report.json -o gap_fill.json [--model sonnet]
+    python gap_fill_physical.py --synset-ids flagged.json --db lexicon_v2.db \
+      --model sonnet --output gap_fill_physical.json
 """
+
 import argparse
-import copy
 import json
 import logging
 import sqlite3
 import sys
+import time
+from collections import Counter
 from pathlib import Path
+from typing import List, Dict
 
-sys.path.insert(0, str(Path(__file__).parent))
-from utils import LEXICON_V2
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
+from claude_client import prompt_json, RateLimitError
 
-log = logging.getLogger(__name__)
+OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
-GAP_FILL_PROMPT = """You are adding missing physical and sensory properties to word senses that lack them.
+GAP_FILL_PROMPT = """You are extracting PHYSICAL and SENSORY properties for specific word senses.
 
-Below are word senses with their EXISTING properties. Your job is to add ONLY physical/sensory
-properties that are missing. Do NOT duplicate any existing property.
+For each word sense below, provide 4-6 properties that describe its physical, tangible, or sensory qualities.
 
-Physical/sensory properties describe: texture, weight, temperature, luminosity, sound, colour,
-shape, size, material, smell, taste, motion.
+RULES:
+- Each property must be a SINGLE WORD (no hyphens, no compounds, no phrases)
+- Focus ONLY on physical/sensory properties: texture, weight, temperature, shape, colour, sound, smell, taste, luminosity, size
+- The definition tells you WHICH sense — focus only on that sense
+- Every property gets salience 0.0-1.0 and a short relation phrase
 
-CONSTRAINTS:
-- Every property MUST be exactly one word. No hyphens, no compounds, no spaces.
-- Only add properties with type "physical".
-- Do NOT repeat or rephrase any existing property.
-- Add 3-6 physical properties per synset — enough to ground it, not more.
-- Use the same JSON format: {{"text": "...", "salience": 0.0-1.0, "type": "physical", "relation": "..."}}
-- "relation" is a short phrase linking the word to the property (e.g. "rock is heavy").
+Output format per word:
+{{"id": "...", "properties": [{{"text": "word", "salience": 0.8, "type": "physical", "relation": "short phrase"}}]}}
+
+Example:
+
+Word: anvil
+Definition: a heavy block of iron or steel on which hot metals are hammered into shape
+Properties: heavy, metallic, dense, dark, resonant, rigid
 
 {batch_items}
 
@@ -43,140 +52,245 @@ Output ONLY a valid JSON array (no markdown, no explanation):
 """
 
 
-def build_gap_fill_prompt(batch_items_text: str) -> str:
-    """Build the gap-fill prompt with batch items inserted."""
-    return GAP_FILL_PROMPT.replace("{batch_items}", batch_items_text)
-
-
-def format_gap_fill_items(items: list[dict]) -> str:
-    """Format flagged synsets for the gap-fill prompt.
-
-    Each item includes existing properties so the LLM avoids duplicates.
-    """
+def format_gap_fill_batch(synsets: List[Dict]) -> str:
+    """Format synsets for the gap-fill prompt."""
     lines = []
-    for item in items:
-        lines.append(f"ID: {item['synset_id']}")
-        lines.append(f"Word: {item['lemma']}")
-        lines.append(f"Definition: {item['definition']}")
-        existing = ", ".join(item.get("existing_properties", []))
-        lines.append(f"Existing properties: {existing}")
+    for s in synsets:
+        lines.append(f"ID: {s['id']}")
+        lines.append(f"Word: {s['lemma']}")
+        lines.append(f"Definition: {s['definition']}")
         lines.append("")
     return "\n".join(lines)
 
 
-def merge_gap_fill(existing_data: dict, gap_fill_results: list[dict]) -> dict:
-    """Merge gap-fill properties into existing enrichment data.
+def load_synsets_from_db(db_path: str, synset_ids: list[str]) -> List[Dict]:
+    """Look up synset details from the DB for gap-fill."""
+    conn = sqlite3.connect(db_path)
+    try:
+        placeholders = ",".join("?" for _ in synset_ids)
+        cursor = conn.execute(f"""
+            WITH ranked_lemmas AS (
+                SELECT
+                    s.synset_id,
+                    s.definition,
+                    s.pos,
+                    l.lemma,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY s.synset_id
+                        ORDER BY COALESCE(f.familiarity, 0) DESC, l.lemma
+                    ) AS rn
+                FROM synsets s
+                JOIN lemmas l ON l.synset_id = s.synset_id
+                LEFT JOIN frequencies f ON f.lemma = l.lemma
+                WHERE s.synset_id IN ({placeholders})
+            )
+            SELECT synset_id, definition, lemma, pos
+            FROM ranked_lemmas
+            WHERE rn = 1
+        """, synset_ids)
+        return [
+            {"id": str(row[0]), "definition": row[1], "lemma": row[2], "pos": row[3]}
+            for row in cursor.fetchall()
+        ]
+    finally:
+        conn.close()
 
-    Appends new properties, skipping any whose text matches an existing property.
-    Returns a new dict (does not mutate existing_data).
-    """
-    merged = copy.deepcopy(existing_data)
 
-    synset_map = {s["id"]: s for s in merged.get("synsets", [])}
+def build_output(results: List[Dict], model: str, batch_size: int) -> dict:
+    """Build enrichment-format output JSON."""
+    all_properties = []
+    for r in results:
+        all_properties.extend(r.get("properties", []))
 
-    for entry in gap_fill_results:
-        sid = entry["id"]
-        if sid not in synset_map:
-            log.warning("gap-fill synset %s not in existing data, skipping", sid)
-            continue
+    property_texts = [
+        p["text"] if isinstance(p, dict) else p
+        for p in all_properties
+    ]
+    property_freq = Counter(property_texts)
 
-        if "properties" not in synset_map[sid]:
-            synset_map[sid]["properties"] = []
+    return {
+        "synsets": results,
+        "all_properties": list(set(property_texts)),
+        "property_frequency": dict(property_freq.most_common(100)),
+        "stats": {
+            "total_synsets": len(results),
+            "total_properties": len(property_texts),
+            "unique_properties": len(set(property_texts)),
+            "avg_properties_per_synset": round(
+                len(all_properties) / len(results), 2
+            ) if results else 0,
+        },
+        "config": {
+            "model": model,
+            "batch_size": batch_size,
+            "purpose": "gap_fill_physical",
+        },
+    }
 
-        existing_texts = {p["text"] for p in synset_map[sid]["properties"]
-                         if isinstance(p, dict)}
 
-        for prop in entry.get("properties", []):
-            if isinstance(prop, dict) and prop.get("text") not in existing_texts:
-                synset_map[sid]["properties"].append(prop)
-                existing_texts.add(prop["text"])
+def load_checkpoint(checkpoint_path: Path) -> dict:
+    """Load checkpoint state, or return empty state."""
+    if checkpoint_path.exists():
+        with open(checkpoint_path) as f:
+            return json.load(f)
+    return {"completed_ids": [], "results": []}
 
-    return merged
+
+def save_checkpoint(checkpoint_path: Path, state: dict):
+    """Save checkpoint state to disk."""
+    with open(checkpoint_path, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def run_gap_fill(
+    synsets: List[Dict],
+    model: str = "sonnet",
+    batch_size: int = 20,
+    delay: float = 1.0,
+    output_file: Path = None,
+    resume: bool = False,
+    verbose: bool = False,
+) -> dict:
+    """Run physical gap-fill enrichment on synsets."""
+    checkpoint_path = OUTPUT_DIR / "checkpoint_gap_fill.json"
+
+    if resume:
+        state = load_checkpoint(checkpoint_path)
+        completed_ids = set(state["completed_ids"])
+        results = state["results"]
+        print(f"  Resuming from checkpoint: {len(completed_ids)} already done")
+    else:
+        completed_ids = set()
+        results = []
+        if checkpoint_path.exists():
+            checkpoint_path.unlink()
+
+    remaining = [s for s in synsets if s["id"] not in completed_ids]
+    failed_batches = 0
+
+    num_batches = (len(remaining) + batch_size - 1) // batch_size
+    print(f"Gap-fill: {len(remaining)} synsets in {num_batches} batches")
+
+    for batch_idx in range(num_batches):
+        start = batch_idx * batch_size
+        end = min(start + batch_size, len(remaining))
+        batch = remaining[start:end]
+
+        print(f"\n  Batch {batch_idx + 1}/{num_batches} ({len(batch)} synsets)...")
+
+        try:
+            batch_items = format_gap_fill_batch(batch)
+            prompt = GAP_FILL_PROMPT.format(batch_items=batch_items)
+            batch_results = prompt_json(prompt, model=model, expect=list, verbose=verbose)
+
+            local_data = {s["id"]: s for s in batch}
+            for r in batch_results:
+                rid = str(r.get("id", ""))
+                if rid in local_data:
+                    # Merge local data (lemma, definition, pos) into result
+                    r["lemma"] = local_data[rid]["lemma"]
+                    r["definition"] = local_data[rid]["definition"]
+                    r["pos"] = local_data[rid]["pos"]
+                    # Force all properties to physical type
+                    for p in r.get("properties", []):
+                        p["type"] = "physical"
+                    results.append(r)
+                    completed_ids.add(rid)
+                    print(f"    {r.get('lemma', '?')}: {len(r.get('properties', []))} physical properties")
+
+            save_checkpoint(checkpoint_path, {
+                "completed_ids": list(completed_ids),
+                "results": results,
+            })
+
+        except RateLimitError as e:
+            print(f"  RATE LIMITED — stopping: {e}")
+            break
+        except Exception as e:
+            print(f"  BATCH FAILED: {e}")
+            failed_batches += 1
+
+        if delay > 0:
+            time.sleep(delay)
+
+    output = build_output(results, model=model, batch_size=batch_size)
+
+    if output_file:
+        output_file.parent.mkdir(exist_ok=True)
+        with open(output_file, "w") as f:
+            json.dump(output, f, indent=2)
+
+    # Clean up checkpoint on success
+    if failed_batches == 0 and checkpoint_path.exists():
+        checkpoint_path.unlink()
+
+    print(f"\nGap-fill complete!")
+    print(f"  Synsets: {output['stats']['total_synsets']}")
+    print(f"  Properties: {output['stats']['total_properties']}")
+    print(f"  Failed batches: {failed_batches}")
+
+    return output
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Gap-fill physical properties for flagged synsets.",
+        description="Gap-fill physical properties for flagged synsets"
     )
-    parser.add_argument("--db", default=str(LEXICON_V2), help="lexicon database path")
-    parser.add_argument("--audit", required=True, help="path to audit report JSON")
-    parser.add_argument("-o", "--output", required=True, help="output gap-fill JSON path")
-    parser.add_argument("--model", default="sonnet", help="LLM model (default: sonnet)")
-    parser.add_argument("--batch-size", type=int, default=20, help="synsets per LLM call")
-    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument(
+        "--synset-ids", "-s", type=str, required=True,
+        help="JSON file with audit output (must contain 'flagged_ids' key)",
+    )
+    parser.add_argument(
+        "--db", type=str, required=True,
+        help="Path to lexicon_v2.db",
+    )
+    parser.add_argument(
+        "--output", "-o", type=str, required=True,
+        help="Output JSON path",
+    )
+    parser.add_argument(
+        "--model", "-m", type=str, default="sonnet",
+        help="Claude model alias (default: sonnet)",
+    )
+    parser.add_argument(
+        "--batch-size", "-b", type=int, default=20,
+        help="Synsets per LLM call (default: 20)",
+    )
+    parser.add_argument(
+        "--delay", type=float, default=1.0,
+        help="Seconds between batches (default: 1.0)",
+    )
+    parser.add_argument(
+        "--resume", "-r", action="store_true",
+        help="Resume from checkpoint",
+    )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Enable DEBUG logging",
+    )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s",
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
+
+    # Load flagged IDs from audit output
+    audit_data = json.loads(Path(args.synset_ids).read_text())
+    flagged_ids = audit_data.get("flagged_ids", audit_data)  # accept list or audit dict
+    print(f"Flagged synsets: {len(flagged_ids)}")
+
+    # Look up synset details from DB
+    synsets = load_synsets_from_db(args.db, flagged_ids)
+    print(f"Found in DB: {len(synsets)}")
+
+    run_gap_fill(
+        synsets,
+        model=args.model,
+        batch_size=args.batch_size,
+        delay=args.delay,
+        output_file=Path(args.output),
+        resume=args.resume,
+        verbose=args.verbose,
     )
-
-    with open(args.audit) as f:
-        audit = json.load(f)
-
-    flagged = audit.get("flagged", [])
-    if not flagged:
-        print("No synsets flagged — nothing to gap-fill.")
-        return
-
-    conn = sqlite3.connect(args.db)
-    try:
-        items = []
-        for entry in flagged:
-            sid = entry["synset_id"]
-            row = conn.execute(
-                "SELECT s.definition FROM synsets s WHERE s.synset_id = ?", (sid,)
-            ).fetchone()
-            lemma_row = conn.execute(
-                "SELECT lemma FROM lemmas WHERE synset_id = ? LIMIT 1", (sid,)
-            ).fetchone()
-            if row and lemma_row:
-                existing_texts = [p["text"] for p in entry.get("properties", [])
-                                  if isinstance(p, dict)]
-                items.append({
-                    "synset_id": sid,
-                    "lemma": lemma_row[0],
-                    "definition": row[0],
-                    "pos": entry["pos"],
-                    "existing_properties": existing_texts,
-                })
-    finally:
-        conn.close()
-
-    print(f"Gap-filling {len(items)} synsets in batches of {args.batch_size}...")
-
-    # Import claude_client only when actually calling the LLM
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
-    from claude_client import prompt_json, RateLimitError
-
-    all_results = []
-    for i in range(0, len(items), args.batch_size):
-        batch = items[i:i + args.batch_size]
-        batch_text = format_gap_fill_items(batch)
-        prompt = build_gap_fill_prompt(batch_text)
-
-        batch_num = i // args.batch_size + 1
-        log.info("[%d/%d] Processing batch of %d synsets...",
-                 batch_num,
-                 (len(items) + args.batch_size - 1) // args.batch_size,
-                 len(batch))
-
-        batch_num = i // args.batch_size + 1
-        try:
-            results = prompt_json(prompt, model=args.model, expect=list)
-            all_results.extend(results)
-        except RateLimitError as exc:
-            log.error("Rate limited at batch %d: %s — stopping.", batch_num, exc)
-            break
-        except Exception as exc:
-            log.error("Batch %d failed: %s", batch_num, exc)
-            continue
-
-    output = {"synsets": all_results, "source": "gap_fill", "model": args.model}
-    with open(args.output, "w") as f:
-        json.dump(output, f, indent=2)
-
-    print(f"\nGap-fill complete: {len(all_results)} synsets → {args.output}")
 
 
 if __name__ == "__main__":
