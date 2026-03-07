@@ -15,12 +15,11 @@ from enrich_properties import (
     extract_batch,
     get_pilot_synsets,
     get_frequency_ranked_synsets,
-    load_checkpoint,
-    save_checkpoint,
     run_enrichment,
     EnrichmentResult,
     UsageExhaustedError,
 )
+from utils import load_checkpoint, save_checkpoint
 
 
 # --- Test data ---------------------------------------------------------------
@@ -590,6 +589,13 @@ def test_frequency_ranked_offset_with_limit():
 
     ids = [s["id"] for s in synsets]
     assert ids == ["200003", "200004"]
+
+
+def test_frequency_ranked_offset_exceeds_total():
+    """Offset beyond available rows returns empty list gracefully."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=10, offset=9999)
+    assert synsets == []
 
 
 # --- Unified checkpoint format ------------------------------------------------

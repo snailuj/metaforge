@@ -216,15 +216,17 @@ if [[ "$ENRICH" == true ]]; then
         echo "--- Retry mode: ${RETRY_DELAY}s interval, ${RETRY_WINDOW}s window → $MAX_RETRIES max retries ---"
         for attempt in $(seq 1 "$MAX_RETRIES"); do
             echo "=== Attempt $attempt / $MAX_RETRIES  $(date) ==="
-            if "${ENRICH_ARGS[@]}"; then
-                echo "=== Enrichment complete $(date) ==="
-                break
+            "${ENRICH_ARGS[@]}" && { echo "=== Enrichment complete $(date) ==="; break; }
+            EXIT_CODE=$?
+            if [[ "$EXIT_CODE" -ne 75 ]]; then
+                echo "ERROR: Enrichment failed with non-retryable error (exit $EXIT_CODE)" >&2
+                exit "$EXIT_CODE"
             fi
             if [[ "$attempt" -eq "$MAX_RETRIES" ]]; then
                 echo "ERROR: Exhausted $MAX_RETRIES retries (${RETRY_WINDOW}s window)" >&2
                 exit 1
             fi
-            echo "=== Rate-limited, sleeping ${RETRY_DELAY}s before retry ==="
+            echo "=== Rate-limited (exit 75), sleeping ${RETRY_DELAY}s before retry ==="
             sleep "$RETRY_DELAY"
         done
     else

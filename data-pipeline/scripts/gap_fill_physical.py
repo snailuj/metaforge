@@ -24,7 +24,7 @@ from typing import List, Dict
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
 from claude_client import prompt_json, RateLimitError
 
-OUTPUT_DIR = Path(__file__).parent.parent / "output"
+from utils import OUTPUT_DIR, load_checkpoint, save_checkpoint
 
 GAP_FILL_PROMPT = """You are extracting PHYSICAL and SENSORY properties for specific word senses.
 
@@ -128,28 +128,6 @@ def build_output(results: List[Dict], model: str, batch_size: int) -> dict:
     }
 
 
-def load_checkpoint(checkpoint_path: Path) -> dict:
-    """Load checkpoint state, or return empty state.
-
-    Handles both unified format (synsets key) and legacy format (results key).
-    Always returns with 'synsets' key for caller consistency.
-    """
-    if checkpoint_path.exists():
-        with open(checkpoint_path) as f:
-            data = json.load(f)
-        # Backward compat: remap legacy 'results' key to 'synsets'
-        if "results" in data and "synsets" not in data:
-            data["synsets"] = data.pop("results")
-        return data
-    return {"completed_ids": [], "synsets": []}
-
-
-def save_checkpoint(checkpoint_path: Path, state: dict):
-    """Save checkpoint state to disk."""
-    with open(checkpoint_path, "w") as f:
-        json.dump(state, f, indent=2)
-
-
 def run_gap_fill(
     synsets: List[Dict],
     model: str = "sonnet",
@@ -175,6 +153,8 @@ def run_gap_fill(
 
     remaining = [s for s in synsets if s["id"] not in completed_ids]
     failed_batches = 0
+    failed_synset_ids = []
+    rate_limited = False
 
     num_batches = (len(remaining) + batch_size - 1) // batch_size
     print(f"Gap-fill: {len(remaining)} synsets in {num_batches} batches")
@@ -213,29 +193,39 @@ def run_gap_fill(
 
         except RateLimitError as e:
             print(f"  RATE LIMITED — stopping: {e}")
+            save_checkpoint(checkpoint_path, {
+                "completed_ids": list(completed_ids),
+                "synsets": results,
+            })
+            rate_limited = True
             break
         except Exception as e:
-            print(f"  BATCH FAILED: {e}")
+            print(f"  BATCH FAILED ({type(e).__name__}): {e}")
             failed_batches += 1
+            failed_synset_ids.extend(s["id"] for s in batch)
 
         if delay > 0:
             time.sleep(delay)
 
     output = build_output(results, model=model, batch_size=batch_size)
+    output["stats"]["failed_batches"] = failed_batches
+    output["stats"]["failed_synset_ids"] = failed_synset_ids
 
     if output_file:
         output_file.parent.mkdir(exist_ok=True)
         with open(output_file, "w") as f:
             json.dump(output, f, indent=2)
 
-    # Clean up checkpoint on success
-    if failed_batches == 0 and checkpoint_path.exists():
+    # Clean up checkpoint on full success (no failures, no rate limit)
+    if failed_batches == 0 and not rate_limited and checkpoint_path.exists():
         checkpoint_path.unlink()
 
     print(f"\nGap-fill complete!")
     print(f"  Synsets: {output['stats']['total_synsets']}")
     print(f"  Properties: {output['stats']['total_properties']}")
     print(f"  Failed batches: {failed_batches}")
+    if failed_synset_ids:
+        print(f"  Failed synset IDs: {len(failed_synset_ids)}")
 
     return output
 
@@ -283,7 +273,16 @@ def main():
 
     # Load flagged IDs from audit output
     audit_data = json.loads(Path(args.synset_ids).read_text())
-    flagged_ids = audit_data.get("flagged_ids", audit_data)  # accept list or audit dict
+    if isinstance(audit_data, list):
+        flagged_ids = audit_data
+    elif isinstance(audit_data, dict) and "flagged_ids" in audit_data:
+        flagged_ids = audit_data["flagged_ids"]
+    else:
+        raise ValueError(
+            f"Expected JSON list or dict with 'flagged_ids' key, "
+            f"got {type(audit_data).__name__}"
+            f"{' with keys: ' + str(list(audit_data.keys())) if isinstance(audit_data, dict) else ''}"
+        )
     print(f"Flagged synsets: {len(flagged_ids)}")
 
     # Look up synset details from DB

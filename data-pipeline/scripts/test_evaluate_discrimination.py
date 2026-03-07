@@ -154,7 +154,7 @@ def test_query_forge_results_returns_suggestions():
     assert results[0]["word"] == "fire"
 
 
-def test_query_forge_results_returns_empty_on_error():
+def test_query_forge_results_returns_none_on_error():
     mock_resp = MagicMock()
     mock_resp.status_code = 404
     mock_resp.text = "not found"
@@ -162,7 +162,7 @@ def test_query_forge_results_returns_empty_on_error():
     with patch("evaluate_discrimination.requests.get", return_value=mock_resp):
         results = query_forge_results("nonexistent", port=8080, limit=100)
 
-    assert results == []
+    assert results is None
 
 
 def test_classify_by_domain_widened_thresholds():
@@ -402,7 +402,8 @@ def test_evaluate_discrimination_orchestrator():
             conn=conn, port=8080, limit=100, min_properties=3,
         )
 
-    assert results["aggregate"]["words_evaluated"] >= 2
+    # 5 words: blaze, glow, swift (base) + flame, gleam (added lemmas for synsets 100, 200)
+    assert results["aggregate"]["words_evaluated"] == 5
     assert "per_word" in results
     assert isinstance(results["per_word"], list)
     assert all("word" in w for w in results["per_word"])

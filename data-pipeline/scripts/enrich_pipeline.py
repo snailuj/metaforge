@@ -24,7 +24,7 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent))
-from utils import EMBEDDING_DIM, FASTTEXT_VEC, normalise, load_fasttext_vectors, _fasttext_cache
+from utils import EMBEDDING_DIM, FASTTEXT_VEC, normalise, load_fasttext_vectors
 from build_vocab import build_and_store
 from cluster_vocab import cluster_vocab
 from snap_properties import snap_properties
@@ -328,6 +328,14 @@ def run_pipeline(
     total_links = 0
     total_lemma_metadata = 0
     lemma_emb_count = 0
+
+    # Validate all enrichment files upfront before touching the DB
+    for enrichment_file in enrichment_files:
+        try:
+            with open(enrichment_file) as f:
+                json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            raise ValueError(f"Invalid enrichment file {enrichment_file}: {e}") from e
 
     conn = sqlite3.connect(db_path)
     try:

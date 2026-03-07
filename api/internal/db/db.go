@@ -345,6 +345,19 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 	}
 
 	if len(matches) == 0 {
+		// Distinguish "lemma not found" from "gate filtered all candidates"
+		var exists bool
+		_ = database.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM lemmas l
+				JOIN synset_properties_curated spc ON l.synset_id = spc.synset_id
+				WHERE l.lemma = ?
+			)
+		`, lemma).Scan(&exists)
+		if exists {
+			// Lemma exists but concreteness gate filtered all results
+			return []CuratedMatch{}, nil
+		}
 		return nil, fmt.Errorf("%w: %s", ErrLemmaNotFound, lemma)
 	}
 

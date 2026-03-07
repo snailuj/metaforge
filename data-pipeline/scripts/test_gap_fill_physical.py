@@ -9,10 +9,9 @@ from gap_fill_physical import (
     format_gap_fill_batch,
     load_synsets_from_db,
     build_output,
-    load_checkpoint,
-    save_checkpoint,
     GAP_FILL_PROMPT,
 )
+from utils import load_checkpoint, save_checkpoint
 
 
 # --- Prompt tests ---
@@ -89,6 +88,12 @@ class TestBuildOutput:
     def test_output_has_config(self):
         output = build_output([], model="sonnet", batch_size=20)
         assert output["config"]["model"] == "sonnet"
+
+    def test_output_empty_results_stats(self):
+        output = build_output([], model="sonnet", batch_size=20)
+        assert output["stats"]["avg_properties_per_synset"] == 0
+        assert output["stats"]["total_synsets"] == 0
+        assert output["stats"]["total_properties"] == 0
 
 
 # --- Checkpoint format tests ---

@@ -108,6 +108,7 @@ class TestAuditPhysicalCoverage:
         result = audit_physical_coverage({"synsets": []})
         assert result["flagged_ids"] == []
         assert result["total_synsets"] == 0
+        assert result["flagged_pct"] == 0
 
     def test_pos_breakdown(self):
         synsets = [

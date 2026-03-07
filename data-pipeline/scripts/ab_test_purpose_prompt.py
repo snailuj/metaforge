@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 import json
+import sqlite3
 import sys
 from collections import Counter
 from pathlib import Path
@@ -18,12 +19,9 @@ from enrich_properties import (
     extract_batch,
     format_batch_items_v2,
     get_frequency_ranked_synsets,
-    load_checkpoint,
-    save_checkpoint,
     BATCH_PROMPT_V2,
 )
-
-OUTPUT_DIR = Path(__file__).parent.parent / "output"
+from utils import OUTPUT_DIR, load_checkpoint, save_checkpoint
 
 # Purpose-framed v2 prompt — identical structure, added context
 PURPOSE_PROMPT_V2 = """You are extracting sensory and behavioural properties for specific word senses, with salience weights and metadata.
@@ -135,7 +133,6 @@ def main():
     print(f"Baseline: {len(baseline_100)} synsets matched")
 
     # Look up synsets from DB for the purpose-framed run
-    import sqlite3
     conn = sqlite3.connect(args.db)
     placeholders = ",".join("?" for _ in synset_ids)
     cursor = conn.execute(f"""

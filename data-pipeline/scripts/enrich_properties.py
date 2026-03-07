@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
 from claude_client import prompt_json, RateLimitError
 
-from utils import LEXICON_V2, OUTPUT_DIR
+from utils import LEXICON_V2, OUTPUT_DIR, load_checkpoint, save_checkpoint
 
 
 # --- Errors ------------------------------------------------------------------
@@ -41,6 +41,7 @@ class EnrichmentResult:
     succeeded: int
     failed: int
     failed_ids: list[str] = field(default_factory=list)
+    rate_limited: bool = False
 
     @property
     def coverage(self) -> float:
@@ -225,30 +226,6 @@ def extract_batch(
         else:
             log.warning("LLM returned unknown ID %s", rid)
     return merged
-
-
-# --- Checkpoint ---------------------------------------------------------------
-
-def load_checkpoint(checkpoint_path: Path) -> dict:
-    """Load checkpoint state from disk, or return empty state.
-
-    Handles both unified format (synsets key) and legacy format (results key).
-    Always returns with 'synsets' key for caller consistency.
-    """
-    if checkpoint_path.exists():
-        with open(checkpoint_path) as f:
-            data = json.load(f)
-        # Backward compat: remap legacy 'results' key to 'synsets'
-        if "results" in data and "synsets" not in data:
-            data["synsets"] = data.pop("results")
-        return data
-    return {"completed_ids": [], "synsets": []}
-
-
-def save_checkpoint(checkpoint_path: Path, state: dict):
-    """Save checkpoint state to disk."""
-    with open(checkpoint_path, 'w') as f:
-        json.dump(state, f)
 
 
 # --- Synset selection ---------------------------------------------------------
@@ -551,6 +528,7 @@ def run_enrichment(
         all_properties = []
         failed_batches = 0
         failed_synset_ids: list[str] = []
+        rate_limited = False
 
         num_batches = (len(remaining) + batch_size - 1) // batch_size
         for batch_idx in range(num_batches):
@@ -584,6 +562,7 @@ def run_enrichment(
                     "completed_ids": list(completed_ids),
                     "synsets": results,
                 })
+                rate_limited = True
                 break
             except Exception as e:
                 print(f"  BATCH FAILED after retries: {e}")
@@ -635,8 +614,8 @@ def run_enrichment(
         with open(output_file, 'w') as f:
             json.dump(output, f, indent=2)
 
-        # Clean up checkpoint on full success
-        if failed_batches == 0 and checkpoint_path.exists():
+        # Clean up checkpoint on full success (no failures, no rate limit)
+        if failed_batches == 0 and not rate_limited and checkpoint_path.exists():
             checkpoint_path.unlink()
 
         print(f"\nEnrichment complete!")
@@ -655,6 +634,7 @@ def run_enrichment(
         succeeded=len(results),
         failed=len(failed_synset_ids),
         failed_ids=failed_synset_ids,
+        rate_limited=rate_limited,
     )
 
 
@@ -715,7 +695,7 @@ def main():
 
     output_file = Path(args.output) if args.output else None
     synset_ids_file = Path(args.synset_ids) if args.synset_ids else None
-    run_enrichment(
+    result = run_enrichment(
         size=args.size,
         batch_size=args.batch_size,
         model=args.model,
@@ -728,6 +708,9 @@ def main():
         schema_version=args.schema_version,
         offset=args.offset,
     )
+    # Exit 75 = rate-limited (retryable), 0 = success
+    if result.rate_limited:
+        sys.exit(75)
 
 
 if __name__ == "__main__":

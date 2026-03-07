@@ -27,6 +27,12 @@ def load_concreteness(tsv_path: Path) -> dict[str, float]:
 
     with open(tsv_path, "r", encoding="utf-8") as f:
         header = f.readline().strip().split("\t")
+        for col in ("Word", "Conc.M", "Bigram"):
+            if col not in header:
+                raise ValueError(
+                    f"Required column {col!r} not found in {tsv_path.name}. "
+                    f"Available columns: {header}"
+                )
         word_idx = header.index("Word")
         conc_m_idx = header.index("Conc.M")
         bigram_idx = header.index("Bigram")
