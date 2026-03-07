@@ -217,7 +217,24 @@ python -u "$SCRIPTS_DIR/enrich_pipeline.py" \
     --fasttext "$FASTTEXT_VEC"
 echo ""
 
-# --- Step 4: Export SQL dump ----------------------------------------------
+# --- Step 4: Concreteness fill --------------------------------------------
+
+SHOOTOUT_JSON="$OUTPUT_DIR/concreteness_shootout.json"
+
+if [[ -f "$SHOOTOUT_JSON" ]]; then
+    echo "--- Filling concreteness gaps (k-NN regression) ---"
+    python -u "$SCRIPTS_DIR/predict_concreteness.py" fill \
+        --db "$DB_PATH" \
+        --fasttext "$FASTTEXT_VEC" \
+        --shootout "$SHOOTOUT_JSON"
+    echo ""
+else
+    echo "--- Skipping concreteness fill (no shootout JSON at $SHOOTOUT_JSON) ---"
+    echo "  Run: ./evals.sh shootout -o $SHOOTOUT_JSON"
+    echo ""
+fi
+
+# --- Step 5: Export SQL dump ----------------------------------------------
 
 if [[ "$DUMP_SQL" == true ]]; then
     echo "--- Exporting lexicon_v2.sql ---"

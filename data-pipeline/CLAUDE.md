@@ -66,7 +66,7 @@ Output: JSON file in `data-pipeline/output/`.
 
 ### 2. Import Enrichment
 
-Load one or more enrichment JSONs into the database. Restores from `PRE_ENRICH.sql`, runs the full pipeline (curate → link → snap → antonyms), and dumps the result.
+Load one or more enrichment JSONs into the database. Restores from `PRE_ENRICH.sql` (which includes Brysbaert concreteness ground truth), runs the full pipeline (curate → link → snap → antonyms → concreteness fill), and dumps the result. The output DB is API-ready.
 
 ```bash
 ./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
