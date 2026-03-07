@@ -124,7 +124,7 @@ def _make_enrichment_data():
                 "lemma": "storm",
                 "definition": "violent weather condition",
                 "pos": "n",
-                "properties": ["loud", "violent", "dark-grey"],
+                "properties": ["loud", "violent", "dark"],
             },
         ],
         "config": {"model": "test-model"},
@@ -139,9 +139,7 @@ def _make_vectors():
         "luminous": _make_vec(0.9, 0.1, 0.0),
         "loud": _make_vec(0.0, 1.0, 0.0),
         "violent": _make_vec(0.0, 0.8, 0.2),
-        # "dark-grey" is NOT in vocab — compound word
         "dark": _make_vec(0.0, 0.0, 1.0),
-        "grey": _make_vec(0.1, 0.0, 0.9),
     }
 
 
@@ -195,11 +193,12 @@ def test_curate_properties_oov_flagged():
 
 # --- 3. curate_properties compound embedding ---------------------------------
 
-def test_curate_properties_compound_embedding():
+def test_curate_properties_rejects_hyphenated():
+    """Hyphenated properties are excluded from property_vocabulary."""
     conn = _make_db()
     data = {
         "synsets": [
-            {"id": "s1", "properties": ["dark-grey"]},
+            {"id": "s1", "properties": ["dark-grey", "warm"]},
         ],
     }
     vectors = _make_vectors()
@@ -207,16 +206,14 @@ def test_curate_properties_compound_embedding():
     curate_properties(conn, data, vectors)
 
     row = conn.execute(
-        "SELECT embedding, is_oov FROM property_vocabulary WHERE text = 'dark-grey'"
+        "SELECT text FROM property_vocabulary WHERE text = 'dark-grey'"
     ).fetchone()
-    # Should have an averaged embedding from "dark" and "grey"
-    assert row[0] is not None
-    assert row[1] == 0
+    assert row is None  # Hyphenated rejected
 
-    # Verify the averaging: dark=(0,0,1) grey=(0.1,0,0.9) → avg=(0.05,0,0.95)
-    values = struct.unpack(f"{EMBEDDING_DIM}f", row[0])
-    assert abs(values[0] - 0.05) < 0.01
-    assert abs(values[2] - 0.95) < 0.01
+    row = conn.execute(
+        "SELECT text FROM property_vocabulary WHERE text = 'warm'"
+    ).fetchone()
+    assert row is not None  # Single word kept
 
 
 # --- 4. populate_synset_properties -------------------------------------------
@@ -373,35 +370,40 @@ def test_filter_mwe_single_word_unchanged():
     assert filter_mwe("warm") == "warm"
 
 
-def test_filter_mwe_strips_adjective():
-    """Adjective stripped from 2-word MWE, leaving the noun."""
-    assert filter_mwe("sluggish seep") == "seep"
+def test_filter_mwe_rejects_multi_word():
+    """Multi-word expressions are rejected outright (single-word policy)."""
+    assert filter_mwe("sluggish seep") is None
 
 
-def test_filter_mwe_strips_adverb():
-    """Both adverb + adjective stripped → 0 remain → None."""
+def test_filter_mwe_rejects_multi_word_adverb():
+    """Multi-word with adverb rejected."""
     assert filter_mwe("very likely") is None
 
 
-def test_filter_mwe_discards_two_nouns():
-    """Two nouns remain after stripping → discard (not exactly 1)."""
+def test_filter_mwe_rejects_multi_word_nouns():
+    """Two-noun multi-word rejected."""
     assert filter_mwe("ghost outline") is None
 
 
-def test_filter_mwe_keeps_hyphenated():
-    """Hyphenated compound is 1 token → keep as-is."""
-    assert filter_mwe("blood-red") == "blood-red"
+def test_filter_mwe_rejects_hyphenated():
+    """Hyphenated words are rejected (single-word policy)."""
+    assert filter_mwe("dormant-active") is None
 
 
-def test_filter_mwe_strips_to_single_noun():
-    """Adjective stripped from 'bright glow' → 'glow'."""
-    assert filter_mwe("bright glow") == "glow"
+def test_filter_mwe_rejects_hyphenated_simple():
+    """Even two-part hyphenated words are rejected."""
+    assert filter_mwe("lava-formed") is None
+
+
+def test_filter_mwe_single_word_passes():
+    """Plain single words still pass through."""
+    assert filter_mwe("molten") == "molten"
 
 
 # --- 15. curate_properties MWE filtering integration -------------------------
 
 def test_curate_properties_filters_mwe():
-    """MWE properties are filtered: 'sluggish seep' → 'seep', 'ghost outline' discarded."""
+    """Multi-word properties are rejected outright; single words kept."""
     conn = _make_db()
     data = {
         "synsets": [
@@ -421,16 +423,16 @@ def test_curate_properties_filters_mwe():
     curate_properties(conn, data, vectors)
 
     texts = {r[0] for r in conn.execute("SELECT text FROM property_vocabulary").fetchall()}
-    assert "seep" in texts        # sluggish (JJ) stripped → seep kept
-    assert "warm" in texts        # single word kept
-    assert "sluggish seep" not in texts  # MWE not stored raw
-    assert "ghost outline" not in texts  # NN+NN → discarded
+    assert "warm" in texts                # single word kept
+    assert "sluggish seep" not in texts   # multi-word rejected
+    assert "seep" not in texts            # no salvage — whole MWE rejected
+    assert "ghost outline" not in texts   # multi-word rejected
 
 
 # --- 16. populate_synset_properties MWE filtering integration ----------------
 
 def test_populate_applies_mwe_filter():
-    """'sluggish seep' links to property_id for 'seep', not 'sluggish seep'."""
+    """Multi-word 'sluggish seep' rejected — only 'warm' gets a link."""
     conn = _make_db()
     data = {
         "synsets": [
@@ -441,23 +443,21 @@ def test_populate_applies_mwe_filter():
         ],
     }
     vectors = {
-        "seep": _make_vec(0.5, 0.5, 0.0),
         "warm": _make_vec(1.0, 0.0, 0.0),
     }
 
     curate_properties(conn, data, vectors)
     links = populate_synset_properties(conn, data, "test-model")
 
-    # Should have 2 links: seep + warm
-    assert links == 2
+    # Only 'warm' passes — 'sluggish seep' is rejected as multi-word
+    assert links == 1
 
-    # Verify "seep" property_id is linked to s1
-    seep_id = conn.execute(
-        "SELECT property_id FROM property_vocabulary WHERE text = 'seep'"
+    warm_id = conn.execute(
+        "SELECT property_id FROM property_vocabulary WHERE text = 'warm'"
     ).fetchone()[0]
     link = conn.execute(
         "SELECT * FROM synset_properties WHERE synset_id = 's1' AND property_id = ?",
-        (seep_id,),
+        (warm_id,),
     ).fetchone()
     assert link is not None
 

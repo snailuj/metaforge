@@ -15,12 +15,11 @@ from enrich_properties import (
     extract_batch,
     get_pilot_synsets,
     get_frequency_ranked_synsets,
-    load_checkpoint,
-    save_checkpoint,
     run_enrichment,
     EnrichmentResult,
     UsageExhaustedError,
 )
+from utils import load_checkpoint, save_checkpoint
 
 
 # --- Test data ---------------------------------------------------------------
@@ -82,18 +81,18 @@ def test_extract_batch_warns_unknown_ids(mock_prompt_json, caplog):
 
 def test_checkpoint_round_trip(tmp_path):
     cp_file = tmp_path / "checkpoint.json"
-    state = {"completed_ids": ["100001", "100002"], "results": CANNED_RESULT}
+    state = {"completed_ids": ["100001", "100002"], "synsets": CANNED_RESULT}
     save_checkpoint(cp_file, state)
     loaded = load_checkpoint(cp_file)
     assert loaded["completed_ids"] == ["100001", "100002"]
-    assert len(loaded["results"]) == 2
+    assert len(loaded["synsets"]) == 2
 
 
 # --- 5. checkpoint resume filters completed ----------------------------------
 
 def test_checkpoint_resume_filters_completed(tmp_path):
     cp_file = tmp_path / "checkpoint.json"
-    state = {"completed_ids": ["100001"], "results": [CANNED_RESULT[0]]}
+    state = {"completed_ids": ["100001"], "synsets": [CANNED_RESULT[0]]}
     save_checkpoint(cp_file, state)
     loaded = load_checkpoint(cp_file)
     completed = set(loaded["completed_ids"])
@@ -569,6 +568,128 @@ def test_run_enrichment_v2_property_stats(mock_get_synsets, mock_extract, tmp_pa
     assert output["stats"]["total_properties"] == 4
     assert output["stats"]["unique_properties"] == 3  # warm appears twice
     assert "warm" in output["property_frequency"]
+
+
+def test_frequency_ranked_offset_skips_top_n():
+    """Offset skips the top N synsets by frequency."""
+    conn = _make_freq_db()
+    # Without offset: walk, candle, melancholy, petrichor
+    # With offset=2: melancholy, petrichor
+    synsets = get_frequency_ranked_synsets(conn, limit=10, offset=2)
+
+    ids = [s["id"] for s in synsets]
+    assert ids == ["200004", "200005"]
+
+
+def test_frequency_ranked_offset_with_limit():
+    """Offset + limit together select a window."""
+    conn = _make_freq_db()
+    # offset=1, limit=2: skip walk → candle, melancholy
+    synsets = get_frequency_ranked_synsets(conn, limit=2, offset=1)
+
+    ids = [s["id"] for s in synsets]
+    assert ids == ["200003", "200004"]
+
+
+def test_frequency_ranked_offset_exceeds_total():
+    """Offset beyond available rows returns empty list gracefully."""
+    conn = _make_freq_db()
+    synsets = get_frequency_ranked_synsets(conn, limit=10, offset=9999)
+    assert synsets == []
+
+
+# --- Unified checkpoint format ------------------------------------------------
+
+def test_checkpoint_writes_unified_format(tmp_path):
+    """save_checkpoint writes the unified enrichment format with completed_ids."""
+    cp_file = tmp_path / "checkpoint.json"
+    results = [
+        {"id": "100001", "lemma": "candle", "pos": "n",
+         "properties": [{"text": "warm", "salience": 0.9, "type": "physical"}]},
+    ]
+    save_checkpoint(cp_file, {
+        "completed_ids": ["100001"],
+        "synsets": results,
+        "config": {"model": "sonnet", "batch_size": 20},
+    })
+    data = json.loads(cp_file.read_text())
+
+    # Must have unified keys
+    assert "synsets" in data, "checkpoint must use 'synsets' key"
+    assert "completed_ids" in data
+    assert "results" not in data, "checkpoint must NOT use legacy 'results' key"
+    assert data["synsets"] == results
+    assert data["completed_ids"] == ["100001"]
+
+
+def test_load_checkpoint_reads_unified_format(tmp_path):
+    """load_checkpoint reads unified format and returns synsets + completed_ids."""
+    cp_file = tmp_path / "checkpoint.json"
+    cp_file.write_text(json.dumps({
+        "completed_ids": ["100001"],
+        "synsets": [{"id": "100001", "properties": []}],
+        "stats": {"total_synsets": 1},
+        "config": {"model": "sonnet"},
+    }))
+    state = load_checkpoint(cp_file)
+
+    assert state["completed_ids"] == ["100001"]
+    assert "synsets" in state
+    assert len(state["synsets"]) == 1
+
+
+def test_load_checkpoint_backward_compat_results_key(tmp_path):
+    """load_checkpoint reads legacy format with 'results' key."""
+    cp_file = tmp_path / "checkpoint.json"
+    cp_file.write_text(json.dumps({
+        "completed_ids": ["100001"],
+        "results": [{"id": "100001", "properties": []}],
+    }))
+    state = load_checkpoint(cp_file)
+
+    assert state["completed_ids"] == ["100001"]
+    assert "synsets" in state, "legacy 'results' should be returned as 'synsets'"
+    assert len(state["synsets"]) == 1
+
+
+# --- RateLimitError stops enrichment loop ------------------------------------
+
+@patch("enrich_properties.extract_batch")
+@patch("enrich_properties.get_pilot_synsets")
+def test_run_enrichment_breaks_on_rate_limit(
+    mock_get_synsets, mock_extract, tmp_path,
+):
+    """RateLimitError stops the batch loop immediately (no further batches tried)."""
+    db_path = _make_test_db(tmp_path)
+
+    synsets = [
+        {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n"},
+        {"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v"},
+        {"id": "100003", "lemma": "thunder", "definition": "loud noise", "pos": "n"},
+    ]
+    mock_get_synsets.return_value = synsets
+
+    # First batch succeeds, second hits rate limit — third should NOT be attempted
+    mock_extract.side_effect = [
+        [{"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n",
+          "properties": ["warm"]}],
+        UsageExhaustedError("rate limit exceeded"),
+        [{"id": "100003", "lemma": "thunder", "definition": "loud noise", "pos": "n",
+          "properties": ["loud"]}],
+    ]
+
+    with patch("enrich_properties.OUTPUT_DIR", tmp_path):
+        result = run_enrichment(
+            size=3,
+            batch_size=1,
+            delay=0,
+            output_file=tmp_path / "out.json",
+            db_path=db_path,
+        )
+
+    # Only batch 1 succeeded, batch 2 rate-limited, batch 3 never tried
+    assert result.succeeded == 1
+    assert mock_extract.call_count == 2, "should stop after rate limit, not try batch 3"
 
 
 def test_frequency_ranked_no_enrichment_table():

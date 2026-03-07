@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
 from claude_client import prompt_json, RateLimitError
 
-from utils import LEXICON_V2, OUTPUT_DIR
+from utils import LEXICON_V2, OUTPUT_DIR, load_checkpoint, save_checkpoint
 
 
 # --- Errors ------------------------------------------------------------------
@@ -41,6 +41,7 @@ class EnrichmentResult:
     succeeded: int
     failed: int
     failed_ids: list[str] = field(default_factory=list)
+    rate_limited: bool = False
 
     @property
     def coverage(self) -> float:
@@ -96,6 +97,8 @@ Output ONLY a valid JSON array (no markdown, no explanation):
 
 BATCH_PROMPT_V2 = """You are extracting sensory and behavioural properties for specific word senses, with salience weights and metadata.
 
+These properties power a metaphor discovery engine that finds cross-domain conceptual links between unrelated words. For example, "anger" connects to "fire" via shared properties like "destructive", "consuming", "intense". Prioritise properties that could bridge between concepts from different domains — the more transferable and evocative a property, the more valuable it is.
+
 CRITICAL: The definition tells you WHICH sense of the word to analyse. Many words have multiple meanings — focus ONLY on the sense described in the definition.
 
 For each word sense, provide:
@@ -103,7 +106,10 @@ For each word sense, provide:
 1. **usage_example**: A natural sentence using the word in this specific sense.
 
 2. **properties**: 10-15 properties, each as a JSON object:
-   - "text": 1-2 word property (short, evocative)
+   - "text": exactly ONE word (no hyphens, no compounds, no spaces)
+     GOOD: flickering, frigid, shrill, dense, molten, conical, pungent
+     BAD: cold metal (two words), high-pitched (hyphenated), lava-formed (compound)
+     If you need "cold metal", choose ONE word: frigid, metallic, or icy
    - "salience": 0.0-1.0 — how immediately/strongly this property comes to mind for this concept
      - 0.9-1.0: Defining, inescapable (fire → hot, ice → cold)
      - 0.6-0.8: Strong association (fire → dangerous, ice → slippery)
@@ -112,25 +118,36 @@ For each word sense, provide:
    - "relation": short phrase linking word to property (e.g. "fire emits heat")
 
    Property types:
-   - physical: texture, weight, temperature, luminosity, sound, colour
+   - physical: texture, weight, temperature, luminosity, sound, colour, shape, size, material, smell, taste. Physical properties are the primary bridge for cross-domain metaphors (concrete → abstract).
    - behaviour: speed, rhythm, intensity, duration, pattern of movement
    - effect: what it causes, its consequences, its aftermath
    - functional: what it does, enables, or is used for
    - emotional: feelings it evokes or is associated with
    - social: cultural, relational, or status associations
 
+   IMPORTANT: At least 4 of your properties must have type "physical". Most concrete nouns
+   have at least 4 physical qualities. If the concept genuinely has fewer, include as many
+   as truly apply.
+
 3. **lemma_metadata**: For EACH listed lemma, provide:
    - "lemma": the word form
    - "register": "formal", "neutral", "informal", or "slang"
    - "connotation": "positive", "neutral", or "negative"
 
-Example:
+Examples:
 
 Word: candle
 Lemmas: candle, taper
 Definition: stick of wax with a wick; gives light when burning
 
 {{"id": "oewn-candle-n", "usage_example": "She lit a candle and watched the flame flicker in the draught.", "properties": [{{"text": "warm", "salience": 0.9, "type": "physical", "relation": "candle emits warmth"}}, {{"text": "flickering", "salience": 0.85, "type": "behaviour", "relation": "flame flickers"}}, {{"text": "ephemeral", "salience": 0.7, "type": "effect", "relation": "candle burns away"}}, {{"text": "luminous", "salience": 0.8, "type": "physical", "relation": "candle gives light"}}, {{"text": "waxy", "salience": 0.75, "type": "physical", "relation": "made of wax"}}, {{"text": "fragile", "salience": 0.6, "type": "physical", "relation": "wick is delicate"}}, {{"text": "aromatic", "salience": 0.5, "type": "effect", "relation": "scented candles smell"}}, {{"text": "ceremonial", "salience": 0.4, "type": "social", "relation": "used in rituals"}}, {{"text": "intimate", "salience": 0.65, "type": "emotional", "relation": "evokes closeness"}}, {{"text": "ancient", "salience": 0.3, "type": "social", "relation": "pre-electric lighting"}}], "lemma_metadata": [{{"lemma": "candle", "register": "neutral", "connotation": "positive"}}, {{"lemma": "taper", "register": "formal", "connotation": "neutral"}}]}}
+
+Word: volcano
+Lemmas: volcano
+Definition: a mountain formed by volcanic material
+
+{{"id": "oewn-volcano-n", "usage_example": "The volcano erupted, sending a plume of ash into the sky.", "properties": [{{"text": "hot", "salience": 0.95, "type": "physical", "relation": "volcano radiates extreme heat"}}, {{"text": "conical", "salience": 0.8, "type": "physical", "relation": "volcano has cone shape"}}, {{"text": "towering", "salience": 0.85, "type": "physical", "relation": "volcano is very tall"}}, {{"text": "molten", "salience": 0.9, "type": "physical", "relation": "contains molten lava"}}, {{"text": "ashy", "salience": 0.7, "type": "physical", "relation": "produces ash"}}, {{"text": "eruptive", "salience": 0.85, "type": "behaviour", "relation": "volcano erupts violently"}}, {{"text": "destructive", "salience": 0.75, "type": "effect", "relation": "eruptions destroy surroundings"}}, {{"text": "dormant", "salience": 0.5, "type": "behaviour", "relation": "may be inactive for years"}}, {{"text": "rumbling", "salience": 0.65, "type": "physical", "relation": "produces low sounds"}}, {{"text": "ancient", "salience": 0.4, "type": "social", "relation": "geological timescale"}}], "lemma_metadata": [{{"lemma": "volcano", "register": "neutral", "connotation": "negative"}}]}}
+(NOT: magmatic, pyroclastic, geological — these are taxonomic labels, not experiential properties)
 
 Now extract properties for each of these word senses:
 
@@ -209,22 +226,6 @@ def extract_batch(
         else:
             log.warning("LLM returned unknown ID %s", rid)
     return merged
-
-
-# --- Checkpoint ---------------------------------------------------------------
-
-def load_checkpoint(checkpoint_path: Path) -> dict:
-    """Load checkpoint state from disk, or return empty state."""
-    if checkpoint_path.exists():
-        with open(checkpoint_path) as f:
-            return json.load(f)
-    return {"completed_ids": [], "results": []}
-
-
-def save_checkpoint(checkpoint_path: Path, state: dict):
-    """Save checkpoint state to disk."""
-    with open(checkpoint_path, 'w') as f:
-        json.dump(state, f)
 
 
 # --- Synset selection ---------------------------------------------------------
@@ -311,6 +312,7 @@ def get_frequency_ranked_synsets(
     conn: sqlite3.Connection,
     limit: int,
     required_ids: list | None = None,
+    offset: int = 0,
 ) -> List[Dict]:
     """Get synsets ranked by max lemma familiarity, excluding already-enriched.
 
@@ -403,8 +405,8 @@ def get_frequency_ranked_synsets(
             FROM ranked_lemmas
             WHERE rn = 1
             ORDER BY max_fam DESC
-            LIMIT ?
-        """, (*seen_params, remaining))
+            LIMIT ? OFFSET ?
+        """, (*seen_params, remaining, offset))
 
         for row in cursor.fetchall():
             sid = str(row[0])
@@ -450,6 +452,7 @@ def run_enrichment(
     db_path: str = None,
     strategy: str = "random",
     schema_version: str = "v1",
+    offset: int = 0,
 ) -> EnrichmentResult:
     """Run property enrichment on synsets using claude CLI.
 
@@ -497,11 +500,13 @@ def run_enrichment(
         print(f"  Batch size: {batch_size}")
         print(f"  Model: {model}")
         print(f"  Strategy: {strategy}")
+        if offset > 0:
+            print(f"  Offset: {offset}")
         print(f"  Schema version: {schema_version}")
         print(f"  Database: {db_path}")
 
         if strategy == "frequency":
-            synsets = get_frequency_ranked_synsets(conn, size, required_ids=required_ids)
+            synsets = get_frequency_ranked_synsets(conn, size, required_ids=required_ids, offset=offset)
         else:
             synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
         print(f"  Retrieved {len(synsets)} synsets")
@@ -510,7 +515,7 @@ def run_enrichment(
         if resume:
             state = load_checkpoint(checkpoint_path)
             completed_ids = set(state["completed_ids"])
-            results = state["results"]
+            results = state["synsets"]
             print(f"  Resuming from checkpoint: {len(completed_ids)} already done")
         else:
             completed_ids = set()
@@ -523,6 +528,7 @@ def run_enrichment(
         all_properties = []
         failed_batches = 0
         failed_synset_ids: list[str] = []
+        rate_limited = False
 
         num_batches = (len(remaining) + batch_size - 1) // batch_size
         for batch_idx in range(num_batches):
@@ -547,16 +553,24 @@ def run_enrichment(
 
                 save_checkpoint(checkpoint_path, {
                     "completed_ids": list(completed_ids),
-                    "results": results,
+                    "synsets": results,
                 })
 
+            except RateLimitError as e:
+                print(f"  RATE LIMITED — stopping: {e}")
+                save_checkpoint(checkpoint_path, {
+                    "completed_ids": list(completed_ids),
+                    "synsets": results,
+                })
+                rate_limited = True
+                break
             except Exception as e:
                 print(f"  BATCH FAILED after retries: {e}")
                 failed_batches += 1
                 failed_synset_ids.extend(s['id'] for s in batch)
                 save_checkpoint(checkpoint_path, {
                     "completed_ids": list(completed_ids),
-                    "results": results,
+                    "synsets": results,
                 })
 
             if delay > 0:
@@ -600,8 +614,8 @@ def run_enrichment(
         with open(output_file, 'w') as f:
             json.dump(output, f, indent=2)
 
-        # Clean up checkpoint on full success
-        if failed_batches == 0 and checkpoint_path.exists():
+        # Clean up checkpoint on full success (no failures, no rate limit)
+        if failed_batches == 0 and not rate_limited and checkpoint_path.exists():
             checkpoint_path.unlink()
 
         print(f"\nEnrichment complete!")
@@ -620,6 +634,7 @@ def run_enrichment(
         succeeded=len(results),
         failed=len(failed_synset_ids),
         failed_ids=failed_synset_ids,
+        rate_limited=rate_limited,
     )
 
 
@@ -661,6 +676,10 @@ def main():
         help="Synset selection strategy: 'random' (POS-stratified) or 'frequency' (by familiarity, excludes already-enriched)",
     )
     parser.add_argument(
+        "--offset", type=int, default=0,
+        help="Skip the first N synsets (frequency strategy only). Use to enrich the next batch without re-enriching the top.",
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="Enable DEBUG logging for raw LLM request/response",
     )
@@ -676,7 +695,7 @@ def main():
 
     output_file = Path(args.output) if args.output else None
     synset_ids_file = Path(args.synset_ids) if args.synset_ids else None
-    run_enrichment(
+    result = run_enrichment(
         size=args.size,
         batch_size=args.batch_size,
         model=args.model,
@@ -687,7 +706,11 @@ def main():
         verbose=args.verbose,
         strategy=args.strategy,
         schema_version=args.schema_version,
+        offset=args.offset,
     )
+    # Exit 75 = rate-limited (retryable), 0 = success
+    if result.rate_limited:
+        sys.exit(75)
 
 
 if __name__ == "__main__":

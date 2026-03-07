@@ -66,7 +66,7 @@ Output: JSON file in `data-pipeline/output/`.
 
 ### 2. Import Enrichment
 
-Load one or more enrichment JSONs into the database. Restores from `PRE_ENRICH.sql`, runs the full pipeline (curate → link → snap → antonyms), and dumps the result.
+Load one or more enrichment JSONs into the database. Restores from `PRE_ENRICH.sql` (which includes Brysbaert concreteness ground truth), runs the full pipeline (curate → link → snap → antonyms → concreteness fill), and dumps the result. The output DB is API-ready.
 
 ```bash
 ./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
@@ -121,6 +121,62 @@ Predict concreteness scores for unrated synsets using FastText embeddings + scik
 ```
 
 Run `./data-pipeline/evals.sh --help` for full argument reference.
+
+### 6. Audit Physical Coverage
+
+Scan enrichment JSON (or live checkpoint) for synsets with insufficient physical properties. POS-dependent thresholds: nouns >= 4, verbs >= 2, adjectives >= 2.
+
+```bash
+source .venv/bin/activate
+
+# Audit a completed enrichment JSON
+python data-pipeline/scripts/audit_physical_coverage.py \
+  --input data-pipeline/output/enrichment_8000_sonnet_v2_20260306.json \
+  --output data-pipeline/output/flagged_physical.json
+
+# Audit the live checkpoint (while enrichment is still running)
+python data-pipeline/scripts/audit_physical_coverage.py \
+  --input data-pipeline/output/checkpoint_enrich.json \
+  --output data-pipeline/output/flagged_physical.json
+
+# Exclude already gap-filled synsets on re-audit
+python data-pipeline/scripts/audit_physical_coverage.py \
+  --input data-pipeline/output/checkpoint_enrich.json \
+  --exclude data-pipeline/output/gap_fill_physical.json \
+  --output data-pipeline/output/flagged_physical.json
+```
+
+### 7. Gap-Fill Physical Properties
+
+Targeted second-pass enrichment for flagged synsets. Calls the LLM with a physical-only prompt. Output is enrichment-format JSON compatible with `enrich.sh --from-json`.
+
+```bash
+source .venv/bin/activate
+
+python data-pipeline/scripts/gap_fill_physical.py \
+  --synset-ids data-pipeline/output/flagged_physical.json \
+  --db data-pipeline/output/lexicon_v2.db \
+  --model sonnet \
+  --output data-pipeline/output/gap_fill_physical.json
+
+# Resume from checkpoint after interruption
+python data-pipeline/scripts/gap_fill_physical.py \
+  --synset-ids data-pipeline/output/flagged_physical.json \
+  --db data-pipeline/output/lexicon_v2.db \
+  --model sonnet \
+  --output data-pipeline/output/gap_fill_physical.json \
+  --resume
+```
+
+Import both enrichment and gap-fill together:
+
+```bash
+./data-pipeline/enrich.sh --db data-pipeline/output/lexicon_v2.db \
+  --from-json data-pipeline/output/enrichment_8000.json \
+              data-pipeline/output/gap_fill_physical.json
+```
+
+`INSERT OR IGNORE` deduplicates — no collision between main enrichment and gap-fill properties.
 
 ## Skills
 

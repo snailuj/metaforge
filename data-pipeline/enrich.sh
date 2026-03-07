@@ -38,7 +38,10 @@ Enrichment options (--enrich only):
   --strategy STR        Selection strategy: random|frequency (default: random)
   --schema-version VER  v1 (plain) or v2 (structured)       (default: v1)
   --synset-ids FILE     JSON array of specific synset IDs
+  --offset N            Skip top N synsets (frequency strategy only, default: 0)
   --resume              Resume from checkpoint
+  --retry SECS          Auto-retry on rate limit every SECS seconds (default: off)
+  --retry-window SECS   Total retry window in seconds         (default: 18000 = 5h)
   --verbose             Enable debug logging
 
 General:
@@ -56,6 +59,11 @@ Examples:
   # Resume interrupted enrichment:
   ./enrich.sh --db output/lexicon_v2.db --enrich --resume --model sonnet \
               --output output/enrichment_2000_sonnet_20260223.json
+
+  # Unattended overnight run (retries on rate limit every 5 min):
+  ./enrich.sh --db output/lexicon_v2.db --enrich --size 13000 --model sonnet \
+              --strategy frequency --schema-version v2 --retry 300 \
+              --output output/enrichment_13000_sonnet_v2_20260307.json
 USAGE
     exit 1
 }
@@ -72,8 +80,11 @@ DELAY=1.0
 STRATEGY="random"
 SCHEMA_VERSION="v1"
 SYNSET_IDS=""
+OFFSET=0
 OUTPUT_JSON=""
 RESUME=false
+RETRY_DELAY=0
+RETRY_WINDOW=18000  # 5 hours in seconds
 VERBOSE=false
 DUMP_SQL=true
 
@@ -95,8 +106,11 @@ while [[ $# -gt 0 ]]; do
         --strategy)   STRATEGY="$2"; shift 2 ;;
         --schema-version) SCHEMA_VERSION="$2"; shift 2 ;;
         --synset-ids) SYNSET_IDS="$2"; shift 2 ;;
+        --offset)     OFFSET="$2"; shift 2 ;;
         --output)     OUTPUT_JSON="$2"; shift 2 ;;
         --resume|-r)  RESUME=true; shift ;;
+        --retry)      RETRY_DELAY="$2"; shift 2 ;;
+        --retry-window) RETRY_WINDOW="$2"; shift 2 ;;
         --verbose|-v) VERBOSE=true; shift ;;
         --no-dump)    DUMP_SQL=false; shift ;;
         --help|-h)    usage ;;
@@ -183,6 +197,9 @@ if [[ "$ENRICH" == true ]]; then
     if [[ -n "$SYNSET_IDS" ]]; then
         ENRICH_ARGS+=(--synset-ids "$SYNSET_IDS")
     fi
+    if [[ "$OFFSET" -gt 0 ]]; then
+        ENRICH_ARGS+=(--offset "$OFFSET")
+    fi
     if [[ "$RESUME" == true ]]; then
         ENRICH_ARGS+=(--resume)
     fi
@@ -190,7 +207,31 @@ if [[ "$ENRICH" == true ]]; then
         ENRICH_ARGS+=(--verbose)
     fi
 
-    "${ENRICH_ARGS[@]}"
+    if [[ "$RETRY_DELAY" -gt 0 ]]; then
+        # --retry implies --resume (retries without checkpoint resume are pointless)
+        if [[ "$RESUME" == false ]]; then
+            ENRICH_ARGS+=(--resume)
+        fi
+        MAX_RETRIES=$(( RETRY_WINDOW / RETRY_DELAY ))
+        echo "--- Retry mode: ${RETRY_DELAY}s interval, ${RETRY_WINDOW}s window → $MAX_RETRIES max retries ---"
+        for attempt in $(seq 1 "$MAX_RETRIES"); do
+            echo "=== Attempt $attempt / $MAX_RETRIES  $(date) ==="
+            "${ENRICH_ARGS[@]}" && { echo "=== Enrichment complete $(date) ==="; break; }
+            EXIT_CODE=$?
+            if [[ "$EXIT_CODE" -ne 75 ]]; then
+                echo "ERROR: Enrichment failed with non-retryable error (exit $EXIT_CODE)" >&2
+                exit "$EXIT_CODE"
+            fi
+            if [[ "$attempt" -eq "$MAX_RETRIES" ]]; then
+                echo "ERROR: Exhausted $MAX_RETRIES retries (${RETRY_WINDOW}s window)" >&2
+                exit 1
+            fi
+            echo "=== Rate-limited (exit 75), sleeping ${RETRY_DELAY}s before retry ==="
+            sleep "$RETRY_DELAY"
+        done
+    else
+        "${ENRICH_ARGS[@]}"
+    fi
     ENRICHMENT_FILES+=("$OUTPUT_JSON")
     echo ""
 elif [[ ${#FROM_JSON_FILES[@]} -gt 0 ]]; then
@@ -211,7 +252,24 @@ python -u "$SCRIPTS_DIR/enrich_pipeline.py" \
     --fasttext "$FASTTEXT_VEC"
 echo ""
 
-# --- Step 4: Export SQL dump ----------------------------------------------
+# --- Step 4: Concreteness fill --------------------------------------------
+
+SHOOTOUT_JSON="$OUTPUT_DIR/concreteness_shootout.json"
+
+if [[ -f "$SHOOTOUT_JSON" ]]; then
+    echo "--- Filling concreteness gaps (k-NN regression) ---"
+    python -u "$SCRIPTS_DIR/predict_concreteness.py" fill \
+        --db "$DB_PATH" \
+        --fasttext "$FASTTEXT_VEC" \
+        --shootout "$SHOOTOUT_JSON"
+    echo ""
+else
+    echo "--- Skipping concreteness fill (no shootout JSON at $SHOOTOUT_JSON) ---"
+    echo "  Run: ./evals.sh shootout -o $SHOOTOUT_JSON"
+    echo ""
+fi
+
+# --- Step 5: Export SQL dump ----------------------------------------------
 
 if [[ "$DUMP_SQL" == true ]]; then
     echo "--- Exporting lexicon_v2.sql ---"

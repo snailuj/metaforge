@@ -869,6 +869,87 @@ func TestGetForgeMatchesCurated_ConcretenessGatePOSBypassAdjective(t *testing.T)
 	}
 }
 
+func TestGetForgeMatchesCurated_SourceMissingConcretenessAllTargetsPass(t *testing.T) {
+	// When the SOURCE synset has no concreteness data, the gate should
+	// let all targets through (no filtering possible without source score).
+	t.Helper()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+		CREATE TABLE lemmas (lemma TEXT, synset_id TEXT, PRIMARY KEY (lemma, synset_id));
+		CREATE TABLE property_vocab_curated (
+			vocab_id INTEGER PRIMARY KEY, synset_id TEXT NOT NULL,
+			lemma TEXT NOT NULL, pos TEXT NOT NULL, polysemy INTEGER NOT NULL
+		);
+		CREATE TABLE vocab_clusters (
+			vocab_id INTEGER PRIMARY KEY, cluster_id INTEGER NOT NULL,
+			is_representative INTEGER NOT NULL DEFAULT 0, is_singleton INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX idx_vc_cluster_srcmiss ON vocab_clusters(cluster_id);
+		CREATE TABLE synset_properties_curated (
+			synset_id TEXT NOT NULL, vocab_id INTEGER NOT NULL, cluster_id INTEGER NOT NULL,
+			snap_method TEXT NOT NULL, snap_score REAL, salience_sum REAL NOT NULL DEFAULT 1.0,
+			PRIMARY KEY (synset_id, cluster_id)
+		);
+		CREATE INDEX idx_spc_srcmiss_synset ON synset_properties_curated(synset_id);
+		CREATE INDEX idx_spc_srcmiss_cluster ON synset_properties_curated(cluster_id);
+		CREATE TABLE cluster_antonyms (
+			cluster_id_a INTEGER NOT NULL, cluster_id_b INTEGER NOT NULL,
+			PRIMARY KEY (cluster_id_a, cluster_id_b)
+		);
+		CREATE TABLE synset_concreteness (
+			synset_id TEXT PRIMARY KEY, score REAL NOT NULL, source TEXT NOT NULL
+		);
+
+		INSERT INTO property_vocab_curated VALUES (1, 'v1', 'hot', 'a', 1);
+		INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+
+		-- Source: mystery (noun, NO concreteness data)
+		INSERT INTO synsets VALUES ('src-mystery', 'n', 'something unknown');
+		INSERT INTO lemmas VALUES ('mystery', 'src-mystery');
+		INSERT INTO synset_properties_curated VALUES ('src-mystery', 1, 1, 'exact', NULL, 1.0);
+
+		-- Target: abstract_tgt (noun, concreteness 1.0 — very abstract)
+		INSERT INTO synsets VALUES ('tgt-abstract', 'n', 'an abstract thing');
+		INSERT INTO lemmas VALUES ('abstract', 'tgt-abstract');
+		INSERT INTO synset_properties_curated VALUES ('tgt-abstract', 1, 1, 'exact', NULL, 1.0);
+		INSERT INTO synset_concreteness VALUES ('tgt-abstract', 1.0, 'brysbaert');
+
+		-- Target: concrete_tgt (noun, concreteness 4.5 — very concrete)
+		INSERT INTO synsets VALUES ('tgt-concrete', 'n', 'a concrete thing');
+		INSERT INTO lemmas VALUES ('concrete', 'tgt-concrete');
+		INSERT INTO synset_properties_curated VALUES ('tgt-concrete', 1, 1, 'exact', NULL, 1.0);
+		INSERT INTO synset_concreteness VALUES ('tgt-concrete', 4.5, 'brysbaert');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	matches, err := GetForgeMatchesCurated(db, "src-mystery", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ids := make(map[string]bool)
+	for _, m := range matches {
+		ids[m.SynsetID] = true
+	}
+	if !ids["tgt-abstract"] {
+		t.Error("expected abstract target to pass when source has no concreteness")
+	}
+	if !ids["tgt-concrete"] {
+		t.Error("expected concrete target to pass when source has no concreteness")
+	}
+}
+
 // --- Concreteness gate tests for GetForgeMatchesCuratedByLemma ---
 
 func setupSenseAlignmentConcretenessTestDB(t *testing.T) *sql.DB {

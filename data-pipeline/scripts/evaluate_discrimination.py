@@ -10,7 +10,6 @@ import argparse
 import json
 import logging
 import sqlite3
-import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
@@ -18,6 +17,7 @@ from typing import Optional
 import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
+from utils import get_git_commit
 from utils import LEXICON_V2
 
 log = logging.getLogger(__name__)
@@ -90,23 +90,27 @@ def select_source_words(
 
 def query_forge_results(
     word: str, port: int = 8080, limit: int = 100,
-) -> list[dict]:
+) -> list[dict] | None:
     """Query /forge/suggest and return the suggestions list.
 
-    Returns empty list on error or missing word.
+    Returns None on error (distinguishes from genuinely empty results).
     """
     url = f"http://localhost:{port}/forge/suggest"
     try:
         resp = requests.get(url, params={"word": word, "limit": limit}, timeout=30)
     except requests.RequestException as exc:
         log.error("Request failed for %r: %s", word, exc)
-        return []
+        return None
 
     if resp.status_code != 200:
         log.warning("API %d for %r: %s", resp.status_code, word, resp.text[:200])
-        return []
+        return None
 
-    return resp.json().get("suggestions", [])
+    try:
+        return resp.json().get("suggestions", [])
+    except (ValueError, AttributeError) as exc:
+        log.error("Malformed JSON response for %r: %s", word, exc)
+        return None
 
 
 def _get_distance(suggestion: dict) -> Optional[float]:
@@ -291,18 +295,6 @@ def aggregate_metrics(per_word: list[dict]) -> dict:
     }
 
 
-def _get_git_commit() -> str:
-    """Return short git commit hash, or 'unknown' if not in a repo."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=5,
-        )
-        return result.stdout.strip() if result.returncode == 0 else "unknown"
-    except Exception:
-        return "unknown"
-
-
 def evaluate_discrimination(
     conn: sqlite3.Connection,
     port: int = 8080,
@@ -325,8 +317,12 @@ def evaluate_discrimination(
     log.info("Selected %d source words for evaluation", len(words))
 
     per_word = []
+    api_failures = 0
     for w in words:
         suggestions = query_forge_results(w["lemma"], port=port, limit=limit)
+        if suggestions is None:
+            api_failures += 1
+            suggestions = []
         synonyms = lookup_synonyms(conn, w["lemma"])
         metrics = compute_word_metrics(
             suggestions, synonyms, cross_threshold, same_threshold,
@@ -343,12 +339,20 @@ def evaluate_discrimination(
             f'{metrics["rank_auc"]:.3f}' if metrics["rank_auc"] is not None else "N/A",
         )
 
+    if api_failures > 0:
+        failure_pct = api_failures / len(words) * 100
+        log.warning(
+            "API failures: %d/%d words (%.1f%%) — results may be unreliable",
+            api_failures, len(words), failure_pct,
+        )
+
     agg = aggregate_metrics(per_word)
+    agg["api_failures"] = api_failures
 
     return {
         "aggregate": agg,
         "per_word": per_word,
-        "git_commit": _get_git_commit(),
+        "git_commit": get_git_commit(),
         "config": {
             "limit": limit,
             "min_properties": min_properties,

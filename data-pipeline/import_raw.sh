@@ -99,6 +99,9 @@ run_step "Build curated vocabulary (35k entries)" \
 run_step "Build antonym pairs from WordNet relations" \
     python "$SCRIPTS_DIR/build_antonyms.py" --db "$DB_PATH"
 
+run_step "Import Brysbaert concreteness ratings" \
+    python "$SCRIPTS_DIR/import_concreteness.py"
+
 # --- Verification ---------------------------------------------------------
 
 echo "--- Verification ---"
@@ -111,6 +114,7 @@ UNION ALL SELECT 'syntagms', COUNT(*) FROM syntagms
 UNION ALL SELECT 'vn_classes', COUNT(*) FROM vn_classes
 UNION ALL SELECT 'property_vocab_curated', COUNT(*) FROM property_vocab_curated
 UNION ALL SELECT 'property_antonyms', COUNT(*) FROM property_antonyms
+UNION ALL SELECT 'synset_concreteness', COUNT(*) FROM synset_concreteness
 UNION ALL SELECT 'enrichment', COUNT(*) FROM enrichment
 UNION ALL SELECT 'property_vocabulary', COUNT(*) FROM property_vocabulary
 UNION ALL SELECT 'synset_properties', COUNT(*) FROM synset_properties;

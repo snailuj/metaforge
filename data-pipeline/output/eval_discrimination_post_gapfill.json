@@ -1,0 +1,421 @@
+{
+  "aggregate": {
+    "mean_rank_auc": 0.5994,
+    "mean_cross_domain_ratio": 0.236,
+    "mean_synonym_contamination": 0.052,
+    "words_evaluated": 50,
+    "words_with_results": 50
+  },
+  "per_word": [
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 37,
+      "word": "break",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 45,
+      "word": "cut",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 0.3333333333333333,
+      "total_results": 39,
+      "word": "run",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 37,
+      "word": "make",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.6,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 1.0,
+      "total_results": 52,
+      "word": "take",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.4,
+      "rank_auc": null,
+      "total_results": 39,
+      "word": "light",
+      "pos": "a"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.2,
+      "rank_auc": null,
+      "total_results": 32,
+      "word": "hold",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 44,
+      "word": "set",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 35,
+      "word": "play",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 35,
+      "word": "head",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.5,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 1.0,
+      "total_results": 36,
+      "word": "give",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.5,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 0.7833333333333333,
+      "total_results": 47,
+      "word": "get",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 39,
+      "word": "line",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.7,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 28,
+      "word": "go",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 39,
+      "word": "clear",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 35,
+      "word": "check",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 43,
+      "word": "work",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 35,
+      "word": "call",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.3,
+      "rank_auc": null,
+      "total_results": 44,
+      "word": "place",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 42,
+      "word": "drive",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 36,
+      "word": "open",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.2,
+      "rank_auc": null,
+      "total_results": 36,
+      "word": "see",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 30,
+      "word": "heavy",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 43,
+      "word": "sound",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 40,
+      "word": "follow",
+      "pos": "v"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 38,
+      "word": "support",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 41,
+      "word": "center",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 41,
+      "word": "centre",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.3,
+      "rank_auc": null,
+      "total_results": 30,
+      "word": "last",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.7,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 46,
+      "word": "bank",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 39,
+      "word": "hot",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 27,
+      "word": "job",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 43,
+      "word": "throw",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 25,
+      "word": "out",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.4,
+      "synonym_contamination_top10": 0.2,
+      "rank_auc": null,
+      "total_results": 37,
+      "word": "cold",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 38,
+      "word": "leave",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.4,
+      "rank_auc": 0.3333333333333333,
+      "total_results": 48,
+      "word": "black",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 44,
+      "word": "house",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 0.42857142857142855,
+      "total_results": 37,
+      "word": "blue",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 31,
+      "word": "life",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.1,
+      "rank_auc": null,
+      "total_results": 39,
+      "word": "find",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 0.75,
+      "total_results": 39,
+      "word": "white",
+      "pos": "a"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": 0.16666666666666666,
+      "total_results": 34,
+      "word": "big",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 33,
+      "word": "hand",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 30,
+      "word": "bag",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.3,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 37,
+      "word": "game",
+      "pos": "s"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 35,
+      "word": "time",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.1,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 30,
+      "word": "jump",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.0,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 30,
+      "word": "show",
+      "pos": "n"
+    },
+    {
+      "cross_domain_ratio_top10": 0.2,
+      "synonym_contamination_top10": 0.0,
+      "rank_auc": null,
+      "total_results": 38,
+      "word": "start",
+      "pos": "n"
+    }
+  ],
+  "git_commit": "29c92d8",
+  "config": {
+    "limit": 100,
+    "min_properties": 3,
+    "noun_quota": 20,
+    "verb_quota": 15,
+    "adj_quota": 15,
+    "cross_threshold": 0.7,
+    "same_threshold": 0.3
+  }
+}

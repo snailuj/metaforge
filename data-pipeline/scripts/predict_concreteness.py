@@ -10,7 +10,6 @@ import argparse
 import json
 import logging
 import sqlite3
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -18,7 +17,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from utils import LEXICON_V2, FASTTEXT_VEC
+from utils import LEXICON_V2, FASTTEXT_VEC, get_git_commit
 
 log = logging.getLogger(__name__)
 
@@ -266,6 +265,14 @@ def fill_concreteness_gaps(
     Predictions are clamped to [1.0, 5.0] and stored with
     source='fasttext_regression'.
     """
+    table_exists = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='synset_concreteness'"
+    ).fetchone()[0]
+    if not table_exists:
+        raise RuntimeError(
+            "synset_concreteness table does not exist. "
+            "Run import_concreteness.py first to populate Brysbaert ground truth."
+        )
     scored = set(
         r[0] for r in conn.execute(
             "SELECT synset_id FROM synset_concreteness"
@@ -324,18 +331,6 @@ def revert_concreteness_predictions(conn: sqlite3.Connection) -> dict[str, int]:
     return {"deleted": deleted, "brysbaert_retained": after}
 
 
-def _get_git_commit() -> str:
-    """Return short git commit hash, or 'unknown' if not in a repo."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=5,
-        )
-        return result.stdout.strip() if result.returncode == 0 else "unknown"
-    except Exception:
-        return "unknown"
-
-
 def cmd_shootout(
     conn: sqlite3.Connection,
     vectors: dict[str, tuple[float, ...]],
@@ -359,7 +354,7 @@ def cmd_shootout(
         "best_model_name": shootout["best_model_name"],
         "train_size": shootout["train_size"],
         "test_size": shootout["test_size"],
-        "git_commit": _get_git_commit(),
+        "git_commit": get_git_commit(),
     }
 
     with open(output_path, "w") as f:
@@ -404,7 +399,7 @@ def cmd_fill(
         "gap_fill": gap_stats,
         "model_used": shootout_results["best_model_name"],
         "coverage": {"total_synsets": total, "scored": scored, "pct": pct},
-        "git_commit": _get_git_commit(),
+        "git_commit": get_git_commit(),
     }
 
 
