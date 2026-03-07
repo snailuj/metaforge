@@ -40,6 +40,8 @@ Enrichment options (--enrich only):
   --synset-ids FILE     JSON array of specific synset IDs
   --offset N            Skip top N synsets (frequency strategy only, default: 0)
   --resume              Resume from checkpoint
+  --retry SECS          Auto-retry on rate limit every SECS seconds (default: off)
+  --retry-window SECS   Total retry window in seconds         (default: 18000 = 5h)
   --verbose             Enable debug logging
 
 General:
@@ -57,6 +59,11 @@ Examples:
   # Resume interrupted enrichment:
   ./enrich.sh --db output/lexicon_v2.db --enrich --resume --model sonnet \
               --output output/enrichment_2000_sonnet_20260223.json
+
+  # Unattended overnight run (retries on rate limit every 5 min):
+  ./enrich.sh --db output/lexicon_v2.db --enrich --size 13000 --model sonnet \
+              --strategy frequency --schema-version v2 --retry 300 \
+              --output output/enrichment_13000_sonnet_v2_20260307.json
 USAGE
     exit 1
 }
@@ -76,6 +83,8 @@ SYNSET_IDS=""
 OFFSET=0
 OUTPUT_JSON=""
 RESUME=false
+RETRY_DELAY=0
+RETRY_WINDOW=18000  # 5 hours in seconds
 VERBOSE=false
 DUMP_SQL=true
 
@@ -100,6 +109,8 @@ while [[ $# -gt 0 ]]; do
         --offset)     OFFSET="$2"; shift 2 ;;
         --output)     OUTPUT_JSON="$2"; shift 2 ;;
         --resume|-r)  RESUME=true; shift ;;
+        --retry)      RETRY_DELAY="$2"; shift 2 ;;
+        --retry-window) RETRY_WINDOW="$2"; shift 2 ;;
         --verbose|-v) VERBOSE=true; shift ;;
         --no-dump)    DUMP_SQL=false; shift ;;
         --help|-h)    usage ;;
@@ -196,7 +207,29 @@ if [[ "$ENRICH" == true ]]; then
         ENRICH_ARGS+=(--verbose)
     fi
 
-    "${ENRICH_ARGS[@]}"
+    if [[ "$RETRY_DELAY" -gt 0 ]]; then
+        # --retry implies --resume (retries without checkpoint resume are pointless)
+        if [[ "$RESUME" == false ]]; then
+            ENRICH_ARGS+=(--resume)
+        fi
+        MAX_RETRIES=$(( RETRY_WINDOW / RETRY_DELAY ))
+        echo "--- Retry mode: ${RETRY_DELAY}s interval, ${RETRY_WINDOW}s window → $MAX_RETRIES max retries ---"
+        for attempt in $(seq 1 "$MAX_RETRIES"); do
+            echo "=== Attempt $attempt / $MAX_RETRIES  $(date) ==="
+            if "${ENRICH_ARGS[@]}"; then
+                echo "=== Enrichment complete $(date) ==="
+                break
+            fi
+            if [[ "$attempt" -eq "$MAX_RETRIES" ]]; then
+                echo "ERROR: Exhausted $MAX_RETRIES retries (${RETRY_WINDOW}s window)" >&2
+                exit 1
+            fi
+            echo "=== Rate-limited, sleeping ${RETRY_DELAY}s before retry ==="
+            sleep "$RETRY_DELAY"
+        done
+    else
+        "${ENRICH_ARGS[@]}"
+    fi
     ENRICHMENT_FILES+=("$OUTPUT_JSON")
     echo ""
 elif [[ ${#FROM_JSON_FILES[@]} -gt 0 ]]; then
