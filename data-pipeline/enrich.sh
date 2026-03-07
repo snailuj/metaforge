@@ -38,6 +38,7 @@ Enrichment options (--enrich only):
   --strategy STR        Selection strategy: random|frequency (default: random)
   --schema-version VER  v1 (plain) or v2 (structured)       (default: v1)
   --synset-ids FILE     JSON array of specific synset IDs
+  --offset N            Skip top N synsets (frequency strategy only, default: 0)
   --resume              Resume from checkpoint
   --verbose             Enable debug logging
 
@@ -72,6 +73,7 @@ DELAY=1.0
 STRATEGY="random"
 SCHEMA_VERSION="v1"
 SYNSET_IDS=""
+OFFSET=0
 OUTPUT_JSON=""
 RESUME=false
 VERBOSE=false
@@ -95,6 +97,7 @@ while [[ $# -gt 0 ]]; do
         --strategy)   STRATEGY="$2"; shift 2 ;;
         --schema-version) SCHEMA_VERSION="$2"; shift 2 ;;
         --synset-ids) SYNSET_IDS="$2"; shift 2 ;;
+        --offset)     OFFSET="$2"; shift 2 ;;
         --output)     OUTPUT_JSON="$2"; shift 2 ;;
         --resume|-r)  RESUME=true; shift ;;
         --verbose|-v) VERBOSE=true; shift ;;
@@ -182,6 +185,9 @@ if [[ "$ENRICH" == true ]]; then
     )
     if [[ -n "$SYNSET_IDS" ]]; then
         ENRICH_ARGS+=(--synset-ids "$SYNSET_IDS")
+    fi
+    if [[ "$OFFSET" -gt 0 ]]; then
+        ENRICH_ARGS+=(--offset "$OFFSET")
     fi
     if [[ "$RESUME" == true ]]; then
         ENRICH_ARGS+=(--resume)

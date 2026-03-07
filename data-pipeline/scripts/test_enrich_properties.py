@@ -571,6 +571,27 @@ def test_run_enrichment_v2_property_stats(mock_get_synsets, mock_extract, tmp_pa
     assert "warm" in output["property_frequency"]
 
 
+def test_frequency_ranked_offset_skips_top_n():
+    """Offset skips the top N synsets by frequency."""
+    conn = _make_freq_db()
+    # Without offset: walk, candle, melancholy, petrichor
+    # With offset=2: melancholy, petrichor
+    synsets = get_frequency_ranked_synsets(conn, limit=10, offset=2)
+
+    ids = [s["id"] for s in synsets]
+    assert ids == ["200004", "200005"]
+
+
+def test_frequency_ranked_offset_with_limit():
+    """Offset + limit together select a window."""
+    conn = _make_freq_db()
+    # offset=1, limit=2: skip walk → candle, melancholy
+    synsets = get_frequency_ranked_synsets(conn, limit=2, offset=1)
+
+    ids = [s["id"] for s in synsets]
+    assert ids == ["200003", "200004"]
+
+
 def test_frequency_ranked_no_enrichment_table():
     """Works when enrichment table doesn't exist (fresh DB)."""
     conn = sqlite3.connect(":memory:")

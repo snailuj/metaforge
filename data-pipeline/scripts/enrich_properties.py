@@ -325,6 +325,7 @@ def get_frequency_ranked_synsets(
     conn: sqlite3.Connection,
     limit: int,
     required_ids: list | None = None,
+    offset: int = 0,
 ) -> List[Dict]:
     """Get synsets ranked by max lemma familiarity, excluding already-enriched.
 
@@ -417,8 +418,8 @@ def get_frequency_ranked_synsets(
             FROM ranked_lemmas
             WHERE rn = 1
             ORDER BY max_fam DESC
-            LIMIT ?
-        """, (*seen_params, remaining))
+            LIMIT ? OFFSET ?
+        """, (*seen_params, remaining, offset))
 
         for row in cursor.fetchall():
             sid = str(row[0])
@@ -464,6 +465,7 @@ def run_enrichment(
     db_path: str = None,
     strategy: str = "random",
     schema_version: str = "v1",
+    offset: int = 0,
 ) -> EnrichmentResult:
     """Run property enrichment on synsets using claude CLI.
 
@@ -511,11 +513,13 @@ def run_enrichment(
         print(f"  Batch size: {batch_size}")
         print(f"  Model: {model}")
         print(f"  Strategy: {strategy}")
+        if offset > 0:
+            print(f"  Offset: {offset}")
         print(f"  Schema version: {schema_version}")
         print(f"  Database: {db_path}")
 
         if strategy == "frequency":
-            synsets = get_frequency_ranked_synsets(conn, size, required_ids=required_ids)
+            synsets = get_frequency_ranked_synsets(conn, size, required_ids=required_ids, offset=offset)
         else:
             synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
         print(f"  Retrieved {len(synsets)} synsets")
@@ -675,6 +679,10 @@ def main():
         help="Synset selection strategy: 'random' (POS-stratified) or 'frequency' (by familiarity, excludes already-enriched)",
     )
     parser.add_argument(
+        "--offset", type=int, default=0,
+        help="Skip the first N synsets (frequency strategy only). Use to enrich the next batch without re-enriching the top.",
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="Enable DEBUG logging for raw LLM request/response",
     )
@@ -701,6 +709,7 @@ def main():
         verbose=args.verbose,
         strategy=args.strategy,
         schema_version=args.schema_version,
+        offset=args.offset,
     )
 
 
