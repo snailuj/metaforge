@@ -32,13 +32,14 @@ def audit_physical_coverage(
     """Audit enrichment data for physical property coverage.
 
     Args:
-        data: Enrichment JSON ({"synsets": [...]}) or checkpoint ({"results": [...]}).
+        data: Enrichment/checkpoint JSON ({"synsets": [...]}).
+              Also accepts legacy checkpoint format ({"results": [...]}).
         exclude_ids: Synset IDs to skip (already gap-filled).
 
     Returns:
         Dict with flagged_ids, total_synsets, flagged_count, pos_breakdown.
     """
-    # Handle both enrichment format and checkpoint format
+    # Unified format uses 'synsets'; legacy checkpoint fallback to 'results'
     synsets = data.get("synsets") or data.get("results") or []
     exclude = exclude_ids or set()
 

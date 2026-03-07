@@ -169,7 +169,8 @@ def main():
     if checkpoint_path.exists():
         state = json.loads(checkpoint_path.read_text())
         completed_ids = set(state["completed_ids"])
-        results = state["results"]
+        # Unified format uses 'synsets', legacy uses 'results'
+        results = state.get("synsets") or state.get("results") or []
         print(f"Resuming: {len(completed_ids)} already done")
     else:
         completed_ids = set()
@@ -198,7 +199,7 @@ def main():
 
             save_checkpoint(checkpoint_path, {
                 "completed_ids": list(completed_ids),
-                "results": results,
+                "synsets": results,
             })
         except Exception as e:
             print(f"  BATCH FAILED: {e}")

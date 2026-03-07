@@ -82,18 +82,18 @@ def test_extract_batch_warns_unknown_ids(mock_prompt_json, caplog):
 
 def test_checkpoint_round_trip(tmp_path):
     cp_file = tmp_path / "checkpoint.json"
-    state = {"completed_ids": ["100001", "100002"], "results": CANNED_RESULT}
+    state = {"completed_ids": ["100001", "100002"], "synsets": CANNED_RESULT}
     save_checkpoint(cp_file, state)
     loaded = load_checkpoint(cp_file)
     assert loaded["completed_ids"] == ["100001", "100002"]
-    assert len(loaded["results"]) == 2
+    assert len(loaded["synsets"]) == 2
 
 
 # --- 5. checkpoint resume filters completed ----------------------------------
 
 def test_checkpoint_resume_filters_completed(tmp_path):
     cp_file = tmp_path / "checkpoint.json"
-    state = {"completed_ids": ["100001"], "results": [CANNED_RESULT[0]]}
+    state = {"completed_ids": ["100001"], "synsets": [CANNED_RESULT[0]]}
     save_checkpoint(cp_file, state)
     loaded = load_checkpoint(cp_file)
     completed = set(loaded["completed_ids"])
@@ -590,6 +590,60 @@ def test_frequency_ranked_offset_with_limit():
 
     ids = [s["id"] for s in synsets]
     assert ids == ["200003", "200004"]
+
+
+# --- Unified checkpoint format ------------------------------------------------
+
+def test_checkpoint_writes_unified_format(tmp_path):
+    """save_checkpoint writes the unified enrichment format with completed_ids."""
+    cp_file = tmp_path / "checkpoint.json"
+    results = [
+        {"id": "100001", "lemma": "candle", "pos": "n",
+         "properties": [{"text": "warm", "salience": 0.9, "type": "physical"}]},
+    ]
+    save_checkpoint(cp_file, {
+        "completed_ids": ["100001"],
+        "synsets": results,
+        "config": {"model": "sonnet", "batch_size": 20},
+    })
+    data = json.loads(cp_file.read_text())
+
+    # Must have unified keys
+    assert "synsets" in data, "checkpoint must use 'synsets' key"
+    assert "completed_ids" in data
+    assert "results" not in data, "checkpoint must NOT use legacy 'results' key"
+    assert data["synsets"] == results
+    assert data["completed_ids"] == ["100001"]
+
+
+def test_load_checkpoint_reads_unified_format(tmp_path):
+    """load_checkpoint reads unified format and returns synsets + completed_ids."""
+    cp_file = tmp_path / "checkpoint.json"
+    cp_file.write_text(json.dumps({
+        "completed_ids": ["100001"],
+        "synsets": [{"id": "100001", "properties": []}],
+        "stats": {"total_synsets": 1},
+        "config": {"model": "sonnet"},
+    }))
+    state = load_checkpoint(cp_file)
+
+    assert state["completed_ids"] == ["100001"]
+    assert "synsets" in state
+    assert len(state["synsets"]) == 1
+
+
+def test_load_checkpoint_backward_compat_results_key(tmp_path):
+    """load_checkpoint reads legacy format with 'results' key."""
+    cp_file = tmp_path / "checkpoint.json"
+    cp_file.write_text(json.dumps({
+        "completed_ids": ["100001"],
+        "results": [{"id": "100001", "properties": []}],
+    }))
+    state = load_checkpoint(cp_file)
+
+    assert state["completed_ids"] == ["100001"]
+    assert "synsets" in state, "legacy 'results' should be returned as 'synsets'"
+    assert len(state["synsets"]) == 1
 
 
 def test_frequency_ranked_no_enrichment_table():

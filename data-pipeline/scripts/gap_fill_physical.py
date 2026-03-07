@@ -129,11 +129,19 @@ def build_output(results: List[Dict], model: str, batch_size: int) -> dict:
 
 
 def load_checkpoint(checkpoint_path: Path) -> dict:
-    """Load checkpoint state, or return empty state."""
+    """Load checkpoint state, or return empty state.
+
+    Handles both unified format (synsets key) and legacy format (results key).
+    Always returns with 'synsets' key for caller consistency.
+    """
     if checkpoint_path.exists():
         with open(checkpoint_path) as f:
-            return json.load(f)
-    return {"completed_ids": [], "results": []}
+            data = json.load(f)
+        # Backward compat: remap legacy 'results' key to 'synsets'
+        if "results" in data and "synsets" not in data:
+            data["synsets"] = data.pop("results")
+        return data
+    return {"completed_ids": [], "synsets": []}
 
 
 def save_checkpoint(checkpoint_path: Path, state: dict):
@@ -157,7 +165,7 @@ def run_gap_fill(
     if resume:
         state = load_checkpoint(checkpoint_path)
         completed_ids = set(state["completed_ids"])
-        results = state["results"]
+        results = state["synsets"]
         print(f"  Resuming from checkpoint: {len(completed_ids)} already done")
     else:
         completed_ids = set()
@@ -200,7 +208,7 @@ def run_gap_fill(
 
             save_checkpoint(checkpoint_path, {
                 "completed_ids": list(completed_ids),
-                "results": results,
+                "synsets": results,
             })
 
         except RateLimitError as e:

@@ -9,6 +9,8 @@ from gap_fill_physical import (
     format_gap_fill_batch,
     load_synsets_from_db,
     build_output,
+    load_checkpoint,
+    save_checkpoint,
     GAP_FILL_PROMPT,
 )
 
@@ -87,3 +89,57 @@ class TestBuildOutput:
     def test_output_has_config(self):
         output = build_output([], model="sonnet", batch_size=20)
         assert output["config"]["model"] == "sonnet"
+
+
+# --- Checkpoint format tests ---
+
+class TestCheckpointUnifiedFormat:
+    def test_save_checkpoint_writes_unified_format(self, tmp_path):
+        """save_checkpoint writes the unified enrichment format with completed_ids."""
+        cp_file = tmp_path / "checkpoint.json"
+        save_checkpoint(cp_file, {
+            "completed_ids": ["s1"],
+            "synsets": [{"id": "s1", "properties": [{"text": "hard", "type": "physical"}]}],
+            "config": {"model": "sonnet", "batch_size": 20},
+        })
+        data = json.loads(cp_file.read_text())
+
+        assert "synsets" in data, "checkpoint must use 'synsets' key"
+        assert "completed_ids" in data
+        assert "results" not in data, "checkpoint must NOT use legacy 'results' key"
+
+    def test_load_checkpoint_reads_unified_format(self, tmp_path):
+        """load_checkpoint reads unified format and returns synsets + completed_ids."""
+        cp_file = tmp_path / "checkpoint.json"
+        cp_file.write_text(json.dumps({
+            "completed_ids": ["s1"],
+            "synsets": [{"id": "s1", "properties": []}],
+            "stats": {"total_synsets": 1},
+            "config": {"model": "sonnet"},
+        }))
+        state = load_checkpoint(cp_file)
+
+        assert state["completed_ids"] == ["s1"]
+        assert "synsets" in state
+        assert len(state["synsets"]) == 1
+
+    def test_load_checkpoint_backward_compat_results_key(self, tmp_path):
+        """load_checkpoint reads legacy format with 'results' key."""
+        cp_file = tmp_path / "checkpoint.json"
+        cp_file.write_text(json.dumps({
+            "completed_ids": ["s1"],
+            "results": [{"id": "s1", "properties": []}],
+        }))
+        state = load_checkpoint(cp_file)
+
+        assert state["completed_ids"] == ["s1"]
+        assert "synsets" in state, "legacy 'results' should be returned as 'synsets'"
+        assert len(state["synsets"]) == 1
+
+    def test_load_checkpoint_empty(self, tmp_path):
+        """load_checkpoint returns empty state when file doesn't exist."""
+        cp_file = tmp_path / "nonexistent.json"
+        state = load_checkpoint(cp_file)
+
+        assert state["completed_ids"] == []
+        assert state["synsets"] == []

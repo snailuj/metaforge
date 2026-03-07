@@ -1,8 +1,12 @@
 """Tests for audit_physical_coverage.py."""
 
 import json
+import sys
 import pytest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
 from audit_physical_coverage import audit_physical_coverage, POS_THRESHOLDS
 
 

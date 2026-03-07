@@ -230,11 +230,19 @@ def extract_batch(
 # --- Checkpoint ---------------------------------------------------------------
 
 def load_checkpoint(checkpoint_path: Path) -> dict:
-    """Load checkpoint state from disk, or return empty state."""
+    """Load checkpoint state from disk, or return empty state.
+
+    Handles both unified format (synsets key) and legacy format (results key).
+    Always returns with 'synsets' key for caller consistency.
+    """
     if checkpoint_path.exists():
         with open(checkpoint_path) as f:
-            return json.load(f)
-    return {"completed_ids": [], "results": []}
+            data = json.load(f)
+        # Backward compat: remap legacy 'results' key to 'synsets'
+        if "results" in data and "synsets" not in data:
+            data["synsets"] = data.pop("results")
+        return data
+    return {"completed_ids": [], "synsets": []}
 
 
 def save_checkpoint(checkpoint_path: Path, state: dict):
@@ -530,7 +538,7 @@ def run_enrichment(
         if resume:
             state = load_checkpoint(checkpoint_path)
             completed_ids = set(state["completed_ids"])
-            results = state["results"]
+            results = state["synsets"]
             print(f"  Resuming from checkpoint: {len(completed_ids)} already done")
         else:
             completed_ids = set()
@@ -567,7 +575,7 @@ def run_enrichment(
 
                 save_checkpoint(checkpoint_path, {
                     "completed_ids": list(completed_ids),
-                    "results": results,
+                    "synsets": results,
                 })
 
             except Exception as e:
@@ -576,7 +584,7 @@ def run_enrichment(
                 failed_synset_ids.extend(s['id'] for s in batch)
                 save_checkpoint(checkpoint_path, {
                     "completed_ids": list(completed_ids),
-                    "results": results,
+                    "synsets": results,
                 })
 
             if delay > 0:
