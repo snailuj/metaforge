@@ -646,6 +646,46 @@ def test_load_checkpoint_backward_compat_results_key(tmp_path):
     assert len(state["synsets"]) == 1
 
 
+# --- RateLimitError stops enrichment loop ------------------------------------
+
+@patch("enrich_properties.extract_batch")
+@patch("enrich_properties.get_pilot_synsets")
+def test_run_enrichment_breaks_on_rate_limit(
+    mock_get_synsets, mock_extract, tmp_path,
+):
+    """RateLimitError stops the batch loop immediately (no further batches tried)."""
+    db_path = _make_test_db(tmp_path)
+
+    synsets = [
+        {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n"},
+        {"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v"},
+        {"id": "100003", "lemma": "thunder", "definition": "loud noise", "pos": "n"},
+    ]
+    mock_get_synsets.return_value = synsets
+
+    # First batch succeeds, second hits rate limit — third should NOT be attempted
+    mock_extract.side_effect = [
+        [{"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n",
+          "properties": ["warm"]}],
+        UsageExhaustedError("rate limit exceeded"),
+        [{"id": "100003", "lemma": "thunder", "definition": "loud noise", "pos": "n",
+          "properties": ["loud"]}],
+    ]
+
+    with patch("enrich_properties.OUTPUT_DIR", tmp_path):
+        result = run_enrichment(
+            size=3,
+            batch_size=1,
+            delay=0,
+            output_file=tmp_path / "out.json",
+            db_path=db_path,
+        )
+
+    # Only batch 1 succeeded, batch 2 rate-limited, batch 3 never tried
+    assert result.succeeded == 1
+    assert mock_extract.call_count == 2, "should stop after rate limit, not try batch 3"
+
+
 def test_frequency_ranked_no_enrichment_table():
     """Works when enrichment table doesn't exist (fresh DB)."""
     conn = sqlite3.connect(":memory:")

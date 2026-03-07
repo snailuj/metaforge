@@ -578,6 +578,13 @@ def run_enrichment(
                     "synsets": results,
                 })
 
+            except RateLimitError as e:
+                print(f"  RATE LIMITED — stopping: {e}")
+                save_checkpoint(checkpoint_path, {
+                    "completed_ids": list(completed_ids),
+                    "synsets": results,
+                })
+                break
             except Exception as e:
                 print(f"  BATCH FAILED after retries: {e}")
                 failed_batches += 1
