@@ -3,6 +3,18 @@ import { initAnalytics } from './analytics'
 
 const UMAMI_WEBSITE_ID = 'e5752dad-18b8-4c10-a530-76c6b507e4f6'
 
+describe('initAnalytics — DOM guard', () => {
+  it('does not throw when document.head is unavailable', () => {
+    const original = document.head
+    Object.defineProperty(document, 'head', { value: null, configurable: true })
+    try {
+      expect(() => initAnalytics(true)).not.toThrow()
+    } finally {
+      Object.defineProperty(document, 'head', { value: original, configurable: true })
+    }
+  })
+})
+
 describe('initAnalytics', () => {
   beforeEach(() => {
     document.head.querySelectorAll('script[data-website-id]').forEach(s => s.remove())
