@@ -119,6 +119,7 @@ cd web && npm run dev
 - **Priority:** Readability over cleverness
 - **DRY / YAGNI:** No premature abstraction, no speculative features
 - **Language:** UK English spelling (optimise, colour)
+- **Comments:** Explain intent, constraints, or gotchas — never restate what the code already says
 
 ## Design Status
 
