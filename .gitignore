@@ -41,5 +41,14 @@ coverage.html
 # Deploy generated files
 *.active
 
+# GSD runtime (system-managed)
+.gsd/runtime/
+.gsd/notifications.jsonl
+.gsd/activity/
+.gsd/worktrees/
+.gsd/gsd.db
+.gsd/gsd.db-wal
+.gsd/gsd.db-shm
+
 # OS
 .DS_Store
