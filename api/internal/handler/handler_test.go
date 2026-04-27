@@ -492,7 +492,7 @@ func TestNewHandler_RejectsDBMissingFrequencies(t *testing.T) {
 	// All required tables EXCEPT frequencies.
 	for _, tbl := range []string{
 		"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated",
-		"cluster_antonyms", "vocab_clusters", "lemma_embeddings", "synset_concreteness",
+		"cluster_antonyms", "vocab_clusters", "lemma_embeddings",
 	} {
 		if _, err := database.Exec("CREATE TABLE " + tbl + " (id INTEGER)"); err != nil {
 			t.Fatalf("failed to create table %s: %v", tbl, err)
@@ -522,7 +522,7 @@ func TestNewHandler_RejectsDBMissingClusterAntonyms(t *testing.T) {
 	// All required tables EXCEPT cluster_antonyms.
 	for _, tbl := range []string{
 		"synsets", "lemmas", "synset_properties_curated", "property_vocab_curated",
-		"frequencies", "vocab_clusters", "lemma_embeddings", "synset_concreteness",
+		"frequencies", "vocab_clusters", "lemma_embeddings",
 	} {
 		if _, err := database.Exec("CREATE TABLE " + tbl + " (id INTEGER)"); err != nil {
 			t.Fatalf("failed to create table %s: %v", tbl, err)

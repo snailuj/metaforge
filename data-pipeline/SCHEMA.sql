@@ -267,10 +267,3 @@ CREATE TABLE IF NOT EXISTS cluster_antonyms (
     cluster_id_b INTEGER NOT NULL,
     PRIMARY KEY (cluster_id_a, cluster_id_b)
 );
-
-CREATE TABLE IF NOT EXISTS synset_concreteness (
-    synset_id TEXT PRIMARY KEY,
-    score REAL NOT NULL,
-    source TEXT NOT NULL,
-    FOREIGN KEY (synset_id) REFERENCES synsets(synset_id)
-);

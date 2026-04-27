@@ -17,11 +17,6 @@ import (
 // ErrLemmaNotFound is returned when a lemma has no curated properties.
 var ErrLemmaNotFound = errors.New("lemma not found or has no curated properties")
 
-// ConcretenessMargin is the soft margin for the concreteness gate.
-// A candidate passes if candidate_score + margin >= source_score.
-// This allows horizontal metaphors between concepts at similar concreteness.
-const ConcretenessMargin = 0.5
-
 // Synset represents a WordNet synset with enrichment
 type Synset struct {
 	ID           string   `json:"id"`
@@ -123,13 +118,7 @@ type CuratedMatch struct {
 // No embeddings or cosine distance — pure integer JOINs for shared + antonymous properties.
 func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMatch, error) {
 	rows, err := db.Query(`
-		WITH source_conc AS (
-			SELECT sc.score, syn.pos
-			FROM synset_concreteness sc
-			JOIN synsets syn ON syn.synset_id = sc.synset_id
-			WHERE sc.synset_id = ?
-		),
-		source_props AS (
+		WITH source_props AS (
 			SELECT cluster_id FROM synset_properties_curated WHERE synset_id = ?
 		),
 		shared AS (
@@ -169,21 +158,12 @@ func GetForgeMatchesCurated(db *sql.DB, sourceID string, limit int) ([]CuratedMa
 			) all_matches
 			LEFT JOIN shared sh ON sh.synset_id = all_matches.synset_id
 			LEFT JOIN contrast co ON co.synset_id = all_matches.synset_id
-			LEFT JOIN synset_concreteness tc ON tc.synset_id = all_matches.synset_id
-			LEFT JOIN synsets tgt_s ON tgt_s.synset_id = all_matches.synset_id
-			WHERE (
-				(SELECT pos FROM source_conc) != 'n'
-				OR tgt_s.pos != 'n'
-				OR tc.score IS NULL
-				OR (SELECT score FROM source_conc) IS NULL
-				OR tc.score + ? >= (SELECT score FROM source_conc)
-			)
 			ORDER BY COALESCE(sh.salience_sum, 0.0) + COALESCE(co.contrast_count, 0) DESC
 			LIMIT ?
 		) sub
 		JOIN synsets s ON s.synset_id = sub.synset_id
 		JOIN lemmas l ON l.synset_id = sub.synset_id
-	`, sourceID, sourceID, sourceID, sourceID, ConcretenessMargin, limit)
+	`, sourceID, sourceID, sourceID, limit)
 
 	if err != nil {
 		return nil, fmt.Errorf("GetForgeMatchesCurated query failed: %w", err)
@@ -292,19 +272,10 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 		JOIN synsets ss ON ss.synset_id = bs.source_id
 		JOIN lemmas l ON l.synset_id = bs.target_id
 		LEFT JOIN best_contrast bc ON bc.target_id = bs.target_id AND bc.rn = 1
-		LEFT JOIN synset_concreteness sc_src ON sc_src.synset_id = bs.source_id
-		LEFT JOIN synset_concreteness sc_tgt ON sc_tgt.synset_id = bs.target_id
 		WHERE bs.rn = 1
-		  AND (
-			ss.pos != 'n'
-			OR ts.pos != 'n'
-			OR sc_tgt.score IS NULL
-			OR sc_src.score IS NULL
-			OR sc_tgt.score + ? >= sc_src.score
-		  )
 		ORDER BY bs.salience_sum + COALESCE(bc.contrast_count, 0) DESC
 		LIMIT ?
-	`, lemma, ConcretenessMargin, limit)
+	`, lemma, limit)
 
 	if err != nil {
 		return nil, fmt.Errorf("GetForgeMatchesCuratedByLemma query failed: %w", err)
@@ -345,19 +316,6 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 	}
 
 	if len(matches) == 0 {
-		// Distinguish "lemma not found" from "gate filtered all candidates"
-		var exists bool
-		_ = database.QueryRow(`
-			SELECT EXISTS(
-				SELECT 1 FROM lemmas l
-				JOIN synset_properties_curated spc ON l.synset_id = spc.synset_id
-				WHERE l.lemma = ?
-			)
-		`, lemma).Scan(&exists)
-		if exists {
-			// Lemma exists but concreteness gate filtered all results
-			return []CuratedMatch{}, nil
-		}
 		return nil, fmt.Errorf("%w: %s", ErrLemmaNotFound, lemma)
 	}
 
@@ -487,16 +445,3 @@ func GetLemmaForSynset(db *sql.DB, synsetID string) (string, error) {
 	return lemma, err
 }
 
-// GetConcretenessStats returns the number of synsets with concreteness scores
-// and the total number of synsets in the database.
-func GetConcretenessStats(db *sql.DB) (scored int, total int, err error) {
-	err = db.QueryRow("SELECT COUNT(*) FROM synset_concreteness").Scan(&scored)
-	if err != nil {
-		return 0, 0, fmt.Errorf("GetConcretenessStats scored count failed: %w", err)
-	}
-	err = db.QueryRow("SELECT COUNT(*) FROM synsets").Scan(&total)
-	if err != nil {
-		return 0, 0, fmt.Errorf("GetConcretenessStats total count failed: %w", err)
-	}
-	return scored, total, nil
-}

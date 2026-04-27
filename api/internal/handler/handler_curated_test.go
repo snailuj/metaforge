@@ -84,10 +84,6 @@ func setupCrossDomainTestDB(t *testing.T) *sql.DB {
 			PRIMARY KEY (cluster_id_a, cluster_id_b)
 		);
 
-		CREATE TABLE synset_concreteness (
-			synset_id TEXT PRIMARY KEY, score REAL NOT NULL, source TEXT NOT NULL
-		);
-
 		CREATE TABLE lemma_embeddings (
 			lemma TEXT PRIMARY KEY,
 			embedding BLOB NOT NULL
@@ -260,10 +256,6 @@ func TestHandleSuggest_NoEmbeddingsGraceful(t *testing.T) {
 			cluster_id_a INTEGER NOT NULL,
 			cluster_id_b INTEGER NOT NULL,
 			PRIMARY KEY (cluster_id_a, cluster_id_b)
-		);
-
-		CREATE TABLE synset_concreteness (
-			synset_id TEXT PRIMARY KEY, score REAL NOT NULL, source TEXT NOT NULL
 		);
 
 		INSERT INTO property_vocab_curated VALUES (1, 'v1', 'hot', 'a', 1);
