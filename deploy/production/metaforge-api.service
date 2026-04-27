@@ -1,5 +1,5 @@
 [Unit]
-Description=Metaforge Go API
+Description=Metaforge Go API (production)
 After=network.target
 
 [Service]

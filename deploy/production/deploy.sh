@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Metaforge staging deploy
+# Metaforge production deploy
 # Idempotent: pull -> restore DB -> build Go -> build frontend -> drop Caddy snippet -> reload
 #
 # Drops a single-site Caddy snippet into /etc/caddy/conf.d/.
@@ -13,11 +13,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKTREE="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CADDY_SNIPPETS="/etc/caddy/conf.d"
-DOMAIN="metaforge-next.julianit.me"
-API_PORT=8081
-SERVICE_NAME="metaforge-api-staging"
+DOMAIN="metaforge.julianit.me"
+API_PORT=8080
+SERVICE_NAME="metaforge-api"
 
-echo "=== Metaforge Staging Deploy ==="
+echo "=== Metaforge Production Deploy ==="
 echo "Worktree: ${WORKTREE}"
 echo "Domain:   ${DOMAIN}"
 echo ""
@@ -50,15 +50,15 @@ echo ""
 
 # 5. Install API systemd service
 echo "--- Install API service ---"
-sed "s|__WORKTREE__|${WORKTREE}|g" "${SCRIPT_DIR}/metaforge-api-staging.service" \
+sed "s|__WORKTREE__|${WORKTREE}|g" "${SCRIPT_DIR}/metaforge-api.service" \
     | sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null
 echo "Installed: ${SERVICE_NAME}.service"
 
 # 6. Drop Caddy snippet
 echo "--- Drop Caddy snippet ---"
-sed "s|__WORKTREE__|${WORKTREE}|g" "${SCRIPT_DIR}/metaforge-staging.caddy" \
-    | sudo tee "${CADDY_SNIPPETS}/metaforge-next.caddy" > /dev/null
-echo "Installed: ${CADDY_SNIPPETS}/metaforge-next.caddy"
+sed "s|__WORKTREE__|${WORKTREE}|g" "${SCRIPT_DIR}/metaforge-prod.caddy" \
+    | sudo tee "${CADDY_SNIPPETS}/metaforge.caddy" > /dev/null
+echo "Installed: ${CADDY_SNIPPETS}/metaforge.caddy"
 echo ""
 
 # 7. Reload services
@@ -104,4 +104,4 @@ if [ "$FAIL" -gt 0 ]; then
 fi
 
 echo ""
-echo "Staging is live at https://${DOMAIN}/"
+echo "Production is live at https://${DOMAIN}/"

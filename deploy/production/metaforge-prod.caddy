@@ -1,7 +1,3 @@
-{
-    storage file_system /var/lib/caddy
-}
-
 metaforge.julianit.me {
     handle /thesaurus/* {
         reverse_proxy 127.0.0.1:8080
