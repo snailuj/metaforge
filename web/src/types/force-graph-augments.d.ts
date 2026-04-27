@@ -19,6 +19,7 @@ import type { GraphLink } from '@/graph/types'
 
 declare module '3d-force-graph' {
   interface ForceGraph3DInstance {
+    showNavInfo(show: boolean): ForceGraph3DInstance
     linkColor(accessor: (link: GraphLink) => string): ForceGraph3DInstance
     linkWidth(accessor: (link: GraphLink) => number): ForceGraph3DInstance
   }

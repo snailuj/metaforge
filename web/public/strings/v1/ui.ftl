@@ -3,7 +3,7 @@
 search-placeholder = Search for a word…
 search-aria-label = Search the thesaurus
 
-status-idle = Type a word to explore
+status-idle = Explore language in 3D — start typing above
 status-loading = Looking up…
 error-generic = Something went wrong. Please try again.
 

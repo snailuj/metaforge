@@ -14,6 +14,7 @@ let capturedNodeThreeObject: ((node: unknown) => unknown) | null = null
 let capturedOnNodeClick: ((node: unknown) => void) | null = null
 let capturedOnNodeHover: ((node: unknown | null, previousNode: unknown | null) => void) | null = null
 let capturedControlType: string | undefined = undefined
+let capturedShowNavInfo: boolean | undefined = undefined
 
 const mockCamera = { position: { x: 0, y: 0, z: 100 } }
 const mockControls = { enableDamping: false, dampingFactor: 0 }
@@ -78,6 +79,12 @@ const chainable: Record<string, unknown> = new Proxy({}, {
         return chainable
       }
     }
+    if (prop === 'showNavInfo') {
+      return (val: boolean) => {
+        capturedShowNavInfo = val
+        return chainable
+      }
+    }
     if (prop === 'camera') return () => mockCamera
     if (prop === 'controls') return () => mockControls
     return () => chainable
@@ -136,6 +143,7 @@ describe('MfForceGraph', () => {
     capturedOnNodeClick = null
     capturedOnNodeHover = null
     capturedControlType = undefined
+    capturedShowNavInfo = undefined
     mockCamera.position.z = 100
     mockControls.enableDamping = false
     mockControls.dampingFactor = 0
@@ -222,6 +230,10 @@ describe('MfForceGraph', () => {
 
   it('uses orbit controls', () => {
     expect(capturedControlType).toBe('orbit')
+  })
+
+  it('hides the library nav-info overlay', () => {
+    expect(capturedShowNavInfo).toBe(false)
   })
 
   it('does not dispatch mf-node-select for order-2 nodes', () => {

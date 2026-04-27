@@ -55,6 +55,7 @@ export class MfForceGraph extends LitElement {
     if (!this.container) return
 
     this.graph = ForceGraph3D({ controlType: 'orbit' })(this.container)
+      .showNavInfo(false)
       .backgroundColor('#1a1a2e')
       .nodeColor((n: unknown) => {
         const node = n as GraphNode
