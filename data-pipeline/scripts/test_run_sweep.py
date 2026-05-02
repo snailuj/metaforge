@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import sys
 from pathlib import Path
@@ -457,3 +458,86 @@ def test_per_variation_isolation_uses_fresh_connection(tmp_path):
 
     # Two variations → two opens (one per variation, isolation requirement)
     assert len(opened) == 2
+
+
+# --- main() exit-code escalation --------------------------------------------
+
+def _write_sweep_config(tmp_path: Path, variations: list[dict]) -> tuple[Path, Path]:
+    """Build a sweep config JSON file plus its referenced fixtures.
+
+    Returns (config_path, output_path) so the test can drive ``main()`` and
+    assert on the integer return value without relying on ``sys.exit``.
+    """
+    _, cfg = _base_config(tmp_path, variations)
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    output_path = tmp_path / "results.json"
+    return cfg_path, output_path
+
+
+def test_main_exits_zero_when_all_variations_succeed(tmp_path):
+    cfg_path, output_path = _write_sweep_config(tmp_path, [
+        {"name": "v1", "scoring": "jaccard_salience"},
+        {"name": "v2", "scoring": "jaccard_raw"},
+    ])
+    rc = run_sweep.main(argv=[
+        "--config", str(cfg_path),
+        "--output", str(output_path),
+    ])
+    assert rc == 0
+
+
+def test_main_exits_two_when_all_variations_fail(tmp_path):
+    cfg_path, output_path = _write_sweep_config(tmp_path, [
+        {"name": "bad1", "scoring": "nonexistent_a"},
+        {"name": "bad2", "scoring": "nonexistent_b"},
+    ])
+    rc = run_sweep.main(argv=[
+        "--config", str(cfg_path),
+        "--output", str(output_path),
+    ])
+    assert rc == 2
+
+
+def test_main_exits_one_when_some_variations_fail(tmp_path):
+    cfg_path, output_path = _write_sweep_config(tmp_path, [
+        {"name": "good", "scoring": "jaccard_salience"},
+        {"name": "bad",  "scoring": "nonexistent_formula"},
+    ])
+    rc = run_sweep.main(argv=[
+        "--config", str(cfg_path),
+        "--output", str(output_path),
+    ])
+    assert rc == 1
+
+
+def test_main_logs_error_when_all_variations_fail(tmp_path, caplog):
+    cfg_path, output_path = _write_sweep_config(tmp_path, [
+        {"name": "bad1", "scoring": "nonexistent_a"},
+        {"name": "bad2", "scoring": "nonexistent_b"},
+    ])
+    with caplog.at_level(logging.ERROR, logger="run_sweep"):
+        run_sweep.main(argv=[
+            "--config", str(cfg_path),
+            "--output", str(output_path),
+        ])
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert error_records, "expected an ERROR-level record on total failure"
+    assert any("ALL" in r.getMessage() for r in error_records)
+
+
+def test_main_logs_warning_when_some_variations_fail(tmp_path, caplog):
+    cfg_path, output_path = _write_sweep_config(tmp_path, [
+        {"name": "good", "scoring": "jaccard_salience"},
+        {"name": "bad",  "scoring": "nonexistent_formula"},
+    ])
+    with caplog.at_level(logging.WARNING, logger="run_sweep"):
+        run_sweep.main(argv=[
+            "--config", str(cfg_path),
+            "--output", str(output_path),
+        ])
+    finish_warnings = [
+        r for r in caplog.records
+        if r.levelno == logging.WARNING and "sweep finish" in r.getMessage()
+    ]
+    assert finish_warnings, "expected a WARNING 'sweep finish' record on partial failure"

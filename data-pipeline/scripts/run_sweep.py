@@ -468,7 +468,21 @@ def render_markdown_report(sweep_result: dict[str, Any]) -> str:
 
 # --- CLI ---------------------------------------------------------------------
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
+    """CLI entrypoint.
+
+    Returns an integer exit code so CI can distinguish three outcomes:
+      * 0 — every variation succeeded
+      * 1 — partial failure (some variations failed, some succeeded)
+      * 2 — catastrophic failure (every variation failed); a separate code
+            from 1 lets a scheduled job bisect "the sweep itself is broken"
+            (schema drift, missing fixture, malformed config) from "one
+            variation has a bad parameter".
+
+    ``argv`` is accepted for testability — pytest can drive ``main`` without
+    ``sys.exit`` killing the process. When ``argv`` is None, argparse falls
+    back to ``sys.argv[1:]`` as usual.
+    """
     parser = argparse.ArgumentParser(
         description="Parameter sweep harness over evaluate_aptness",
     )
@@ -488,7 +502,7 @@ def main() -> None:
         "--verbose", "-v", action="store_true",
         help="Enable debug logging",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -508,6 +522,24 @@ def main() -> None:
     report_path.write_text(render_markdown_report(sweep_result))
     log.info("wrote markdown report to %s", report_path)
 
+    # Escalate failures to the exit code so scheduled/CI invocations can
+    # detect a broken sweep — the per-variation status row is not enough
+    # because a fully-broken sweep still writes a "successful" artefact.
+    variations = sweep_result["variations"]
+    total = len(variations)
+    failed_count = sum(1 for v in variations if v["status"] == "failed")
+
+    if failed_count == 0:
+        return 0
+    if failed_count == total:
+        log.error("sweep finish: ALL %d variation(s) failed", total)
+        return 2
+    log.warning(
+        "sweep finish: ok=%d failed=%d of %d (partial failure)",
+        total - failed_count, failed_count, total,
+    )
+    return 1
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
