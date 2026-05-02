@@ -277,7 +277,10 @@ CREATE TABLE IF NOT EXISTS cluster_antonyms (
 
 CREATE TABLE IF NOT EXISTS synset_concreteness (
     synset_id TEXT PRIMARY KEY,
-    score REAL NOT NULL,
+    -- Brysbaert concreteness lives on a 1.0-5.0 Likert scale; bound the
+    -- column so a regression bug (NaN, extrapolation) cannot persist
+    -- silently corrupt scores.
+    score REAL NOT NULL CHECK (score >= 1.0 AND score <= 5.0),
     source TEXT NOT NULL,
     FOREIGN KEY (synset_id) REFERENCES synsets(synset_id)
 );
