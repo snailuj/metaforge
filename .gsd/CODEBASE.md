@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-02T15:03:38Z | Files: 380 | Described: 0/380
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T15:03:38Z","fingerprint":"ccd28ecc4f12b0c96955f9c14dd1188b04805eb6","fileCount":380,"truncated":false} -->
+Generated: 2026-05-02T15:44:14Z | Files: 384 | Described: 0/384
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T15:44:14Z","fingerprint":"57b9c447c03974f6acef617d0b33607a7a9165de","fileCount":384,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -261,12 +261,16 @@ Generated: 2026-05-02T15:03:38Z | Files: 380 | Described: 0/380
 - `data-pipeline/output/evolution/exploration_log.json`
 
 ### data-pipeline/scripts/
-- *(58 files: 56 .py, 1 .md, 1 .sh)*
+- *(60 files: 58 .py, 1 .md, 1 .sh)*
 
 ### data-pipeline/scripts/analysis/
 - `data-pipeline/scripts/analysis/monosemy_coverage.py`
 - `data-pipeline/scripts/analysis/snap_audit.py`
 - `data-pipeline/scripts/analysis/test_snap_audit.py`
+
+### data-pipeline/sweeps/
+- `data-pipeline/sweeps/baseline_v2.yaml`
+- `data-pipeline/sweeps/README.md`
 
 ### deploy/
 - `deploy/cleanup-legacy-services.sh`

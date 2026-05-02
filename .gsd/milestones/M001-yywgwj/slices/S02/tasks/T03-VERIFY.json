@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T03",
+  "unitId": "M001-yywgwj/S02/T03",
+  "timestamp": 1777736534172,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "source .venv/bin/activate",
+      "exitCode": 127,
+      "durationMs": 7,
+      "verdict": "fail"
+    },
+    {
+      "command": "python data-pipeline/scripts/run_sweep.py --config data-pipeline/sweeps/baseline_v2.yaml --output /tmp/sweep_baseline_v2.json --report /tmp/sweep_baseline_v2.md",
+      "exitCode": 127,
+      "durationMs": 120108,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}
