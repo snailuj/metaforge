@@ -40,17 +40,35 @@ def test_explode_apt_yields_one_row_per_paraphrase_token():
         {"idx": "1", "s0": "Latest <b>approach</b> to debt",
          "genre": "NEWS", "human_ans": "direction method plan"},
     ]
-    out = list(explode_apt(rows))
-    assert len(out) == 3
-    assert {r["paraphrase"] for r in out} == {"direction", "method", "plan"}
-    assert all(r["label"] == "apt" for r in out)
-    assert all(r["target"] == "approach" for r in out)
-    assert all(r["genre"] == "NEWS" for r in out)
+    records, skipped = explode_apt(rows)
+    assert len(records) == 3
+    assert {r["paraphrase"] for r in records} == {"direction", "method", "plan"}
+    assert all(r["label"] == "apt" for r in records)
+    assert all(r["target"] == "approach" for r in records)
+    assert all(r["genre"] == "NEWS" for r in records)
+    assert skipped == 0
 
 
 def test_explode_apt_skips_blank_human_ans():
     rows = [{"idx": "1", "s0": "x", "genre": "", "human_ans": ""}]
-    assert list(explode_apt(rows)) == []
+    records, skipped = explode_apt(rows)
+    assert records == []
+    assert skipped == 1
+
+
+def test_explode_apt_counts_blank_rows_alongside_good_rows():
+    """Blank human_ans rows are tallied for ETL observability."""
+    rows = [
+        {"idx": "1", "s0": "Latest <b>approach</b> to debt",
+         "genre": "NEWS", "human_ans": "direction"},
+        {"idx": "2", "s0": "He <b>x</b>", "genre": "NEWS", "human_ans": ""},
+        {"idx": "3", "s0": "She <b>y</b>", "genre": "NEWS"},  # missing key
+        {"idx": "4", "s0": "It <b>z</b> went", "genre": "NEWS",
+         "human_ans": "method plan"},
+    ]
+    records, skipped = explode_apt(rows)
+    assert len(records) == 3  # 1 + 2
+    assert skipped == 2
 
 
 def test_emit_inapt_uses_s2_word_and_joins_genre():

@@ -57,17 +57,29 @@ def load_judgement(path: Path) -> list[dict[str, str]]:
     return rows
 
 
-def explode_apt(generation_rows: list[dict[str, str]]) -> Iterator[dict[str, object]]:
+def explode_apt(
+    generation_rows: list[dict[str, str]],
+) -> tuple[list[dict[str, object]], int]:
+    """Explode generation rows into one record per paraphrase token.
+
+    Returns ``(records, skipped)`` where ``skipped`` is the count of input
+    rows whose ``human_ans`` was missing or blank (no paraphrase tokens were
+    yielded). The dataset is small (~10k rows) so materialising the list is
+    fine and lets us tally skips for ETL observability.
+    """
+    records: list[dict[str, object]] = []
+    skipped = 0
     for row in generation_rows:
         s0 = row.get("s0", "")
         target = extract_target(s0)
         genre = row.get("genre", "")
         s0_idx = row.get("idx", "")
+        emitted_for_row = 0
         for paraphrase in (row.get("human_ans") or "").split():
             paraphrase = paraphrase.strip()
             if not paraphrase:
                 continue
-            yield {
+            records.append({
                 "metaphor": s0,
                 "target": target,
                 "paraphrase": paraphrase,
@@ -75,7 +87,11 @@ def explode_apt(generation_rows: list[dict[str, str]]) -> Iterator[dict[str, obj
                 "genre": genre,
                 "s0_idx": s0_idx,
                 "source_file": "correct_answers/for_generation.csv",
-            }
+            })
+            emitted_for_row += 1
+        if emitted_for_row == 0:
+            skipped += 1
+    return records, skipped
 
 
 def emit_inapt(
@@ -141,7 +157,9 @@ def preprocess(raw_dir: Path, out_dir: Path) -> tuple[int, int]:
     judgement_rows = load_judgement(judgement_csv)
     genre_by_idx = {row["idx"]: row.get("genre", "") for row in generation_rows}
 
-    apt_count = write_jsonl(explode_apt(generation_rows), out_dir / "munch_apt.jsonl")
+    apt_records, blank_human_ans = explode_apt(generation_rows)
+    log.info("explode_apt: %d rows had blank human_ans", blank_human_ans)
+    apt_count = write_jsonl(iter(apt_records), out_dir / "munch_apt.jsonl")
     inapt_count = write_jsonl(
         emit_inapt(judgement_rows, genre_by_idx), out_dir / "munch_inapt.jsonl"
     )
