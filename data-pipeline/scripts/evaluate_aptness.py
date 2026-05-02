@@ -256,20 +256,30 @@ def aggregate_metrics(
 
 # --- Orchestrator ------------------------------------------------------------
 
+@dataclass(frozen=True)
+class CohortResult:
+    """Aggregated outcome of scoring one cohort (apt or inapt).
+
+    ``scores`` holds only values from pairs with status ``scored`` — the
+    coverage-gap counters are kept separate so they cannot deflate the
+    cohort mean. A frozen dataclass is used (rather than a positional
+    tuple) so adding a future counter does not silently shift call-site
+    indices.
+    """
+    scores: list[float]
+    per_pair: list[dict]
+    unresolved: int
+    no_properties: int
+
+
 def _score_cohort(
     conn: sqlite3.Connection,
     pairs: list[dict],
     word_a_key: str,
     word_b_key: str,
     cls: str,
-) -> tuple[list[float], list[dict], int, int]:
-    """Score every pair in a cohort.
-
-    Returns ``(scores, per_pair, unresolved, no_properties)``. Only
-    pairs with status ``scored`` push a value into ``scores``; the two
-    counters track coverage gaps separately so they don't deflate the
-    cohort mean.
-    """
+) -> CohortResult:
+    """Score every pair in a cohort, returning a :class:`CohortResult`."""
     scores: list[float] = []
     per_pair: list[dict] = []
     unresolved = 0
@@ -322,7 +332,12 @@ def _score_cohort(
             "score": round(result.score, 6),
             "resolved": True,
         })
-    return scores, per_pair, unresolved, no_properties
+    return CohortResult(
+        scores=scores,
+        per_pair=per_pair,
+        unresolved=unresolved,
+        no_properties=no_properties,
+    )
 
 
 def evaluate(
@@ -341,23 +356,21 @@ def evaluate(
         len(apt_pairs), len(inapt_controls),
     )
 
-    apt_scores, apt_pp, apt_unres, apt_noprops = _score_cohort(
-        conn, apt_pairs, "source", "target", "apt",
-    )
-    inapt_scores, inapt_pp, inapt_unres, inapt_noprops = _score_cohort(
+    apt = _score_cohort(conn, apt_pairs, "source", "target", "apt")
+    inapt = _score_cohort(
         conn, inapt_controls, "target", "paraphrase", "inapt",
     )
 
     log.info(
         "Scored: apt=%d/%d (unresolved=%d, no_properties=%d), "
         "inapt=%d/%d (unresolved=%d, no_properties=%d)",
-        len(apt_scores), len(apt_pairs), apt_unres, apt_noprops,
-        len(inapt_scores), len(inapt_controls), inapt_unres, inapt_noprops,
+        len(apt.scores), len(apt_pairs), apt.unresolved, apt.no_properties,
+        len(inapt.scores), len(inapt_controls), inapt.unresolved, inapt.no_properties,
     )
 
-    threshold = _percentile(inapt_scores, threshold_percentile)
-    classification = classify_aptness(apt_scores, inapt_scores, threshold)
-    agg = aggregate_metrics(apt_scores, inapt_scores)
+    threshold = _percentile(inapt.scores, threshold_percentile)
+    classification = classify_aptness(apt.scores, inapt.scores, threshold)
+    agg = aggregate_metrics(apt.scores, inapt.scores)
 
     return {
         "aptness_rate": round(classification["aptness_rate"], 6),
@@ -367,12 +380,12 @@ def evaluate(
         "separation_score": agg["separation_score"],
         "aggregate": {
             **agg,
-            "apt_unresolved": apt_unres,
-            "inapt_unresolved": inapt_unres,
-            "apt_no_properties": apt_noprops,
-            "inapt_no_properties": inapt_noprops,
+            "apt_unresolved": apt.unresolved,
+            "inapt_unresolved": inapt.unresolved,
+            "apt_no_properties": apt.no_properties,
+            "inapt_no_properties": inapt.no_properties,
         },
-        "per_pair_scores": apt_pp + inapt_pp,
+        "per_pair_scores": apt.per_pair + inapt.per_pair,
         "config": {
             "threshold": round(threshold, 6),
             "threshold_percentile": threshold_percentile,
