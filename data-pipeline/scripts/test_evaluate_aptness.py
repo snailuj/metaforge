@@ -604,3 +604,58 @@ def test_main_cli_rejects_unregistered_scoring(tmp_path, monkeypatch):
     ])
     with pytest.raises(SystemExit):
         evaluate_aptness.main()
+
+
+# --- ScoringFn contract ------------------------------------------------------
+
+def test_scoring_fn_alias_uses_mapping_not_dict():
+    """ScoringFn must accept any Mapping[int, float], not just dict.
+
+    Module docstring promises Mapping inputs — the alias should match so
+    a custom scoring fn typed as ``Mapping[int, float]`` is assignable to
+    ``ScoringFn`` and can be registered + dispatched via the public API.
+    """
+    import typing
+    from collections.abc import Mapping
+
+    # Inspect the alias args. Callable aliases stringify args, so check
+    # via typing.get_args — the parameter types should be Mapping-based.
+    args = typing.get_args(evaluate_aptness.ScoringFn)
+    # Callable[[A, B], R] → get_args returns ([A, B], R)
+    assert args, "ScoringFn alias has no resolvable args"
+    param_types = args[0]
+    for pt in param_types:
+        origin = typing.get_origin(pt)
+        # Must be a subtype of collections.abc.Mapping (not dict).
+        assert origin is Mapping, (
+            f"ScoringFn parameter origin must be Mapping, got {origin!r}"
+        )
+
+
+def test_custom_mapping_typed_scoring_fn_dispatches_via_public_api():
+    """A scoring fn typed as Mapping[int, float] must register + dispatch."""
+    from collections.abc import Mapping
+
+    def _mean_min_score(
+        pa: Mapping[int, float], pb: Mapping[int, float],
+    ) -> float:
+        shared = set(pa) & set(pb)
+        if not shared:
+            return 0.0
+        return sum(min(pa[c], pb[c]) for c in shared) / len(shared)
+
+    SCORING_FNS["_test_mean_min"] = _mean_min_score
+    try:
+        conn = _build_fixture_db()
+        try:
+            result = score_pair(
+                conn, "anger", "fire",
+                scoring_fn=SCORING_FNS["_test_mean_min"],
+            )
+        finally:
+            conn.close()
+        assert result.status == "scored"
+        assert result.score is not None
+        assert 0.0 <= result.score <= 1.0
+    finally:
+        SCORING_FNS.pop("_test_mean_min", None)

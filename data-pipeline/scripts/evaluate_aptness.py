@@ -42,6 +42,7 @@ import logging
 import math
 import sqlite3
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal
@@ -100,7 +101,7 @@ def _get_properties(conn: sqlite3.Connection, synset_id: str) -> dict[int, float
 
 # --- Scoring registry --------------------------------------------------------
 
-ScoringFn = Callable[[dict[int, float], dict[int, float]], float]
+ScoringFn = Callable[[Mapping[int, float], Mapping[int, float]], float]
 """Signature: (pa, pb) -> float in [0.0, 1.0].
 
 Inputs are ``{cluster_id: salience_sum}`` mappings — the existing
@@ -113,7 +114,7 @@ defensively for direct unit-test use.
 
 
 def _jaccard_salience(
-    pa: dict[int, float], pb: dict[int, float],
+    pa: Mapping[int, float], pb: Mapping[int, float],
 ) -> float:
     """Salience-weighted Jaccard over shared cluster_ids.
 
@@ -131,7 +132,7 @@ def _jaccard_salience(
 
 
 def _jaccard_raw(
-    pa: dict[int, float], pb: dict[int, float],
+    pa: Mapping[int, float], pb: Mapping[int, float],
 ) -> float:
     """Unweighted set-Jaccard over cluster_ids.
 
@@ -147,7 +148,7 @@ def _jaccard_raw(
 
 
 def _cosine_salience(
-    pa: dict[int, float], pb: dict[int, float],
+    pa: Mapping[int, float], pb: Mapping[int, float],
 ) -> float:
     """Cosine similarity over salience vectors aligned by cluster_id.
 
