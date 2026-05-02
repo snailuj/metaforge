@@ -152,7 +152,8 @@ def curate_properties(
     if rejected_count > 0:
         log.warning("rejected %d multi-word/hyphenated properties", rejected_count)
 
-    count = 0
+    attempted = 0
+    inserted = 0
     for prop in sorted(all_props):
         emb = _get_embedding(prop, vectors)
         if emb is None and re.search(r"[-\s/]", prop):
@@ -160,16 +161,17 @@ def curate_properties(
 
         is_oov = 1 if emb is None else 0
 
-        conn.execute(
+        cur = conn.execute(
             """INSERT OR IGNORE INTO property_vocabulary (text, embedding, is_oov, source)
                VALUES (?, ?, ?, 'pilot')""",
             (prop, emb, is_oov),
         )
-        count += 1
+        attempted += 1
+        inserted += cur.rowcount
 
     conn.commit()
-    print(f"  Curated {count} properties")
-    return count
+    print(f"  Curated {inserted} properties ({attempted - inserted} duplicates ignored)")
+    return inserted
 
 
 # =============================================================================
@@ -193,7 +195,8 @@ def populate_synset_properties(
     for row in conn.execute("SELECT property_id, text FROM property_vocabulary"):
         prop_ids[row[1]] = row[0]
 
-    links = 0
+    attempted = 0
+    inserted = 0
     for synset in enrichment_data.get("synsets", []):
         synset_id = synset["id"]
         usage_example = synset.get("usage_example")
@@ -221,17 +224,18 @@ def populate_synset_properties(
                     property_type = prop.get("type")
                     relation = prop.get("relation")
 
-                conn.execute(
+                cur = conn.execute(
                     """INSERT OR IGNORE INTO synset_properties
                        (synset_id, property_id, salience, property_type, relation)
                        VALUES (?, ?, ?, ?, ?)""",
                     (synset_id, prop_ids[prop_filtered], salience, property_type, relation),
                 )
-                links += 1
+                attempted += 1
+                inserted += cur.rowcount
 
     conn.commit()
-    print(f"  Created {links} synset-property links")
-    return links
+    print(f"  Created {inserted} synset-property links ({attempted - inserted} duplicates ignored)")
+    return inserted
 
 
 # =============================================================================
@@ -246,20 +250,22 @@ def populate_lemma_metadata(
 
     Returns the number of metadata entries inserted.
     """
-    count = 0
+    attempted = 0
+    inserted = 0
     for synset in enrichment_data.get("synsets", []):
         synset_id = synset["id"]
         for meta in synset.get("lemma_metadata", []):
-            conn.execute(
+            cur = conn.execute(
                 """INSERT OR IGNORE INTO lemma_metadata
                    (lemma, synset_id, register, connotation)
                    VALUES (?, ?, ?, ?)""",
                 (meta["lemma"], synset_id, meta.get("register"), meta.get("connotation")),
             )
-            count += 1
+            attempted += 1
+            inserted += cur.rowcount
     conn.commit()
-    print(f"  Stored {count} lemma metadata entries")
-    return count
+    print(f"  Stored {inserted} lemma metadata entries ({attempted - inserted} duplicates ignored)")
+    return inserted
 
 
 # =============================================================================
@@ -353,9 +359,12 @@ def run_pipeline(
             model_used = data.get("config", {}).get("model", "unknown")
 
             total_props += curate_properties(conn, data, vectors)
-            lemma_emb_count = store_lemma_embeddings(conn, vectors)
             total_links += populate_synset_properties(conn, data, model_used)
             total_lemma_metadata += populate_lemma_metadata(conn, data)
+
+        # Lemma embeddings depend only on the lexicon's lemmas table and the
+        # FastText vectors — neither varies per enrichment file. Run once.
+        lemma_emb_count = store_lemma_embeddings(conn, vectors)
 
         # --- Curated vocabulary pipeline ---
         print("\n  --- Running downstream steps ---")
@@ -400,7 +409,19 @@ def main():
         default=str(FASTTEXT_VEC),
         help="Path to FastText .vec file",
     )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Enable DEBUG-level logging (default INFO)",
+    )
     args = parser.parse_args()
+
+    # Without basicConfig, log.info() calls in pipeline modules (utils.py
+    # FastText loader progress, etc.) are silently dropped. Configure root
+    # logging here so submodule progress surfaces in the script's output.
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
 
     run_pipeline(args.db, args.enrichment, args.fasttext)
 
