@@ -12,6 +12,8 @@ from preprocess_munch import (
     extract_target,
     explode_apt,
     emit_inapt,
+    load_generation,
+    load_judgement,
     preprocess,
 )
 
@@ -134,6 +136,32 @@ def test_preprocess_end_to_end(tmp_path: Path):
         rec = json.loads(line)
         assert {"metaphor", "target", "paraphrase", "label", "genre", "s0_idx"} <= rec.keys()
         assert rec["label"] in {"apt", "inapt"}
+
+
+def test_load_generation_includes_path_on_csv_error(tmp_path: Path):
+    """Malformed CSV must surface the file path in the raised exception."""
+    import csv as _csv
+    bad = tmp_path / "bad_generation.csv"
+    # Unterminated quoted field — csv.Error on read
+    bad.write_text('i0,idx,s0,human_ans\n0,1,"unterminated quote,foo\n')
+    try:
+        load_generation(bad)
+    except (_csv.Error, RuntimeError) as exc:
+        assert str(bad) in str(exc)
+    else:
+        raise AssertionError("expected csv.Error/RuntimeError")
+
+
+def test_load_judgement_includes_path_on_csv_error(tmp_path: Path):
+    import csv as _csv
+    bad = tmp_path / "bad_judgement.csv"
+    bad.write_text('i0,s0_idx,s0\n0,1,"unterminated\n')
+    try:
+        load_judgement(bad)
+    except (_csv.Error, RuntimeError) as exc:
+        assert str(bad) in str(exc)
+    else:
+        raise AssertionError("expected csv.Error/RuntimeError")
 
 
 def test_preprocess_raises_when_source_missing(tmp_path: Path):

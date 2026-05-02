@@ -43,16 +43,37 @@ def extract_target(sentence: str) -> str | None:
     return match.group(1) if match else None
 
 
-def load_generation(path: Path) -> list[dict[str, str]]:
+def _read_csv_with_context(path: Path) -> list[dict[str, str]]:
+    """Read a CSV via DictReader, re-raising csv errors with file/line context.
+
+    Without this wrapper, ``csv.Error`` bubbles up bare (no path or row number),
+    making malformed CSVs hard to triage. We chain the original via ``from`` so
+    the underlying parser detail is preserved.
+    """
+    rows: list[dict[str, str]] = []
     with path.open(newline="", encoding="utf-8") as fh:
-        rows = list(csv.DictReader(fh))
+        # strict=True turns silent quote-handling fallbacks into csv.Error so
+        # malformed input is caught here rather than producing truncated rows.
+        reader = csv.DictReader(fh, strict=True)
+        try:
+            for row in reader:
+                rows.append(row)
+        except csv.Error as exc:
+            # reader.line_num is the 1-based line of the underlying file
+            raise csv.Error(
+                f"CSV parse failure in {path} at line {reader.line_num}: {exc}"
+            ) from exc
+    return rows
+
+
+def load_generation(path: Path) -> list[dict[str, str]]:
+    rows = _read_csv_with_context(path)
     log.info("loaded %d rows from %s", len(rows), path.name)
     return rows
 
 
 def load_judgement(path: Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as fh:
-        rows = list(csv.DictReader(fh))
+    rows = _read_csv_with_context(path)
     log.info("loaded %d rows from %s", len(rows), path.name)
     return rows
 
