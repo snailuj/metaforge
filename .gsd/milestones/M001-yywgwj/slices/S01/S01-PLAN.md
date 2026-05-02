@@ -21,12 +21,12 @@ V2 database deployed to staging; evaluator script callable from S02 sweep harnes
 
 ## Tasks
 
-- [ ] **T01: Import V2 enrichment JSON into database** `est:30m`
+- [x] **T01: Import V2 enrichment JSON into database** `est:30m`
   Run enrich.sh with both V2 enrichment files (enrichment_4000_sonnet_v2_20260224.json + enrichment_8000_sonnet_v2_20260306.json) to populate the database with structured properties. The pipeline restores from PRE_ENRICH.sql, imports V2 JSON, applies schema migrations (salience, property_type, relation columns), snaps to curated vocabulary with salience accumulation, and exports the updated SQL dump. Skip the test duplicate file.
   - Files: `data-pipeline/enrich.sh`, `data-pipeline/scripts/enrich_pipeline.py`, `data-pipeline/output/lexicon_v2.db`
   - Verify: sqlite3 lexicon_v2.db 'SELECT COUNT(*) FROM synset_properties WHERE salience != 1.0' returns >= 10000; sqlite3 lexicon_v2.db 'SELECT COUNT(DISTINCT property_type) FROM synset_properties WHERE property_type IS NOT NULL' returns 6
 
-- [ ] **T02: Verify data integrity and run test suites** `est:15m`
+- [x] **T02: Verify data integrity and run test suites** `est:15m`
   Validate V2 data quality: check salience distribution spans 0.3-1.0 (not all defaults), all 6 property types present (physical, behaviour, effect, functional, emotional, social), snap accumulation producing meaningful salience_sum values in curated table. Run Python test suite (data-pipeline) and Go test suite (api/) to confirm no regressions from the V2-populated database.
   - Files: `data-pipeline/scripts/test_enrich_pipeline.py`, `data-pipeline/scripts/test_enrich_properties.py`, `api/internal/db/db_test.go`, `api/internal/forge/forge_test.go`
   - Verify: python -m pytest data-pipeline/scripts/ -v passes; cd api && go test ./... passes; salience distribution check shows values across 0.3-1.0 range
