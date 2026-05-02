@@ -350,6 +350,15 @@ def main() -> None:
         format="%(levelname)s: %(message)s",
     )
 
+    db_path = Path(args.db)
+    if not db_path.is_file():
+        # sqlite3.connect would silently create an empty DB here, leading to
+        # zero-result runs that are hard to diagnose. Fail fast instead.
+        raise FileNotFoundError(
+            f"--db points at non-existent file: {args.db} "
+            f"(sqlite3 would silently create an empty DB; refusing)"
+        )
+
     conn = sqlite3.connect(args.db)
     try:
         result = evaluate(
