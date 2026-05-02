@@ -103,9 +103,23 @@ class PairScore:
       * ``no_properties`` — both resolved but at least one synset has zero
                             rows in synset_properties_curated (data
                             coverage gap); ``score`` is None.
+
+    Invariant: ``score is None`` iff ``status != 'scored'`` — enforced at
+    construction so cohort logic can rely on it without defensive checks.
     """
     status: PairStatus
-    score: Optional[float]
+    score: float | None
+
+    def __post_init__(self) -> None:
+        if self.status == "scored" and self.score is None:
+            raise ValueError(
+                "PairScore(status='scored') requires a numeric score; got None"
+            )
+        if self.status != "scored" and self.score is not None:
+            raise ValueError(
+                f"PairScore(status='{self.status}') must have score=None; "
+                f"got {self.score!r}"
+            )
 
 
 def score_pair(
@@ -298,8 +312,7 @@ def _score_cohort(
                 "resolved": True,
             })
             continue
-        # status == "scored"
-        assert result.score is not None  # narrows type for mypy/readers
+        # status == "scored" — PairScore.__post_init__ guarantees score is set.
         scores.append(result.score)
         per_pair.append({
             "class": cls,

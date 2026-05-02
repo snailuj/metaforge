@@ -143,6 +143,32 @@ def test_score_pair_is_symmetric():
     assert a.score == b.score
 
 
+def test_pair_score_rejects_inconsistent_status_score_combos():
+    """The dataclass enforces "score is None iff status != 'scored'".
+
+    Without the runtime check, a caller could construct a PairScore that
+    silently breaks the invariant the cohort logic relies on (e.g. a
+    'scored' result with score=None would crash _score_cohort, an
+    'unresolved' with a real score would deflate counters).
+    """
+    # Legal constructions
+    PairScore(status="scored", score=0.5)
+    PairScore(status="unresolved", score=None)
+    PairScore(status="no_properties", score=None)
+
+    # Illegal: scored without a score
+    with pytest.raises(ValueError, match="scored.*score"):
+        PairScore(status="scored", score=None)
+
+    # Illegal: unresolved with a score
+    with pytest.raises(ValueError, match="unresolved.*score"):
+        PairScore(status="unresolved", score=0.5)
+
+    # Illegal: no_properties with a score
+    with pytest.raises(ValueError, match="no_properties.*score"):
+        PairScore(status="no_properties", score=0.0)
+
+
 # --- Loaders -----------------------------------------------------------------
 
 def test_load_apt_pairs_reads_metaphor_pairs_v2(tmp_path):
