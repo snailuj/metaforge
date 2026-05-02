@@ -36,7 +36,7 @@ V2 database deployed to staging; evaluator script callable from S02 sweep harnes
   - Files: `data-pipeline/fixtures/munch_apt.jsonl`, `data-pipeline/fixtures/munch_inapt.jsonl`, `data-pipeline/scripts/preprocess_munch.py`
   - Verify: wc -l munch_apt.jsonl returns >= 10000; wc -l munch_inapt.jsonl returns >= 1400; python -c to validate JSON structure of first 10 lines of each file
 
-- [ ] **T04: Build discriminative aptness evaluator** `est:1h`
+- [x] **T04: Build discriminative aptness evaluator** `est:1h`
   Build a Python script that scores metaphor pairings as apt or inapt. The evaluator takes a list of (target, vehicle) pairs, runs them through the forge scoring pipeline, and classifies each as apt or inapt using MUNCH-calibrated thresholds. Primary metrics: aptness rate (proportion of top-10 results classified apt), separation score (mean apt score minus mean inapt control score). Uses existing forge API or direct DB queries for scoring. Outputs structured JSON with per-pair scores and aggregate statistics.
   - Files: `data-pipeline/scripts/evaluate_aptness.py`, `data-pipeline/scripts/test_evaluate_aptness.py`
   - Verify: python evaluate_aptness.py --pairs data-pipeline/fixtures/metaphor_pairs_v2.json --controls data-pipeline/fixtures/munch_inapt.jsonl produces JSON output with separation_score > 0.0; test suite passes
