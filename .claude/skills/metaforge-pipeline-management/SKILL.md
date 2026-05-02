@@ -11,7 +11,7 @@ description: >
 
 # Metaforge Pipeline Management
 
-Manages the enrichment lifecycle for `lexicon_v2.db`. Four operations, plus
+Manages the enrichment lifecycle for `lexicon_v2.db`. Five operations, plus
 restore and dump workflows.
 
 **See also:** `data-pipeline/CLAUDE.md` for architecture overview and key concepts.
@@ -149,6 +149,27 @@ python data-pipeline/scripts/evaluate_mrr.py \
 - `--verbose` — debug logging
 
 The script starts and stops the Go API server automatically. The server must be buildable: `cd api && go build ./cmd/metaforge`.
+
+---
+
+## Operation 5: Run a parameter sweep
+
+Run `evaluate_aptness` once per variation in a sweep config (YAML or JSON) and emit a structured JSON result plus a ranked markdown comparison table. Per-variation failures are captured into the result with `status='failed'` rather than aborting the sweep — preserves partial work for idempotent re-runs.
+
+```bash
+source data-pipeline/.venv/bin/activate
+python data-pipeline/scripts/run_sweep.py \
+  --config data-pipeline/sweeps/baseline_v2.yaml \
+  --output data-pipeline/output/sweep_baseline_v2.json
+```
+
+**Key arguments:**
+- `--config` — sweep config (YAML or JSON, picked by extension)
+- `--output` — structured JSON results path; the markdown report is written alongside as `<output>.md` unless `--report` overrides it
+- `--report` — explicit markdown report path
+- `--verbose` — debug logging
+
+Each variation in the config may set `scoring: NAME` to select a registered scoring formula (see `evaluate_aptness.SCORING_FNS`). The same selection is exposed on the standalone evaluator via `python data-pipeline/scripts/evaluate_aptness.py --scoring NAME ...`.
 
 ---
 
