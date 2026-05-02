@@ -276,7 +276,7 @@ def load_mrr_reference(path: str | None) -> float | None:
 # --- Per-variation execution -------------------------------------------------
 
 def _run_one_variation(
-    variation: dict[str, Any],
+    variation: VariationSpec,
     db_path: str,
     pairs_file: str,
     controls_file: str,
