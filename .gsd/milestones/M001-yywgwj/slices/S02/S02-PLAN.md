@@ -37,7 +37,7 @@ Note (autonomous-mode assumption): registry keys live in lowercase snake_case; c
   - Files: `data-pipeline/scripts/evaluate_aptness.py`, `data-pipeline/scripts/test_evaluate_aptness.py`
   - Verify: source .venv/bin/activate && python -m pytest data-pipeline/scripts/test_evaluate_aptness.py -v && python data-pipeline/scripts/evaluate_aptness.py --scoring jaccard_raw --db data-pipeline/output/lexicon_v2.db --output /tmp/aptness_jaccard_raw.json && grep -q '"scoring":' /tmp/aptness_jaccard_raw.json
 
-- [ ] **T02: Build run_sweep.py harness over evaluate_aptness with structured results + comparison table** `est:3h`
+- [x] **T02: Build run_sweep.py harness over evaluate_aptness with structured results + comparison table** `est:3h`
   Add `data-pipeline/scripts/run_sweep.py` — a CLI harness that reads a YAML or JSON sweep config (list of variation dicts) and runs `evaluate_aptness.evaluate()` once per variation, collecting results into a structured ranked artifact.
 
 Sweep config shape (YAML preferred, parsed via `yaml.safe_load`; YAML is already a transitive dep via existing pipeline scripts — verify by grepping requirements.txt before adding a new import):
