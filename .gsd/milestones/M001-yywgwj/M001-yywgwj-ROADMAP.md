@@ -21,9 +21,6 @@
 - [ ] **S03: Baseline and Sensitivity Validation** `risk:low` `depends:[S02]`
   > After this: Show baseline metrics for current algorithm alongside metrics from deliberately degraded parameters, confirming the harness detects the difference
 
-- [ ] **S04: Baseline and Sensitivity Validation** `risk:low` `depends:[S03]`
-  > After this: Show baseline metrics for current algorithm alongside metrics from deliberately degraded parameters, confirming the harness detects the difference
-
 ## Boundary Map
 
 Not provided.
