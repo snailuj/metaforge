@@ -185,7 +185,7 @@ def test_aggregate_metrics_computes_separation():
 
 
 def test_aggregate_metrics_handles_missing_inapt():
-    """If no inapt resolved, separation defaults to mean_apt."""
+    """When inapt is empty, mean_inapt is 0 and separation reduces to mean_apt."""
     agg = aggregate_metrics([0.5, 0.7], [])
     assert agg["mean_apt_score"] == pytest.approx(0.6)
     assert agg["mean_inapt_score"] == 0.0
