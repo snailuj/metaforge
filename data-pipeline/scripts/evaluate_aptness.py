@@ -30,7 +30,7 @@ import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import LEXICON_V2, get_git_commit
@@ -45,7 +45,7 @@ DEFAULT_CONTROLS = FIXTURES_DIR / "munch_inapt.jsonl"
 
 # --- Synset resolution -------------------------------------------------------
 
-def lookup_primary_synset(conn: sqlite3.Connection, lemma: str) -> Optional[str]:
+def lookup_primary_synset(conn: sqlite3.Connection, lemma: str) -> str | None:
     """Resolve a lemma to its primary synset_id.
 
     Prefers the curated vocabulary entry (least-polysemous lemma per synset).
@@ -345,7 +345,7 @@ def evaluate(
     pairs_file: str,
     controls_file: str,
     threshold_percentile: float = 95.0,
-    db_path: Optional[str] = None,
+    db_path: str | None = None,
 ) -> dict:
     """Run the full evaluation. Returns the structured result dict."""
     apt_pairs = load_apt_pairs(pairs_file)
