@@ -171,6 +171,16 @@ def load_sweep_config(path: str) -> dict[str, Any]:
         raise ValueError(
             f"Sweep config {path}: missing/invalid 'variations' list"
         )
+    # Empty `variations: []` is a silent no-op: the sweep emits no rows
+    # and main() still returns 0, indistinguishable from a successful
+    # sweep on CI. Reject at the schema boundary so downstream code can
+    # rely on a non-empty invariant.
+    if len(data["variations"]) == 0:
+        raise ValueError(
+            f"sweep config {path}: 'variations' list is empty — at least "
+            f"one variation is required. See "
+            f"data-pipeline/sweeps/baseline_v2.yaml for the canonical config shape."
+        )
 
     # Strict allow-list at the top level — typos like `scorring` are
     # silent footguns in a sweep harness, where a misspelled key reverts
@@ -453,20 +463,17 @@ def render_markdown_report(sweep_result: dict[str, Any]) -> str:
     )
 
     # Summary line — state ok/failed counts and the winner so an
-    # operator can read the headline without scanning the table.
+    # operator can read the headline without scanning the table. The
+    # validator guarantees `variations` is non-empty, so exactly one
+    # of `ok_rows` or `failed_rows` is non-empty here.
     if ok_rows:
         best = max(ok_rows, key=lambda r: r["separation_score"])
         summary_tail = (
             f"Best by separation_score: {best['name']} "
             f"({best['separation_score']:.4f})."
         )
-    elif failed_rows:
-        summary_tail = "All variations failed — see Failures below."
     else:
-        # ``variations: []`` is allowed by the schema (the validator
-        # only checks the type). Don't promise a Failures appendix the
-        # gating below will not emit.
-        summary_tail = "No variations to report."
+        summary_tail = "All variations failed — see Failures below."
     summary = (
         f"## Summary\n\n"
         f"**{len(ok_rows)} variation(s) succeeded, "

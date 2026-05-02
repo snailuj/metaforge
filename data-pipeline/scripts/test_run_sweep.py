@@ -132,6 +132,28 @@ def test_load_sweep_config_rejects_missing_variations(tmp_path):
         load_sweep_config(str(cfg_file))
 
 
+def test_load_sweep_config_rejects_empty_variations_list(tmp_path):
+    """An empty ``variations: []`` list is a silent no-op footgun: the
+    sweep would emit no rows and main() would still return 0, masking a
+    misconfigured CI/scheduler run. Reject at the schema boundary so
+    downstream code (renderer, exit-code logic) can rely on a non-empty
+    invariant. The error must name the config path AND point the
+    operator at the canonical example."""
+    cfg_file = tmp_path / "empty.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [],
+    }))
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    msg = str(exc.value)
+    assert str(cfg_file) in msg
+    assert "baseline_v2.yaml" in msg
+
+
 def test_load_sweep_config_rejects_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_sweep_config(str(tmp_path / "nope.json"))
@@ -693,24 +715,6 @@ def _synthetic_sweep_result(variations: list[dict]) -> dict:
         "duration_ms": 0.0,
         "variations": variations,
     }
-
-
-def test_render_markdown_report_handles_empty_variations():
-    """When ``variations`` is an empty list (allowed by the schema —
-    only the type is checked, not non-emptiness), the Summary line must
-    not promise a Failures appendix that never gets rendered. Operator
-    should see an honest "nothing to report" tail instead.
-    """
-    result = _synthetic_sweep_result(variations=[])
-    md = render_markdown_report(result)
-
-    # The misleading message must be gone.
-    assert "see Failures below" not in md
-    # No Failures appendix gets emitted (gated on failed_rows).
-    assert "## Failures" not in md
-    # Honest summary tail.
-    assert "0 variation(s) succeeded, 0 failed." in md
-    assert "No variations to report." in md
 
 
 def test_render_markdown_report_summary_for_all_failed_with_rows():
