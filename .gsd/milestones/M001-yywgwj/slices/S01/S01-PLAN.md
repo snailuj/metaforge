@@ -46,7 +46,7 @@ V2 database deployed to staging; evaluator script callable from S02 sweep harnes
   - Files: `data-pipeline/scripts/evaluate_mrr.py`, `data-pipeline/scripts/evaluate_aptness.py`, `data-pipeline/fixtures/metaphor_pairs_v2.json`
   - Verify: Baseline JSON artifact exists at data-pipeline/output/eval_baseline_v2.json; contains both MRR and aptness metrics; MRR value >= 0.030
 
-- [ ] **T06: Deploy V2 database to staging** `est:15m`
+- [x] **T06: Deploy V2 database to staging** `est:15m`
   Deploy the V2-enriched database to metaforge-next.julianit.me via deploy/staging/deploy.sh. Verify the forge endpoint returns results with salience weighting visible in the response. Confirm health check passes and the staging site serves the updated data independently of production.
   - Files: `deploy/staging/deploy.sh`, `data-pipeline/output/lexicon_v2.db`
   - Verify: curl -s metaforge-next.julianit.me/forge/suggest?word=anger | jq '.suggestions[0].salience_sum' returns a non-zero value; curl -s metaforge-next.julianit.me/health returns 200
