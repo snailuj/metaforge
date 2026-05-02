@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T03",
+  "unitId": "M002-kitkng/S01/T03",
+  "timestamp": 1777707076968,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "python -m pytest data-pipeline/scripts/test_predict_concreteness.py -v",
+      "exitCode": 2,
+      "durationMs": 3718,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

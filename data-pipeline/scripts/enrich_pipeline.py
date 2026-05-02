@@ -16,15 +16,16 @@ import json
 import logging
 import re
 import sqlite3
-import struct
 import sys
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 log = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent))
-from utils import EMBEDDING_DIM, FASTTEXT_VEC, normalise, load_fasttext_vectors
+from utils import EMBEDDING_DIM, FASTTEXT_VEC, FastTextVectors, normalise, load_fasttext_vectors
 from build_vocab import build_and_store
 from cluster_vocab import cluster_vocab
 from snap_properties import snap_properties
@@ -83,37 +84,38 @@ def filter_mwe(text: str) -> str | None:
 # 1. Curate properties (from curate_properties.py)
 # =============================================================================
 
-def _get_embedding(
-    word: str, vectors: dict[str, tuple[float, ...]]
-) -> Optional[bytes]:
-    """Get embedding bytes for a word, or None if OOV."""
+def _get_embedding(word: str, vectors: FastTextVectors) -> Optional[bytes]:
+    """Get embedding bytes for a word, or None if OOV.
+
+    Returns the matrix row's raw float32 bytes — no per-element struct packing.
+    The blob is exactly EMBEDDING_DIM * 4 = 1200 bytes (float32, native byte
+    order), matching what the prior struct.pack(f"{EMBEDDING_DIM}f", ...) wrote.
+    Returns None if the word is OOV.
+    """
     if word not in vectors:
         return None
-    return struct.pack(f"{EMBEDDING_DIM}f", *vectors[word])
+    return vectors[word].tobytes()
 
 
-def _get_compound_embedding(
-    text: str, vectors: dict[str, tuple[float, ...]]
-) -> Optional[bytes]:
-    """Get averaged embedding for compound/hyphenated words."""
+def _get_compound_embedding(text: str, vectors: FastTextVectors) -> Optional[bytes]:
+    """Get averaged embedding for compound/hyphenated words.
+
+    Averages the matrix rows for each in-vocab part directly with numpy
+    (vectorised). Returns exactly EMBEDDING_DIM * 4 = 1200 bytes (float32,
+    native byte order), or None if every part is OOV.
+    """
     parts = re.split(r"[-\s/]", text)
     parts = [p.strip() for p in parts if p.strip()]
 
     if not parts:
         return None
 
-    embeddings = []
-    for part in parts:
-        if part in vectors:
-            embeddings.append(vectors[part])
-
-    if not embeddings:
+    rows = [vectors[part] for part in parts if part in vectors]
+    if not rows:
         return None
 
-    avg = tuple(
-        sum(e[i] for e in embeddings) / len(embeddings) for i in range(EMBEDDING_DIM)
-    )
-    return struct.pack(f"{EMBEDDING_DIM}f", *avg)
+    avg = np.mean(np.stack(rows), axis=0).astype(np.float32, copy=False)
+    return avg.tobytes()
 
 
 def _extract_property_text(prop) -> str | None:
@@ -126,7 +128,7 @@ def _extract_property_text(prop) -> str | None:
 def curate_properties(
     conn: sqlite3.Connection,
     enrichment_data: dict,
-    vectors: dict[str, tuple[float, ...]],
+    vectors: FastTextVectors,
 ) -> int:
     """Normalise properties, add FastText embeddings, flag OOV.
 
@@ -266,13 +268,14 @@ def populate_lemma_metadata(
 
 def store_lemma_embeddings(
     conn: sqlite3.Connection,
-    vectors: dict[str, tuple[float, ...]],
+    vectors: FastTextVectors,
 ) -> int:
     """Store FastText embeddings for all known lemmas.
 
     Creates the lemma_embeddings table and populates it with packed 300d
-    vectors for every lemma in the lemmas table that exists in the vectors
-    dict.  OOV lemmas are excluded.
+    vectors for every lemma in the lemmas table that exists in vectors. OOV
+    lemmas are excluded. Blob layout (300 × float32, native byte order) is
+    compatible with the prior struct.pack-based writer.
 
     Returns the number of embeddings stored.
     """
@@ -288,7 +291,7 @@ def store_lemma_embeddings(
     count = 0
     for (lemma,) in cursor:
         if lemma in vectors:
-            blob = struct.pack(f"{EMBEDDING_DIM}f", *vectors[lemma])
+            blob = vectors[lemma].tobytes()
             conn.execute(
                 "INSERT OR REPLACE INTO lemma_embeddings (lemma, embedding) VALUES (?, ?)",
                 (lemma, blob),

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M002-kitkng/S01/T02",
+  "timestamp": 1777706734723,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "python -m pytest data-pipeline/scripts/test_enrich_pipeline.py -v",
+      "exitCode": 2,
+      "durationMs": 4115,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

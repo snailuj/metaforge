@@ -14,6 +14,35 @@ from predict_concreteness import (
     retrain_winner, fill_concreteness_gaps, revert_concreteness_predictions,
     cmd_shootout, cmd_fill, cmd_revert,
 )
+from utils import EMBEDDING_DIM, FastTextVectors
+
+
+def _pad(vec) -> np.ndarray:
+    """Right-pad a short vector with zeros to EMBEDDING_DIM.
+
+    Tests historically used compact 4-dim fixtures for readability. The
+    FastTextVectors invariant requires shape[1] == EMBEDDING_DIM, so we pad
+    here rather than rewriting every fixture's expected values.
+    """
+    arr = np.asarray(vec, dtype=np.float32)
+    if arr.shape[0] >= EMBEDDING_DIM:
+        return arr[:EMBEDDING_DIM]
+    out = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+    out[: arr.shape[0]] = arr
+    return out
+
+
+def _ft(mapping: dict[str, tuple]) -> FastTextVectors:
+    """Build a FastTextVectors container from a {word: tuple-or-array} mapping."""
+    if not mapping:
+        return FastTextVectors(
+            matrix=np.empty((0, EMBEDDING_DIM), dtype=np.float32),
+            word_to_idx={},
+        )
+    words = list(mapping.keys())
+    matrix = np.array([_pad(mapping[w]) for w in words], dtype=np.float32)
+    word_to_idx = {w: i for i, w in enumerate(words)}
+    return FastTextVectors(matrix=matrix, word_to_idx=word_to_idx)
 
 
 def _make_test_db():
@@ -46,15 +75,15 @@ def _make_test_db():
     return conn
 
 
-def _make_vectors():
+def _make_vectors() -> FastTextVectors:
     """Fake FastText vectors — 4d for testing."""
-    return {
+    return _ft({
         "apple":   (1.0, 0.0, 0.0, 0.0),
         "fruit":   (0.9, 0.1, 0.0, 0.0),
         "justice": (0.0, 0.0, 1.0, 0.0),
         "run":     (0.0, 1.0, 0.0, 0.0),
         "sprint":  (0.0, 0.8, 0.2, 0.0),
-    }
+    })
 
 
 def test_build_synset_embeddings_mean():
@@ -64,18 +93,18 @@ def test_build_synset_embeddings_mean():
 
     # synset 100 has apple + fruit → mean
     assert "100" in embeddings
-    expected = np.array([(1.0 + 0.9) / 2, (0.0 + 0.1) / 2, 0.0, 0.0])
+    expected = _pad([(1.0 + 0.9) / 2, (0.0 + 0.1) / 2, 0.0, 0.0])
     np.testing.assert_allclose(embeddings["100"], expected, atol=1e-6)
 
     # synset 300 has run + sprint → mean
     assert "300" in embeddings
-    expected = np.array([0.0, (1.0 + 0.8) / 2, (0.0 + 0.2) / 2, 0.0])
+    expected = _pad([0.0, (1.0 + 0.8) / 2, (0.0 + 0.2) / 2, 0.0])
     np.testing.assert_allclose(embeddings["300"], expected, atol=1e-6)
 
 
 def test_build_synset_embeddings_skips_oov():
     conn = _make_test_db()
-    vectors = {"apple": (1.0, 0.0, 0.0, 0.0)}  # only apple, no fruit/justice/run/sprint
+    vectors = _ft({"apple": (1.0, 0.0, 0.0, 0.0)})  # only apple, no fruit/justice/run/sprint
     embeddings = build_synset_embeddings(conn, vectors)
 
     assert "100" in embeddings  # apple covers synset 100
@@ -97,7 +126,7 @@ def test_build_training_data():
     X, y, synset_ids = build_training_data(conn, embeddings)
 
     assert X.shape[0] == 2  # 2 scored synsets with embeddings
-    assert X.shape[1] == 4  # 4d test vectors
+    assert X.shape[1] == EMBEDDING_DIM  # padded to full embedding width
     assert len(y) == 2
     assert len(synset_ids) == 2
     # Verify scores match
@@ -116,7 +145,7 @@ def test_build_training_data_skips_unembedded():
     conn.commit()
 
     # Only apple in vectors — synset 200 (justice) has no embedding
-    vectors = {"apple": (1.0, 0.0, 0.0, 0.0)}
+    vectors = _ft({"apple": (1.0, 0.0, 0.0, 0.0)})
     embeddings = build_synset_embeddings(conn, vectors)
     X, y, synset_ids = build_training_data(conn, embeddings)
 
@@ -363,7 +392,7 @@ def _make_cmd_test_db_and_vectors(n=80):
 
     conn.executemany("INSERT INTO synset_concreteness VALUES (?, ?, ?)", scored_rows)
     conn.commit()
-    return conn, vectors, n
+    return conn, _ft(vectors), n
 
 
 def test_cmd_shootout_writes_json_not_db(tmp_path):

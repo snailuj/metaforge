@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -17,6 +18,7 @@ from enrich_pipeline import (
     MAX_PROPERTIES_PER_SYNSET,
     _extract_property_text,  # noqa: F401 — exported for downstream test coverage
     _ensure_v2_schema,
+    _get_compound_embedding,
     curate_properties,
     filter_mwe,
     populate_lemma_metadata,
@@ -24,7 +26,7 @@ from enrich_pipeline import (
     store_lemma_embeddings,
     run_pipeline,
 )
-from utils import EMBEDDING_DIM, _fasttext_cache, load_fasttext_vectors
+from utils import EMBEDDING_DIM, FastTextVectors, _fasttext_cache, load_fasttext_vectors
 
 
 # --- Helpers ------------------------------------------------------------------
@@ -89,16 +91,28 @@ CREATE TABLE relations (
 """
 
 
-def _make_vec(*values) -> tuple:
-    """Create a 300d vector with given initial values, rest zeros."""
+def _make_vec(*values) -> np.ndarray:
+    """Create a 300d float32 vector row with given initial values, rest zeros."""
     full = list(values) + [0.0] * (EMBEDDING_DIM - len(values))
-    return tuple(full)
+    return np.array(full, dtype=np.float32)
 
 
 def _make_blob(*values) -> bytes:
     """Create a 300d embedding blob with given initial values, rest zeros."""
-    vec = _make_vec(*values)
-    return struct.pack(f"{EMBEDDING_DIM}f", *vec)
+    return _make_vec(*values).tobytes()
+
+
+def _ft(mapping: dict[str, np.ndarray]) -> FastTextVectors:
+    """Build a FastTextVectors container from a {word: row} mapping."""
+    if not mapping:
+        return FastTextVectors(
+            matrix=np.empty((0, EMBEDDING_DIM), dtype=np.float32),
+            word_to_idx={},
+        )
+    words = list(mapping.keys())
+    matrix = np.stack([mapping[w].astype(np.float32, copy=False) for w in words])
+    word_to_idx = {w: i for i, w in enumerate(words)}
+    return FastTextVectors(matrix=matrix, word_to_idx=word_to_idx)
 
 
 def _make_db() -> sqlite3.Connection:
@@ -131,16 +145,16 @@ def _make_enrichment_data():
     }
 
 
-def _make_vectors():
-    """Create fake FastText vectors dict."""
-    return {
+def _make_vectors() -> FastTextVectors:
+    """Create a fake FastTextVectors instance."""
+    return _ft({
         "warm": _make_vec(1.0, 0.0, 0.0),
         "flickering": _make_vec(0.8, 0.2, 0.0),
         "luminous": _make_vec(0.9, 0.1, 0.0),
         "loud": _make_vec(0.0, 1.0, 0.0),
         "violent": _make_vec(0.0, 0.8, 0.2),
         "dark": _make_vec(0.0, 0.0, 1.0),
-    }
+    })
 
 
 # --- 1. curate_properties inserts with embeddings ----------------------------
@@ -296,7 +310,7 @@ def test_curate_properties_caps_per_synset():
         ],
     }
     # All 20 words in vectors so none are filtered by OOV
-    vectors = {p: _make_vec(float(i)) for i, p in enumerate(props_20)}
+    vectors = _ft({p: _make_vec(float(i)) for i, p in enumerate(props_20)})
 
     count = curate_properties(conn, data, vectors)
 
@@ -314,7 +328,7 @@ def test_populate_synset_properties_caps_per_synset():
             {"id": "s1", "properties": props_20},
         ],
     }
-    vectors = {p: _make_vec(float(i)) for i, p in enumerate(props_20)}
+    vectors = _ft({p: _make_vec(float(i)) for i, p in enumerate(props_20)})
 
     curate_properties(conn, data, vectors)
     links = populate_synset_properties(conn, data, "test-model")
@@ -413,12 +427,12 @@ def test_curate_properties_filters_mwe():
             },
         ],
     }
-    vectors = {
+    vectors = _ft({
         "seep": _make_vec(0.5, 0.5, 0.0),
         "warm": _make_vec(1.0, 0.0, 0.0),
         "ghost": _make_vec(0.0, 0.0, 1.0),
         "outline": _make_vec(0.0, 1.0, 0.0),
-    }
+    })
 
     curate_properties(conn, data, vectors)
 
@@ -442,9 +456,9 @@ def test_populate_applies_mwe_filter():
             },
         ],
     }
-    vectors = {
+    vectors = _ft({
         "warm": _make_vec(1.0, 0.0, 0.0),
-    }
+    })
 
     curate_properties(conn, data, vectors)
     links = populate_synset_properties(conn, data, "test-model")
@@ -503,11 +517,11 @@ def test_run_pipeline_creates_curated_tables(tmp_path):
 def test_curate_properties_preserves_existing_ids():
     """Re-running curate+populate with overlapping properties preserves IDs and links."""
     conn = _make_db()
-    vectors = {
+    vectors = _ft({
         "hot": _make_vec(1.0, 0.0, 0.0),
         "cold": _make_vec(0.0, 1.0, 0.0),
         "wet": _make_vec(0.0, 0.0, 1.0),
-    }
+    })
 
     # --- Enrichment A: hot + cold for synset s1 ---
     data_a = {
@@ -580,11 +594,11 @@ def test_store_lemma_embeddings():
     )
     conn.commit()
 
-    vectors = {
+    vectors = _ft({
         "anger": _make_vec(0.5, 0.3, 0.1),
         "fire": _make_vec(0.9, 0.1, 0.0),
         # "xyznotinvectors" deliberately absent — OOV lemma
-    }
+    })
 
     count = store_lemma_embeddings(conn, vectors)
 
@@ -627,10 +641,10 @@ def test_store_lemma_embeddings_deduplicates():
     )
     conn.commit()
 
-    vectors = {
+    vectors = _ft({
         "bank": _make_vec(0.1, 0.2, 0.3),
         "river": _make_vec(0.4, 0.5, 0.6),
-    }
+    })
 
     count = store_lemma_embeddings(conn, vectors)
     assert count == 2
@@ -645,12 +659,12 @@ def test_store_lemma_embeddings_idempotent():
     conn.execute("INSERT INTO lemmas (lemma, synset_id) VALUES ('anger', 's1')")
     conn.commit()
 
-    vectors_v1 = {"anger": _make_vec(0.1, 0.2, 0.3)}
+    vectors_v1 = _ft({"anger": _make_vec(0.1, 0.2, 0.3)})
     count1 = store_lemma_embeddings(conn, vectors_v1)
     assert count1 == 1
 
     # Re-run with updated vector — should replace, not duplicate
-    vectors_v2 = {"anger": _make_vec(0.9, 0.8, 0.7)}
+    vectors_v2 = _ft({"anger": _make_vec(0.9, 0.8, 0.7)})
     count2 = store_lemma_embeddings(conn, vectors_v2)
     assert count2 == 1
 
@@ -670,17 +684,17 @@ def test_store_lemma_embeddings_empty_lemmas():
     """Empty lemmas table returns 0 without error."""
     conn = _make_db()
     # lemmas table exists but is empty
-    count = store_lemma_embeddings(conn, {"anger": _make_vec(1.0)})
+    count = store_lemma_embeddings(conn, _ft({"anger": _make_vec(1.0)}))
     assert count == 0
 
 
 def test_store_lemma_embeddings_empty_vectors():
-    """Empty vectors dict returns 0 — all lemmas are OOV."""
+    """Empty vectors returns 0 — all lemmas are OOV."""
     conn = _make_db()
     conn.execute("INSERT INTO lemmas (lemma, synset_id) VALUES ('anger', 's1')")
     conn.commit()
 
-    count = store_lemma_embeddings(conn, {})
+    count = store_lemma_embeddings(conn, _ft({}))
     assert count == 0
 
 
@@ -1030,3 +1044,91 @@ def test_run_pipeline_v2_end_to_end(tmp_path):
         assert row[0] > 0
 
     conn.close()
+
+
+# --- _get_compound_embedding direct unit tests --------------------------------
+#
+# The averaging path is otherwise only covered indirectly via curate_properties.
+# These tests lock the contract: average rows for in-vocab parts, return
+# float32 bytes, skip OOV parts, and return None for all-OOV / empty input.
+
+
+def test_get_compound_embedding_averages_two_parts():
+    """Hyphen-split: average of two in-vocab parts equals the manual mean."""
+    a = _make_vec(1.0, 2.0, 3.0)
+    b = _make_vec(3.0, 4.0, 5.0)
+    vectors = _ft({"red": a, "blue": b})
+
+    blob = _get_compound_embedding("red-blue", vectors)
+    assert blob is not None
+
+    got = np.frombuffer(blob, dtype=np.float32)
+    expected = np.mean(np.stack([a, b]), axis=0).astype(np.float32)
+    np.testing.assert_allclose(got, expected, rtol=0, atol=1e-7)
+
+
+def test_get_compound_embedding_slash_split():
+    """Slash-separated parts are split and averaged just like hyphens."""
+    a = _make_vec(0.5, -0.5)
+    b = _make_vec(-0.5, 0.5)
+    vectors = _ft({"yes": a, "no": b})
+
+    blob = _get_compound_embedding("yes/no", vectors)
+    got = np.frombuffer(blob, dtype=np.float32)
+    expected = np.mean(np.stack([a, b]), axis=0).astype(np.float32)
+    np.testing.assert_allclose(got, expected, rtol=0, atol=1e-7)
+
+
+def test_get_compound_embedding_whitespace_split():
+    """Whitespace-separated parts are split and averaged."""
+    a = _make_vec(2.0)
+    b = _make_vec(4.0)
+    c = _make_vec(6.0)
+    vectors = _ft({"big": a, "fast": b, "loud": c})
+
+    blob = _get_compound_embedding("big fast loud", vectors)
+    got = np.frombuffer(blob, dtype=np.float32)
+    expected = np.mean(np.stack([a, b, c]), axis=0).astype(np.float32)
+    np.testing.assert_allclose(got, expected, rtol=0, atol=1e-7)
+
+
+def test_get_compound_embedding_skips_oov_parts():
+    """OOV parts are skipped; the mean is taken over surviving in-vocab parts only."""
+    a = _make_vec(1.0, 1.0)
+    c = _make_vec(3.0, 3.0)
+    vectors = _ft({"red": a, "blue": c})  # "missing" is OOV
+
+    blob = _get_compound_embedding("red-missing-blue", vectors)
+    got = np.frombuffer(blob, dtype=np.float32)
+    expected = np.mean(np.stack([a, c]), axis=0).astype(np.float32)
+    np.testing.assert_allclose(got, expected, rtol=0, atol=1e-7)
+
+
+def test_get_compound_embedding_all_oov_returns_none():
+    """If every part is OOV the function returns None (not zeros)."""
+    vectors = _ft({"present": _make_vec(1.0)})
+
+    assert _get_compound_embedding("foo-bar-baz", vectors) is None
+
+
+def test_get_compound_embedding_empty_text_returns_none():
+    """Empty input has no parts to average — returns None."""
+    vectors = _ft({"any": _make_vec(1.0)})
+
+    assert _get_compound_embedding("", vectors) is None
+
+
+def test_get_compound_embedding_whitespace_only_returns_none():
+    """Whitespace-only input strips to no parts — returns None."""
+    vectors = _ft({"any": _make_vec(1.0)})
+
+    assert _get_compound_embedding("   \t  ", vectors) is None
+
+
+def test_get_compound_embedding_returns_float32_bytes():
+    """Returned blob is exactly EMBEDDING_DIM × 4 bytes (float32)."""
+    vectors = _ft({"a": _make_vec(1.0), "b": _make_vec(2.0)})
+
+    blob = _get_compound_embedding("a-b", vectors)
+    assert isinstance(blob, bytes)
+    assert len(blob) == EMBEDDING_DIM * 4

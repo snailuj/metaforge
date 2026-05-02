@@ -17,14 +17,14 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from utils import LEXICON_V2, FASTTEXT_VEC, get_git_commit
+from utils import LEXICON_V2, FASTTEXT_VEC, FastTextVectors, get_git_commit
 
 log = logging.getLogger(__name__)
 
 
 def build_synset_embeddings(
     conn: sqlite3.Connection,
-    vectors: dict[str, tuple[float, ...]],
+    vectors: FastTextVectors,
 ) -> dict[str, np.ndarray]:
     """Compute mean embedding per synset from lemma vectors.
 
@@ -39,9 +39,9 @@ def build_synset_embeddings(
 
     embeddings = {}
     for synset_id, lemmas in synset_lemmas.items():
-        vecs = [np.array(vectors[l]) for l in lemmas if l in vectors]
+        vecs = [vectors[l] for l in lemmas if l in vectors]
         if vecs:
-            embeddings[synset_id] = np.mean(vecs, axis=0)
+            embeddings[synset_id] = np.mean(np.stack(vecs), axis=0)
 
     return embeddings
 
@@ -333,7 +333,7 @@ def revert_concreteness_predictions(conn: sqlite3.Connection) -> dict[str, int]:
 
 def cmd_shootout(
     conn: sqlite3.Connection,
-    vectors: dict[str, tuple[float, ...]],
+    vectors: FastTextVectors,
     output_path: str,
     random_state: int = 42,
 ) -> dict:
@@ -366,7 +366,7 @@ def cmd_shootout(
 
 def cmd_fill(
     conn: sqlite3.Connection,
-    vectors: dict[str, tuple[float, ...]],
+    vectors: FastTextVectors,
     shootout_path: str,
 ) -> dict:
     """Fill concreteness gaps using the winner from a prior shootout.

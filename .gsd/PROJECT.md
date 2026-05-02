@@ -38,3 +38,8 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 ## Milestone Sequence
 
 - [x] Sprint Zero — Backend API, data pipeline foundations, staging deployment
+- [ ] M001-yywgwj: Automated Eval Harness — discriminative aptness evaluator + parameter sweep, replacing MRR as primary KPI
+- [ ] M2 (queued): Asymmetric Ortony Scoring — vehicle-side salience weighting in forge scoring
+- [ ] M3 (queued): Cascade Gate-and-Rank — concreteness gate → Ortony rank → domain distance re-rank
+- [ ] M4 (queued): Type-Aligned Structural Matching — property type diversity bonus in scoring
+- [ ] M5 (queued): Novelty Tracking — MuseScorer-style dynamic buckets + creative yield curve
