@@ -227,6 +227,62 @@ Status: NOT clean (fixes applied — re-review needed) → next: ux-designer (ro
 
 ---
 
+## Iteration 6 — ux-designer (2026-05-02T15:20:00Z)
+
+**Carrier:** general-purpose subagent loaded with `ux-designer` skill (no dispatch — diff inspection only)
+**Scope:** diff vs main on milestone/M001-yywgwj after iter-5 fixes
+**Status:** No-op — diff still contains no user-facing surface changes.
+**Rationale:** iter-5 fixes are all in `data-pipeline/scripts/evaluate_aptness.py` (Python type/invariant cleanups). No `web/`, no `api/` HTTP response shapes, no end-user-facing CLI or copy.
+**Reviewer slot:** counts as CLEAN for round-robin / halt purposes.
+
+### Cumulative
+Total iterations: 6 | Items fixed: 12 | Items skipped: 12 | ux-designer no-ops: 2
+Status: ux-designer CLEAN this round; superpowers and pr-review-toolkit must each return CLEAN again after the iter-5 fixes before halt. → next: superpowers (round 3)
+
+---
+
+## Iteration 7 — superpowers (2026-05-02T15:30:00Z)
+
+**Reviewer:** superpowers:code-reviewer
+**Handover read:** iterations 1-6
+**Re-review focus:** verify iter-5 fixes (`f1d9b7f0`, `5b6b192a`, `c9f11785`) introduced no regressions.
+
+### Items Found
+None — `PairScore.__post_init__` invariant is correctly bidirectional and matches what `_score_cohort` previously asserted defensively; the new TDD test covers all six legal/illegal combinations; `CohortResult` migration is correct at every call site (`apt.scores`, `apt.unresolved`, etc.); `Optional[X] → X | None` sweep is consistent across all three sites with the import pruned. Comments explain intent without restating code. No behavioural change to scoring logic.
+
+```
+CLEAN: true
+```
+
+### Cumulative
+Total iterations: 7 | Items fixed: 12 | Items skipped: 12 | superpowers passes: 3 (1 not-clean, 2 clean) | pr-review-toolkit passes: 2 (1 not-clean, 1 not-clean) | ux-designer passes: 2 (both no-op clean)
+Status: superpowers CLEAN this round; pr-review-toolkit must also return CLEAN before halt. → next: pr-review-toolkit (round 3)
+
+---
+
+## Iteration 8 — pr-review-toolkit (2026-05-02T15:40:00Z)
+
+**Agents dispatched (sequential):** code-reviewer, silent-failure-hunter, type-design-analyzer
+**Handover read:** iterations 1-7
+
+### Items Found
+
+**code-reviewer:** CLEAN. Three iter-5 commits cleanly address the iter-5 type-design findings; no regressions.
+
+**silent-failure-hunter:** CLEAN. `__post_init__` strengthens rather than weakens error handling (`ValueError` is louder than `assert` which is stripped under `-O`). `CohortResult` is purely structural — no try/except, no fallback, no defaults. No new silent failures.
+
+**type-design-analyzer:** CLEAN. Bidirectional invariant check is correct, frozen `CohortResult` resolves positional-tuple fragility, PEP 604 sweep is consistent. Finding #2 (tagged union) remains intentionally deferred — no new reasoning.
+
+```
+CLEAN: true (all three agents)
+```
+
+### Cumulative
+Total iterations: 8 | Items fixed: 12 | Items skipped: 12 | Already-covered: 1
+Most-recent consecutive passes: ux-designer (iter 6, no-op clean) → superpowers (iter 7, clean) → pr-review-toolkit (iter 8, clean). **HALT condition met.**
+
+---
+
 ### Note on baseline JSON
 `data-pipeline/output/eval_baseline_v2.json` was computed under the old conflated scoring. Fix #4 (`PairScore` distinction) means a fresh baseline run would yield a higher `separation_score` because no_properties pairs no longer drag down `mean_apt`. Regeneration is a separate user-facing eval run, intentionally NOT part of this code-review fix; the user can re-run `evaluate_aptness.py` and `evaluate_mrr.py` to refresh the artifact when they want the new baseline locked in.
 
