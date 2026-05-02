@@ -158,6 +158,37 @@ def test_load_inapt_controls_filters_non_inapt(tmp_path):
     assert len(controls) == 1
 
 
+def test_load_inapt_controls_skips_malformed_lines_with_warning(tmp_path, caplog):
+    """A truncated/garbage line must not abort loading — warn and continue.
+
+    Producer (preprocess_munch.write_jsonl) is generally trustworthy, but
+    consumer-supplied JSONL or a previously-crashed run can leave a partial
+    line. Loader must tolerate it.
+    """
+    import logging as _logging
+
+    controls_file = tmp_path / "controls.jsonl"
+    controls_file.write_text(
+        '{"target": "a", "paraphrase": "b", "label": "inapt"}\n'
+        '{this is not json\n'
+        '{"target": "c", "paraphrase": "d", "label": "inapt"}\n'
+    )
+
+    with caplog.at_level(_logging.WARNING, logger="evaluate_aptness"):
+        controls = load_inapt_controls(str(controls_file))
+
+    assert len(controls) == 2
+    assert controls[0]["target"] == "a"
+    assert controls[1]["target"] == "c"
+
+    # A warning was emitted that names the line number (line 2).
+    warnings = [r for r in caplog.records if r.levelno == _logging.WARNING]
+    assert warnings, "expected at least one warning for the malformed line"
+    assert any("2" in w.getMessage() for w in warnings), (
+        f"expected line number 2 in warning; got: {[w.getMessage() for w in warnings]}"
+    )
+
+
 # --- Classification & aggregation -------------------------------------------
 
 def test_classify_aptness_uses_threshold():

@@ -137,11 +137,20 @@ def load_inapt_controls(path: str) -> list[dict]:
     """
     rows: list[dict] = []
     with open(path) as f:
-        for line in f:
-            line = line.strip()
+        for line_no, raw in enumerate(f, start=1):
+            line = raw.strip()
             if not line:
                 continue
-            row = json.loads(line)
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                # Tolerate truncated / garbled lines (e.g. from a crashed
+                # producer run) — warn with file + line number and continue.
+                log.warning(
+                    "load_inapt_controls: skipping malformed JSONL at %s:%d (%s)",
+                    path, line_no, exc,
+                )
+                continue
             if row.get("label") == "inapt":
                 rows.append(row)
     return rows
