@@ -166,11 +166,11 @@ def load_sweep_config(path: str) -> SweepConfig:
 
     if not isinstance(data, dict):
         raise ValueError(
-            f"Sweep config {path}: top-level must be a mapping, got {type(data).__name__}"
+            f"sweep config {path}: top-level must be a mapping, got {type(data).__name__}"
         )
     if "variations" not in data or not isinstance(data["variations"], list):
         raise ValueError(
-            f"Sweep config {path}: missing/invalid 'variations' list"
+            f"sweep config {path}: missing/invalid 'variations' list"
         )
     # Empty `variations: []` is a silent no-op: the sweep emits no rows
     # and main() still returns 0, indistinguishable from a successful
@@ -367,12 +367,12 @@ def run_sweep(
     for label, value in (("db", db_path), ("pairs", pairs_file), ("controls", controls_file)):
         if not value:
             raise ValueError(
-                f"Sweep config: missing required key {label!r}"
+                f"sweep config: missing required key {label!r}"
                 f" — see data-pipeline/sweeps/baseline_v2.yaml for the canonical config shape."
             )
         if not Path(value).is_file():
             raise FileNotFoundError(
-                f"Sweep config {label}={value!r}: path does not exist"
+                f"sweep config {label}={value!r}: path does not exist"
             )
 
     mrr_ref_value = load_mrr_reference(mrr_ref_path)
