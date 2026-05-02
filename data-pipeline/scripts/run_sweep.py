@@ -23,9 +23,9 @@ variations:
 ```
 
 Per-variation failures (unknown scoring, DB read error, malformed
-inputs) are recorded as ``status='failed'`` + ``error`` and do NOT
-abort the rest of the sweep — preserves partial work for idempotent
-re-runs.
+inputs) are recorded as ``status='failed'`` + ``error_type`` +
+``error_message`` and do NOT abort the rest of the sweep — preserves
+partial work for idempotent re-runs.
 
 Outputs:
   * ``--output PATH``   structured JSON with provenance + variations[]
