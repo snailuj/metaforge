@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-02T13:46:16Z | Files: 379 | Described: 0/379
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T13:46:16Z","fingerprint":"545cb4a5e46b8ea408456b044ff76516c221facb","fileCount":379,"truncated":false} -->
+Generated: 2026-05-02T14:45:59Z | Files: 380 | Described: 0/380
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T14:45:59Z","fingerprint":"ccd28ecc4f12b0c96955f9c14dd1188b04805eb6","fileCount":380,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -348,6 +348,7 @@ Generated: 2026-05-02T13:46:16Z | Files: 379 | Described: 0/379
 - `docs/reviews/sqlunet-datasets/verbnet-assessment.md`
 
 ### docs/superpowers/review-logs/
+- `docs/superpowers/review-logs/2026-05-02-milestone-M001-yywgwj-review.md`
 - `docs/superpowers/review-logs/2026-05-02-milestone-M002-kitkng-review.md`
 
 ### lib/
