@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-02T13:20:51Z | Files: 373 | Described: 0/373
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T13:20:51Z","fingerprint":"3ef5080181c22f8139033dba8bc02bbe73bcf6a9","fileCount":373,"truncated":false} -->
+Generated: 2026-05-02T13:32:35Z | Files: 376 | Described: 0/376
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T13:32:35Z","fingerprint":"c24343381f829c56a00c9cf74e93d0218ff7b69f","fileCount":376,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -251,7 +251,7 @@ Generated: 2026-05-02T13:20:51Z | Files: 373 | Described: 0/373
 - `data-pipeline/future-work/metaphor-vehicles/source_concepts.tsv`
 
 ### data-pipeline/output/
-- *(34 files: 33 .json, 1 .gz)*
+- *(35 files: 34 .json, 1 .gz)*
 
 ### data-pipeline/output/evolution/
 - `data-pipeline/output/evolution/evolution_report.md`
@@ -261,7 +261,7 @@ Generated: 2026-05-02T13:20:51Z | Files: 373 | Described: 0/373
 - `data-pipeline/output/evolution/exploration_log.json`
 
 ### data-pipeline/scripts/
-- *(56 files: 54 .py, 1 .md, 1 .sh)*
+- *(58 files: 56 .py, 1 .md, 1 .sh)*
 
 ### data-pipeline/scripts/analysis/
 - `data-pipeline/scripts/analysis/monosemy_coverage.py`
