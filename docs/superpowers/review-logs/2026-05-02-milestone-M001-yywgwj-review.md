@@ -287,3 +287,13 @@ Most-recent consecutive passes: ux-designer (iter 6, no-op clean) → superpower
 `data-pipeline/output/eval_baseline_v2.json` was computed under the old conflated scoring. Fix #4 (`PairScore` distinction) means a fresh baseline run would yield a higher `separation_score` because no_properties pairs no longer drag down `mean_apt`. Regeneration is a separate user-facing eval run, intentionally NOT part of this code-review fix; the user can re-run `evaluate_aptness.py` and `evaluate_mrr.py` to refresh the artifact when they want the new baseline locked in.
 
 ---
+
+
+# S02 Review Loop
+
+**Scope:** S02 (parameter sweep harness) — commits `d8433635..ac180f95` on `milestone/M001-yywgwj`
+**Files:** `data-pipeline/scripts/evaluate_aptness.py` (refactor), `data-pipeline/scripts/run_sweep.py` (new), `data-pipeline/scripts/test_run_sweep.py` (new), `data-pipeline/scripts/test_evaluate_aptness.py` (extended), `data-pipeline/sweeps/baseline_v2.yaml` (new), `data-pipeline/sweeps/README.md` (new), `.gitignore` (narrow add)
+**Reviewers:** superpowers → pr-review-toolkit → ux-designer (strict round-robin)
+**Max iterations:** 15
+**Pre-loop SHA:** ac180f95
+

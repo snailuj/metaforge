@@ -46,7 +46,7 @@ MRR score + results JSON
 
 ## Operations
 
-There are **4 primary operations**. Other scripts in this directory are internal modules called by these entrypoints — do not invoke them directly.
+There are **5 primary operations**. Other scripts in this directory are internal modules called by these entrypoints — do not invoke them directly.
 
 ### 1. Run LLM Enrichment
 
@@ -102,6 +102,17 @@ python data-pipeline/scripts/evaluate_mrr.py --enrichment FILE --port 9091 -v -o
 # Live LLM enrichment (restore + enrich + pipeline, costs API calls)
 python data-pipeline/scripts/evaluate_mrr.py --enrich --size 700 --model sonnet --port 9091 -v -o results.json
 ```
+
+### 5. Run a parameter sweep
+
+Run `evaluate_aptness` once per variation in a sweep config (YAML or JSON) and emit a structured JSON result + ranked markdown table. Failures are isolated per variation so a bad config row does not abort the rest of the sweep.
+
+```bash
+source data-pipeline/.venv/bin/activate
+python data-pipeline/scripts/run_sweep.py --config data-pipeline/sweeps/baseline_v2.yaml --output data-pipeline/output/sweep_baseline_v2.json
+```
+
+Each variation may set `scoring: NAME` to select a registered scoring formula (see `evaluate_aptness.SCORING_FNS`). The same selection is exposed on the standalone evaluator via `python data-pipeline/scripts/evaluate_aptness.py --scoring NAME ...`.
 
 ## Skills
 
