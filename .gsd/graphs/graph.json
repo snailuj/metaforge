@@ -1,8 +1,8 @@
 {
   "nodes": [
     {
-      "id": "concept:phase:evaluating-gates",
-      "label": "Phase: evaluating-gates",
+      "id": "concept:phase:planning",
+      "label": "Phase: planning",
       "type": "concept",
       "confidence": "EXTRACTED",
       "sourceFile": "STATE.md"
@@ -229,5 +229,5 @@
       "confidence": "EXTRACTED"
     }
   ],
-  "builtAt": "2026-05-02T07:41:56.477Z"
+  "builtAt": "2026-05-02T13:58:29.360Z"
 }

@@ -12,7 +12,7 @@
 
 ## Slices
 
-- [ ] **S01: S01** `risk:medium` `depends:[]`
+- [x] **S01: S01** `risk:medium` `depends:[]`
   > After this: Run aptness evaluator on 50 known-good pairs + 50 MUNCH inapt controls, display per-pair scores and aggregate separation statistics alongside V2 baseline MRR
 
 - [ ] **S02: Parameter Sweep Harness** `risk:low` `depends:[S01]`
