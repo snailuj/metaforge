@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-02T07:42:23Z | Files: 367 | Described: 0/367
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T07:42:23Z","fingerprint":"4223032bcd5018f697a4a7bd17b6f5a35de83b8e","fileCount":367,"truncated":false} -->
+Generated: 2026-05-02T10:27:58Z | Files: 368 | Described: 0/368
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T10:27:58Z","fingerprint":"9aaf498ab7ad50d30380e5e46ca8cc567a405b2d","fileCount":368,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -344,6 +344,9 @@ Generated: 2026-05-02T07:42:23Z | Files: 367 | Described: 0/367
 - `docs/reviews/sqlunet-datasets/semlink-assessment.md`
 - `docs/reviews/sqlunet-datasets/syntagnet-assessment.md`
 - `docs/reviews/sqlunet-datasets/verbnet-assessment.md`
+
+### docs/superpowers/review-logs/
+- `docs/superpowers/review-logs/2026-05-02-milestone-M002-kitkng-review.md`
 
 ### lib/
 - `lib/__init__.py`
