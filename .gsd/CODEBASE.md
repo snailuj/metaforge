@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-02T07:42:23Z | Files: 367 | Described: 0/367
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T07:42:23Z","fingerprint":"4223032bcd5018f697a4a7bd17b6f5a35de83b8e","fileCount":367,"truncated":false} -->
+Generated: 2026-05-02T13:13:20Z | Files: 369 | Described: 0/369
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T13:13:20Z","fingerprint":"a3b7f2885384cde4415e2f191b74ad95d3cb3541","fileCount":369,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -249,7 +249,7 @@ Generated: 2026-05-02T07:42:23Z | Files: 367 | Described: 0/367
 - `data-pipeline/future-work/metaphor-vehicles/source_concepts.tsv`
 
 ### data-pipeline/output/
-- *(33 files: 32 .json, 1 .gz)*
+- *(34 files: 33 .json, 1 .gz)*
 
 ### data-pipeline/output/evolution/
 - `data-pipeline/output/evolution/evolution_report.md`
@@ -344,6 +344,9 @@ Generated: 2026-05-02T07:42:23Z | Files: 367 | Described: 0/367
 - `docs/reviews/sqlunet-datasets/semlink-assessment.md`
 - `docs/reviews/sqlunet-datasets/syntagnet-assessment.md`
 - `docs/reviews/sqlunet-datasets/verbnet-assessment.md`
+
+### docs/superpowers/review-logs/
+- `docs/superpowers/review-logs/2026-05-02-milestone-M002-kitkng-review.md`
 
 ### lib/
 - `lib/__init__.py`
