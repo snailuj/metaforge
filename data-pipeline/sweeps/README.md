@@ -50,8 +50,9 @@ configs (this directory) are committed.
   `error_type` and `error_message` fields in the per-row JSON or the
   Failures section of the markdown report. Common causes:
   - Typo in `scoring:` — compare against the registered names in
-    `evaluate_aptness.SCORING_FNS` (the standalone evaluator's
-    `--scoring --help` lists them).
+    `evaluate_aptness.SCORING_FNS`. Run
+    `python data-pipeline/scripts/evaluate_aptness.py --help` to see
+    them as the `--scoring` choices.
   - Missing or relative path for `db`, `pairs`, `controls`, or
     `mrr_reference` — paths resolve relative to cwd, so run from the
     repo root.
