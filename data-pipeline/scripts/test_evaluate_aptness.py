@@ -8,6 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 from evaluate_aptness import (
+    PairScore,
     aggregate_metrics,
     classify_aptness,
     evaluate,
@@ -96,30 +97,50 @@ def test_lookup_primary_synset_is_case_insensitive():
 
 # --- Scoring -----------------------------------------------------------------
 
-def test_score_pair_with_overlap_returns_positive():
+def test_score_pair_with_overlap_returns_scored():
     conn = _build_fixture_db()
-    score = score_pair(conn, "anger", "fire")
-    assert score is not None
-    assert score > 0.0
+    result = score_pair(conn, "anger", "fire")
+    assert result.status == "scored"
+    assert result.score is not None
+    assert result.score > 0.0
 
 
-def test_score_pair_without_overlap_returns_zero():
+def test_score_pair_without_overlap_is_scored_zero():
+    """Both synsets resolve and have curated properties — no shared clusters
+    is a real evaluation outcome (score 0.0), not a coverage gap."""
     conn = _build_fixture_db()
     # approach (cluster 4) and coming (cluster 5) share no clusters
-    score = score_pair(conn, "approach", "coming")
-    assert score == 0.0
+    result = score_pair(conn, "approach", "coming")
+    assert result.status == "scored"
+    assert result.score == 0.0
 
 
-def test_score_pair_with_unresolvable_word_returns_none():
+def test_score_pair_with_unresolvable_word_is_unresolved():
     conn = _build_fixture_db()
-    assert score_pair(conn, "anger", "zzznotaword") is None
+    result = score_pair(conn, "anger", "zzznotaword")
+    assert result.status == "unresolved"
+    assert result.score is None
+
+
+def test_score_pair_with_no_curated_properties_is_no_properties():
+    """A resolved synset that lacks curated properties is a coverage gap,
+    not a real zero score — must be flagged distinctly so it can be excluded
+    from the apt mean."""
+    conn = _build_fixture_db()
+    # 'orphan' resolves via lemmas table to S999 — but S999 has no rows in
+    # synset_properties_curated. Pairing it with a real word must yield
+    # a no_properties status rather than scored=0.0.
+    result = score_pair(conn, "anger", "orphan")
+    assert result.status == "no_properties"
+    assert result.score is None
 
 
 def test_score_pair_is_symmetric():
     conn = _build_fixture_db()
     a = score_pair(conn, "anger", "fire")
     b = score_pair(conn, "fire", "anger")
-    assert a == b
+    assert a.status == b.status
+    assert a.score == b.score
 
 
 # --- Loaders -----------------------------------------------------------------
@@ -264,3 +285,40 @@ def test_evaluate_produces_required_json_shape(tmp_path):
 
     # apt > inapt for our crafted fixture → separation > 0
     assert result["separation_score"] > 0.0
+
+
+def test_evaluate_excludes_no_properties_pairs_from_apt_mean(tmp_path):
+    """A pair where one side has no curated properties must be reported via
+    apt_no_properties counter and must NOT enter apt_scores (would deflate
+    mean_apt and shrink separation_score)."""
+    conn = _build_fixture_db()
+
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps([
+        # Real apt pair with overlap → should score positive
+        {"source": "anger", "target": "fire", "tier": "strong"},
+        # 'orphan' has no curated properties → coverage gap, NOT zero
+        {"source": "anger", "target": "orphan", "tier": "strong"},
+    ]))
+    controls_file = tmp_path / "controls.jsonl"
+    controls_file.write_text("")
+
+    result = evaluate(
+        conn=conn,
+        pairs_file=str(pairs_file),
+        controls_file=str(controls_file),
+    )
+
+    agg = result["aggregate"]
+    # n_apt counts only scored pairs, not no-properties pairs
+    assert agg["n_apt"] == 1
+    assert agg["apt_no_properties"] == 1
+    assert agg["apt_unresolved"] == 0
+    # mean_apt reflects only the real scored pair (anger/fire), not 0.0
+    # from the orphan pair conflation.
+    assert agg["mean_apt_score"] > 0.0
+
+    # per_pair scores carry the status distinction
+    apt_pp = [p for p in result["per_pair_scores"] if p["class"] == "apt"]
+    statuses = sorted(p["status"] for p in apt_pp)
+    assert statuses == ["no_properties", "scored"]

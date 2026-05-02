@@ -28,8 +28,9 @@ import json
 import logging
 import sqlite3
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import LEXICON_V2, get_git_commit
@@ -85,35 +86,55 @@ def _get_properties(conn: sqlite3.Connection, synset_id: str) -> dict[int, float
 
 # --- Pair scoring ------------------------------------------------------------
 
+PairStatus = Literal["scored", "unresolved", "no_properties"]
+
+
+@dataclass(frozen=True)
+class PairScore:
+    """Outcome of scoring a (word_a, word_b) pair.
+
+    The three statuses are semantically distinct and must be reported
+    separately so a coverage gap is not conflated with a real zero score:
+
+      * ``scored``        — both words resolved AND have curated properties;
+                            ``score`` is in [0.0, 1.0] (0.0 = no overlap).
+      * ``unresolved``    — at least one lemma did not resolve to a synset;
+                            ``score`` is None.
+      * ``no_properties`` — both resolved but at least one synset has zero
+                            rows in synset_properties_curated (data
+                            coverage gap); ``score`` is None.
+    """
+    status: PairStatus
+    score: Optional[float]
+
+
 def score_pair(
     conn: sqlite3.Connection, word_a: str, word_b: str,
-) -> Optional[float]:
+) -> PairScore:
     """Score a (word_a, word_b) pair by salience-weighted property overlap.
 
-    Returns:
-        float in [0, 1]: weighted Jaccard over shared property clusters
-        None: either word does not resolve to a synset
-        0.0:  both resolve but at least one has no curated properties,
-              or there is no cluster overlap
+    See :class:`PairScore` for the status semantics. The previous
+    ``Optional[float]`` return type conflated coverage gaps with real
+    zero scores — see fix iteration 2 / code review.
     """
     sa = lookup_primary_synset(conn, word_a)
     sb = lookup_primary_synset(conn, word_b)
     if sa is None or sb is None:
-        return None
+        return PairScore(status="unresolved", score=None)
 
     pa = _get_properties(conn, sa)
     pb = _get_properties(conn, sb)
     if not pa or not pb:
-        return 0.0
+        return PairScore(status="no_properties", score=None)
 
     shared = set(pa) & set(pb)
     if not shared:
-        return 0.0
+        return PairScore(status="scored", score=0.0)
 
     union = set(pa) | set(pb)
     num = sum(min(pa[c], pb[c]) for c in shared)
     den = sum(max(pa.get(c, 0.0), pb.get(c, 0.0)) for c in union)
-    return num / den if den > 0 else 0.0
+    return PairScore(status="scored", score=(num / den if den > 0 else 0.0))
 
 
 # --- Loaders -----------------------------------------------------------------
@@ -227,34 +248,68 @@ def _score_cohort(
     word_a_key: str,
     word_b_key: str,
     cls: str,
-) -> tuple[list[float], list[dict], int]:
-    """Score every pair in a cohort, returning (scores, per_pair, unresolved)."""
+) -> tuple[list[float], list[dict], int, int]:
+    """Score every pair in a cohort.
+
+    Returns ``(scores, per_pair, unresolved, no_properties)``. Only
+    pairs with status ``scored`` push a value into ``scores``; the two
+    counters track coverage gaps separately so they don't deflate the
+    cohort mean.
+    """
     scores: list[float] = []
     per_pair: list[dict] = []
     unresolved = 0
+    no_properties = 0
     for p in pairs:
         a = p.get(word_a_key)
         b = p.get(word_b_key)
-        s = score_pair(conn, a, b) if a and b else None
-        if s is None:
+        if not a or not b:
+            # Missing keys behave like an unresolved lemma — no synset to score.
             unresolved += 1
             per_pair.append({
                 "class": cls,
                 "word_a": a,
                 "word_b": b,
+                "status": "unresolved",
                 "score": None,
                 "resolved": False,
             })
             continue
-        scores.append(s)
+        result = score_pair(conn, a, b)
+        if result.status == "unresolved":
+            unresolved += 1
+            per_pair.append({
+                "class": cls,
+                "word_a": a,
+                "word_b": b,
+                "status": "unresolved",
+                "score": None,
+                "resolved": False,
+            })
+            continue
+        if result.status == "no_properties":
+            no_properties += 1
+            per_pair.append({
+                "class": cls,
+                "word_a": a,
+                "word_b": b,
+                "status": "no_properties",
+                "score": None,
+                "resolved": True,
+            })
+            continue
+        # status == "scored"
+        assert result.score is not None  # narrows type for mypy/readers
+        scores.append(result.score)
         per_pair.append({
             "class": cls,
             "word_a": a,
             "word_b": b,
-            "score": round(s, 6),
+            "status": "scored",
+            "score": round(result.score, 6),
             "resolved": True,
         })
-    return scores, per_pair, unresolved
+    return scores, per_pair, unresolved, no_properties
 
 
 def evaluate(
@@ -273,17 +328,18 @@ def evaluate(
         len(apt_pairs), len(inapt_controls),
     )
 
-    apt_scores, apt_pp, apt_unres = _score_cohort(
+    apt_scores, apt_pp, apt_unres, apt_noprops = _score_cohort(
         conn, apt_pairs, "source", "target", "apt",
     )
-    inapt_scores, inapt_pp, inapt_unres = _score_cohort(
+    inapt_scores, inapt_pp, inapt_unres, inapt_noprops = _score_cohort(
         conn, inapt_controls, "target", "paraphrase", "inapt",
     )
 
     log.info(
-        "Resolved: apt=%d/%d, inapt=%d/%d",
-        len(apt_scores), len(apt_pairs),
-        len(inapt_scores), len(inapt_controls),
+        "Scored: apt=%d/%d (unresolved=%d, no_properties=%d), "
+        "inapt=%d/%d (unresolved=%d, no_properties=%d)",
+        len(apt_scores), len(apt_pairs), apt_unres, apt_noprops,
+        len(inapt_scores), len(inapt_controls), inapt_unres, inapt_noprops,
     )
 
     threshold = _percentile(inapt_scores, threshold_percentile)
@@ -300,6 +356,8 @@ def evaluate(
             **agg,
             "apt_unresolved": apt_unres,
             "inapt_unresolved": inapt_unres,
+            "apt_no_properties": apt_noprops,
+            "inapt_no_properties": inapt_noprops,
         },
         "per_pair_scores": apt_pp + inapt_pp,
         "config": {
@@ -379,12 +437,14 @@ def main() -> None:
     agg = result["aggregate"]
     print(
         f"  apt:   n={agg['n_apt']:>4}  mean={agg['mean_apt_score']:.4f}  "
-        f"unresolved={agg['apt_unresolved']}",
+        f"unresolved={agg['apt_unresolved']}  "
+        f"no_properties={agg['apt_no_properties']}",
         file=sys.stderr,
     )
     print(
         f"  inapt: n={agg['n_inapt']:>4}  mean={agg['mean_inapt_score']:.4f}  "
-        f"unresolved={agg['inapt_unresolved']}",
+        f"unresolved={agg['inapt_unresolved']}  "
+        f"no_properties={agg['inapt_no_properties']}",
         file=sys.stderr,
     )
     print(
