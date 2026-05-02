@@ -13,9 +13,10 @@
 #   ./import_raw.sh --dump       Build and export PRE_ENRICH.sql
 #
 # Raw sources required:
-#   data-pipeline/raw/sqlunet_master.db          SQLunet integrated database
-#   data-pipeline/input/multilex-en/*.xlsx       Brysbaert GPT familiarity
-#   data-pipeline/input/subtlex-uk/*.xlsx        SUBTLEX-UK frequencies
+#   data-pipeline/raw/sqlunet_master.db                              SQLunet integrated database
+#   data-pipeline/raw/Concreteness_ratings_Brysbaert_et_al_BRM.txt   Brysbaert concreteness ratings
+#   data-pipeline/input/multilex-en/*.xlsx                           Brysbaert GPT familiarity
+#   data-pipeline/input/subtlex-uk/*.xlsx                            SUBTLEX-UK frequencies
 #
 # See also:
 #   data-pipeline/CLAUDE.md                      Pipeline overview
@@ -30,6 +31,7 @@ SCRIPTS_DIR="$PIPELINE_DIR/scripts"
 RAW_DIR="$PIPELINE_DIR/raw"
 OUTPUT_DIR="$PIPELINE_DIR/output"
 SCHEMA_FILE="$PIPELINE_DIR/SCHEMA.sql"
+SHARED_DIR="${METAFORGE_SHARED_DIR:-$HOME/.local/share/metaforge}"
 
 DUMP=false
 if [[ "${1:-}" == "--dump" ]]; then
@@ -38,15 +40,41 @@ fi
 
 # --- Validation -----------------------------------------------------------
 
+# Ensure $RAW_DIR/<basename> resolves to a real file, creating a symlink
+# into $SHARED_DIR for large gitignored sources kept outside the repo.
+# Returns 0 on success, 1 if the file cannot be located.
+ensure_raw_file() {
+    local basename="$1"
+    local target="$RAW_DIR/$basename"
+    local shared="$SHARED_DIR/$basename"
+
+    if [[ -f "$target" ]]; then
+        return 0
+    fi
+
+    # Broken symlink — remove so we can re-link cleanly.
+    if [[ -L "$target" ]]; then
+        echo "  Removing broken symlink $target"
+        rm -f "$target"
+    fi
+
+    if [[ -f "$shared" ]]; then
+        echo "  Linking $target -> $shared"
+        ln -s "$shared" "$target"
+        return 0
+    fi
+
+    echo "ERROR: Missing $target (also not found in $SHARED_DIR)"
+    return 1
+}
+
 echo "=== Metaforge: Import Raw Sources ==="
 echo ""
 
 errors=0
 
-if [[ ! -f "$RAW_DIR/sqlunet_master.db" ]]; then
-    echo "ERROR: Missing $RAW_DIR/sqlunet_master.db"
-    errors=1
-fi
+ensure_raw_file "sqlunet_master.db" || errors=1
+ensure_raw_file "Concreteness_ratings_Brysbaert_et_al_BRM.txt" || errors=1
 
 if [[ ! -f "$SCHEMA_FILE" ]]; then
     echo "ERROR: Missing schema file: $SCHEMA_FILE"
@@ -99,6 +127,9 @@ run_step "Build curated vocabulary (35k entries)" \
 run_step "Build antonym pairs from WordNet relations" \
     python "$SCRIPTS_DIR/build_antonyms.py" --db "$DB_PATH"
 
+run_step "Import Brysbaert concreteness ratings (synset_concreteness)" \
+    python "$SCRIPTS_DIR/import_concreteness.py"
+
 # --- Verification ---------------------------------------------------------
 
 echo "--- Verification ---"
@@ -111,6 +142,7 @@ UNION ALL SELECT 'syntagms', COUNT(*) FROM syntagms
 UNION ALL SELECT 'vn_classes', COUNT(*) FROM vn_classes
 UNION ALL SELECT 'property_vocab_curated', COUNT(*) FROM property_vocab_curated
 UNION ALL SELECT 'property_antonyms', COUNT(*) FROM property_antonyms
+UNION ALL SELECT 'synset_concreteness', COUNT(*) FROM synset_concreteness
 UNION ALL SELECT 'enrichment', COUNT(*) FROM enrichment
 UNION ALL SELECT 'property_vocabulary', COUNT(*) FROM property_vocabulary
 UNION ALL SELECT 'synset_properties', COUNT(*) FROM synset_properties;
