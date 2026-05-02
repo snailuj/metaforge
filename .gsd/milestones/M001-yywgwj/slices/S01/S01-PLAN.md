@@ -31,7 +31,7 @@ V2 database deployed to staging; evaluator script callable from S02 sweep harnes
   - Files: `data-pipeline/scripts/test_enrich_pipeline.py`, `data-pipeline/scripts/test_enrich_properties.py`, `api/internal/db/db_test.go`, `api/internal/forge/forge_test.go`
   - Verify: python -m pytest data-pipeline/scripts/ -v passes; cd api && go test ./... passes; salience distribution check shows values across 0.3-1.0 range
 
-- [ ] **T03: Acquire and preprocess MUNCH dataset** `est:30m`
+- [x] **T03: Acquire and preprocess MUNCH dataset** `est:30m`
   Clone the MUNCH dataset from github.com/xiaoyuisrain/metaphor-understanding-challenge (CC BY 4.0). Parse the JSON/CSV files to extract apt paraphrases (10,261) and inapt controls (1,492). Preprocess into a standardised evaluator-ready format: JSON lines with fields for metaphor text, paraphrase, aptness label (apt/inapt), and genre. Store in data-pipeline/fixtures/.
   - Files: `data-pipeline/fixtures/munch_apt.jsonl`, `data-pipeline/fixtures/munch_inapt.jsonl`, `data-pipeline/scripts/preprocess_munch.py`
   - Verify: wc -l munch_apt.jsonl returns >= 10000; wc -l munch_inapt.jsonl returns >= 1400; python -c to validate JSON structure of first 10 lines of each file
