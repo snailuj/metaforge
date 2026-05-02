@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-02T13:32:35Z | Files: 376 | Described: 0/376
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T13:32:35Z","fingerprint":"c24343381f829c56a00c9cf74e93d0218ff7b69f","fileCount":376,"truncated":false} -->
+Generated: 2026-05-02T13:46:16Z | Files: 379 | Described: 0/379
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T13:46:16Z","fingerprint":"545cb4a5e46b8ea408456b044ff76516c221facb","fileCount":379,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -251,7 +251,7 @@ Generated: 2026-05-02T13:32:35Z | Files: 376 | Described: 0/376
 - `data-pipeline/future-work/metaphor-vehicles/source_concepts.tsv`
 
 ### data-pipeline/output/
-- *(35 files: 34 .json, 1 .gz)*
+- *(38 files: 37 .json, 1 .gz)*
 
 ### data-pipeline/output/evolution/
 - `data-pipeline/output/evolution/evolution_report.md`
