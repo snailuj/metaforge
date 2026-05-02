@@ -182,6 +182,51 @@ Status: superpowers CLEAN this round; pr-review-toolkit must also return CLEAN b
 
 ---
 
+## Iteration 5 — pr-review-toolkit (2026-05-02T15:05:00Z)
+
+**Agents dispatched (sequential):** code-reviewer, silent-failure-hunter, type-design-analyzer
+**Pre-fix SHA:** 9805cecafbe9a951dc9d6e6f404bbf2a5a11cfa8
+**Handover read:** iterations 1-4
+
+### Items Found
+
+**code-reviewer:** CLEAN. Verified all five iter-2 fixes are tight: cluster_vocab struct.error context, preprocess_munch CSV path/line context, evaluate_aptness DB existence guard, PairScore tagged dataclass, SCHEMA CHECK on synset_concreteness.score.
+
+**silent-failure-hunter:** CLEAN. All five fixes are log-and-re-raise or fail-fast patterns; no new silent failures introduced; previously-skipped items remain skipped with no new reasoning to re-raise.
+
+**type-design-analyzer:** 5 items.
+
+- [low] **PairScore invariant "score is None iff status != 'scored'" not enforced at construction** (`data-pipeline/scripts/evaluate_aptness.py:93-108`)
+  - Decision: **fix**
+  - Rationale: cheap `__post_init__` enforces invariant the cohort logic relies on; removes the `assert result.score is not None` defensive narrowing. Aligns with project standard "all errors handled" — illegal states should be unrepresentable.
+- [low] **Two-axis status conflation; could use Scored/Unresolved/NoProperties tagged union**
+  - Decision: **skip**
+  - Rationale: reviewer admits "flag, don't insist". Pragmatic Python design with frozen dataclass + Literal status is idiomatic; the bigger refactor adds friction without commensurate clarity for this domain.
+- [low] **`_score_cohort` returns positional 4-tuple; future counter would silently shift indices** (`data-pipeline/scripts/evaluate_aptness.py:248-313`)
+  - Decision: **fix**
+  - Rationale: small, prevents future regression. Promote return shape to `CohortResult` dataclass — call sites read by name, additions become compile-time visible.
+- [low] **`Optional[float]` import alongside PEP 604 elsewhere** (`evaluate_aptness.py:31, 108`)
+  - Decision: **fix**
+  - Rationale: trivial consistency. Rest of the file uses `dict[int, float]` / `list[float]` style.
+- [cosmetic] **Lock the `score=0.0 + status='scored'` distinction with a regression test**
+  - Decision: **already covered**
+  - Rationale: `test_score_pair_without_overlap_is_scored_zero` (test_evaluate_aptness.py:108-115) already asserts the no-overlap-but-scored case. No new test needed.
+
+### Fixes Applied
+
+- **PairScore __post_init__ invariant** — TDD: failing `pytest.raises(ValueError)` test, then `__post_init__` raising on illegal status/score combos; cohort logic drops defensive `assert`. (commit `f1d9b7f0`)
+- **CohortResult dataclass** — refactored `_score_cohort` to return frozen dataclass; call sites in `evaluate()` read by name (`apt.scores`, `apt.unresolved`, etc.). (commit `5b6b192a`)
+- **PEP 604 union syntax** — dropped `typing.Optional` import; `Optional[X]` → `X | None` at 3 use sites. (commit `c9f11785`)
+
+### Test Results
+436 passing, 0 failing (`python -m pytest data-pipeline/scripts/`, 50.46s)
+
+### Cumulative
+Total iterations: 5 | Items found cumulative: 25 | Items fixed: 12 | Items skipped: 12 | Already-covered: 1
+Status: NOT clean (fixes applied — re-review needed) → next: ux-designer (round 2)
+
+---
+
 ### Note on baseline JSON
 `data-pipeline/output/eval_baseline_v2.json` was computed under the old conflated scoring. Fix #4 (`PairScore` distinction) means a fresh baseline run would yield a higher `separation_score` because no_properties pairs no longer drag down `mean_apt`. Regeneration is a separate user-facing eval run, intentionally NOT part of this code-review fix; the user can re-run `evaluate_aptness.py` and `evaluate_mrr.py` to refresh the artifact when they want the new baseline locked in.
 
