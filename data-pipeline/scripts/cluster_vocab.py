@@ -105,8 +105,17 @@ def cluster_vocab(
     # Build matrix of embedded vocab
     embedded_vids: list[int] = []
     vectors: list[list[float]] = []
+    expected_bytes = EMBEDDING_DIM * 4  # float32
     for vid, blob in embedded_rows:
-        vec = list(struct.unpack(f"{EMBEDDING_DIM}f", blob))
+        try:
+            vec = list(struct.unpack(f"{EMBEDDING_DIM}f", blob))
+        except struct.error:
+            log.error(
+                "Corrupt embedding for vocab_id=%s: blob length=%d, expected %d "
+                "(EMBEDDING_DIM=%d float32s)",
+                vid, len(blob), expected_bytes, EMBEDDING_DIM,
+            )
+            raise
         vectors.append(vec)
         embedded_vids.append(vid)
 
