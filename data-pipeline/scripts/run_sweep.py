@@ -94,6 +94,34 @@ class FailedVariationResult(TypedDict):
 VariationResult = Union[OkVariationResult, FailedVariationResult]
 
 
+# --- Sweep config schema -----------------------------------------------------
+#
+# total=False because every key is optional from a parser standpoint;
+# semantic requirements (e.g. "name is mandatory on every variation")
+# are enforced in load_sweep_config rather than via the TypedDict so
+# the validator can produce config-path-aware error messages.
+
+class VariationSpec(TypedDict, total=False):
+    name: str
+    scoring: str
+    threshold_percentile: float
+
+
+ALLOWED_VARIATION_KEYS = frozenset(VariationSpec.__annotations__.keys())
+
+
+class SweepConfig(TypedDict, total=False):
+    name: str
+    db: str
+    pairs: str
+    controls: str
+    mrr_reference: str
+    variations: list[VariationSpec]
+
+
+ALLOWED_SWEEP_KEYS = frozenset(SweepConfig.__annotations__.keys())
+
+
 # --- Config loading ----------------------------------------------------------
 
 def load_sweep_config(path: str) -> dict[str, Any]:
@@ -133,6 +161,47 @@ def load_sweep_config(path: str) -> dict[str, Any]:
         raise ValueError(
             f"Sweep config {path}: missing/invalid 'variations' list"
         )
+
+    # Strict allow-list at the top level — typos like `scorring` are
+    # silent footguns in a sweep harness, where a misspelled key reverts
+    # to the default and the user pays the wasted compute.
+    unknown_top = set(data) - ALLOWED_SWEEP_KEYS
+    if unknown_top:
+        raise ValueError(
+            f"sweep config {path}: unknown key(s): {sorted(unknown_top)} "
+            f"(allowed: {sorted(ALLOWED_SWEEP_KEYS)})"
+        )
+
+    # Per-variation: allow-list, mandatory non-empty name, name uniqueness.
+    seen_names: list[str] = []
+    duplicates: list[str] = []
+    for idx, var in enumerate(data["variations"]):
+        if not isinstance(var, dict):
+            raise ValueError(
+                f"sweep config {path}: variation[{idx}] must be a mapping, "
+                f"got {type(var).__name__}"
+            )
+        unknown_var = set(var) - ALLOWED_VARIATION_KEYS
+        if unknown_var:
+            raise ValueError(
+                f"sweep config {path}: variation[{idx}] unknown key(s): "
+                f"{sorted(unknown_var)} "
+                f"(allowed: {sorted(ALLOWED_VARIATION_KEYS)})"
+            )
+        name = var.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(
+                f"sweep config {path}: variation[{idx}] missing required "
+                f"'name' (must be non-empty string)"
+            )
+        if name in seen_names and name not in duplicates:
+            duplicates.append(name)
+        seen_names.append(name)
+    if duplicates:
+        raise ValueError(
+            f"sweep config {path}: duplicate variation name(s): {duplicates}"
+        )
+
     return data
 
 

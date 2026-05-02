@@ -136,6 +136,78 @@ def test_load_sweep_config_rejects_missing_file(tmp_path):
         load_sweep_config(str(tmp_path / "nope.json"))
 
 
+def test_load_sweep_config_rejects_unknown_top_level_key(tmp_path):
+    """A typo in a top-level config key (e.g. `scorring`) must fail
+    fast with a message naming the offending key and the config path."""
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "scorring": "jaccard_salience",  # typo
+        "variations": [{"name": "v1"}],
+    }))
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    msg = str(exc.value)
+    assert "scorring" in msg
+    assert str(cfg_file) in msg
+
+
+def test_load_sweep_config_rejects_unknown_variation_key(tmp_path):
+    """A typo inside a variation entry must fail fast."""
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [
+            {"name": "v1", "scorring": "jaccard_salience"},  # typo
+        ],
+    }))
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    assert "scorring" in str(exc.value)
+
+
+def test_load_sweep_config_requires_variation_name(tmp_path):
+    """Each variation must declare a non-empty `name`."""
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [{"scoring": "jaccard_salience"}],
+    }))
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    msg = str(exc.value)
+    # Mention the offending variation by index (0)
+    assert "0" in msg
+    assert "name" in msg
+
+
+def test_load_sweep_config_rejects_duplicate_variation_names(tmp_path):
+    """Variation names must be unique within a sweep."""
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [
+            {"name": "v1", "scoring": "jaccard_salience"},
+            {"name": "v1", "scoring": "jaccard_raw"},
+        ],
+    }))
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    assert "v1" in str(exc.value)
+
+
 def test_load_sweep_config_rejects_unknown_extension(tmp_path):
     cfg_file = tmp_path / "sweep.txt"
     cfg_file.write_text("name: x")
