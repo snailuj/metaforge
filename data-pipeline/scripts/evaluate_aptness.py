@@ -1,36 +1,50 @@
 """Discriminative aptness evaluator for Metaforge metaphor pairings.
 
-Scores (target, vehicle) pairs as apt or inapt by measuring weighted
-property overlap in the curated vocabulary. Calibrates the
-classification threshold against the MUNCH inapt control distribution
-(95th percentile by default) and reports:
+Scores (target, vehicle) pairs as apt or inapt by measuring property
+overlap in the curated vocabulary. Calibrates the classification
+threshold against the MUNCH inapt control distribution (95th
+percentile by default) and reports:
 
   * separation_score   = mean(apt) − mean(inapt)
   * aptness_rate       = fraction of apt pairs scoring above threshold
   * per_pair_scores    = full per-pair detail (class, score, resolved)
   * aggregate          = means + sample sizes
-  * config             = thresholds + commit + db path
+  * config             = thresholds + scoring name + commit + db path
 
-The score uses salience-weighted Jaccard over shared cluster_ids in
-synset_properties_curated. This favours pairs that share *salient*
-property clusters (the basis for metaphorical mapping) over pairs that
-merely co-occur via low-salience filler properties.
+Scoring is pluggable via the ``SCORING_FNS`` registry. Each scoring
+function takes two ``{cluster_id: salience_sum}`` mappings and returns
+a float in [0.0, 1.0]. Registered formulas:
+
+  * ``jaccard_salience`` (default) — salience-weighted Jaccard. Favours
+    pairs that share *salient* property clusters over pairs that merely
+    co-occur via low-salience filler properties.
+  * ``jaccard_raw`` — unweighted set-Jaccard over shared cluster_ids.
+    Acts as a control for whether salience weighting helps.
+  * ``cosine_salience`` — cosine similarity over salience vectors,
+    aligned by cluster_id. Cluster_ids missing from one side are
+    zero-padded (standard sparse-cosine convention).
+
+Conventions: registry keys are lowercase snake_case. Add new scoring
+formulas by inserting into ``SCORING_FNS`` — the CLI ``--scoring``
+flag accepts any registered name.
 
 Usage:
     python evaluate_aptness.py \\
         --pairs    data-pipeline/fixtures/metaphor_pairs_v2.json \\
         --controls data-pipeline/fixtures/munch_inapt.jsonl \\
         --db       data-pipeline/output/lexicon_v2.db \\
+        --scoring  jaccard_salience \\
         --output   data-pipeline/output/aptness_eval.json
 """
 import argparse
 import json
 import logging
+import math
 import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import LEXICON_V2, get_git_commit
@@ -84,6 +98,83 @@ def _get_properties(conn: sqlite3.Connection, synset_id: str) -> dict[int, float
     return {int(cid): float(sal) for cid, sal in rows}
 
 
+# --- Scoring registry --------------------------------------------------------
+
+ScoringFn = Callable[[dict[int, float], dict[int, float]], float]
+"""Signature: (pa, pb) -> float in [0.0, 1.0].
+
+Inputs are ``{cluster_id: salience_sum}`` mappings — the existing
+internal shape produced by :func:`_get_properties`. The function is
+called only when both sides are non-empty (the ``no_properties`` /
+``unresolved`` statuses are handled in :func:`score_pair` before any
+scoring runs), but implementations should still tolerate empty input
+defensively for direct unit-test use.
+"""
+
+
+def _jaccard_salience(
+    pa: dict[int, float], pb: dict[int, float],
+) -> float:
+    """Salience-weighted Jaccard over shared cluster_ids.
+
+    num = sum_c min(pa[c], pb[c]) over shared clusters
+    den = sum_c max(pa[c], pb[c]) over the union
+    score = num / den (or 0.0 if den == 0)
+    """
+    shared = set(pa) & set(pb)
+    if not shared:
+        return 0.0
+    union = set(pa) | set(pb)
+    num = sum(min(pa[c], pb[c]) for c in shared)
+    den = sum(max(pa.get(c, 0.0), pb.get(c, 0.0)) for c in union)
+    return num / den if den > 0 else 0.0
+
+
+def _jaccard_raw(
+    pa: dict[int, float], pb: dict[int, float],
+) -> float:
+    """Unweighted set-Jaccard over cluster_ids.
+
+    Salience values are ignored — only cluster overlap counts. Acts as
+    a control for whether salience weighting helps.
+    """
+    sa, sb = set(pa), set(pb)
+    if not sa or not sb:
+        return 0.0
+    inter = sa & sb
+    union = sa | sb
+    return len(inter) / len(union) if union else 0.0
+
+
+def _cosine_salience(
+    pa: dict[int, float], pb: dict[int, float],
+) -> float:
+    """Cosine similarity over salience vectors aligned by cluster_id.
+
+    Cluster_ids missing from one side are zero-padded — the standard
+    sparse-cosine convention. Returns 0.0 when either vector has zero
+    norm (e.g. all-zero saliences).
+    """
+    keys = set(pa) | set(pb)
+    if not keys:
+        return 0.0
+    dot = sum(pa.get(c, 0.0) * pb.get(c, 0.0) for c in keys)
+    na = math.sqrt(sum(v * v for v in pa.values()))
+    nb = math.sqrt(sum(v * v for v in pb.values()))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
+SCORING_FNS: dict[str, ScoringFn] = {
+    "jaccard_salience": _jaccard_salience,
+    "jaccard_raw": _jaccard_raw,
+    "cosine_salience": _cosine_salience,
+}
+
+DEFAULT_SCORING = "jaccard_salience"
+
+
 # --- Pair scoring ------------------------------------------------------------
 
 PairStatus = Literal["scored", "unresolved", "no_properties"]
@@ -123,13 +214,19 @@ class PairScore:
 
 
 def score_pair(
-    conn: sqlite3.Connection, word_a: str, word_b: str,
+    conn: sqlite3.Connection,
+    word_a: str,
+    word_b: str,
+    scoring_fn: ScoringFn = _jaccard_salience,
 ) -> PairScore:
-    """Score a (word_a, word_b) pair by salience-weighted property overlap.
+    """Score a (word_a, word_b) pair by property overlap.
 
-    See :class:`PairScore` for the status semantics. The previous
-    ``Optional[float]`` return type conflated coverage gaps with real
-    zero scores — see fix iteration 2 / code review.
+    See :class:`PairScore` for the status semantics — scoring formula
+    choice never changes status: a coverage gap stays ``no_properties``
+    and a real overlap-of-zero stays ``scored`` with score 0.0. Pass
+    any callable from :data:`SCORING_FNS` (or a custom one matching
+    :data:`ScoringFn`) to swap the formula; the default preserves the
+    historic salience-weighted Jaccard behaviour.
     """
     sa = lookup_primary_synset(conn, word_a)
     sb = lookup_primary_synset(conn, word_b)
@@ -141,14 +238,7 @@ def score_pair(
     if not pa or not pb:
         return PairScore(status="no_properties", score=None)
 
-    shared = set(pa) & set(pb)
-    if not shared:
-        return PairScore(status="scored", score=0.0)
-
-    union = set(pa) | set(pb)
-    num = sum(min(pa[c], pb[c]) for c in shared)
-    den = sum(max(pa.get(c, 0.0), pb.get(c, 0.0)) for c in union)
-    return PairScore(status="scored", score=(num / den if den > 0 else 0.0))
+    return PairScore(status="scored", score=scoring_fn(pa, pb))
 
 
 # --- Loaders -----------------------------------------------------------------
@@ -278,6 +368,7 @@ def _score_cohort(
     word_a_key: str,
     word_b_key: str,
     cls: str,
+    scoring_fn: ScoringFn = _jaccard_salience,
 ) -> CohortResult:
     """Score every pair in a cohort, returning a :class:`CohortResult`."""
     scores: list[float] = []
@@ -299,7 +390,7 @@ def _score_cohort(
                 "resolved": False,
             })
             continue
-        result = score_pair(conn, a, b)
+        result = score_pair(conn, a, b, scoring_fn=scoring_fn)
         if result.status == "unresolved":
             unresolved += 1
             per_pair.append({
@@ -346,19 +437,37 @@ def evaluate(
     controls_file: str,
     threshold_percentile: float = 95.0,
     db_path: str | None = None,
+    scoring: str = DEFAULT_SCORING,
 ) -> dict:
-    """Run the full evaluation. Returns the structured result dict."""
+    """Run the full evaluation. Returns the structured result dict.
+
+    ``scoring`` selects a formula from :data:`SCORING_FNS`. Unknown
+    names raise ``ValueError`` listing the registered options — fail
+    fast so a typo in a sweep config does not silently fall back to
+    the default.
+    """
+    if scoring not in SCORING_FNS:
+        known = ", ".join(sorted(SCORING_FNS))
+        raise ValueError(
+            f"Unknown scoring name: {scoring!r}. Registered: {known}"
+        )
+    scoring_fn = SCORING_FNS[scoring]
+
     apt_pairs = load_apt_pairs(pairs_file)
     inapt_controls = load_inapt_controls(controls_file)
 
     log.info(
-        "Loaded %d apt pairs, %d inapt controls",
-        len(apt_pairs), len(inapt_controls),
+        "Loaded %d apt pairs, %d inapt controls (scoring=%s)",
+        len(apt_pairs), len(inapt_controls), scoring,
     )
 
-    apt = _score_cohort(conn, apt_pairs, "source", "target", "apt")
+    apt = _score_cohort(
+        conn, apt_pairs, "source", "target", "apt",
+        scoring_fn=scoring_fn,
+    )
     inapt = _score_cohort(
         conn, inapt_controls, "target", "paraphrase", "inapt",
+        scoring_fn=scoring_fn,
     )
 
     log.info(
@@ -387,6 +496,7 @@ def evaluate(
         },
         "per_pair_scores": apt.per_pair + inapt.per_pair,
         "config": {
+            "scoring": scoring,
             "threshold": round(threshold, 6),
             "threshold_percentile": threshold_percentile,
             "pairs_file": pairs_file,
@@ -420,6 +530,14 @@ def main() -> None:
         help="Inapt percentile to use as classification threshold (default: 95)",
     )
     parser.add_argument(
+        "--scoring", default=DEFAULT_SCORING,
+        choices=sorted(SCORING_FNS),
+        help=(
+            "Scoring formula from SCORING_FNS registry "
+            f"(default: {DEFAULT_SCORING})"
+        ),
+    )
+    parser.add_argument(
         "--output", "-o", default=None,
         help="Optional output JSON file",
     )
@@ -451,13 +569,15 @@ def main() -> None:
             controls_file=args.controls,
             threshold_percentile=args.threshold_percentile,
             db_path=args.db,
+            scoring=args.scoring,
         )
     finally:
         conn.close()
 
     print(json.dumps(result, indent=2))
     print(
-        f"\n=== Aptness Eval ({result['config']['git_commit']}) ===",
+        f"\n=== Aptness Eval ({result['config']['git_commit']}, "
+        f"scoring={result['config']['scoring']}) ===",
         file=sys.stderr,
     )
     agg = result["aggregate"]

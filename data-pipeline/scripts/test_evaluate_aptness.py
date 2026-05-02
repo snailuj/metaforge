@@ -1,5 +1,6 @@
 """Tests for evaluate_aptness.py — the discriminative aptness evaluator."""
 import json
+import math
 import sqlite3
 import sys
 from pathlib import Path
@@ -7,8 +8,14 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
+import evaluate_aptness
 from evaluate_aptness import (
+    DEFAULT_SCORING,
+    SCORING_FNS,
     PairScore,
+    _cosine_salience,
+    _jaccard_raw,
+    _jaccard_salience,
     aggregate_metrics,
     classify_aptness,
     evaluate,
@@ -348,3 +355,252 @@ def test_evaluate_excludes_no_properties_pairs_from_apt_mean(tmp_path):
     apt_pp = [p for p in result["per_pair_scores"] if p["class"] == "apt"]
     statuses = sorted(p["status"] for p in apt_pp)
     assert statuses == ["no_properties", "scored"]
+
+
+# --- Scoring registry --------------------------------------------------------
+
+def test_scoring_registry_contains_required_formulas():
+    """Slice S02 contract: registry must expose at least these three names.
+
+    Sweep configs and the default flag rely on exact key strings; this
+    test guards against accidental rename / removal during refactor.
+    """
+    for name in ("jaccard_salience", "jaccard_raw", "cosine_salience"):
+        assert name in SCORING_FNS, f"missing scoring formula: {name}"
+    assert DEFAULT_SCORING == "jaccard_salience"
+
+
+# Each formula is exercised on three crafted vector pairs:
+#   1. known overlap with asymmetric salience
+#   2. no overlap (disjoint cluster_ids)
+#   3. salience-asymmetric overlap (same clusters, different weights)
+
+
+def test_jaccard_salience_known_overlap():
+    pa = {1: 0.9, 2: 0.6}
+    pb = {1: 0.85, 3: 0.7}
+    # shared = {1}: num = min(0.9,0.85) = 0.85
+    # union = {1,2,3}: den = max(0.9,0.85)+max(0.6,0)+max(0,0.7) = 0.9+0.6+0.7 = 2.2
+    assert _jaccard_salience(pa, pb) == pytest.approx(0.85 / 2.2)
+
+
+def test_jaccard_salience_no_overlap_is_zero():
+    pa = {1: 1.0, 2: 1.0}
+    pb = {3: 1.0, 4: 1.0}
+    assert _jaccard_salience(pa, pb) == 0.0
+
+
+def test_jaccard_salience_asymmetric_weights():
+    """Same clusters, asymmetric saliences — score reflects min/max ratio."""
+    pa = {1: 1.0, 2: 1.0}
+    pb = {1: 0.1, 2: 0.1}
+    # shared = {1,2}, num = 0.1+0.1 = 0.2, den = 1.0+1.0 = 2.0
+    assert _jaccard_salience(pa, pb) == pytest.approx(0.2 / 2.0)
+
+
+def test_jaccard_raw_known_overlap_ignores_salience():
+    """Raw Jaccard counts cluster overlap only — saliences must not matter."""
+    pa = {1: 0.9, 2: 0.6}
+    pb = {1: 0.001, 3: 0.7}
+    # |inter|=1 (cluster 1), |union|=3 → 1/3
+    assert _jaccard_raw(pa, pb) == pytest.approx(1.0 / 3.0)
+
+
+def test_jaccard_raw_no_overlap_is_zero():
+    assert _jaccard_raw({1: 1.0}, {2: 1.0}) == 0.0
+
+
+def test_jaccard_raw_is_invariant_to_salience_asymmetry():
+    """Identical cluster sets → 1.0 regardless of weight values."""
+    assert _jaccard_raw({1: 0.9, 2: 0.6}, {1: 0.001, 2: 0.001}) == 1.0
+
+
+def test_cosine_salience_known_overlap():
+    pa = {1: 1.0, 2: 0.0}
+    pb = {1: 1.0, 2: 0.0}
+    # Identical vectors → cosine = 1.0
+    assert _cosine_salience(pa, pb) == pytest.approx(1.0)
+
+
+def test_cosine_salience_no_overlap_is_zero():
+    """Disjoint cluster_ids → zero-padded vectors are orthogonal → cos=0."""
+    assert _cosine_salience({1: 1.0}, {2: 1.0}) == 0.0
+
+
+def test_cosine_salience_asymmetric_weights():
+    """Different magnitudes but same direction → cosine still 1.0."""
+    pa = {1: 1.0, 2: 1.0}
+    pb = {1: 0.5, 2: 0.5}
+    assert _cosine_salience(pa, pb) == pytest.approx(1.0)
+
+
+def test_cosine_salience_zero_norm_returns_zero():
+    """All-zero salience on either side → zero norm → score 0.0 (not NaN)."""
+    assert _cosine_salience({1: 0.0, 2: 0.0}, {1: 1.0, 2: 1.0}) == 0.0
+    assert _cosine_salience({}, {}) == 0.0
+
+
+def test_score_pair_dispatches_to_chosen_scoring_fn():
+    """score_pair must use the supplied scoring_fn, not just the default."""
+    conn = _build_fixture_db()
+    salience = score_pair(conn, "anger", "fire", scoring_fn=_jaccard_salience)
+    raw = score_pair(conn, "anger", "fire", scoring_fn=_jaccard_raw)
+    cosine = score_pair(conn, "anger", "fire", scoring_fn=_cosine_salience)
+
+    # All three must be 'scored' for this overlap-bearing pair
+    assert salience.status == raw.status == cosine.status == "scored"
+    # The three formulas yield distinct scores on the asymmetric fixture
+    # (anger has salience {1:0.9, 2:0.6}, fire has {1:0.85, 3:0.7})
+    assert salience.score != raw.score
+    assert salience.score != cosine.score
+
+
+def test_score_pair_default_scoring_matches_jaccard_salience():
+    """Backwards compatibility: omitting scoring_fn must reproduce the old
+    salience-weighted Jaccard score exactly."""
+    conn = _build_fixture_db()
+    default = score_pair(conn, "anger", "fire")
+    explicit = score_pair(conn, "anger", "fire", scoring_fn=_jaccard_salience)
+    assert default.score == explicit.score
+
+
+def test_score_pair_status_unchanged_across_scoring_formulas():
+    """Status semantics (unresolved / no_properties) must be invariant —
+    coverage gaps stay coverage gaps regardless of scoring formula."""
+    conn = _build_fixture_db()
+    for fn in SCORING_FNS.values():
+        assert score_pair(conn, "zzznotaword", "fire", scoring_fn=fn).status == "unresolved"
+        assert score_pair(conn, "anger", "orphan", scoring_fn=fn).status == "no_properties"
+
+
+# --- evaluate() with scoring parameter ---------------------------------------
+
+def _write_fixture_files(tmp_path):
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps([
+        {"source": "anger", "target": "fire", "tier": "strong"},
+    ]))
+    controls_file = tmp_path / "controls.jsonl"
+    controls_file.write_text(
+        '{"target": "approach", "paraphrase": "coming", "label": "inapt"}\n'
+    )
+    return pairs_file, controls_file
+
+
+def test_evaluate_records_scoring_name_in_config(tmp_path):
+    conn = _build_fixture_db()
+    pairs_file, controls_file = _write_fixture_files(tmp_path)
+    result = evaluate(
+        conn=conn,
+        pairs_file=str(pairs_file),
+        controls_file=str(controls_file),
+        scoring="jaccard_raw",
+    )
+    assert result["config"]["scoring"] == "jaccard_raw"
+
+
+def test_evaluate_default_scoring_is_jaccard_salience(tmp_path):
+    """Omitting scoring= must keep the historic default."""
+    conn = _build_fixture_db()
+    pairs_file, controls_file = _write_fixture_files(tmp_path)
+    result = evaluate(
+        conn=conn,
+        pairs_file=str(pairs_file),
+        controls_file=str(controls_file),
+    )
+    assert result["config"]["scoring"] == "jaccard_salience"
+
+
+def test_evaluate_rejects_unknown_scoring_name(tmp_path):
+    """Typo in a sweep config must fail fast, not silently fall back."""
+    conn = _build_fixture_db()
+    pairs_file, controls_file = _write_fixture_files(tmp_path)
+    with pytest.raises(ValueError, match="Unknown scoring name"):
+        evaluate(
+            conn=conn,
+            pairs_file=str(pairs_file),
+            controls_file=str(controls_file),
+            scoring="not_a_real_formula",
+        )
+
+
+def test_evaluate_different_scorings_produce_different_results(tmp_path):
+    """Sanity: swapping scoring formula visibly changes the outputs."""
+    conn = _build_fixture_db()
+    pairs_file, controls_file = _write_fixture_files(tmp_path)
+
+    salience = evaluate(
+        conn=conn,
+        pairs_file=str(pairs_file),
+        controls_file=str(controls_file),
+        scoring="jaccard_salience",
+    )
+    cosine = evaluate(
+        conn=conn,
+        pairs_file=str(pairs_file),
+        controls_file=str(controls_file),
+        scoring="cosine_salience",
+    )
+    assert salience["config"]["scoring"] != cosine["config"]["scoring"]
+    # mean_apt_score should differ since the formulas score differently
+    assert (
+        salience["aggregate"]["mean_apt_score"]
+        != cosine["aggregate"]["mean_apt_score"]
+    )
+
+
+# --- CLI dispatch ------------------------------------------------------------
+
+def test_main_cli_dispatch_writes_scoring_to_output(tmp_path, monkeypatch, capsys):
+    """End-to-end: invoke main() with --scoring and assert the JSON written
+    to --output records the chosen scoring name in config.
+
+    Uses the in-memory fixture DB by monkeypatching sqlite3.connect — the
+    real on-disk DB would slow the test and is unnecessary for verifying
+    CLI dispatch.
+    """
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps([
+        {"source": "anger", "target": "fire", "tier": "strong"},
+    ]))
+    controls_file = tmp_path / "controls.jsonl"
+    controls_file.write_text(
+        '{"target": "approach", "paraphrase": "coming", "label": "inapt"}\n'
+    )
+    fake_db = tmp_path / "fake.db"
+    fake_db.write_bytes(b"")  # passes the is_file() existence check
+    output_file = tmp_path / "out.json"
+
+    fixture_conn = _build_fixture_db()
+    monkeypatch.setattr(
+        evaluate_aptness.sqlite3, "connect", lambda _path: fixture_conn,
+    )
+
+    monkeypatch.setattr(sys, "argv", [
+        "evaluate_aptness.py",
+        "--pairs", str(pairs_file),
+        "--controls", str(controls_file),
+        "--db", str(fake_db),
+        "--scoring", "jaccard_raw",
+        "--output", str(output_file),
+    ])
+
+    evaluate_aptness.main()
+
+    assert output_file.exists()
+    written = json.loads(output_file.read_text())
+    assert written["config"]["scoring"] == "jaccard_raw"
+
+
+def test_main_cli_rejects_unregistered_scoring(tmp_path, monkeypatch):
+    """argparse `choices=` must reject an unknown --scoring value before
+    any DB work happens."""
+    fake_db = tmp_path / "fake.db"
+    fake_db.write_bytes(b"")
+    monkeypatch.setattr(sys, "argv", [
+        "evaluate_aptness.py",
+        "--db", str(fake_db),
+        "--scoring", "not_a_real_formula",
+    ])
+    with pytest.raises(SystemExit):
+        evaluate_aptness.main()

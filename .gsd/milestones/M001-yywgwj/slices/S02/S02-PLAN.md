@@ -21,7 +21,7 @@ Upstream: evaluate_aptness.py (S01 contract — JSON in, JSON out), data-pipelin
 
 ## Tasks
 
-- [ ] **T01: Make evaluate_aptness.py scoring formula pluggable via a registry** `est:2h`
+- [x] **T01: Make evaluate_aptness.py scoring formula pluggable via a registry** `est:2h`
   Refactor `evaluate_aptness.py` so the scoring function is selected via a named registry rather than being hard-coded as salience-weighted Jaccard. This is the prerequisite for the sweep harness — without a pluggable scoring interface there is nothing meaningful to sweep over.
 
 Add a `SCORING_FNS` dict mapping a string name → a callable with signature `(pa: dict[int,float], pb: dict[int,float]) -> float` where `pa`/`pb` are `{cluster_id: salience_sum}` mappings (the existing internal shape). Register at minimum:

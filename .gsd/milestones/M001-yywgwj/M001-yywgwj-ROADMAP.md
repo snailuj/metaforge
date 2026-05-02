@@ -15,7 +15,7 @@
 - [x] **S01: S01** `risk:medium` `depends:[]`
   > After this: Run aptness evaluator on 50 known-good pairs + 50 MUNCH inapt controls, display per-pair scores and aggregate separation statistics alongside V2 baseline MRR
 
-- [ ] **S02: Parameter Sweep Harness** `risk:low` `depends:[S01]`
+- [ ] **S02: S02** `risk:low` `depends:[]`
   > After this: Run sweep with 3 scoring parameter variations, show ranked comparison table with aptness rate + MRR + separation score for each
 
 - [ ] **S03: Baseline and Sensitivity Validation** `risk:low` `depends:[S02]`
