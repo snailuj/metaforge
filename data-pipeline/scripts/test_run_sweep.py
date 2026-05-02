@@ -240,6 +240,36 @@ def test_load_mrr_reference_raises_on_missing_file(tmp_path):
         load_mrr_reference(str(tmp_path / "nope.json"))
 
 
+def test_load_mrr_reference_includes_path_on_invalid_json(tmp_path):
+    """A corrupt mrr_reference must surface the file path so the
+    operator knows which artefact to fix."""
+    ref_file = tmp_path / "ref.json"
+    ref_file.write_text("not json")
+    with pytest.raises(ValueError) as exc:
+        load_mrr_reference(str(ref_file))
+    assert str(ref_file) in str(exc.value)
+
+
+def test_load_sweep_config_includes_path_on_invalid_yaml(tmp_path):
+    """A corrupt YAML config must include the file path in the error."""
+    pytest.importorskip("yaml")
+    cfg_file = tmp_path / "broken.yaml"
+    # Unbalanced brackets — yaml.safe_load raises YAMLError.
+    cfg_file.write_text("name: x\nvariations: [a, b, c\n")
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    assert str(cfg_file) in str(exc.value)
+
+
+def test_load_sweep_config_includes_path_on_invalid_json(tmp_path):
+    """A corrupt JSON config must include the file path in the error."""
+    cfg_file = tmp_path / "broken.json"
+    cfg_file.write_text("{not valid json")
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    assert str(cfg_file) in str(exc.value)
+
+
 # --- End-to-end sweep --------------------------------------------------------
 
 def test_two_variation_sweep_ranks_by_separation_score(tmp_path):

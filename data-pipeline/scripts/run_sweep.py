@@ -145,9 +145,19 @@ def load_sweep_config(path: str) -> dict[str, Any]:
                 f"YAML config requested ({path}) but PyYAML not installed. "
                 f"Install with `pip install pyyaml` or use a .json config."
             ) from exc
-        data = yaml.safe_load(text)
+        try:
+            data = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise ValueError(
+                f"sweep config {cfg_path}: invalid YAML ({exc})"
+            ) from exc
     elif suffix == ".json":
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"sweep config {cfg_path}: invalid JSON ({exc})"
+            ) from exc
     else:
         raise ValueError(
             f"Unsupported config extension {suffix!r}: use .yaml/.yml/.json"
@@ -219,7 +229,12 @@ def load_mrr_reference(path: str | None) -> float | None:
     ref_path = Path(path)
     if not ref_path.is_file():
         raise FileNotFoundError(f"mrr_reference not found: {path}")
-    data = json.loads(ref_path.read_text())
+    try:
+        data = json.loads(ref_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"mrr_reference {ref_path}: invalid JSON ({exc})"
+        ) from exc
     mrr = data.get("mrr")
     if isinstance(mrr, dict):
         value = mrr.get("value")
