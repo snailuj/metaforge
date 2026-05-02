@@ -217,7 +217,19 @@ def main():
     parser = argparse.ArgumentParser(description="Cluster curated vocabulary by embedding similarity")
     parser.add_argument("--db", default=str(LEXICON_V2), help="Path to lexicon DB")
     parser.add_argument("--threshold", type=float, default=0.8, help="Cosine similarity threshold")
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Enable debug logging",
+    )
     args = parser.parse_args()
+
+    # Configure logging when invoked as a standalone CLI so chunk-progress
+    # log.info(...) calls are visible. enrich_pipeline.py configures its own
+    # root logger when it calls cluster_vocab() in-process.
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
 
     conn = sqlite3.connect(args.db)
     try:
