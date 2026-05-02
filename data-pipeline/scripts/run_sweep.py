@@ -418,9 +418,26 @@ def _rank_key(row: VariationResult) -> tuple[int, float]:
 
 
 def render_markdown_report(sweep_result: dict[str, Any]) -> str:
-    """Render a ranked markdown comparison table from a sweep result."""
+    """Render a ranked markdown comparison table from a sweep result.
+
+    Layout:
+      1. Header block (timestamp, commit, config, db, mrr reference,
+         variation count + total duration).
+      2. ``## Summary`` — one line stating ok/failed counts and the
+         best-by-separation_score variation (or "all failed" when M==N).
+      3. The per-row table, ranked by separation_score DESC, with a
+         leading ``rank`` column. Failed rows pin to the bottom with
+         em-dashes in numeric cells and a bare ``failed`` token; full
+         error detail moves to the Failures appendix below.
+      4. ``## Failures`` — appended IFF any variation failed.
+    """
     mrr_ref = sweep_result.get("mrr_reference_value")
     mrr_ref_str = f"{mrr_ref:.4f}" if mrr_ref is not None else "n/a"
+
+    variations = sweep_result["variations"]
+    ok_rows = [r for r in variations if r["status"] == "ok"]
+    failed_rows = [r for r in variations if r["status"] == "failed"]
+    total = len(variations)
 
     header = (
         f"# Sweep Report: {sweep_result.get('name', '<unnamed>')}\n\n"
@@ -431,20 +448,43 @@ def render_markdown_report(sweep_result: dict[str, Any]) -> str:
         f"- **MRR reference:** "
         f"{sweep_result.get('mrr_reference_path') or 'n/a'} "
         f"({mrr_ref_str})\n"
-        f"- **Variations:** {len(sweep_result['variations'])} "
+        f"- **Variations:** {total} "
         f"(duration {sweep_result['duration_ms']:.0f}ms)\n\n"
     )
 
+    # Summary line — state ok/failed counts and the winner so an
+    # operator can read the headline without scanning the table.
+    if ok_rows:
+        best = max(ok_rows, key=lambda r: r["separation_score"])
+        summary_tail = (
+            f"Best by separation_score: {best['name']} "
+            f"({best['separation_score']:.4f})."
+        )
+    else:
+        summary_tail = "All variations failed — see Failures below."
+    summary = (
+        f"## Summary\n\n"
+        f"**{len(ok_rows)} variation(s) succeeded, "
+        f"{len(failed_rows)} failed.** {summary_tail}\n\n"
+    )
+
+    # Per-row table. Rank column pins ordering for skim-readability;
+    # mrr_ref column is dropped because the global reference already
+    # appears once in the header block.
     cols = [
-        "name", "scoring", "threshold", "aptness_rate", "separation_score",
-        "mean_apt", "mean_inapt", "n_apt", "n_inapt", "mrr_ref", "status",
+        "rank", "name", "scoring", "threshold", "aptness_rate",
+        "separation_score", "mean_apt", "mean_inapt", "n_apt", "n_inapt",
+        "status",
     ]
     table = "| " + " | ".join(cols) + " |\n"
     table += "|" + "|".join(["---"] * len(cols)) + "|\n"
 
-    for row in sorted(sweep_result["variations"], key=_rank_key):
+    rank_counter = 0
+    for row in sorted(variations, key=_rank_key):
         if row["status"] == "ok":
+            rank_counter += 1
             cells = [
+                str(rank_counter),
                 str(row["name"]),
                 str(row["scoring"]),
                 f"{row['threshold']:.4f}",
@@ -454,20 +494,31 @@ def render_markdown_report(sweep_result: dict[str, Any]) -> str:
                 f"{row['mean_inapt_score']:.4f}",
                 str(row["n_apt"]),
                 str(row["n_inapt"]),
-                mrr_ref_str,
                 "ok",
             ]
         else:
-            err = f"{row['error_type']}: {row['error_message']}"
             cells = [
+                "—",
                 str(row["name"]),
                 str(row["scoring"]),
-                "—", "—", "—", "—", "—", "—", "—", mrr_ref_str,
-                f"failed: {err}",
+                "—", "—", "—", "—", "—", "—", "—",
+                "failed",
             ]
         table += "| " + " | ".join(cells) + " |\n"
 
-    return header + table
+    body = header + summary + table
+
+    if failed_rows:
+        failures = ["\n## Failures\n"]
+        for row in failed_rows:
+            failures.append(
+                f"\n### {row['name']} ({row['scoring']})\n"
+                f"- error_type: {row['error_type']}\n"
+                f"- error_message: {row['error_message']}\n"
+            )
+        body += "".join(failures)
+
+    return body
 
 
 # --- CLI ---------------------------------------------------------------------

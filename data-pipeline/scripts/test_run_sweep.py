@@ -300,7 +300,7 @@ def test_two_variation_sweep_ranks_by_separation_score(tmp_path):
 
     # Markdown table check
     md = render_markdown_report(result)
-    assert "| name |" in md  # header row
+    assert "| rank |" in md  # header row (rank is now leading column)
     # Two data rows for the two variations
     data_lines = [line for line in md.splitlines()
                   if line.startswith("| ") and "scoring" not in line and "---" not in line]
@@ -313,8 +313,9 @@ def test_two_variation_sweep_ranks_by_separation_score(tmp_path):
         ok_rows, key=lambda v: v["separation_score"], reverse=True,
     )
     # Find the row order in markdown — the first ok variation should
-    # be the one with the largest separation_score.
-    first_data_name = data_lines[0].split("|")[1].strip()
+    # be the one with the largest separation_score. Column layout is
+    # | rank | name | ... | so the name lives at index 2 of the split.
+    first_data_name = data_lines[0].split("|")[2].strip()
     assert first_data_name == sorted_descending[0]["name"]
 
 
@@ -524,6 +525,155 @@ def test_main_logs_error_when_all_variations_fail(tmp_path, caplog):
     error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert error_records, "expected an ERROR-level record on total failure"
     assert any("ALL" in r.getMessage() for r in error_records)
+
+
+def test_render_markdown_report_drops_per_row_mrr_ref_column(tmp_path):
+    """The per-row mrr_ref column duplicates the global reference shown
+    in the header block — drop it from the table to reduce noise. The
+    global reference must still be visible in the header."""
+    db_path, cfg = _base_config(tmp_path, [
+        {"name": "v1", "scoring": "jaccard_salience"},
+    ])
+    ref_file = tmp_path / "baseline.json"
+    ref_file.write_text(json.dumps({"mrr": {"value": 0.0123}}))
+    cfg["mrr_reference"] = str(ref_file)
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    md = render_markdown_report(result)
+
+    # Find the table header line — first line starting with "| " that
+    # isn't the markdown separator.
+    header_line = next(
+        line for line in md.splitlines()
+        if line.startswith("| ") and "---" not in line
+    )
+    assert "mrr_ref" not in header_line
+    # Global reference still surfaces in the header block.
+    assert "0.0123" in md
+    assert "MRR reference" in md
+
+
+def test_render_markdown_report_includes_summary_line(tmp_path):
+    """Summary line above the table tells operators at a glance which
+    variation won and how many failed."""
+    _, cfg = _base_config(tmp_path, [
+        {"name": "v1", "scoring": "jaccard_salience"},
+        {"name": "v2", "scoring": "jaccard_raw"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    md = render_markdown_report(result)
+
+    assert "succeeded" in md
+    assert "Best by separation_score" in md
+
+
+def test_render_markdown_report_includes_rank_column(tmp_path):
+    """The first column of the per-row table is an explicit rank so the
+    operator does not have to count rows to find the winner."""
+    _, cfg = _base_config(tmp_path, [
+        {"name": "v1", "scoring": "jaccard_salience"},
+        {"name": "v2", "scoring": "jaccard_raw"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    md = render_markdown_report(result)
+
+    header_line = next(
+        line for line in md.splitlines()
+        if line.startswith("| ") and "---" not in line
+    )
+    # rank column appears before name
+    assert "rank" in header_line
+    # First ok data row begins with rank 1.
+    data_lines = [
+        line for line in md.splitlines()
+        if line.startswith("| ") and "---" not in line
+        and "rank" not in line
+    ]
+    first_cell = data_lines[0].split("|")[1].strip()
+    assert first_cell == "1"
+
+
+def test_render_markdown_report_emits_failures_section_when_any_failed(tmp_path):
+    """When any variation fails, the report appends a Failures section
+    listing each failure with error_type and error_message."""
+    _, cfg = _base_config(tmp_path, [
+        {"name": "good", "scoring": "jaccard_salience"},
+        {"name": "bad", "scoring": "nonexistent_formula"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    md = render_markdown_report(result)
+
+    assert "## Failures" in md
+    assert "bad" in md
+    assert "error_type" in md
+    assert "ValueError" in md
+
+
+def test_render_markdown_report_omits_failures_section_when_all_ok(tmp_path):
+    """No failures → no Failures section (avoids empty boilerplate)."""
+    _, cfg = _base_config(tmp_path, [
+        {"name": "v1", "scoring": "jaccard_salience"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    md = render_markdown_report(result)
+
+    assert "## Failures" not in md
+
+
+def test_render_markdown_report_failed_row_uses_em_dash_consistently(tmp_path):
+    """Failed rows use a consistent em-dash placeholder for numeric
+    cells and a bare ``failed`` token in the status cell — the full
+    error appears in the Failures appendix, not inline.
+
+    Use ``jaccard_raw`` as the failed scoring (a registered name) so we
+    can distinguish "scoring cell echoes the input" from "error message
+    leaked into the row" — a bad scoring spelling would otherwise be
+    indistinguishable from the inlined error.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {"name": "good", "scoring": "jaccard_salience"},
+        # Bogus scoring name forces status=failed via the harness's
+        # exception-isolation path, which is the contract we want to pin.
+        {"name": "bad", "scoring": "definitely_not_real"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    md = render_markdown_report(result)
+
+    # Locate the failed row by name + status token.
+    failed_lines = [
+        line for line in md.splitlines()
+        if line.startswith("| ") and "| bad |" in line and "failed" in line
+        and "---" not in line
+    ]
+    assert failed_lines, "expected a markdown row for the failed variation"
+    failed_line = failed_lines[0]
+    cells = [c.strip() for c in failed_line.split("|")[1:-1]]
+    # Status cell must be the bare token "failed" (no error inline).
+    assert cells[-1] == "failed"
+    # All numeric cells (everything between scoring and status) are em-dashes.
+    # Layout: | rank | name | scoring | threshold | aptness_rate |
+    #         separation | mean_apt | mean_inapt | n_apt | n_inapt | status |
+    numeric_cells = cells[3:-1]  # drop rank/name/scoring and status
+    assert all(c == "—" for c in numeric_cells), (
+        f"expected all numeric cells == '—', got {numeric_cells}"
+    )
+    # Rank cell on a failed row is also em-dash.
+    assert cells[0] == "—"
+    # No error-type / error-message text leaks into the row.
+    assert "ValueError" not in failed_line
+    assert "Unknown scoring" not in failed_line
 
 
 def test_load_sweep_config_missing_db_error_mentions_baseline(tmp_path):
