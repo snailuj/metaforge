@@ -202,7 +202,8 @@ def load_sweep_config(path: str) -> dict[str, Any]:
         if not isinstance(name, str) or not name.strip():
             raise ValueError(
                 f"sweep config {path}: variation[{idx}] missing required "
-                f"'name' (must be non-empty string)"
+                f"'name' (must be non-empty string) — see "
+                f"data-pipeline/sweeps/baseline_v2.yaml for the canonical config shape."
             )
         if name in seen_names and name not in duplicates:
             duplicates.append(name)
@@ -349,7 +350,10 @@ def run_sweep(
 
     for label, value in (("db", db_path), ("pairs", pairs_file), ("controls", controls_file)):
         if not value:
-            raise ValueError(f"Sweep config: missing required key {label!r}")
+            raise ValueError(
+                f"Sweep config: missing required key {label!r}"
+                f" — see data-pipeline/sweeps/baseline_v2.yaml for the canonical config shape."
+            )
         if not Path(value).is_file():
             raise FileNotFoundError(
                 f"Sweep config {label}={value!r}: path does not exist"
@@ -468,23 +472,19 @@ def render_markdown_report(sweep_result: dict[str, Any]) -> str:
 
 # --- CLI ---------------------------------------------------------------------
 
-def main(argv: list[str] | None = None) -> int:
-    """CLI entrypoint.
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Construct the run_sweep CLI parser.
 
-    Returns an integer exit code so CI can distinguish three outcomes:
-      * 0 — every variation succeeded
-      * 1 — partial failure (some variations failed, some succeeded)
-      * 2 — catastrophic failure (every variation failed); a separate code
-            from 1 lets a scheduled job bisect "the sweep itself is broken"
-            (schema drift, missing fixture, malformed config) from "one
-            variation has a bad parameter".
-
-    ``argv`` is accepted for testability — pytest can drive ``main`` without
-    ``sys.exit`` killing the process. When ``argv`` is None, argparse falls
-    back to ``sys.argv[1:]`` as usual.
+    Pulled out as a builder so tests can introspect ``--help`` without
+    spawning a subprocess. The available scoring formulas are read from
+    ``evaluate_aptness.SCORING_FNS`` at parser-construction time so the
+    help text stays in sync with the registry — no manual edit required
+    when a new formula is added.
     """
+    formulas = ", ".join(sorted(evaluate_aptness.SCORING_FNS.keys()))
     parser = argparse.ArgumentParser(
         description="Parameter sweep harness over evaluate_aptness",
+        epilog=f"Available scoring formulas: {formulas}",
     )
     parser.add_argument(
         "--config", required=True,
@@ -502,6 +502,25 @@ def main(argv: list[str] | None = None) -> int:
         "--verbose", "-v", action="store_true",
         help="Enable debug logging",
     )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entrypoint.
+
+    Returns an integer exit code so CI can distinguish three outcomes:
+      * 0 — every variation succeeded
+      * 1 — partial failure (some variations failed, some succeeded)
+      * 2 — catastrophic failure (every variation failed); a separate code
+            from 1 lets a scheduled job bisect "the sweep itself is broken"
+            (schema drift, missing fixture, malformed config) from "one
+            variation has a bad parameter".
+
+    ``argv`` is accepted for testability — pytest can drive ``main`` without
+    ``sys.exit`` killing the process. When ``argv`` is None, argparse falls
+    back to ``sys.argv[1:]`` as usual.
+    """
+    parser = _build_arg_parser()
     args = parser.parse_args(argv)
 
     logging.basicConfig(

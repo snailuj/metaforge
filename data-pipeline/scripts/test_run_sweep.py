@@ -526,6 +526,37 @@ def test_main_logs_error_when_all_variations_fail(tmp_path, caplog):
     assert any("ALL" in r.getMessage() for r in error_records)
 
 
+def test_load_sweep_config_missing_db_error_mentions_baseline(tmp_path):
+    """A missing top-level required key (e.g. ``db``) must point the
+    operator at the canonical example so they can crib the shape."""
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [{"name": "v1", "scoring": "jaccard_salience"}],
+    }))
+    # Run via run_sweep_fn since load_sweep_config doesn't enforce db/pairs/
+    # controls presence — that check lives in run_sweep().
+    cfg = load_sweep_config(str(cfg_file))
+    with pytest.raises(ValueError) as exc:
+        run_sweep_fn(cfg, config_path=str(cfg_file))
+    assert "baseline_v2.yaml" in str(exc.value)
+
+
+def test_run_sweep_argparse_lists_scoring_formulas_in_help():
+    """The ``run_sweep --help`` output should mention at least one
+    registered scoring formula so an operator knows which keys are
+    valid in `scoring:` without having to grep the source."""
+    import evaluate_aptness as ea
+    parser = run_sweep._build_arg_parser()
+    help_text = parser.format_help()
+    registered = sorted(ea.SCORING_FNS.keys())
+    assert any(name in help_text for name in registered), (
+        f"expected at least one of {registered} in help text:\n{help_text}"
+    )
+
+
 def test_main_logs_warning_when_some_variations_fail(tmp_path, caplog):
     cfg_path, output_path = _write_sweep_config(tmp_path, [
         {"name": "good", "scoring": "jaccard_salience"},
