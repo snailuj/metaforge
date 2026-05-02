@@ -46,7 +46,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, TypedDict, Union
+from typing import Any, Literal, NotRequired, TypedDict, Union, cast
 
 sys.path.insert(0, str(Path(__file__).parent))
 import evaluate_aptness
@@ -96,27 +96,28 @@ VariationResult = Union[OkVariationResult, FailedVariationResult]
 
 # --- Sweep config schema -----------------------------------------------------
 #
-# total=False because every key is optional from a parser standpoint;
-# semantic requirements (e.g. "name is mandatory on every variation")
-# are enforced in load_sweep_config rather than via the TypedDict so
-# the validator can produce config-path-aware error messages.
+# Required-by-default (total=True); genuinely optional keys are wrapped
+# in NotRequired[...]. The runtime validator in load_sweep_config still
+# owns the config-path-aware error messages, but the type now matches
+# the invariants downstream code (run_sweep, render_markdown_report)
+# already relies on — so static checkers can narrow key access.
 
-class VariationSpec(TypedDict, total=False):
+class VariationSpec(TypedDict):
     name: str
-    scoring: str
-    threshold_percentile: float
+    scoring: NotRequired[str]
+    threshold_percentile: NotRequired[float]
 
 
 ALLOWED_VARIATION_KEYS = frozenset(VariationSpec.__annotations__.keys())
 
 
-class SweepConfig(TypedDict, total=False):
-    name: str
+class SweepConfig(TypedDict):
     db: str
     pairs: str
     controls: str
-    mrr_reference: str
     variations: list[VariationSpec]
+    name: NotRequired[str]
+    mrr_reference: NotRequired[str]
 
 
 ALLOWED_SWEEP_KEYS = frozenset(SweepConfig.__annotations__.keys())
@@ -124,7 +125,7 @@ ALLOWED_SWEEP_KEYS = frozenset(SweepConfig.__annotations__.keys())
 
 # --- Config loading ----------------------------------------------------------
 
-def load_sweep_config(path: str) -> dict[str, Any]:
+def load_sweep_config(path: str) -> SweepConfig:
     """Load a sweep config from a YAML or JSON file.
 
     Selects parser by file extension. YAML support is optional — if the
@@ -223,7 +224,9 @@ def load_sweep_config(path: str) -> dict[str, Any]:
             f"sweep config {path}: duplicate variation name(s): {duplicates}"
         )
 
-    return data
+    # Validator has enforced every required key + shape — narrow the
+    # parsed dict to the schema type for downstream consumers.
+    return cast(SweepConfig, data)
 
 
 def load_mrr_reference(path: str | None) -> float | None:
@@ -343,7 +346,7 @@ def _run_one_variation(
 # --- Sweep orchestrator ------------------------------------------------------
 
 def run_sweep(
-    config: dict[str, Any],
+    config: SweepConfig,
     config_path: str,
 ) -> dict[str, Any]:
     """Execute every variation in ``config`` and return a structured result.
