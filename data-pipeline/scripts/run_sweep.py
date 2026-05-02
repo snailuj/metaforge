@@ -276,7 +276,10 @@ def _run_one_variation(
     exception type and message split into separate fields — the sweep
     continues.
     """
-    name = variation.get("name", "<unnamed>")
+    # `name` is validator-enforced (load_sweep_config requires every
+    # variation to declare a non-empty string name) — direct key access
+    # narrows from Optional[str] to str.
+    name = variation["name"]
     scoring = variation.get("scoring", evaluate_aptness.DEFAULT_SCORING)
     threshold_percentile = float(variation.get("threshold_percentile", 95.0))
 
