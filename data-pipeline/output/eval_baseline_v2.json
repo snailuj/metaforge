@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "timestamp": "2026-05-02T13:44:33Z",
+  "git_commit": "f4b36b93",
+  "db_path": "data-pipeline/output/lexicon_v2.db",
+  "mrr": {
+    "value": 0.0073,
+    "hit_count": 35,
+    "hit_rate": 0.1292,
+    "testable_pairs": 271,
+    "skipped_pairs": 3,
+    "limit": 200,
+    "pairs_file": "data-pipeline/fixtures/metaphor_pairs_v2.json",
+    "source_artifact": "data-pipeline/output/eval_mrr_v2_baseline.json"
+  },
+  "aptness": {
+    "aptness_rate": 0.084871,
+    "false_positive_rate": 0.050102,
+    "separation_score": 0.010307,
+    "mean_apt_score": 0.02306,
+    "mean_inapt_score": 0.012753,
+    "n_apt": 271,
+    "n_inapt": 978,
+    "apt_unresolved": 3,
+    "inapt_unresolved": 469,
+    "threshold": 0.081817,
+    "threshold_percentile": 95.0,
+    "controls_file": "data-pipeline/fixtures/munch_inapt.jsonl",
+    "source_artifact": "data-pipeline/output/aptness_eval_baseline.json"
+  },
+  "secondary": {
+    "v2_enriched_synsets": 8333,
+    "unique_properties": 35000,
+    "hapax_count": 1720,
+    "hapax_rate": 0.0491,
+    "avg_properties_per_synset": 11.8618
+  },
+  "notes": "Baseline reflects current V2-enriched lexicon_v2.db with the API's concreteness gate active (commits 2422590d, 782a40b9). MRR is lower than earlier pre-gate runs (e.g. mrr_v2_3530.json mrr=0.0358) because the gate filters concreteness-mismatched candidates before ranking. S02 sweep harness should treat this MRR + aptness pair as the joint reference baseline; both metrics are valid under the same code+data state."
+}

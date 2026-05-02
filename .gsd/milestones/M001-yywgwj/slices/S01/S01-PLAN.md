@@ -41,7 +41,7 @@ V2 database deployed to staging; evaluator script callable from S02 sweep harnes
   - Files: `data-pipeline/scripts/evaluate_aptness.py`, `data-pipeline/scripts/test_evaluate_aptness.py`
   - Verify: python evaluate_aptness.py --pairs data-pipeline/fixtures/metaphor_pairs_v2.json --controls data-pipeline/fixtures/munch_inapt.jsonl produces JSON output with separation_score > 0.0; test suite passes
 
-- [ ] **T05: Record baseline metrics and save as reference artifact** `est:30m`
+- [x] **T05: Record baseline metrics and save as reference artifact** `est:30m`
   Run both evaluate_mrr.py and the new evaluate_aptness.py against the V2-enriched database to establish combined baseline metrics. Save results as a JSON artifact that S02's sweep harness will use as the reference baseline. Record: MRR, hit rate, aptness rate, separation score, unique property count, hapax rate, average properties per synset.
   - Files: `data-pipeline/scripts/evaluate_mrr.py`, `data-pipeline/scripts/evaluate_aptness.py`, `data-pipeline/fixtures/metaphor_pairs_v2.json`
   - Verify: Baseline JSON artifact exists at data-pipeline/output/eval_baseline_v2.json; contains both MRR and aptness metrics; MRR value >= 0.030
