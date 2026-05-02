@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M001-yywgwj/S02/T02",
+  "timestamp": 1777734722906,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "source .venv/bin/activate",
+      "exitCode": 127,
+      "durationMs": 14,
+      "verdict": "fail"
+    },
+    {
+      "command": "python -m pytest data-pipeline/scripts/test_run_sweep.py -v",
+      "exitCode": 0,
+      "durationMs": 5583,
+      "verdict": "pass"
+    },
+    {
+      "command": "source .venv/bin/activate",
+      "exitCode": 127,
+      "durationMs": 44,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

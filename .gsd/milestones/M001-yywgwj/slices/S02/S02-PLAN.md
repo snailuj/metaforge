@@ -73,7 +73,7 @@ Must handle worktree-relative paths consistently (resolve relative to cwd, fail-
   - Files: `data-pipeline/scripts/run_sweep.py`, `data-pipeline/scripts/test_run_sweep.py`, `data-pipeline/requirements.txt`
   - Verify: source .venv/bin/activate && python -m pytest data-pipeline/scripts/test_run_sweep.py -v && source .venv/bin/activate && python -m pytest data-pipeline/scripts/ -v 2>&1 | tail -5
 
-- [ ] **T03: Define + run baseline 3-variation sweep, commit sweep config + result artifact** `est:1h`
+- [x] **T03: Define + run baseline 3-variation sweep, commit sweep config + result artifact** `est:1h`
   Demo the harness by running the slice's stated 3-scoring-variation sweep against the live V2 DB and committing the reproducible artifacts.
 
 Create `data-pipeline/sweeps/baseline_v2.yaml` with three variations: `jaccard_salience` (current S01 baseline), `jaccard_raw` (control — does salience weighting help?), `cosine_salience` (alternative formula motivated by S01 follow-up note). All use `threshold_percentile: 95`. Set `mrr_reference: data-pipeline/output/eval_baseline_v2.json` so the reference MRR appears in the comparison table.

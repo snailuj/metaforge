@@ -1,0 +1,31 @@
+# Baseline V2 sweep — Metaforge M001-yywgwj / S02 demo.
+#
+# Compares 3 scoring formulas against the live V2 lexicon:
+#   - jaccard_salience: current S01 baseline (separation_score=0.0103)
+#   - jaccard_raw:      control variant — does salience weighting help?
+#   - cosine_salience:  alternative formula (S01 follow-up note)
+#
+# Run with:
+#   data-pipeline/.venv/bin/python data-pipeline/scripts/run_sweep.py \
+#     --config data-pipeline/sweeps/baseline_v2.yaml \
+#     --output data-pipeline/output/sweep_baseline_v2.json \
+#     --report data-pipeline/output/sweep_baseline_v2.md
+#
+# Outputs land under data-pipeline/output/ (gitignored).
+
+name: baseline_v2
+db: data-pipeline/output/lexicon_v2.db
+pairs: data-pipeline/fixtures/metaphor_pairs_v2.json
+controls: data-pipeline/fixtures/munch_inapt.jsonl
+mrr_reference: data-pipeline/output/eval_baseline_v2.json
+
+variations:
+  - name: jaccard_salience
+    scoring: jaccard_salience
+    threshold_percentile: 95
+  - name: jaccard_raw
+    scoring: jaccard_raw
+    threshold_percentile: 95
+  - name: cosine_salience
+    scoring: cosine_salience
+    threshold_percentile: 95
