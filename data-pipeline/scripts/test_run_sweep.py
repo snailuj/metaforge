@@ -741,6 +741,33 @@ def test_render_markdown_report_summary_for_all_failed_with_rows():
     assert "ValueError" in md
 
 
+@pytest.mark.parametrize("missing_key", ["db", "pairs", "controls"])
+def test_load_sweep_config_rejects_missing_required_paths(tmp_path, missing_key):
+    """Each of `db`, `pairs`, `controls` is a Required[] member of the
+    SweepConfig schema. Presence must be enforced at the schema boundary
+    (load_sweep_config), not deferred to run_sweep — otherwise the
+    `cast(SweepConfig, data)` at the end of the loader lies, and the
+    error catalogue splits into two formats. The error must follow the
+    iter-6 path-prefixed lowercase pattern AND point at the canonical
+    example so the operator can crib the shape."""
+    full_cfg = {
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [{"name": "v1", "scoring": "jaccard_salience"}],
+    }
+    full_cfg.pop(missing_key)
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps(full_cfg))
+
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    msg = str(exc.value)
+    assert f"sweep config {cfg_file}: missing required key {missing_key!r}" in msg
+    assert "baseline_v2.yaml" in msg
+
+
 def test_load_sweep_config_missing_db_error_mentions_baseline(tmp_path):
     """A missing top-level required key (e.g. ``db``) must point the
     operator at the canonical example so they can crib the shape."""
@@ -751,11 +778,8 @@ def test_load_sweep_config_missing_db_error_mentions_baseline(tmp_path):
         "controls": "c.jsonl",
         "variations": [{"name": "v1", "scoring": "jaccard_salience"}],
     }))
-    # Run via run_sweep_fn since load_sweep_config doesn't enforce db/pairs/
-    # controls presence — that check lives in run_sweep().
-    cfg = load_sweep_config(str(cfg_file))
     with pytest.raises(ValueError) as exc:
-        run_sweep_fn(cfg, config_path=str(cfg_file))
+        load_sweep_config(str(cfg_file))
     assert "baseline_v2.yaml" in str(exc.value)
 
 

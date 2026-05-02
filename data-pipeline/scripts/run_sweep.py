@@ -193,6 +193,18 @@ def load_sweep_config(path: str) -> SweepConfig:
             f"(allowed: {sorted(ALLOWED_SWEEP_KEYS)})"
         )
 
+    # Required-key presence — enforced at the schema boundary so the
+    # `cast(SweepConfig, data)` below honestly reflects the runtime
+    # invariant and downstream code can rely on direct key access. Wording
+    # mirrors the iter-6 path-prefixed lowercase pattern used elsewhere
+    # in this validator.
+    for required_key in ("db", "pairs", "controls"):
+        if required_key not in data:
+            raise ValueError(
+                f"sweep config {path}: missing required key {required_key!r}"
+                f" — see data-pipeline/sweeps/baseline_v2.yaml for the canonical config shape."
+            )
+
     # Per-variation: allow-list, mandatory non-empty name, name uniqueness.
     seen_names: list[str] = []
     duplicates: list[str] = []
@@ -359,17 +371,16 @@ def run_sweep(
     failures are caught inside :func:`_run_one_variation` and surfaced
     in the per-variation entry rather than aborting the sweep.
     """
-    db_path = config.get("db")
-    pairs_file = config.get("pairs")
-    controls_file = config.get("controls")
+    # `db`, `pairs`, `controls` presence is validator-enforced in
+    # load_sweep_config, so direct key access narrows from Optional[str]
+    # to str. Only the I/O check (path exists) remains here — that's a
+    # filesystem concern, not a schema one.
+    db_path = config["db"]
+    pairs_file = config["pairs"]
+    controls_file = config["controls"]
     mrr_ref_path = config.get("mrr_reference")
 
     for label, value in (("db", db_path), ("pairs", pairs_file), ("controls", controls_file)):
-        if not value:
-            raise ValueError(
-                f"sweep config: missing required key {label!r}"
-                f" — see data-pipeline/sweeps/baseline_v2.yaml for the canonical config shape."
-            )
         if not Path(value).is_file():
             raise FileNotFoundError(
                 f"sweep config {label}={value!r}: path does not exist"
