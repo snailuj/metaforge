@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-02T13:13:20Z | Files: 369 | Described: 0/369
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T13:13:20Z","fingerprint":"a3b7f2885384cde4415e2f191b74ad95d3cb3541","fileCount":369,"truncated":false} -->
+Generated: 2026-05-02T13:20:51Z | Files: 373 | Described: 0/373
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T13:20:51Z","fingerprint":"3ef5080181c22f8139033dba8bc02bbe73bcf6a9","fileCount":373,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -243,6 +243,8 @@ Generated: 2026-05-02T13:13:20Z | Files: 369 | Described: 0/369
 - `data-pipeline/fixtures/metaphor_pairs_generated.json`
 - `data-pipeline/fixtures/metaphor_pairs_v2.json`
 - `data-pipeline/fixtures/metaphor_pairs.json`
+- `data-pipeline/fixtures/munch_apt.jsonl`
+- `data-pipeline/fixtures/munch_inapt.jsonl`
 
 ### data-pipeline/future-work/metaphor-vehicles/
 - `data-pipeline/future-work/metaphor-vehicles/README.md`
@@ -259,7 +261,7 @@ Generated: 2026-05-02T13:13:20Z | Files: 369 | Described: 0/369
 - `data-pipeline/output/evolution/exploration_log.json`
 
 ### data-pipeline/scripts/
-- *(54 files: 52 .py, 1 .md, 1 .sh)*
+- *(56 files: 54 .py, 1 .md, 1 .sh)*
 
 ### data-pipeline/scripts/analysis/
 - `data-pipeline/scripts/analysis/monosemy_coverage.py`
