@@ -460,8 +460,13 @@ def render_markdown_report(sweep_result: dict[str, Any]) -> str:
             f"Best by separation_score: {best['name']} "
             f"({best['separation_score']:.4f})."
         )
-    else:
+    elif failed_rows:
         summary_tail = "All variations failed — see Failures below."
+    else:
+        # ``variations: []`` is allowed by the schema (the validator
+        # only checks the type). Don't promise a Failures appendix the
+        # gating below will not emit.
+        summary_tail = "No variations to report."
     summary = (
         f"## Summary\n\n"
         f"**{len(ok_rows)} variation(s) succeeded, "

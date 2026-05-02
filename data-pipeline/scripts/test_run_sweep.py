@@ -676,6 +676,67 @@ def test_render_markdown_report_failed_row_uses_em_dash_consistently(tmp_path):
     assert "Unknown scoring" not in failed_line
 
 
+def _synthetic_sweep_result(variations: list[dict]) -> dict:
+    """Build a minimal sweep_result dict for render_markdown_report tests
+    that don't need the full run_sweep pipeline. Saves the cost of fixture
+    DB construction when we only care about the report-rendering branches.
+    """
+    return {
+        "name": "synthetic",
+        "schema_version": SCHEMA_VERSION,
+        "timestamp": "2026-01-01T00:00:00Z",
+        "git_commit": "deadbeef",
+        "config_path": "synthetic.json",
+        "db_path": "synthetic.db",
+        "mrr_reference_path": None,
+        "mrr_reference_value": None,
+        "duration_ms": 0.0,
+        "variations": variations,
+    }
+
+
+def test_render_markdown_report_handles_empty_variations():
+    """When ``variations`` is an empty list (allowed by the schema —
+    only the type is checked, not non-emptiness), the Summary line must
+    not promise a Failures appendix that never gets rendered. Operator
+    should see an honest "nothing to report" tail instead.
+    """
+    result = _synthetic_sweep_result(variations=[])
+    md = render_markdown_report(result)
+
+    # The misleading message must be gone.
+    assert "see Failures below" not in md
+    # No Failures appendix gets emitted (gated on failed_rows).
+    assert "## Failures" not in md
+    # Honest summary tail.
+    assert "0 variation(s) succeeded, 0 failed." in md
+    assert "No variations to report." in md
+
+
+def test_render_markdown_report_summary_for_all_failed_with_rows():
+    """When every variation failed BUT there is at least one failed row,
+    the Summary should still reference the Failures appendix AND the
+    appendix must actually render. Pins the existing intended behaviour
+    so the empty-variations fix does not regress this branch.
+    """
+    failed_row = {
+        "name": "bad",
+        "scoring": "nonexistent_formula",
+        "status": "failed",
+        "error_type": "ValueError",
+        "error_message": "Unknown scoring formula: nonexistent_formula",
+    }
+    result = _synthetic_sweep_result(variations=[failed_row])
+    md = render_markdown_report(result)
+
+    # Existing all-failed message survives.
+    assert "All variations failed — see Failures below." in md
+    # And the appendix the message points at actually renders.
+    assert "## Failures" in md
+    assert "bad" in md
+    assert "ValueError" in md
+
+
 def test_load_sweep_config_missing_db_error_mentions_baseline(tmp_path):
     """A missing top-level required key (e.g. ``db``) must point the
     operator at the canonical example so they can crib the shape."""
