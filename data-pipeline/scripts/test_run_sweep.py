@@ -231,8 +231,11 @@ def test_unknown_scoring_marks_variation_failed_without_aborting(tmp_path):
     assert statuses == {"good": "ok", "bad": "failed", "also_good": "ok"}
 
     bad = next(v for v in result["variations"] if v["name"] == "bad")
-    assert bad["error"]
-    assert "nonexistent_formula" in bad["error"] or "Unknown scoring" in bad["error"]
+    assert bad["error_type"] == "ValueError"
+    assert (
+        "nonexistent_formula" in bad["error_message"]
+        or "Unknown scoring" in bad["error_message"]
+    )
 
     # Failed row pinned to the bottom of the markdown table
     md = render_markdown_report(result)
@@ -282,6 +285,50 @@ def test_sweep_validates_required_inputs(tmp_path):
     }
     with pytest.raises(FileNotFoundError):
         run_sweep_fn(cfg, config_path="cfg.json")
+
+
+def test_variation_result_is_tagged_union(tmp_path):
+    """Every variation row carries a `status` discriminator and the
+    status-specific payload keys are present per branch.
+
+    Pins the OkVariationResult / FailedVariationResult contract so a
+    consumer can narrow on `row["status"]` and trust the payload shape.
+    """
+    from typing import cast
+
+    _, cfg = _base_config(tmp_path, [
+        {"name": "ok1", "scoring": "jaccard_salience"},
+        {"name": "bad", "scoring": "nonexistent_formula"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+
+    ok_keys = {
+        "status", "name", "scoring", "threshold_percentile", "threshold",
+        "aptness_rate", "separation_score", "mean_apt_score",
+        "mean_inapt_score", "n_apt", "n_inapt", "duration_ms",
+    }
+    failed_keys = {
+        "status", "name", "scoring", "threshold_percentile",
+        "error_type", "error_message", "duration_ms",
+    }
+
+    for row in result["variations"]:
+        row = cast(dict, row)
+        assert row["status"] in ("ok", "failed")
+        if row["status"] == "ok":
+            missing = ok_keys - row.keys()
+            assert not missing, f"ok row missing keys: {missing}"
+            # Discriminator narrows: separation_score is real on ok rows.
+            assert isinstance(row["separation_score"], float)
+        else:
+            missing = failed_keys - row.keys()
+            assert not missing, f"failed row missing keys: {missing}"
+            # Failure rows expose error_type + error_message (not legacy `error`).
+            assert isinstance(row["error_type"], str)
+            assert isinstance(row["error_message"], str)
 
 
 def test_per_variation_isolation_uses_fresh_connection(tmp_path):

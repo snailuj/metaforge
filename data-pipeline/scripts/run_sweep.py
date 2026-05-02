@@ -46,7 +46,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict, Union
 
 sys.path.insert(0, str(Path(__file__).parent))
 import evaluate_aptness
@@ -55,6 +55,43 @@ from utils import get_git_commit
 log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
+
+
+class OkVariationResult(TypedDict):
+    """Successful variation row. ``status`` is the discriminator.
+
+    ``false_positive_rate`` is preserved alongside ``aptness_rate`` because
+    consumers (sweep-report tooling) compare them as a pair when judging
+    a variation; dropping it would silently regress those reports.
+    """
+    status: Literal["ok"]
+    name: str
+    scoring: str
+    threshold_percentile: float
+    threshold: float
+    aptness_rate: float
+    false_positive_rate: float
+    separation_score: float
+    mean_apt_score: float
+    mean_inapt_score: float
+    n_apt: int
+    n_inapt: int
+    duration_ms: float
+
+
+class FailedVariationResult(TypedDict):
+    """Failed variation row. ``error`` is split into type + message so
+    consumers can filter on error_type without re-parsing a string."""
+    status: Literal["failed"]
+    name: str
+    scoring: str
+    threshold_percentile: float
+    error_type: str
+    error_message: str
+    duration_ms: float
+
+
+VariationResult = Union[OkVariationResult, FailedVariationResult]
 
 
 # --- Config loading ----------------------------------------------------------
@@ -133,12 +170,13 @@ def _run_one_variation(
     db_path: str,
     pairs_file: str,
     controls_file: str,
-) -> dict[str, Any]:
-    """Run a single variation. Returns a result dict (success or failed).
+) -> VariationResult:
+    """Run a single variation. Returns a tagged-union result.
 
     On any exception (unknown scoring, DB error, malformed input) the
-    failure is captured into the result dict with ``status='failed'``
-    and the exception type+message in ``error`` — the sweep continues.
+    failure is captured into a :class:`FailedVariationResult` with the
+    exception type and message split into separate fields — the sweep
+    continues.
     """
     name = variation.get("name", "<unnamed>")
     scoring = variation.get("scoring", evaluate_aptness.DEFAULT_SCORING)
@@ -170,14 +208,16 @@ def _run_one_variation(
             "variation failed: name=%s scoring=%s error=%s",
             name, scoring, exc,
         )
-        return {
+        failed: FailedVariationResult = {
+            "status": "failed",
             "name": name,
             "scoring": scoring,
             "threshold_percentile": threshold_percentile,
-            "status": "failed",
-            "error": f"{type(exc).__name__}: {exc}",
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
             "duration_ms": duration_ms,
         }
+        return failed
 
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
     agg = result["aggregate"]
@@ -187,7 +227,8 @@ def _run_one_variation(
         name, scoring, result["separation_score"],
         result["aptness_rate"], agg["n_apt"], agg["n_inapt"], duration_ms,
     )
-    return {
+    ok: OkVariationResult = {
+        "status": "ok",
         "name": name,
         "scoring": scoring,
         "threshold_percentile": threshold_percentile,
@@ -199,10 +240,9 @@ def _run_one_variation(
         "mean_inapt_score": agg["mean_inapt_score"],
         "n_apt": agg["n_apt"],
         "n_inapt": agg["n_inapt"],
-        "status": "ok",
-        "error": None,
         "duration_ms": duration_ms,
     }
+    return ok
 
 
 # --- Sweep orchestrator ------------------------------------------------------
@@ -241,7 +281,7 @@ def run_sweep(
     )
 
     sweep_started = time.perf_counter()
-    per_var_results: list[dict[str, Any]] = []
+    per_var_results: list[VariationResult] = []
     for variation in variations:
         per_var_results.append(_run_one_variation(
             variation=variation,
@@ -277,7 +317,7 @@ def run_sweep(
 
 # --- Markdown report ---------------------------------------------------------
 
-def _rank_key(row: dict[str, Any]) -> tuple[int, float]:
+def _rank_key(row: VariationResult) -> tuple[int, float]:
     """Sort key: ok rows first, then DESC by separation_score.
 
     Failed rows pin to the bottom (rank 1 > rank 0). Within the ok group,
@@ -286,7 +326,7 @@ def _rank_key(row: dict[str, Any]) -> tuple[int, float]:
     """
     if row["status"] != "ok":
         return (1, 0.0)
-    return (0, -float(row.get("separation_score", 0.0)))
+    return (0, -float(row["separation_score"]))
 
 
 def render_markdown_report(sweep_result: dict[str, Any]) -> str:
@@ -330,7 +370,7 @@ def render_markdown_report(sweep_result: dict[str, Any]) -> str:
                 "ok",
             ]
         else:
-            err = row.get("error", "?")
+            err = f"{row['error_type']}: {row['error_message']}"
             cells = [
                 str(row["name"]),
                 str(row["scoring"]),
