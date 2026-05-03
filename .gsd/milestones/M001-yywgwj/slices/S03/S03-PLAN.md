@@ -21,7 +21,7 @@ Upstream: data-pipeline/scripts/evaluate_aptness.py SCORING_FNS registry contrac
 
 ## Tasks
 
-- [ ] **T01: Add random_uniform null-control scoring function and tests** `est:45m`
+- [x] **T01: Add random_uniform null-control scoring function and tests** `est:45m`
   Extend the SCORING_FNS registry in data-pipeline/scripts/evaluate_aptness.py with `random_uniform` — a deterministic pseudo-random scoring fn keyed on the sorted concatenation of cluster_ids in pa∪pb. By construction it carries no semantic signal: any apt/inapt structure in the V2 corpus must yield separation_score ≈ 0 under this scoring. This becomes the slice's null reference for sensitivity validation in T02.
 
 The scoring fn must:

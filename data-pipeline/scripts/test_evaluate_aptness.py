@@ -16,6 +16,7 @@ from evaluate_aptness import (
     _cosine_salience,
     _jaccard_raw,
     _jaccard_salience,
+    _random_uniform,
     aggregate_metrics,
     classify_aptness,
     evaluate,
@@ -438,6 +439,139 @@ def test_cosine_salience_zero_norm_returns_zero():
     """All-zero salience on either side → zero norm → score 0.0 (not NaN)."""
     assert _cosine_salience({1: 0.0, 2: 0.0}, {1: 1.0, 2: 1.0}) == 0.0
     assert _cosine_salience({}, {}) == 0.0
+
+
+# --- random_uniform null control --------------------------------------------
+
+def test_random_uniform_registered_in_scoring_fns():
+    """Slice S03 contract: random_uniform is exposed alongside the S02 trio."""
+    assert "random_uniform" in SCORING_FNS
+    assert SCORING_FNS["random_uniform"] is _random_uniform
+
+
+def test_random_uniform_returns_float_in_unit_interval():
+    pa = {1: 0.9, 2: 0.6}
+    pb = {1: 0.85, 3: 0.7}
+    score = _random_uniform(pa, pb)
+    assert isinstance(score, float)
+    assert 0.0 <= score < 1.0
+
+
+def test_random_uniform_is_deterministic():
+    """Same inputs must yield the same float across calls (and processes)."""
+    pa = {1: 0.9, 2: 0.6}
+    pb = {1: 0.85, 3: 0.7}
+    first = _random_uniform(pa, pb)
+    second = _random_uniform(pa, pb)
+    assert first == second
+
+
+def test_random_uniform_is_order_symmetric():
+    """score(pa, pb) == score(pb, pa) — sort the union, don't concatenate."""
+    pa = {1: 0.9, 2: 0.6}
+    pb = {1: 0.85, 3: 0.7}
+    assert _random_uniform(pa, pb) == _random_uniform(pb, pa)
+
+
+def test_random_uniform_ignores_salience_values():
+    """Score depends only on the union of cluster_ids — saliences are noise.
+
+    Reinforces the null-control intent: same cluster topology ⇒ same score
+    regardless of weighting.
+    """
+    pa = {1: 0.9, 2: 0.6}
+    pb = {1: 0.001, 2: 0.001}
+    pa_alt = {1: 0.1, 2: 0.99}
+    pb_alt = {1: 0.5, 2: 0.5}
+    assert _random_uniform(pa, pb) == _random_uniform(pa_alt, pb_alt)
+
+
+def test_random_uniform_distinct_pairs_yield_distinct_scores():
+    """Two clearly different (pa, pb) pairs produce different scores
+    (with overwhelming probability — 64-bit blake2b digest collision is
+    cryptographically negligible)."""
+    pair1_a, pair1_b = {1: 1.0}, {2: 1.0}        # union = {1, 2}
+    pair2_a, pair2_b = {3: 1.0}, {4: 1.0}        # union = {3, 4}
+    pair3_a, pair3_b = {1: 1.0, 2: 1.0}, {5: 1.0}  # union = {1, 2, 5}
+    s1 = _random_uniform(pair1_a, pair1_b)
+    s2 = _random_uniform(pair2_a, pair2_b)
+    s3 = _random_uniform(pair3_a, pair3_b)
+    assert s1 != s2
+    assert s1 != s3
+    assert s2 != s3
+
+
+def test_score_pair_with_random_uniform_is_scored_status():
+    """Status invariant: with non-empty pa & pb the result is 'scored',
+    never accidentally 'no_properties'."""
+    conn = _build_fixture_db()
+    result = score_pair(conn, "anger", "fire", scoring_fn=_random_uniform)
+    assert result.status == "scored"
+    assert result.score is not None
+    assert 0.0 <= result.score < 1.0
+
+
+def test_score_pair_with_random_uniform_no_overlap_still_scored():
+    """approach (cluster 4) and coming (cluster 5) share no clusters but both
+    have curated properties — under random_uniform this is still 'scored'
+    (a real outcome on the union {4, 5}), not a 0.0 forced by overlap logic.
+    """
+    conn = _build_fixture_db()
+    result = score_pair(conn, "approach", "coming", scoring_fn=_random_uniform)
+    assert result.status == "scored"
+    assert result.score is not None
+    assert 0.0 <= result.score < 1.0
+
+
+def test_evaluate_dispatches_random_uniform(tmp_path):
+    """evaluate(scoring='random_uniform') runs end-to-end and records the
+    name in config."""
+    conn = _build_fixture_db()
+    pairs_file, controls_file = _write_fixture_files(tmp_path)
+    result = evaluate(
+        conn=conn,
+        pairs_file=str(pairs_file),
+        controls_file=str(controls_file),
+        scoring="random_uniform",
+    )
+    assert result["config"]["scoring"] == "random_uniform"
+    # The single apt pair is anger/fire — both resolve and have properties,
+    # so it must contribute a scored entry, not unresolved/no_properties.
+    assert result["aggregate"]["n_apt"] == 1
+    assert result["aggregate"]["apt_no_properties"] == 0
+
+
+def test_main_cli_dispatch_random_uniform(tmp_path, monkeypatch):
+    """CLI: --scoring random_uniform writes the chosen name into the output."""
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps([
+        {"source": "anger", "target": "fire", "tier": "strong"},
+    ]))
+    controls_file = tmp_path / "controls.jsonl"
+    controls_file.write_text(
+        '{"target": "approach", "paraphrase": "coming", "label": "inapt"}\n'
+    )
+    fake_db = tmp_path / "fake.db"
+    fake_db.write_bytes(b"")
+    output_file = tmp_path / "out.json"
+
+    fixture_conn = _build_fixture_db()
+    monkeypatch.setattr(
+        evaluate_aptness.sqlite3, "connect", lambda _path: fixture_conn,
+    )
+    monkeypatch.setattr(sys, "argv", [
+        "evaluate_aptness.py",
+        "--pairs", str(pairs_file),
+        "--controls", str(controls_file),
+        "--db", str(fake_db),
+        "--scoring", "random_uniform",
+        "--output", str(output_file),
+    ])
+
+    evaluate_aptness.main()
+
+    written = json.loads(output_file.read_text())
+    assert written["config"]["scoring"] == "random_uniform"
 
 
 def test_score_pair_dispatches_to_chosen_scoring_fn():

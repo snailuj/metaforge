@@ -23,6 +23,11 @@ a float in [0.0, 1.0]. Registered formulas:
   * ``cosine_salience`` — cosine similarity over salience vectors,
     aligned by cluster_id. Cluster_ids missing from one side are
     zero-padded (standard sparse-cosine convention).
+  * ``random_uniform`` — deterministic pseudo-random null-control.
+    blake2b hash of the sorted union of cluster_ids in pa∪pb mapped
+    to [0, 1). Carries no semantic signal by construction — used as
+    a null reference for sweep sensitivity validation: any apt/inapt
+    structure should yield separation_score ≈ 0 under this scoring.
 
 Conventions: registry keys are lowercase snake_case. Add new scoring
 formulas by inserting into ``SCORING_FNS`` — the CLI ``--scoring``
@@ -37,6 +42,7 @@ Usage:
         --output   data-pipeline/output/aptness_eval.json
 """
 import argparse
+import hashlib
 import json
 import logging
 import math
@@ -167,10 +173,40 @@ def _cosine_salience(
     return dot / (na * nb)
 
 
+def _random_uniform(
+    pa: Mapping[int, float], pb: Mapping[int, float],
+) -> float:
+    """Deterministic pseudo-random null-control scoring.
+
+    Hashes the sorted union of cluster_ids in pa∪pb to a float in
+    [0, 1) via blake2b. Order-symmetric: sort the union, don't
+    concatenate side-by-side. Carries no semantic signal — apt and
+    inapt cohorts in the V2 corpus should yield separation_score ≈ 0
+    under this scoring, which is the slice's null reference for
+    sensitivity validation.
+
+    Determinism is via hashlib (NOT random.random / numpy.random,
+    which are non-deterministic across processes without explicit
+    seeding and would silently break reproducibility).
+
+    Assumption: determinism + order-symmetry are sufficient null-
+    reference properties; we are NOT proving uniformity statistically
+    here (would require thousands of samples and is out of scope).
+    """
+    union = sorted(set(pa) | set(pb))
+    if not union:
+        return 0.0
+    key = ",".join(str(c) for c in union).encode("utf-8")
+    digest = hashlib.blake2b(key, digest_size=8).digest()
+    n = int.from_bytes(digest, "big")
+    return n / (1 << 64)
+
+
 SCORING_FNS: dict[str, ScoringFn] = {
     "jaccard_salience": _jaccard_salience,
     "jaccard_raw": _jaccard_raw,
     "cosine_salience": _cosine_salience,
+    "random_uniform": _random_uniform,
 }
 
 DEFAULT_SCORING = "jaccard_salience"
