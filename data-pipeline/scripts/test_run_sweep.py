@@ -783,6 +783,91 @@ def test_load_sweep_config_missing_db_error_mentions_baseline(tmp_path):
     assert "baseline_v2.yaml" in str(exc.value)
 
 
+def test_load_sweep_config_rejects_threshold_percentile_below_zero(tmp_path):
+    """`_percentile` clamps pct<=0 to the min sample silently. Reject at
+    the schema boundary so a typo (`-5` for `5`) cannot quietly degrade
+    a sweep variation to a min-sample threshold without operator notice."""
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [{
+            "name": "v1",
+            "scoring": "jaccard_salience",
+            "threshold_percentile": -5,
+        }],
+    }))
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    msg = str(exc.value)
+    assert "threshold_percentile" in msg
+    assert "-5" in msg
+    assert "0" in msg and "100" in msg  # documents the valid range
+
+
+def test_load_sweep_config_rejects_threshold_percentile_above_hundred(tmp_path):
+    """Symmetric to the below-zero case — pct>=100 clamps to max sample
+    silently in `_percentile`. Reject at schema boundary."""
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [{
+            "name": "v1",
+            "scoring": "jaccard_salience",
+            "threshold_percentile": 250.0,
+        }],
+    }))
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    msg = str(exc.value)
+    assert "threshold_percentile" in msg
+    assert "250" in msg
+
+
+def test_load_sweep_config_accepts_threshold_percentile_boundary_values(tmp_path):
+    """0 and 100 are the inclusive bounds — both must load without error
+    so callers can sweep the full percentile range."""
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [
+            {"name": "lo", "scoring": "jaccard_salience", "threshold_percentile": 0},
+            {"name": "hi", "scoring": "jaccard_salience", "threshold_percentile": 100},
+        ],
+    }))
+    cfg = load_sweep_config(str(cfg_file))
+    assert cfg["variations"][0]["threshold_percentile"] == 0
+    assert cfg["variations"][1]["threshold_percentile"] == 100
+
+
+def test_load_sweep_config_rejects_non_numeric_threshold_percentile(tmp_path):
+    """A string in `threshold_percentile` is a YAML quoting mistake; reject
+    with a typed error rather than letting it fail later in `_percentile`."""
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [{
+            "name": "v1",
+            "scoring": "jaccard_salience",
+            "threshold_percentile": "ninety-five",
+        }],
+    }))
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    assert "threshold_percentile" in str(exc.value)
+
+
 def test_run_sweep_argparse_lists_scoring_formulas_in_help():
     """The ``run_sweep --help`` output should mention at least one
     registered scoring formula so an operator knows which keys are

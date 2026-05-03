@@ -231,6 +231,24 @@ def load_sweep_config(path: str) -> SweepConfig:
         if name in seen_names and name not in duplicates:
             duplicates.append(name)
         seen_names.append(name)
+
+        # threshold_percentile must lie in [0, 100]. Out-of-range values
+        # silently clamp to min/max sample inside `_percentile`, which is
+        # a true silent fallback (no log, no signal). Reject at the schema
+        # boundary so a typo (`-5` for `5`) cannot quietly degrade the run.
+        if "threshold_percentile" in var:
+            tp = var["threshold_percentile"]
+            if not isinstance(tp, (int, float)) or isinstance(tp, bool):
+                raise ValueError(
+                    f"sweep config {path}: variation[{idx}] "
+                    f"'threshold_percentile' must be a number in [0, 100], "
+                    f"got {tp!r} ({type(tp).__name__})"
+                )
+            if not (0 <= tp <= 100):
+                raise ValueError(
+                    f"sweep config {path}: variation[{idx}] "
+                    f"'threshold_percentile' must lie in [0, 100], got {tp}"
+                )
     if duplicates:
         raise ValueError(
             f"sweep config {path}: duplicate variation name(s): {duplicates}"
