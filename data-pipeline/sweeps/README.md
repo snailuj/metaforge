@@ -12,6 +12,16 @@ Parameter sweep configs for the aptness evaluator harness
    `threshold_percentile`.
 3. See `baseline_v2.yaml` for the canonical shape.
 
+## Available sweeps
+
+- `baseline_v2.yaml` — S02-T03 baseline anchor (jaccard_salience /
+  jaccard_raw / cosine_salience @ percentile 95 against the live V2
+  lexicon).
+- `sensitivity_v2.yaml` — S03 sensitivity demo: contrasts the baseline
+  against degraded `threshold_percentile` variants (50, 99) and the
+  `random_uniform` null-control scoring fn. See
+  `SENSITIVITY-V2-FINDINGS.md` for the slice's verdict.
+
 ## How to run
 
 > **Run from the repo root.** Paths in the YAML config (`db`, `pairs`,

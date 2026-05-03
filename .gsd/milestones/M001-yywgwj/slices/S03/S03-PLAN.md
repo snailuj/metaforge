@@ -36,7 +36,7 @@ Assumption (documented inline): the determinism+order-symmetry properties are su
   - Files: `data-pipeline/scripts/evaluate_aptness.py`, `data-pipeline/scripts/test_evaluate_aptness.py`
   - Verify: source data-pipeline/.venv/bin/activate && python -m pytest data-pipeline/scripts/test_evaluate_aptness.py -v -k random_uniform && python -m pytest data-pipeline/scripts/test_evaluate_aptness.py data-pipeline/scripts/test_run_sweep.py -v
 
-- [ ] **T02: Author sensitivity_v2 sweep config and run end-to-end against V2 DB** `est:1h`
+- [x] **T02: Author sensitivity_v2 sweep config and run end-to-end against V2 DB** `est:1h`
   Author `data-pipeline/sweeps/sensitivity_v2.yaml` exercising five variations against the live V2 lexicon: (a) jaccard_salience @ threshold_percentile 95 — the S02 baseline anchor, (b) jaccard_salience @ 50 — deliberately degraded threshold (more permissive, predicted to push aptness_rate up and separation_score toward 0), (c) jaccard_salience @ 99 — deliberately degraded threshold (more restrictive, predicted to push aptness_rate down toward 0), (d) jaccard_raw @ 95 — secondary scoring-formula control already in S02 baseline, (e) random_uniform @ 95 — the T01 null reference. Reuse the same db/pairs/controls/mrr_reference fields as baseline_v2.yaml so the sensitivity output is directly comparable to the baseline output.
 
 Header comment must link back to the slice goal, name the baseline anchor (S02-T03 baseline_v2.yaml), and name the expected sensitivity signature: 'aptness_rate monotonic in threshold_percentile; random_uniform separation_score within ±0.01 of zero'.
