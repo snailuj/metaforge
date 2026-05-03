@@ -82,6 +82,25 @@
       "confidence": "EXTRACTED"
     },
     {
+      "id": "slice:M001:S03",
+      "label": "S03: Baseline and Sensitivity Validation",
+      "type": "slice",
+      "confidence": "EXTRACTED",
+      "sourceFile": "milestones/M001/slices/S03/S03-PLAN.md"
+    },
+    {
+      "id": "task:M001:S03:T01",
+      "label": "T01: Add random_uniform null-control scoring function and tests",
+      "type": "task",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "task:M001:S03:T02",
+      "label": "T02: Author sensitivity_v2 sweep config and run end-to-end against V2 DB",
+      "type": "task",
+      "confidence": "EXTRACTED"
+    },
+    {
       "id": "milestone:M002",
       "label": "M002",
       "type": "milestone",
@@ -218,6 +237,24 @@
       "confidence": "EXTRACTED"
     },
     {
+      "from": "milestone:M001",
+      "to": "slice:M001:S03",
+      "type": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "from": "slice:M001:S03",
+      "to": "task:M001:S03:T01",
+      "type": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "from": "slice:M001:S03",
+      "to": "task:M001:S03:T02",
+      "type": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
       "from": "milestone:M002",
       "to": "slice:M002:S01",
       "type": "contains",
@@ -278,5 +315,5 @@
       "confidence": "EXTRACTED"
     }
   ],
-  "builtAt": "2026-05-02T16:04:28.087Z"
+  "builtAt": "2026-05-03T00:35:16.282Z"
 }
