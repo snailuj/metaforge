@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-03T00:03:19Z | Files: 384 | Described: 0/384
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-03T00:03:19Z","fingerprint":"57b9c447c03974f6acef617d0b33607a7a9165de","fileCount":384,"truncated":false} -->
+Generated: 2026-05-03T00:30:09Z | Files: 386 | Described: 0/386
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-03T00:30:09Z","fingerprint":"cd4bbd0377f6b2c38e812153e609e31648063152","fileCount":386,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -271,6 +271,8 @@ Generated: 2026-05-03T00:03:19Z | Files: 384 | Described: 0/384
 ### data-pipeline/sweeps/
 - `data-pipeline/sweeps/baseline_v2.yaml`
 - `data-pipeline/sweeps/README.md`
+- `data-pipeline/sweeps/sensitivity_v2.yaml`
+- `data-pipeline/sweeps/SENSITIVITY-V2-FINDINGS.md`
 
 ### deploy/
 - `deploy/cleanup-legacy-services.sh`
