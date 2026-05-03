@@ -196,6 +196,9 @@ def _random_uniform(
     union = sorted(set(pa) | set(pb))
     if not union:
         return 0.0
+    # Comma-join is collision-free only because cluster_ids are ints and
+    # `union` is sorted-unique: distinct sorted int sequences map to
+    # distinct strings. Do not feed strings that may contain commas here.
     key = ",".join(str(c) for c in union).encode("utf-8")
     digest = hashlib.blake2b(key, digest_size=8).digest()
     n = int.from_bytes(digest, "big")

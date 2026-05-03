@@ -557,7 +557,7 @@ def test_main_cli_dispatch_random_uniform(tmp_path, monkeypatch):
 
     fixture_conn = _build_fixture_db()
     monkeypatch.setattr(
-        evaluate_aptness.sqlite3, "connect", lambda _path: fixture_conn,
+        evaluate_aptness.sqlite3, "connect", lambda *a, **kw: fixture_conn,
     )
     monkeypatch.setattr(sys, "argv", [
         "evaluate_aptness.py",
@@ -707,7 +707,7 @@ def test_main_cli_dispatch_writes_scoring_to_output(tmp_path, monkeypatch, capsy
 
     fixture_conn = _build_fixture_db()
     monkeypatch.setattr(
-        evaluate_aptness.sqlite3, "connect", lambda _path: fixture_conn,
+        evaluate_aptness.sqlite3, "connect", lambda *a, **kw: fixture_conn,
     )
 
     monkeypatch.setattr(sys, "argv", [

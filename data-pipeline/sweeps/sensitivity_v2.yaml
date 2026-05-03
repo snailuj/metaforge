@@ -7,7 +7,9 @@
 #
 # Expected sensitivity signature:
 #   aptness_rate monotonic in threshold_percentile;
-#   random_uniform separation_score within ±0.01 of zero.
+#   |random_uniform separation_score| ≤ 0.02 (sampling-noise tolerance for
+#   V2 cohort sizes ~232 apt / ~317 inapt — see SENSITIVITY-V2-FINDINGS.md
+#   for the basis; a tighter bound requires larger cohorts or repeated runs).
 #
 # Variations:
 #   - jaccard_salience @ 95: S02 baseline anchor
