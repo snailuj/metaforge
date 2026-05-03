@@ -247,7 +247,8 @@ def load_sweep_config(path: str) -> SweepConfig:
             if not (0 <= tp <= 100):
                 raise ValueError(
                     f"sweep config {path}: variation[{idx}] "
-                    f"'threshold_percentile' must lie in [0, 100], got {tp}"
+                    f"'threshold_percentile' must be a number in [0, 100], "
+                    f"got {tp}"
                 )
     if duplicates:
         raise ValueError(
