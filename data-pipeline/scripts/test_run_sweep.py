@@ -848,6 +848,31 @@ def test_load_sweep_config_accepts_threshold_percentile_boundary_values(tmp_path
     assert cfg["variations"][1]["threshold_percentile"] == 100
 
 
+def test_load_sweep_config_rejects_bool_threshold_percentile(tmp_path):
+    """In Python, `bool` is a subclass of `int`, so `True`/`False` would
+    sneak through `isinstance(tp, (int, float))` and validate as 1/0
+    silently. The validator deliberately rejects bool — pin the
+    behaviour with a test so a future "simplification" cannot
+    silently undo the guard."""
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [{
+            "name": "v1",
+            "scoring": "jaccard_salience",
+            "threshold_percentile": True,
+        }],
+    }))
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    msg = str(exc.value)
+    assert "threshold_percentile" in msg
+    assert "bool" in msg
+
+
 def test_load_sweep_config_rejects_non_numeric_threshold_percentile(tmp_path):
     """A string in `threshold_percentile` is a YAML quoting mistake; reject
     with a typed error rather than letting it fail later in `_percentile`."""
