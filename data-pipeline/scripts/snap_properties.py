@@ -263,6 +263,12 @@ def snap_properties(
         Upgrade policy: keep the higher-rank snap_method (exact > morphological >
         embedding). On collision, salience always accumulates; on tie or lower
         rank we keep the existing method/score (deterministic).
+
+        On upgrade the new match's vocab_id replaces the existing one — the
+        cluster_id key is shared but vocab_id can differ (e.g. an exact match
+        on 'sparkle' arriving after a morphological match on 'flicker' both
+        landing in cluster 1; the persisted row reports the higher-quality
+        match's vocab_id, not the lower).
         """
         existing = accumulated.get(key)
         if existing is None:

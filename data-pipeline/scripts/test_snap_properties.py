@@ -1054,7 +1054,7 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
     conn = sqlite3.connect(str(db_path))
     try:
         rows = conn.execute(
-            "SELECT synset_id, cluster_id, snap_method, salience_sum "
+            "SELECT synset_id, cluster_id, snap_method, salience_sum, vocab_id "
             "FROM synset_properties_curated"
         ).fetchall()
     finally:
@@ -1069,6 +1069,12 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
         "the accumulator silently kept the first-inserted morphological method"
     )
     assert abs(rows[0][3] - 1.0) < 0.01  # 0.4 + 0.6
+    # vocab_id must also swap on upgrade: 'flicker' (vid=1) was inserted first
+    # via morph; 'sparkle' (vid=2) arrives later via exact and replaces it.
+    assert rows[0][4] == 2, (
+        f"expected vocab_id to swap to the higher-quality match's vid (2 = sparkle), "
+        f"got {rows[0][4]} — _merge kept the lower-quality vid"
+    )
 
 
 def test_snap_progress_lines_use_logging_not_print(tmp_path, caplog):
