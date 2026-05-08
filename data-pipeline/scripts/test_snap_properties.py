@@ -1071,6 +1071,61 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
     assert abs(rows[0][3] - 1.0) < 0.01  # 0.4 + 0.6
 
 
+def test_build_vocab_matrix_deterministic_on_lemma_collision(tmp_path):
+    """When two property_vocab_curated rows share a lemma, _build_vocab_matrix
+    must return them in deterministic vocab_id ascending order so np.argmax
+    resolves ties consistently across rebuilds.
+    """
+    from snap_properties import _build_vocab_matrix
+
+    db_path = tmp_path / "matrix_order.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+
+        -- Insert two pvc rows sharing lemma 'fast' in REVERSE vocab_id order.
+        -- Without ORDER BY pvc.vocab_id, SQLite may return vid=7 before vid=3.
+        INSERT INTO property_vocab_curated VALUES (7, 'vs7', 'fast', 'v', 1);
+        INSERT INTO property_vocab_curated VALUES (3, 'vs3', 'fast', 'a', 1);
+
+        -- Single embedding row matches both via LOWER(text)=LOWER(lemma).
+        -- (Both pvc rows have the same lemma 'fast', so the JOIN yields two
+        -- copies with identical embeddings.)
+    """)
+    emb = _make_embedding(0.5)
+    conn.execute(
+        "INSERT INTO property_vocabulary VALUES (1, 'fast', ?, 0, 'pilot')",
+        (emb,),
+    )
+    conn.commit()
+
+    # Run multiple times — first vocab_id in returned list must always be 3.
+    for _ in range(3):
+        matrix, vocab_ids = _build_vocab_matrix(conn)
+        assert len(vocab_ids) == 2, f"expected 2 rows, got {vocab_ids}"
+        assert vocab_ids[0] == 3, (
+            f"expected lowest vocab_id (3) first, got {vocab_ids} — "
+            "_build_vocab_matrix lacks ORDER BY pvc.vocab_id"
+        )
+        assert vocab_ids[1] == 7
+
+    conn.close()
+
+
 def test_accumulated_match_rejects_score_method_invariant_violations():
     """AccumulatedMatch invariant: snap_score is None iff snap_method != 'embedding'.
     Both illegal states must raise ValueError; both legal states must succeed.

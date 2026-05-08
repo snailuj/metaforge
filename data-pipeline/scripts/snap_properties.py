@@ -98,11 +98,16 @@ def _build_vocab_matrix(
     Returns (matrix, vocab_ids) where matrix is (n, EMBEDDING_DIM)
     and vocab_ids[i] corresponds to matrix[i].
     """
+    # ORDER BY pvc.vocab_id ASC so np.argmax resolves ties on lemma collision
+    # deterministically (lowest vocab_id wins). Without ORDER BY, SQL row order
+    # is unspecified and snap output drifts across rebuilds when two pvc rows
+    # share a lemma but differ in POS or polysemy.
     rows = conn.execute("""
         SELECT pvc.vocab_id, pv.embedding
         FROM property_vocab_curated pvc
         JOIN property_vocabulary pv ON LOWER(pv.text) = LOWER(pvc.lemma)
         WHERE pv.embedding IS NOT NULL
+        ORDER BY pvc.vocab_id
     """).fetchall()
 
     if not rows:
