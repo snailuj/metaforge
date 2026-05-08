@@ -316,6 +316,17 @@ def load_inapt_controls(path: str) -> list[dict]:
                     path, line_no, exc,
                 )
                 continue
+            # Valid JSON that is not a dict (e.g. `null`, a bare string, a list,
+            # an int) would crash `row.get("label")` below and abort the whole
+            # load. Skip with a warning to honour the documented "tolerate
+            # garbled input" contract.
+            if not isinstance(row, dict):
+                log.warning(
+                    "load_inapt_controls: skipping non-dict JSONL row at %s:%d "
+                    "(got %s)",
+                    path, line_no, type(row).__name__,
+                )
+                continue
             if row.get("label") == "inapt":
                 rows.append(row)
     return rows
