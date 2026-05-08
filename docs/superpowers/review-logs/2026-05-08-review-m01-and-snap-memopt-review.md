@@ -327,3 +327,196 @@ data-pipeline/scripts/test_snap_properties.py
 - **Nudge:** 3 consecutive rounds with declining severity; round 3 fixed only low items. **Diminishing returns territory** — consider stopping after round 4 if it returns CLEAN or near-CLEAN.
 - **Cumulative:** 3 rounds, 29 fix commits, 16 active deferrals (D1–D16).
 
+### Round 4 — 2026-05-08T22:00:00+13:00 — CLEAN (HALT)
+
+**Pre-fix SHA:** `8745178c` (round 2 docs commit — same as round 3 base; round 3's 3 fixes critiqued under Pass 3)
+**Post-fix SHA:** unchanged (no fixes applied this round)
+**Adapters dispatched (parallel):** pr-review-toolkit (3 agents), superpowers:code-reviewer, standards (general-purpose). ux-designer no-op.
+**Tests:** Python suite — **535 passed, 1 skipped** (no change from round 3).
+
+#### Adapter results
+
+| Adapter | Result | New Items |
+|---------|--------|-----------|
+| pr-review-toolkit:code-reviewer | **CLEAN** | 0 (one sub-threshold note about stale snap_score CHECK comment in SCHEMA.sql:256-260; reviewer explicitly classed below 80% threshold) |
+| pr-review-toolkit:silent-failure-hunter | **CLEAN** | 0 (empirical re-probe of json widening confirms TypeError + ValueError cover realistic cases; RecursionError ruled out for record shape) |
+| pr-review-toolkit:type-design-analyzer | **CLEAN** | 0 (one cosmetic note that SCHEMA.sql is still a hand-mirror not a programmatic single-source-of-truth — folded into existing D7 keystone framing) |
+| superpowers:code-reviewer | **CLEAN** | 0 ("Stop the loop") |
+| standards (general-purpose) | **CLEAN** | 0 (all standards conformance verified; D5 reframing confirmed correct) |
+| ux-designer | NO-OP | — |
+
+**All 5 dispatched adapters returned adapter-CLEAN. Zero fixes applied. Round 4 is a CLEAN round.**
+
+#### Pass 4 — Active Deferrals Ledger verdicts
+
+All 5 adapters reviewed all 16 active deferrals (D1–D16) under Pass 4. **All 16 deferrals received `concur` verdicts from every adapter that engaged Pass 4.** No challenges raised in round 4.
+
+The standards adapter explicitly confirmed D5's round-3 escalation (low → important) is correct: the Idempotency-standard violation in `enrich_pipeline.run_pipeline`'s mid-loop partial-commit path is real, and the round-2 dismissal rationale was a category confusion between snap JSONL recoverability and DB-state recoverability.
+
+The type-design analyzer noted that round 3's `c4819aec` (SCHEMA index parity) **strengthens** rather than weakens the case for treating D7 (test fixture DDL drift) as the keystone for a future "single-source-of-truth DDL" refactor — both SCHEMA.sql and inline DDL now agree on columns, CHECKs, AND indexes; only the test fixtures remain hand-rolled without CHECKs.
+
+#### Severity assessment & cumulative status
+
+- **Items fixed this round:** 0
+- **Items deferred this round:** 0 new
+- **Round was clean?** **YES — all adapters CLEAN, no fixes applied**
+- **Trend:** 1 critical → 2 important → 3 low → 0 substantive items. Slope unambiguous.
+- **Cumulative:** 4 rounds, 29 fix commits (rounds 1+2+3), 16 active deferrals (D1–D16). Suite green at 535 passed + 1 skipped.
+
+## Halt — Terminal Sequence
+
+The loop has reached a CLEAN round. Per the skill protocol, the terminal sequence is:
+1. Emit the Out-of-Scope Deferral Report inline (below)
+2. Invoke `catch-fixing-forwards` (Fix-Forward Debt Scan)
+3. Emit the final summary
+
+## Out-of-Scope Deferral Report
+
+**Ledger evolution:** 16 recorded · 0 superseded by downstream fix · 0 withdrawn · 16 still active
+**Active deferrals across 4 rounds:** 16
+**Severity breakdown (active only):** 2 important · 11 low · 3 cosmetic
+
+### Deferral 1 (D1) — PRAGMA foreign_keys never enabled
+- Round raised: 1 (type-design-analyzer item td-2) • Severity: **important**
+- File: every `sqlite3.connect()` site across `enrich_pipeline.py`, `cluster_vocab.py`, `snap_properties.py`, `evaluate_aptness.py`, `run_sweep.py`, `import_*.py`
+- Description: SQLite's default behaviour is FK constraints are NOT enforced unless the connection issues `PRAGMA foreign_keys = ON`. The pipeline's ~15 FOREIGN KEY declarations in SCHEMA.sql are decorative on every connection.
+- Scope boundary: cross-cutting infra change touching every connection-opening site in the pipeline.
+- Why out-of-scope: enabling FK enforcement on the canonical `lexicon_v2.db` requires a prior FK-violation audit (orphaned synset_ids, dangling property_id refs, etc.). The audit is non-trivial and a wrong commit could break downstream operations during the M02 plan window. Right call is a dedicated phase: audit → fix violations → enable PRAGMA via a shared `open_lexicon_db` helper.
+- Challenge history: concurred by all 5 adapters in rounds 2/3/4.
+- Proposed follow-up: dedicated pipeline-resilience phase before M02 begins enrichment-volume work.
+
+### Deferral 2 (D2) — VariationSpec/SweepConfig PEP 655 tightening
+- Round raised: 1 (type-design-analyzer item td-3) • Severity: low
+- File: `data-pipeline/scripts/run_sweep.py:105-120`
+- Description: VariationSpec/SweepConfig TypedDicts under-constrain primitives — invariants live only in the runtime validator, not in the type itself.
+- Scope boundary: cosmetic typing improvement to run_sweep.py.
+- Why out-of-scope: runtime validator already enforces invariants and is well-tested. Round 1 added more validator code (`ea624466`, `6cbad110`) that PEP 655 could partially obviate, but tightening types is typing-pass work.
+- Challenge history: concurred all rounds; round-2 type-design noted rationale slightly stale post-round-1, but defer-decision sound.
+- Proposed follow-up: typing-cleanup phase.
+
+### Deferral 3 (D3) — PairScore.score discriminated split
+- Round raised: 1 (type-design-analyzer item td-6) • Severity: low
+- File: `data-pipeline/scripts/evaluate_aptness.py:223-253`
+- Description: PairScore.score `float | None` could be split into a discriminated dataclass union (ScoredPair / UnresolvedPair / NoPropertiesPair).
+- Scope boundary: refactor of PairScore + every call site reading `result.score` across `evaluate_aptness.py` + tests.
+- Why out-of-scope: reviewer explicitly self-said "I am NOT recommending this change in this PR". Existing `__post_init__` invariant + Literal status field is a clean tagged-union encoding; the split is a refactor, not a bug fix.
+- Challenge history: concurred all rounds; AccumulatedMatch precedent (round 2) shifts the calculus slightly toward acting but not enough to overturn.
+- Proposed follow-up: next evaluator-touching milestone.
+
+### Deferral 4 (D4) — `LOWER(lemma) = ?` defeats index in evaluate_aptness lookups
+- Round raised: 1 (superpowers item sp-5) • Severity: low
+- File: `data-pipeline/scripts/evaluate_aptness.py:80-94`
+- Description: Both lookup queries use `WHERE LOWER(lemma) = ?` against tables whose only lemma index is on the raw column. SQLite cannot use those indexes once the column is wrapped in LOWER(). For a baseline_v2 run that's ~3500 lookups × 35k-row table scans.
+- Scope boundary: index/perf tuning in evaluate_aptness.py + possibly schema (functional index).
+- Why out-of-scope: performance not correctness; needs measurement-driven treatment. The right home is a future perf milestone after M02 has landed and the eval harness sees more sweep volume.
+- Challenge history: concurred all rounds.
+- Proposed follow-up: post-M02 perf milestone.
+
+### Deferral 5 (D5) — `enrich_pipeline.run_pipeline` partial-commit on mid-loop failure
+- Round raised: 1 (superpowers item sp-7); standards adapter (round 3) reframed and escalated • Severity: **important** (escalated round 3 from low)
+- File: `data-pipeline/scripts/enrich_pipeline.py:349-382`
+- Description: Single connection across all enrichment files with inner per-step commits (`curate_properties`, `populate_synset_properties`, `populate_lemma_metadata`). Mid-loop failure on file N leaves files 1..N-1 committed, file N partially written, downstream `build_and_store / cluster_vocab / snap_properties / antonyms` never run. Recovery today is "delete the DB and `restore_db.sh` from PRE_ENRICH.sql then re-run all files" — violates project Idempotency standard.
+- Scope boundary: refactor of enrich_pipeline.py orchestration.
+- Why out-of-scope: Round-2 rejection rationale ("JSONL recoverability") was a category confusion — that rationale addressed snap diagnostic stream, NOT DB-state. The DB-state issue is structurally important. Defer-to-act remains correct (orchestration refactor non-trivial; enrich_pipeline.py untouched in M01/snap memopt/rounds 1-3), but severity must reflect actual exposure.
+- Challenge history: standards adapter raised escalation in round 3; type-design + silent-failure-hunter + code-reviewer concurred in round 4.
+- Proposed follow-up: **dedicated pipeline-resilience phase BEFORE M02 enrichment-volume increase.** This is the highest-priority deferral alongside D1.
+
+### Deferral 6 (D6) — `snap_score` CHECK constraint NOT added (clamp landed)
+- Round raised: 1 (SCHEMA fixer follow-up); narrowed by round-2 clamp • Severity: low
+- File: `data-pipeline/SCHEMA.sql:256-260` (deferred CHECK column on `synset_properties_curated.snap_score`)
+- Description: Live DB has one row with `snap_score = 1.00000011920929` (float32 cosine drift over 1.0); `[-1.0, 1.0]` CHECK would reject it. Clamp at write-time landed in round-2 commit `7a334528`, so future writes are bounded.
+- Scope boundary: schema CHECK + one-time renorm of one outlier row.
+- Why out-of-scope: adding the CHECK now would still reject the existing row until renormalised. Next snap rebuild will overwrite that row with a clamped value; the CHECK can land afterwards without preconditions. Tied to the next snap-tuning pass (backlog: `JSJSJS — signal-weighted snap`).
+- Challenge history: concurred all rounds; clamp commit closed the partial concern in round 2.
+- Proposed follow-up: bundle with next snap rebuild + the JSJSJS signal-weighted snap work.
+
+### Deferral 7 (D7) — Test fixture DDL drift (no CHECKs in test fixtures)
+- Round raised: 2 (type-design item R2-8); **strengthened in round 3 by the index-parity fix `c4819aec`** • Severity: low
+- File: `data-pipeline/scripts/test_evaluate_aptness.py:49-57`, `data-pipeline/scripts/test_run_sweep.py:39-47`, `data-pipeline/scripts/test_snap_properties.py` (multiple sites)
+- Description: Three test files redefine `synset_properties_curated` / `synset_properties` without the CHECK clauses. A regression that violates the constraints in production would still pass the test suite.
+- Scope boundary: shared test helper that loads SCHEMA.sql (single source of truth) — broader test-infra refactor.
+- Why out-of-scope: round-2 inline-DDL mirror (`23fefe02`) + round-3 index-parity (`c4819aec`) ensure the canonical writer enforces the constraints; the test-fixture gap is a test-coverage improvement, not a production bug. With both production sites now in lockstep, this is the keystone for the "single source of truth" DDL refactor.
+- Challenge history: concurred all rounds; type-design and standards both noted the keystone framing strengthens with each subsequent fix.
+- Proposed follow-up: dedicated test-infra phase that makes SCHEMA.sql the one DDL source consumed by both production scripts and test fixtures.
+
+### Deferral 8 (D8) — `_record_drop` KeyError on missing "reason" key (speculative)
+- Round raised: 2 (superpowers item R2-15); narrowed by round-3 except widening • Severity: low
+- File: `data-pipeline/scripts/snap_properties.py:202-203`
+- Description: `_record_drop` would `KeyError` on a missing `"reason"` key. Speculative — all current call sites pass `reason=...`.
+- Scope boundary: defensive `record.get("reason", "unknown")` in `_record_drop`.
+- Why out-of-scope: no actual bug today; flagging as future-proofing concern. Round-3 widening to TypeError/ValueError covers the JSON-serialisation half but not KeyError-on-key-access (which fires before json.dumps).
+- Challenge history: concurred all rounds.
+- Proposed follow-up: bundle with future hardening pass on `_record_drop` (alongside D9, D15, D16).
+
+### Deferral 9 (D9) — `unmatched` 4-tuple positional lookalike
+- Round raised: 2 (type-design item R2-10) • Severity: cosmetic
+- File: `data-pipeline/scripts/snap_properties.py:247`
+- Description: Last positional 4-tuple lookalike that the `AccumulatedMatch` refactor was introduced to retire.
+- Scope boundary: replace with a `@dataclass(frozen=True) PendingMatch` mirroring AccumulatedMatch.
+- Why out-of-scope: cosmetic — local + transient (one pass, never persisted). Reviewer explicitly said "do not act on alone".
+- Challenge history: concurred all rounds.
+- Proposed follow-up: bundle with next snap refactor (alongside D8, D10, D15).
+
+### Deferral 10 (D10) — SnapMethod / _METHOD_RANK / SCHEMA welding test missing
+- Round raised: 2 (type-design item R2-11); strengthened by inline-DDL in round 2 + SCHEMA index parity in round 3 • Severity: low
+- File: `data-pipeline/scripts/snap_properties.py:33-34` and SCHEMA CHECK + inline DDL CHECK
+- Description: SnapMethod Literal, `_METHOD_RANK` keys, SCHEMA.sql CHECK string, and the inline-DDL CHECK string must all agree on `{exact, morphological, embedding}`. No compile-time link between the four sites.
+- Scope boundary: a welding test asserting `set(_METHOD_RANK.keys()) == set(typing.get_args(SnapMethod))` and that both CHECK strings contain every member.
+- Why out-of-scope: defensive against future drift; current state is consistent across all four sites. Defer-to-act correct.
+- Challenge history: concurred all rounds; round-3 type-design noted the surface area grew from 3 to 4 sites with `23fefe02`'s inline-DDL mirror.
+- Proposed follow-up: bundle with next snap refactor (alongside D8, D9, D15).
+
+### Deferral 11 (D11) — `random_uniform` docstring keyword test brittleness
+- Round raised: 2 (superpowers item R2-16) • Severity: low
+- File: `data-pipeline/scripts/test_evaluate_aptness.py` (round-1-added test)
+- Description: Test pins keyword presence (`union-size`, `cohort`, `sanity|calibrated`) — brittle to legitimate doc rewording.
+- Scope boundary: replace with a behaviour-focused test (determinism, order-symmetry over union shapes).
+- Why out-of-scope: test design tweak; the documented behaviour caveat is the load-bearing artefact, not the prose.
+- Challenge history: concurred all rounds.
+- Proposed follow-up: test-quality cleanup pass.
+
+### Deferral 12 (D12) — `nltk.download("wordnet", quiet=True)` fire-and-forget
+- Round raised: 3 (silent-failure-hunter item SFH3-3) • Severity: low (pre-existing)
+- File: `data-pipeline/scripts/snap_properties.py:62-66` (module-import block)
+- Description: Bool return discarded. A failed download silently produces a delayed `LookupError` from `_lemmatiser.lemmatize(...)` deep inside Pass 1.
+- Scope boundary: check the return; on `False` log a WARNING.
+- Why out-of-scope: pre-existing (not introduced by M01 / snap memopt). The real fix belongs to a broader "logging-everywhere" pass auditing every module-init side-effect across `data-pipeline/scripts/`.
+- Challenge history: concurred all rounds.
+- Proposed follow-up: logging-everywhere audit phase.
+
+### Deferral 13 (D13) — `sqlite3 -bail` missing in shell scripts
+- Round raised: 3 (silent-failure-hunter item SFH3-4) • Severity: low (pre-existing)
+- File: `data-pipeline/import_raw.sh:107`, `data-pipeline/enrich.sh:172` (and similar in `restore_db.sh`)
+- Description: SQLite CLI continues past failed statements and exits 0 if any later statement succeeds — `set -euo pipefail` cannot escalate.
+- Scope boundary: add `-bail` flag to sqlite3 invocations.
+- Why out-of-scope: pre-existing; both shell scripts unchanged in M01/snap-memopt/rounds 1-3.
+- Challenge history: concurred all rounds.
+- Proposed follow-up: shell-resilience pass alongside `set -e` propagation review.
+
+### Deferral 14 (D14) — `AssertionError` class semantically wrong at cast-drift site
+- Round raised: 3 (type-design item TD3-3) • Severity: cosmetic
+- File: `data-pipeline/scripts/run_sweep.py:283-289` (round-2 commit `4ab93686`)
+- Description: `raise AssertionError(...)` semantically misrepresents a programming/contract error (validator-vs-TypedDict drift). `RuntimeError` (or custom subclass) would type-document intent more honestly.
+- Scope boundary: 1-line class change.
+- Why out-of-scope: original `-O` strip concern fully addressed by the explicit raise; class choice is semantic polish.
+- Challenge history: concurred all rounds.
+- Proposed follow-up: bundle with next sweep refactor.
+
+### Deferral 15 (D15) — Test cursor iteration order not pinned
+- Round raised: 3 (superpowers item SP3-2) • Severity: cosmetic
+- File: `data-pipeline/scripts/test_snap_properties.py::test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_later`
+- Description: Test relies on insertion-order being preserved by SQLite's primary-key cursor. A future schema tweak (covering index reorder) could silently flip which branch runs.
+- Scope boundary: add `ORDER BY sp.property_id` in production cursor, or pin order in test.
+- Why out-of-scope: combined assertions on `snap_method == 'exact'` and `vocab_id == 2` remain load-bearing today.
+- Challenge history: concurred all rounds.
+- Proposed follow-up: bundle with next snap refactor (alongside D8, D9, D10).
+
+### Deferral 16 (D16) — Silent loss of subsequent JSONL drops after first OSError
+- Round raised: 3 (superpowers item SP3-3) • Severity: low
+- File: `data-pipeline/scripts/snap_properties.py:218-252` (`_record_drop` failure path)
+- Description: After first OSError, `dropped_path = None` disables subsequent writes. Only the first failure logs a WARNING; thousands of subsequent drops silently lost from JSONL.
+- Scope boundary: log first-success-then-failure delta in post-finally summary, or log every Nth retry.
+- Why out-of-scope: per-reason summary log still reports drop COUNTS even when JSONL is disabled — operator gets aggregate signal. Lost detail is per-record diagnostic.
+- Challenge history: concurred all rounds.
+- Proposed follow-up: bundle with logging-completeness pass.
+
