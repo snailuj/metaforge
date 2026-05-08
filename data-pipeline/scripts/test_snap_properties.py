@@ -1071,6 +1071,106 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
     assert abs(rows[0][3] - 1.0) < 0.01  # 0.4 + 0.6
 
 
+def test_snap_clamps_best_score_to_unit_range(tmp_path, monkeypatch):
+    """Float32 cosine drift can produce snap_score values just above 1.0
+    (e.g. 1.00000011920929 observed in the live DB). Clamp to [-1.0, 1.0]
+    before persistence so downstream consumers (and a future CHECK constraint)
+    can rely on the unit range.
+
+    We force the drift deterministically by replacing _build_vocab_matrix's
+    output with a vector whose self-dot under float32 numerics overshoots 1.0,
+    proving the clamp path works regardless of platform arithmetic.
+    """
+    import numpy as np
+
+    import snap_properties as sp
+
+    db_path = tmp_path / "clamp_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX idx_vocab_lemma ON property_vocab_curated(lemma);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'bright', 'a', 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+    """)
+    same_emb = _make_embedding(1.0)
+    conn.execute(
+        "INSERT INTO property_vocabulary VALUES (1, 'bright', ?, 0, 'pilot')",
+        (same_emb,),
+    )
+    conn.execute(
+        "INSERT INTO property_vocabulary VALUES (10, 'radiant', ?, 0, 'pilot')",
+        (same_emb,),
+    )
+    conn.execute("INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL)")
+    conn.commit()
+
+    # Force float32 drift: build a vector identical to what Stage 3 will compute
+    # for the property, but normalise it slightly differently so matrix @ v
+    # overshoots 1.0. Specifically: take the property vector, normalise once,
+    # and stuff the result into the matrix. The stage-3 path will normalise
+    # the same blob a second time. Float32 drift between the two normalisation
+    # passes pushes the dot product just above 1.0.
+    raw = np.array(
+        [1.0 + i * 0.001 for i in range(300)], dtype=np.float32
+    )
+    raw_normed = raw / np.linalg.norm(raw)
+    # Add a tiny float32-representable perturbation that survives normalisation.
+    drifty = (raw_normed * np.float32(1.0 + 1e-7)).reshape(1, -1)
+
+    def fake_build_matrix(_conn):
+        return drifty, [1]
+
+    monkeypatch.setattr(sp, "_build_vocab_matrix", fake_build_matrix)
+
+    sp.snap_properties(conn, embedding_threshold=0.7)
+    conn.close()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT snap_score FROM synset_properties_curated WHERE snap_method='embedding'"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert rows, "expected an embedding match"
+    for (score,) in rows:
+        assert score is not None
+        assert -1.0 <= score <= 1.0, (
+            f"snap_score {score!r} outside [-1.0, 1.0] — float32 drift not clamped"
+        )
+
+
 def test_build_vocab_matrix_deterministic_on_lemma_collision(tmp_path):
     """When two property_vocab_curated rows share a lemma, _build_vocab_matrix
     must return them in deterministic vocab_id ascending order so np.argmax

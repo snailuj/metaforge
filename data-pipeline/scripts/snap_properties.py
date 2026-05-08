@@ -383,10 +383,14 @@ def snap_properties(
                                   "salience": salience, "reason": "no_embedding"})
                     continue
 
-                # Cosine similarities via single matrix-vector multiply
+                # Cosine similarities via single matrix-vector multiply.
+                # Clamp to [-1.0, 1.0] before persistence — float32 drift in
+                # the normalisation + matmul path can produce values just above
+                # 1.0 (e.g. 1.00000011920929 observed in the live DB) which
+                # blocks a future snap_score CHECK constraint.
                 scores = vocab_matrix @ vec  # shape: (n_vocab,)
                 best_idx = int(np.argmax(scores))
-                best_score = float(scores[best_idx])
+                best_score = float(np.clip(scores[best_idx], -1.0, 1.0))
 
                 if best_score >= embedding_threshold:
                     best_vid = vocab_ids[best_idx]
