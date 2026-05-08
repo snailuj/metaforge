@@ -685,6 +685,58 @@ def test_snap_all_stages_integration(tmp_path):
     assert ("s_b", 4) not in by_key
 
 
+def test_snap_logs_warning_when_vocab_clusters_table_missing(tmp_path, caplog):
+    """Missing vocab_clusters table is recoverable — log WARNING, do not silently swallow."""
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "no_clusters.db"
+    conn = sqlite3.connect(str(db_path))
+    # Same fixture as make_snap_db but WITHOUT the vocab_clusters table — exercise the
+    # degraded path where snapping falls back to vocab_id-only dedup.
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm', 'a', 1);
+        INSERT INTO property_vocabulary VALUES (10, 'warm', NULL, 0, 'pilot');
+        INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
+    """)
+    conn.commit()
+
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    assert any(
+        "vocab_clusters" in record.message and record.levelno == logging.WARNING
+        for record in caplog.records
+    ), f"Expected WARNING about vocab_clusters; got: {[r.message for r in caplog.records]}"
+
+
 def test_snap_creates_salience_sum_column(tmp_path):
     """synset_properties_curated table includes salience_sum column."""
     from snap_properties import snap_properties

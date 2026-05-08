@@ -11,6 +11,7 @@ Usage:
 """
 import argparse
 import json
+import logging
 import sqlite3
 import struct
 import sys
@@ -21,6 +22,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import LEXICON_V2, EMBEDDING_DIM
+
+log = logging.getLogger(__name__)
 
 # Ensure WordNet lemmatiser data is available
 try:
@@ -123,13 +126,19 @@ def snap_properties(
     ):
         vocab_by_lemma[lemma.lower()] = vid
 
-    # Load cluster lookup: vocab_id -> cluster_id
+    # Load cluster lookup: vocab_id -> cluster_id.
+    # Narrow the except to OperationalError — the only recoverable failure mode is
+    # "no such table" on first-run schemas. Any other exception (corruption, lock
+    # contention, schema drift) must propagate so callers can react.
     cluster_lookup: dict[int, int] = {}
     try:
         for vid, cid in conn.execute("SELECT vocab_id, cluster_id FROM vocab_clusters"):
             cluster_lookup[vid] = cid
-    except Exception:
-        pass  # Table may not exist yet — all cluster_ids default to vocab_id
+    except sqlite3.OperationalError as exc:
+        log.warning(
+            "vocab_clusters table not loaded (%s); dedup will degrade to vocab_id-only",
+            exc,
+        )
     print(f"    Cluster lookup loaded: {len(cluster_lookup)} entries", flush=True)
 
     # Build normalised vocab embedding matrix for Stage 3
