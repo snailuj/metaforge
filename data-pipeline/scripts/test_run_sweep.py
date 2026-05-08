@@ -195,6 +195,39 @@ def test_load_sweep_config_rejects_unknown_variation_key(tmp_path):
     assert "scorring" in str(exc.value)
 
 
+def test_load_sweep_config_rejects_unknown_scoring_at_boundary(tmp_path):
+    """A typo in `scoring` (e.g. ``jaccard_salinece``) must fail at
+    config-load, not later inside ``_run_one_variation`` after the sweep
+    has begun churning. Failing late wastes setup, leaves partial sweep
+    artefacts and confuses error attribution — the boundary validator
+    already strict-checks every other enumerated field, so ``scoring``
+    should be no different."""
+    import evaluate_aptness  # noqa: PLC0415 — local import to read registry under test
+
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [
+            {"name": "v1", "scoring": "not_a_real_scorer"},
+        ],
+    }))
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    msg = str(exc.value)
+    # Path of the offending config (helps the operator find the file).
+    assert str(cfg_file) in msg
+    # Variation name (helps locate the offending row in a large sweep).
+    assert "v1" in msg
+    # The bad value, quoted, so the operator can grep for it.
+    assert "not_a_real_scorer" in msg
+    # Mention the registered scoring fns so the operator sees valid options.
+    for fn_name in evaluate_aptness.SCORING_FNS:
+        assert fn_name in msg
+
+
 def test_load_sweep_config_requires_variation_name(tmp_path):
     """Each variation must declare a non-empty `name`."""
     cfg_file = tmp_path / "sweep.json"

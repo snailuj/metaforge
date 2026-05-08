@@ -232,6 +232,21 @@ def load_sweep_config(path: str) -> SweepConfig:
             duplicates.append(name)
         seen_names.append(name)
 
+        # `scoring`, when set, must name a registered scoring fn. Without
+        # this boundary check a typo (e.g. `jaccard_salinece`) only
+        # surfaces inside `_run_one_variation` after sweep setup has begun
+        # — wasted setup, partial artefacts, confused error attribution.
+        # Mirror the rest of the validator: fail fast, name the file, the
+        # variation, the bad value, and list the valid options.
+        if "scoring" in var:
+            scoring_value = var["scoring"]
+            if scoring_value not in evaluate_aptness.SCORING_FNS:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: unknown "
+                    f"scoring fn {scoring_value!r}; valid: "
+                    f"{sorted(evaluate_aptness.SCORING_FNS)}"
+                )
+
         # threshold_percentile must lie in [0, 100]. Out-of-range values
         # silently clamp to min/max sample inside `_percentile`, which is
         # a true silent fallback (no log, no signal). Reject at the schema
