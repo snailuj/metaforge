@@ -2,19 +2,24 @@
 
 The single source of truth for what comes next. Always read this when starting milestone-level work; update it whenever a milestone changes status.
 
+**Reading guidance for agents:** the immediate next job is *always* the first item under **Next**, regardless of whether it's a fresh milestone, a code-review-loop, a tooling task, or any other bridging work. Do not skip ahead to a milestone in Queued just because Next contains a non-milestone item — the file is ordered intentionally.
+
 ## Active
 
-*(none — M01 just landed; pick next from Queued)*
+*(none)*
 
 ## Next
 
-- **M02 — Asymmetric Ortony Scoring** — vehicle-side salience weighting in forge scoring
-  - Why: smallest algorithm change that uses existing V2 data, directly attacks the scoring formula's biggest theoretical flaw (symmetric overlap). First real test of the eval harness.
-  - Depends on: M01 (✅ done)
-  - Detail: *(to be created — `docs/roadmap/M02-ortony-scoring-roadmap.md`)*
+- **Code-review-loop on M01 + snap memory-opt refactor** — `review/m01-and-snap-memopt` branch is frozen at the post-merge HEAD ready for a full-coverage review pass. Gates M02 promotion: don't kick off a new algorithm milestone before reviewing the harness work it'll be validated against.
+  - Why: M01 had S03-only code review (clean across 3 reviewers); the milestone deliverable + the snap memopt refactor merged alongside have not had a holistic pass.
+  - Memory anchor: `project_metaforge_m01_review_branch_pending.md` — has the in-scope file list, pre-existing failures to ignore, methodological caveats.
 
 ## Queued
 
+- **M02 — Asymmetric Ortony Scoring** — vehicle-side salience weighting in forge scoring
+  - Why: smallest algorithm change that uses existing V2 data, directly attacks the scoring formula's biggest theoretical flaw (symmetric overlap). First real test of the eval harness.
+  - Depends on: M01 (✅ done) + code-review-loop above
+  - Detail: *(to be created — `docs/roadmap/M02-ortony-scoring-roadmap.md`)*
 - **M03 — Cascade Gate-and-Rank** — concreteness gate → Ortony rank → domain distance re-rank. Restructures the pipeline architecture, wires in concreteness prediction.
   - Depends on: M02
 - **M04 — Type-Aligned Structural Matching** — preserve property types during snap, type-diversity bonus in scoring. Lightweight approximation of SME isomorphic subgraph matching using data the pipeline already extracts.
@@ -29,7 +34,7 @@ The single source of truth for what comes next. Always read this when starting m
   - Per-property signal eval extension as a closed-loop instrument
   - Curated vocab additions for sensorimotor losses (`resonant`, `earthy`, `angular`, etc.)
   - JSJSJS — signal-weighted snap (Stage 3 picks highest-aptness target, not highest-cosine)
-- **Full code-review-loop on M01 + snap memory-opt refactor** — `review/m01-and-snap-memopt` branch is frozen at the post-merge HEAD ready for this
+- **Pre-existing Go handler test failures** — 8 tests in `api/internal/handler/handler_test.go` failing because the test fixture DB isn't being provided. Confirmed pre-existing at the pre-M01 main HEAD. Worth tackling alongside or just before the M01 review-loop since the reviewer will trip on these.
 - **CI/CD pipeline** — referenced in MVP punch list, no dedicated milestone yet
 - **20k-word enrichment** — referenced in MVP punch list, mostly compute work
 
@@ -40,9 +45,10 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Conventions
 
+- **Next is always the immediate next job.** It can be a milestone, a code-review-loop on a recently-merged milestone, a tooling task, a pre-flight blocker — whatever genuinely comes first. Do not assume Next must be a milestone.
 - New milestones land in **Queued** with at minimum: name, why, depends-on, detail-doc link.
-- Move to **Next** when M-1 is done.
+- Move to **Next** when its prerequisites are met (M-1 done, blocking tasks resolved, etc.).
 - Move to **Active** when work starts; flesh out detail doc; create per-slice sub-docs as needed.
 - Move to **Done** with a one-line summary and merge date when shipped.
-- **Backlog** items have no slot yet — promote to Queued when a milestone slot opens up.
+- **Backlog** items have no current slot — items either lack prerequisites, are speculative, or are awaiting prioritisation. Promote to Queued (or Next directly) when a slot opens up. Adding to Backlog should never strand work that's actually ready to go.
 - Detail docs live as flat `docs/roadmap/M0X-name-{roadmap,context,S0Y-name}.md`; if a milestone grows enough sub-docs to clutter, switch to a per-milestone subdirectory.
