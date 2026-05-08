@@ -2,6 +2,10 @@
 
 A browser-based visual thesaurus combining utility with 3D exploration.
 
+## ⚠️ Read Before Anything Else
+
+**Always read `docs/roadmap/PIPELINE.md` before answering "what's next", "what should I work on", "where are we", or any milestone-level question.** It is the single source of truth for current and queued work. Do not rely on memory or recap from prior sessions for pipeline state — read the file. The `metaforge-pipeline` skill (if registered) does this automatically; this instruction guarantees the behaviour even without the skill.
+
 ## Quick Links
 
 | Document | Purpose |
