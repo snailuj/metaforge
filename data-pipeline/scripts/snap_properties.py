@@ -440,6 +440,14 @@ def main():
     parser.add_argument("--threshold", type=float, default=0.7, help="Embedding similarity threshold")
     args = parser.parse_args()
 
+    # Configure logging so the standalone CLI surfaces log.info summary +
+    # log.warning per-reason breakdown lines. Mirrors run_sweep.py and
+    # preprocess_munch.py.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
     conn = sqlite3.connect(args.db)
     try:
         snap_properties(conn, embedding_threshold=args.threshold)

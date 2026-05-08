@@ -1071,6 +1071,34 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
     assert abs(rows[0][3] - 1.0) < 0.01  # 0.4 + 0.6
 
 
+def test_main_basicConfig_surfaces_log_info(tmp_path):
+    """`python snap_properties.py --db ...` must surface the log.info summary
+    line. Without basicConfig in main(), the root logger swallows it.
+    """
+    import subprocess
+    import sys
+
+    db_path, conn = make_snap_db(tmp_path)
+    conn.close()
+
+    script_path = Path(__file__).parent / "snap_properties.py"
+    result = subprocess.run(
+        [sys.executable, str(script_path), "--db", str(db_path), "--threshold", "0.7"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    # Combined stdout + stderr (basicConfig writes to stderr by default).
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, f"snap CLI exited {result.returncode}: {combined}"
+    assert "Snapped" in combined, (
+        f"expected 'Snapped' summary line via log.info; got:\nstdout={result.stdout!r}\n"
+        f"stderr={result.stderr!r}"
+    )
+
+
 def test_snap_continues_when_dropped_jsonl_write_fails(tmp_path, caplog, monkeypatch):
     """If opening (or writing) snap_dropped.jsonl raises OSError (e.g. PermissionError
     or ENOSPC), snap must not crash — drops are diagnostic-only. Log a WARNING,
