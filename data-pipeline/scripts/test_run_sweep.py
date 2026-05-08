@@ -543,10 +543,40 @@ def test_main_exits_zero_when_all_variations_succeed(tmp_path):
     assert rc == 0
 
 
-def test_main_exits_two_when_all_variations_fail(tmp_path):
+def _patch_evaluate_to_fail(monkeypatch, *, fail_when_scoring: set[str]) -> None:
+    """Make ``evaluate_aptness.evaluate`` raise at runtime for variations
+    whose ``scoring`` is in ``fail_when_scoring``; defer to the real impl
+    otherwise.
+
+    This simulates a per-variation runtime failure (the broad-except
+    pathway in ``_run_one_variation``) without tripping the config-load
+    boundary check on ``scoring``. Variations therefore use registered
+    scoring names, so the schema validator is satisfied — we only inject
+    the failure once execution has started.
+    """
+    import evaluate_aptness as ea  # noqa: PLC0415 — local to keep test surface small
+    real_evaluate = ea.evaluate
+
+    def fake_evaluate(*args, scoring: str = ea.DEFAULT_SCORING, **kwargs):
+        if scoring in fail_when_scoring:
+            raise RuntimeError(
+                f"simulated per-variation runtime failure (scoring={scoring})"
+            )
+        return real_evaluate(*args, scoring=scoring, **kwargs)
+
+    monkeypatch.setattr(ea, "evaluate", fake_evaluate)
+
+
+def test_main_exits_two_when_all_variations_fail(tmp_path, monkeypatch):
+    # Both variations use registered scoring names so config-load passes,
+    # then the monkeypatched evaluate raises for each one to exercise the
+    # all-failed exit-code branch in main().
+    _patch_evaluate_to_fail(
+        monkeypatch, fail_when_scoring={"jaccard_salience", "jaccard_raw"},
+    )
     cfg_path, output_path = _write_sweep_config(tmp_path, [
-        {"name": "bad1", "scoring": "nonexistent_a"},
-        {"name": "bad2", "scoring": "nonexistent_b"},
+        {"name": "bad1", "scoring": "jaccard_salience"},
+        {"name": "bad2", "scoring": "jaccard_raw"},
     ])
     rc = run_sweep.main(argv=[
         "--config", str(cfg_path),
@@ -555,10 +585,13 @@ def test_main_exits_two_when_all_variations_fail(tmp_path):
     assert rc == 2
 
 
-def test_main_exits_one_when_some_variations_fail(tmp_path):
+def test_main_exits_one_when_some_variations_fail(tmp_path, monkeypatch):
+    # `jaccard_raw` fails at runtime; `jaccard_salience` succeeds — pins
+    # the partial-failure exit-code branch.
+    _patch_evaluate_to_fail(monkeypatch, fail_when_scoring={"jaccard_raw"})
     cfg_path, output_path = _write_sweep_config(tmp_path, [
         {"name": "good", "scoring": "jaccard_salience"},
-        {"name": "bad",  "scoring": "nonexistent_formula"},
+        {"name": "bad",  "scoring": "jaccard_raw"},
     ])
     rc = run_sweep.main(argv=[
         "--config", str(cfg_path),
@@ -567,10 +600,13 @@ def test_main_exits_one_when_some_variations_fail(tmp_path):
     assert rc == 1
 
 
-def test_main_logs_error_when_all_variations_fail(tmp_path, caplog):
+def test_main_logs_error_when_all_variations_fail(tmp_path, caplog, monkeypatch):
+    _patch_evaluate_to_fail(
+        monkeypatch, fail_when_scoring={"jaccard_salience", "jaccard_raw"},
+    )
     cfg_path, output_path = _write_sweep_config(tmp_path, [
-        {"name": "bad1", "scoring": "nonexistent_a"},
-        {"name": "bad2", "scoring": "nonexistent_b"},
+        {"name": "bad1", "scoring": "jaccard_salience"},
+        {"name": "bad2", "scoring": "jaccard_raw"},
     ])
     with caplog.at_level(logging.ERROR, logger="run_sweep"):
         run_sweep.main(argv=[
@@ -939,10 +975,11 @@ def test_run_sweep_argparse_lists_scoring_formulas_in_help():
     )
 
 
-def test_main_logs_warning_when_some_variations_fail(tmp_path, caplog):
+def test_main_logs_warning_when_some_variations_fail(tmp_path, caplog, monkeypatch):
+    _patch_evaluate_to_fail(monkeypatch, fail_when_scoring={"jaccard_raw"})
     cfg_path, output_path = _write_sweep_config(tmp_path, [
         {"name": "good", "scoring": "jaccard_salience"},
-        {"name": "bad",  "scoring": "nonexistent_formula"},
+        {"name": "bad",  "scoring": "jaccard_raw"},
     ])
     with caplog.at_level(logging.WARNING, logger="run_sweep"):
         run_sweep.main(argv=[
