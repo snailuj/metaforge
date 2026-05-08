@@ -142,10 +142,14 @@ def snap_properties(
         );
     """)
 
-    # Load vocabulary: lemma -> vocab_id
+    # Load vocabulary: lemma -> vocab_id.
+    # ORDER BY vocab_id DESC so the dict-assignment loop ends with the LOWEST
+    # vocab_id as the final write per lemma. Lowest vocab_id wins on lemma
+    # collision — matches cluster_vocab.py's `min(members)` convention and keeps
+    # snap output stable across rebuilds.
     vocab_by_lemma: dict[str, int] = {}
     for vid, lemma in conn.execute(
-        "SELECT vocab_id, lemma FROM property_vocab_curated"
+        "SELECT vocab_id, lemma FROM property_vocab_curated ORDER BY vocab_id DESC"
     ):
         vocab_by_lemma[lemma.lower()] = vid
 

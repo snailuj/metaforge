@@ -685,6 +685,82 @@ def test_snap_all_stages_integration(tmp_path):
     assert ("s_b", 4) not in by_key
 
 
+def test_snap_vocab_by_lemma_lowest_vocab_id_wins_on_collision(tmp_path):
+    """When two property_vocab_curated rows share a lemma (e.g. POS variants),
+    snap deterministically picks the lowest vocab_id. Without ORDER BY, SQLite
+    returns rows in unspecified order and last-write-wins picks whichever the
+    engine returned last — unstable across rebuilds.
+    """
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "tiebreak_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX idx_vocab_lemma ON property_vocab_curated(lemma);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
+
+        -- Two vocab rows share lemma 'fast' (POS variants).
+        -- Insert in reverse vocab_id order so an unordered SELECT might return
+        -- vid=7 last. The fix is to ORDER BY vocab_id ASC so vid=3 wins.
+        INSERT INTO property_vocab_curated VALUES (7, 'vs7', 'fast', 'v', 1);
+        INSERT INTO property_vocab_curated VALUES (3, 'vs3', 'fast', 'a', 1);
+        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
+        INSERT INTO vocab_clusters VALUES (7, 7, 1, 1);
+
+        INSERT INTO property_vocabulary VALUES (10, 'fast', NULL, 0, 'pilot');
+        INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
+    """)
+    conn.commit()
+
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT vocab_id FROM synset_properties_curated WHERE synset_id='abc'"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert len(rows) == 1
+    assert rows[0][0] == 3, (
+        f"expected lowest vocab_id (3) on lemma collision, got {rows[0][0]} — "
+        "tie-breaker is unstable"
+    )
+
+
 def test_snap_stats_count_per_link_not_per_unique_key(tmp_path):
     """stats counts must be per-link, not per-unique-(sid, cluster_id) key.
 
