@@ -78,7 +78,6 @@ def _lemmatise(word: str) -> list[str]:
 
 def _build_vocab_matrix(
     conn: sqlite3.Connection,
-    vocab_by_lemma: dict[str, int],
 ) -> tuple[np.ndarray, list[int]]:
     """Build normalised numpy matrix of vocab embeddings.
 
@@ -169,7 +168,7 @@ def snap_properties(
     print(f"    Cluster lookup loaded: {len(cluster_lookup)} entries", flush=True)
 
     # Build normalised vocab embedding matrix for Stage 3
-    vocab_matrix, vocab_ids = _build_vocab_matrix(conn, vocab_by_lemma)
+    vocab_matrix, vocab_ids = _build_vocab_matrix(conn)
     has_vocab_embeddings = len(vocab_ids) > 0
     print(f"    Vocab embeddings loaded: {len(vocab_ids)} entries", flush=True)
 
