@@ -52,7 +52,12 @@ data-pipeline/sweeps/sensitivity_v2.yaml
 | D3 | type-design (round 1, item td-6) | low | PairScore.score `float \| None` could be split into a discriminated dataclass union | Refactor of the `PairScore` dataclass + every site that reads `result.score`, spanning `evaluate_aptness.py` and the test suite. | The reviewer themselves wrote: "I am NOT recommending this change in this PR. The current PairScore is a pragmatic balance ... Flagging because future cleanup work in this area should consider it; do not act on this alone." Concur: the existing `__post_init__` invariant + Literal status is a clean tagged-union encoding for this codebase. | active |
 | D4 | superpowers (round 1, item sp-5) | low | `LOWER(lemma) = ?` lookup queries in `evaluate_aptness.py` defeat the existing index on the raw lemma column | Index/perf tuning in `evaluate_aptness.py:80-94` and possibly schema (functional index on `LOWER(lemma)`). | Performance, not correctness. Needs measurement-driven treatment (profile baseline_v2 + sensitivity_v2 runs to confirm the lookup actually dominates) — the right home is a future perf milestone after M02 has landed and the eval harness sees more sweep volume. | active |
 | D5 | superpowers (round 1, item sp-7) | low | `enrich_pipeline.run_pipeline` holds a single connection across all enrichment files; partial mid-loop failure leaves some files committed and downstream curated/cluster/snap stages unrun | Refactor of `enrich_pipeline.py:349-382` orchestration — would either move per-step commits up to the orchestrator (large blast radius) or wrap the per-file loop in a single transaction (changes recovery semantics). | `enrich_pipeline.py` was not added by M01; the orchestration concern is pre-existing and the snap memopt commit did not interact with it. `INSERT OR IGNORE` partially bounds the inconsistency window. The right home is a dedicated pipeline-resilience phase that can also address the Go-handler missing-fixture issue and re-test idempotency end-to-end. |  active |
-| D6 | SCHEMA fixer (round 1, follow-up) | low | `snap_score` CHECK constraint NOT added — live DB has one row with `snap_score = 1.00000011920929` (float32 cosine drift over 1.0); `[-1.0, 1.0]` would reject it | Defensive clamp in `snap_properties.py` before persistence (e.g. `score = max(-1.0, min(1.0, score))`) plus a one-time renormalisation of the 5,156 existing rows. The schema CHECK can land safely after both. | Adding the strict CHECK without first clamping would reject a legitimate near-perfect embedding match. The fixer left a documented inline comment in `SCHEMA.sql` flagging the deferral. The right home is a small follow-up task tied to the next snap-tuning pass (already on the backlog as `JSJSJS — signal-weighted snap`). | active |
+| D6 | SCHEMA fixer (round 1, follow-up) | low | `snap_score` CHECK constraint NOT added — live DB has one row with `snap_score = 1.00000011920929` (float32 cosine drift over 1.0); `[-1.0, 1.0]` would reject it | Schema CHECK + one-time renorm of the 1 outlier row in `synset_properties_curated`. The clamp at write-time landed in round 2 (`7a334528`) so future writes are bounded; the remaining work is renorm + CHECK. | **Round 2 update:** clamp landed (`fix(snap): clamp best_score to [-1.0, 1.0] before persistence`) — D6 is now narrower in scope. Adding the CHECK now still rejects the existing `1.00000011920929` row until renormalised. The next snap rebuild against the canonical lexicon DB will overwrite that row with a clamped value, after which the CHECK lands without preconditions. Tied to the next snap-tuning pass (backlog: `JSJSJS — signal-weighted snap`). | active |
+| D7 | type-design (round 2, item R2-8) | low | Test fixture DDL drift — three test files redefine `synset_properties_curated` / `synset_properties` without the new CHECK clauses. A regression that violates the constraints in production would still pass the test suite. | Adding CHECKs to test-fixture `CREATE TABLE` statements in `test_evaluate_aptness.py`, `test_run_sweep.py`, and the dozen-or-so fixtures in `test_snap_properties.py`. | The cleaner long-term shape is a shared test helper that loads `SCHEMA.sql` (single source of truth), but that's a test-infra refactor with broader implications than this review's scope. The round-2 inline-DDL mirror (`23fefe02`) ensures the canonical writer enforces the constraints; the test-fixture gap is a test-coverage improvement, not a production bug. Defer to a dedicated test-infra phase. | active |
+| D8 | superpowers (round 2, item R2-15) | low | `_record_drop` would `KeyError` on a missing `"reason"` key. Speculative — all current call sites pass `reason=...`. | Defensive `record.get("reason", "unknown")` in `_record_drop`. | No actual bug today; flagging as a future-proofing concern. The right call is to add this as part of the same future hardening pass that tightens the deferred items above. | active |
+| D9 | type-design (round 2, item R2-10) | cosmetic | The `unmatched: list[tuple[str, int, str, float]]` is the last positional-tuple lookalike in `snap_properties.py` that the `AccumulatedMatch` refactor was introduced to replace. | Replace with a `@dataclass(frozen=True) PendingMatch` mirroring `AccumulatedMatch`. | Cosmetic — local + transient (one pass, never persisted). The reviewer who raised it explicitly said "do not act on alone". Bundle with the next snap refactor. | active |
+| D10 | type-design (round 2, item R2-11) | low | `SnapMethod` Literal, `_METHOD_RANK` keys, and the SCHEMA.sql + inline-DDL CHECK clauses must agree but have no compile-time link. Adding a fourth method tomorrow would be a 4-file change with no safety net. | A welding test that asserts `set(_METHOD_RANK.keys()) == set(typing.get_args(SnapMethod))` and that the CHECK string contains every member. | Defensive test against future drift, not a current bug. The current state is consistent across all four sites. Defer to the next snap-related refactor. | active |
+| D11 | superpowers (round 2, item R2-16) | low | Round 1's `test_random_uniform_docstring_documents_union_size_dependency` pins keyword presence (`"union-size"`, `"cohort"`, `"sanity"\|"calibrated"`). Brittle to legitimate doc rewording. | Replace with a behaviour-focused test (determinism, order-symmetry over union shapes). | Test design tweak; the documented behaviour caveat is the load-bearing artefact, not the prose itself. Defer to a test-quality cleanup pass. | active |
 
 ## Round Log
 
@@ -155,4 +160,98 @@ The five adapters' verbatim four-section responses are too long to inline here w
 - **Round was clean?** No — round had fixes applied, so cannot be CLEAN by definition
 - **Trend:** N/A (round 1)
 - **Cumulative:** 1 round, 14 fix commits, 6 active deferrals.
+
+### Round 2 — 2026-05-08T19:35:00+13:00
+
+**Pre-fix SHA:** `dcc1b0eee` (round-1 docs commit)
+**Post-fix SHA:** see HEAD after this round's commits
+**Adapters dispatched (parallel):** pr-review-toolkit (3 agents), superpowers:code-reviewer, standards (general-purpose). ux-designer no-op.
+**Tests:** Python suite — **533 passed, 1 skipped** (baseline 522+1 from round 1; +11 new tests via round 2 fixes).
+
+#### Adapter results — findings before triage
+
+| Adapter | Result | New Items |
+|---------|--------|-----------|
+| pr-review-toolkit:code-reviewer | NOT CLEAN | 3 (1 important, 2 low) |
+| pr-review-toolkit:silent-failure-hunter | NOT CLEAN | 6 (1 high, 3 medium, 2 low) |
+| pr-review-toolkit:type-design-analyzer | NOT CLEAN | 5 (1 important, 3 low, 1 cosmetic) |
+| superpowers:code-reviewer | NOT CLEAN | 5 (all low) |
+| standards (general-purpose) | NOT CLEAN | 3 (low) |
+| ux-designer | NO-OP | — |
+
+**Total raw new findings: 22.** After dedup (file-handle leak flagged by 3 reviewers; logging-config gap flagged by 2; residual prints flagged by 2): **13 distinct items.**
+
+Round 2 also surfaced **deferral challenges**:
+- D2 (PEP 655 typing): concur-with-defer, but rationale stale post-round-1 — type-design-analyzer noted that round-1 added validator ballast (`ea624466`, `6cbad110`) that PEP 655 could partially replace.
+- D3 (PairScore split): concur-with-defer, but precedent shift — the round-1 `AccumulatedMatch` work establishes the same encoding pattern.
+- D5 (enrich_pipeline partial-commit): standards adapter recommended escalating to "important". Re-reading: round 2 confirmed the JSONL artefact compound concern is bounded (`open(..., "w")` truncates on retry, so the diagnostic stream is recoverable). DB-side concern stands but is unchanged. Severity stays low.
+- D6 (snap_score CHECK): challenged by 3 reviewers — clamp is one-line. **Acted: clamp landed in round 2 (`7a334528`).** D6 narrowed but stays active for the schema-CHECK + renorm step.
+
+#### Triage decisions for round 2 findings
+
+| ID | Source | Severity | Item | Decision |
+|----|--------|----------|------|----------|
+| R2-1 | sfh / prt / std | important | `dropped_fh` file handle leak — no try/finally despite docstring claim | **Fix** |
+| R2-2 | sfh | medium | Narrowed `OperationalError` except still too broad — misleading "table not loaded" WARNING for locked-DB / disk-IO / readonly | **Fix** (string-match + re-raise non-table cases) |
+| R2-3 | sfh | medium | run_sweep broad-except logs `str(exc)` only, no `exc_info=True` | **Fix** |
+| R2-4 | sfh | medium | `open(dropped_path, "w")` unguarded — disk-full / RO-FS / permission errors | **Fix** (catch + WARN + continue diagnostic-only) |
+| R2-5 | sfh / std | low | 5 residual `print()` calls after round 1's partial migration | **Fix** (finish migration to log.info) |
+| R2-6 | sfh / std | low | `snap_properties.main()` doesn't configure logging — log.* dropped silently for direct CLI | **Fix** (basicConfig) |
+| R2-7 | td | important | SCHEMA CHECK on `snap_method` is decorative — `snap_properties.py` does DROP+CREATE without CHECK | **Fix** (mirror CHECKs in inline DDL) |
+| R2-8 | td | low | Test fixture DDL drift in 3 sites | **Defer (D7)** — test-coverage improvement, not production bug |
+| R2-9 | td | low | `AccumulatedMatch.snap_score` lacks `__post_init__` invariant (embedding iff score) | **Fix** |
+| R2-10 | td | cosmetic | `unmatched` 4-tuple positional lookalike | **Defer (D9)** — reviewer said "do not act alone" |
+| R2-11 | td | low | SnapMethod / _METHOD_RANK / SCHEMA welding test missing | **Defer (D10)** — defensive against future drift |
+| R2-12 | sp | low | docstring "closed in finally" claim — collapses into R2-1 | bundled into R2-1 fix |
+| R2-13 | sp | low | `assert ... required_top_keys` stripped under `python -O` | **Fix** (replace with explicit raise) |
+| R2-14 | sp | low | `_merge` vocab_id swap on rank upgrade undocumented + untested | **Fix** (docstring + test extension) |
+| R2-15 | sp | low | `_record_drop` could KeyError on missing "reason" — speculative | **Defer (D8)** — no actual bug today |
+| R2-16 | sp | low | `random_uniform` docstring keyword test brittleness | **Defer (D11)** — test design tweak |
+| R2-17 | prt | low | Stage 3 `_build_vocab_matrix` non-deterministic on lemma-equiv rows | **Fix** (ORDER BY) |
+| R2-18 | prt (paired with D6 challenge) | low | Add one-line clamp on snap_score before _merge | **Fix** (closes D6 partial) |
+
+**Fixed: 12 distinct items (yielding 12 commits across 2 parallel subagents).**
+**Newly deferred: 5 items (D7–D11). D6 narrowed by clamp landing.**
+
+#### Fix commits (oldest first)
+
+| SHA | Subject |
+|-----|---------|
+| `a8527482` | fix(sweep): include traceback in per-variation failure WARNING |
+| `e33295c8` | fix(snap): close dropped_fh in finally so mid-stage exceptions don't leak handle |
+| `c82a0a14` | fix(snap): re-raise OperationalError when not missing-table (no misleading WARNING) |
+| `4ab93686` | refactor(sweep): replace cast-drift assert with explicit raise (-O safe) |
+| `0b16291e` | fix(snap): catch OSError on dropped JSONL write so snap stage continues |
+| `96bbff41` | fix(snap): configure logging.basicConfig in main() so CLI shows summary + drops |
+| `23fefe02` | fix(snap): mirror SCHEMA CHECK constraints in inline DDL |
+| `d8fd72aa` | fix(snap): enforce AccumulatedMatch snap_score↔method invariant in __post_init__ |
+| `75d8c358` | fix(snap): stabilise _build_vocab_matrix order on lemma collision |
+| `7a334528` | fix(snap): clamp best_score to [-1.0, 1.0] before persistence (closes D6 partial) |
+| `0b1c5d7f` | feat(snap): finish print → log.info migration for progress lines |
+| `5b1ab54d` | docs(snap): document vocab_id replacement on _merge upgrade + cover with test |
+
+#### Behaviour changes for downstream consumers
+
+- `snap_properties.main()` now configures `logging.basicConfig(level=INFO)`. Standalone CLI invocation will print INFO + WARNING lines that previously vanished.
+- The narrowed `OperationalError` handler in `cluster_lookup` load now **re-raises** non-"no such table" cases (locked DB, disk IO, etc.) — operators previously got a misleading WARNING + degraded dedup; now the error propagates appropriately.
+- The inline DDL in `snap_properties()` now enforces `salience_sum >= 0.0` and `snap_method IN (...)` CHECKs on `synset_properties_curated`. A future writer that violates either will raise `IntegrityError` from `executemany` rather than silently corrupting the table.
+- Stage 3 embedding match is now deterministic on lemma-collision (lowest vocab_id wins, mirroring Stages 1-2).
+- `snap_score` is clamped to `[-1.0, 1.0]` before persistence — future rebuilds will not produce values outside this range. The existing `1.00000011920929` row will be overwritten on the next snap rebuild.
+
+#### Files Modified
+
+```
+data-pipeline/scripts/run_sweep.py
+data-pipeline/scripts/snap_properties.py
+data-pipeline/scripts/test_run_sweep.py
+data-pipeline/scripts/test_snap_properties.py
+```
+
+#### Severity assessment & cumulative status
+
+- **Items fixed this round:** 12 (2 important, 3 medium, 7 low)
+- **Items deferred this round:** 5 new (D7–D11), all low or cosmetic
+- **Round was clean?** No — fixes applied
+- **Trend:** Severity decreasing — round 1 fixed 1 critical + 5 important; round 2 fixed 2 important + 3 medium + 7 low. Pattern moving from real bugs toward observability + test polish.
+- **Cumulative:** 2 rounds, 26 fix commits, 11 active deferrals (D1–D11).
 
