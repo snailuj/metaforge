@@ -975,6 +975,38 @@ def test_run_sweep_argparse_lists_scoring_formulas_in_help():
     )
 
 
+def test_run_one_variation_logs_traceback_on_failure(tmp_path, caplog, monkeypatch):
+    """A non-ValueError runtime failure inside ``_run_one_variation`` must
+    log the traceback alongside the WARNING message — without it the
+    operator sees only a one-line ``error=...`` and has to re-run the
+    sweep by hand to reproduce the stack. Pin ``exc_info=True`` so a
+    future "tidy-up" cannot silently strip the traceback again.
+    """
+    _patch_evaluate_to_fail(monkeypatch, fail_when_scoring={"jaccard_raw"})
+    _, cfg = _base_config(tmp_path, [
+        {"name": "bad", "scoring": "jaccard_raw"},
+    ])
+    with caplog.at_level(logging.WARNING, logger="run_sweep"):
+        run_sweep_fn(cfg, config_path="cfg.json")
+
+    failure_records = [
+        r for r in caplog.records
+        if r.levelno == logging.WARNING and "variation failed" in r.getMessage()
+    ]
+    assert failure_records, "expected a WARNING 'variation failed' record"
+    rec = failure_records[0]
+    # exc_info must be populated so the formatted output carries the stack.
+    assert rec.exc_info is not None, (
+        "expected exc_info on the per-variation failure WARNING"
+    )
+    # Formatted output must include a traceback so an operator reading
+    # the log file (not just the LogRecord) can reproduce.
+    formatted = rec.getMessage() + "\n" + (
+        logging.Formatter().formatException(rec.exc_info) if rec.exc_info else ""
+    )
+    assert "Traceback" in formatted
+
+
 def test_main_logs_warning_when_some_variations_fail(tmp_path, caplog, monkeypatch):
     _patch_evaluate_to_fail(monkeypatch, fail_when_scoring={"jaccard_raw"})
     cfg_path, output_path = _write_sweep_config(tmp_path, [

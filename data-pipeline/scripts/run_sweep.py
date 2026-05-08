@@ -364,7 +364,7 @@ def _run_one_variation(
         duration_ms = round((time.perf_counter() - started) * 1000, 2)
         log.warning(
             "variation failed: name=%s scoring=%s error=%s",
-            name, scoring, exc,
+            name, scoring, exc, exc_info=True,
         )
         failed: FailedVariationResult = {
             "status": "failed",
