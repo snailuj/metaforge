@@ -15,7 +15,9 @@ import logging
 import sqlite3
 import struct
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import nltk
 import numpy as np
@@ -24,6 +26,27 @@ sys.path.insert(0, str(Path(__file__).parent))
 from utils import LEXICON_V2, EMBEDDING_DIM
 
 log = logging.getLogger(__name__)
+
+# Snap method names. Quality order (high -> low): exact > morphological > embedding.
+# The accumulator keeps whichever method has the highest rank when multiple
+# properties resolve to the same (synset_id, cluster_id).
+SnapMethod = Literal["exact", "morphological", "embedding"]
+_METHOD_RANK: dict[SnapMethod, int] = {"exact": 3, "morphological": 2, "embedding": 1}
+
+
+@dataclass(frozen=True)
+class AccumulatedMatch:
+    """A match accumulated against a (synset_id, cluster_id) key.
+
+    Frozen — every state transition produces a new instance. Field order is no
+    longer load-bearing (previous code used positional 4-tuples and silently
+    discarded higher-quality methods that arrived after a lower-quality match).
+    """
+
+    vocab_id: int
+    snap_method: SnapMethod
+    snap_score: float | None
+    salience_sum: float
 
 # Ensure WordNet lemmatiser data is available
 try:
@@ -146,11 +169,42 @@ def snap_properties(
     has_vocab_embeddings = len(vocab_ids) > 0
     print(f"    Vocab embeddings loaded: {len(vocab_ids)} entries", flush=True)
 
-    stats = {"exact": 0, "morphological": 0, "embedding": 0, "dropped": 0}
-    # accumulated: key=(synset_id, cluster_id) -> (vocab_id, snap_method, snap_score, salience_sum)
-    accumulated: dict[tuple[str, int], tuple[int, str, float | None, float]] = {}
+    stats: dict[str, int] = {"exact": 0, "morphological": 0, "embedding": 0, "dropped": 0}
+    accumulated: dict[tuple[str, int], AccumulatedMatch] = {}
     # Track dropped properties for diagnostics
     dropped_props: list[dict] = []
+
+    def _merge(
+        key: tuple[str, int],
+        vocab_id: int,
+        method: SnapMethod,
+        score: float | None,
+        salience: float,
+    ) -> None:
+        """Insert or upgrade the accumulator entry for `key`.
+
+        Upgrade policy: keep the higher-rank snap_method (exact > morphological >
+        embedding). On collision, salience always accumulates; on tie or lower
+        rank we keep the existing method/score (deterministic).
+        """
+        existing = accumulated.get(key)
+        if existing is None:
+            accumulated[key] = AccumulatedMatch(vocab_id, method, score, salience)
+            return
+        if _METHOD_RANK[method] > _METHOD_RANK[existing.snap_method]:
+            accumulated[key] = AccumulatedMatch(
+                vocab_id,
+                method,
+                score,
+                existing.salience_sum + salience,
+            )
+        else:
+            accumulated[key] = AccumulatedMatch(
+                existing.vocab_id,
+                existing.snap_method,
+                existing.snap_score,
+                existing.salience_sum + salience,
+            )
 
     # Pass 1 (Stages 1-2): stream synset-property cursor WITHOUT loading embedding blobs.
     # The blob column is ~1.2 KB per row; the full join is ~245k rows ≈ 294 MB if
@@ -177,13 +231,8 @@ def snap_properties(
         if prop_lower in vocab_by_lemma:
             vid = vocab_by_lemma[prop_lower]
             cid = cluster_lookup.get(vid, vid)
-            key = (sid, cid)
-            if key in accumulated:
-                existing = accumulated[key]
-                accumulated[key] = (existing[0], existing[1], existing[2], existing[3] + salience)
-            else:
-                accumulated[key] = (vid, "exact", None, salience)
-                stats["exact"] += 1
+            _merge((sid, cid), vid, "exact", None, salience)
+            stats["exact"] += 1
             continue
 
         # Stage 2: Morphological normalisation
@@ -192,13 +241,8 @@ def snap_properties(
             if variant in vocab_by_lemma:
                 vid = vocab_by_lemma[variant]
                 cid = cluster_lookup.get(vid, vid)
-                key = (sid, cid)
-                if key in accumulated:
-                    existing = accumulated[key]
-                    accumulated[key] = (existing[0], existing[1], existing[2], existing[3] + salience)
-                else:
-                    accumulated[key] = (vid, "morphological", None, salience)
-                    stats["morphological"] += 1
+                _merge((sid, cid), vid, "morphological", None, salience)
+                stats["morphological"] += 1
                 matched = True
                 break
         if matched:
@@ -271,13 +315,8 @@ def snap_properties(
             if best_score >= embedding_threshold:
                 best_vid = vocab_ids[best_idx]
                 best_cid = cluster_lookup.get(best_vid, best_vid)
-                key = (sid, best_cid)
-                if key in accumulated:
-                    existing = accumulated[key]
-                    accumulated[key] = (existing[0], existing[1], existing[2], existing[3] + salience)
-                else:
-                    accumulated[key] = (best_vid, "embedding", best_score, salience)
-                    stats["embedding"] += 1
+                _merge((sid, best_cid), best_vid, "embedding", best_score, salience)
+                stats["embedding"] += 1
             else:
                 stats["dropped"] += 1
                 dropped_props.append({"text": prop_text, "synset_id": sid,
@@ -291,8 +330,8 @@ def snap_properties(
                                   "salience": salience, "reason": "no_embedding"})
 
     inserts = [
-        (sid, vid, cid, method, score, sal_sum)
-        for (sid, cid), (vid, method, score, sal_sum) in accumulated.items()
+        (sid, m.vocab_id, cid, m.snap_method, m.snap_score, m.salience_sum)
+        for (sid, cid), m in accumulated.items()
     ]
     conn.executemany(
         "INSERT INTO synset_properties_curated "

@@ -685,6 +685,98 @@ def test_snap_all_stages_integration(tmp_path):
     assert ("s_b", 4) not in by_key
 
 
+def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_later(tmp_path):
+    """When a morphological match populates a (sid, cluster_id) key first, then an
+    exact match for the same key arrives, the accumulator must upgrade snap_method
+    to 'exact' (higher quality wins) AND accumulate salience from both contributions.
+
+    Quality order: exact > morphological > embedding.
+    """
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "upgrade_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX idx_vocab_lemma ON property_vocab_curated(lemma);
+
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
+
+        -- 'flicker' (vid=1) and 'sparkle' (vid=2) share cluster_id=1.
+        -- Property 'flickering' will hit Stage 2 (morph) and snap to flicker.
+        -- Property 'sparkle' will hit Stage 1 (exact) and snap to sparkle.
+        -- Both end up keyed on (sid='abc', cluster_id=1), and Pass 1 walks
+        -- synset_properties in property_id order, so the morph match for
+        -- 'flickering' (pid=10) is inserted FIRST, then the exact match for
+        -- 'sparkle' (pid=11) hits the same accumulator key second.
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'flicker', 'v', 1);
+        INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'sparkle', 'v', 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+
+        INSERT INTO property_vocabulary VALUES (10, 'flickering', NULL, 0, 'pilot');
+        INSERT INTO property_vocabulary VALUES (11, 'sparkle',    NULL, 0, 'pilot');
+
+        INSERT INTO synset_properties VALUES ('abc', 10, 0.4, NULL, NULL);
+        INSERT INTO synset_properties VALUES ('abc', 11, 0.6, NULL, NULL);
+    """)
+    conn.commit()
+
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT synset_id, cluster_id, snap_method, salience_sum "
+            "FROM synset_properties_curated"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # Single row (deduped on cluster_id), method upgraded to 'exact', salience accumulated.
+    assert len(rows) == 1
+    assert rows[0][0] == "abc"
+    assert rows[0][1] == 1  # cluster_id
+    assert rows[0][2] == "exact", (
+        f"expected upgraded snap_method='exact', got {rows[0][2]!r} — "
+        "the accumulator silently kept the first-inserted morphological method"
+    )
+    assert abs(rows[0][3] - 1.0) < 0.01  # 0.4 + 0.6
+
+
 def test_snap_logs_warning_when_vocab_clusters_table_missing(tmp_path, caplog):
     """Missing vocab_clusters table is recoverable — log WARNING, do not silently swallow."""
     import logging
