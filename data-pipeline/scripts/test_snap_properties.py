@@ -685,6 +685,86 @@ def test_snap_all_stages_integration(tmp_path):
     assert ("s_b", 4) not in by_key
 
 
+def test_snap_stats_count_per_link_not_per_unique_key(tmp_path):
+    """stats counts must be per-link, not per-unique-(sid, cluster_id) key.
+
+    When two distinct properties snap to the SAME (sid, cluster_id) via different
+    methods, both should be counted in their respective stage buckets — otherwise
+    the summary line ('Snapped N property links') under-reports against the input
+    cursor and the per-stage counts disagree with stats['dropped'] (which is
+    already per-link).
+    """
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "perlink_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX idx_vocab_lemma ON property_vocab_curated(lemma);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
+
+        -- 'flicker' (vid=1) and 'sparkle' (vid=2) share cluster_id=1.
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'flicker', 'v', 1);
+        INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'sparkle', 'v', 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+
+        -- 'sparkle' (exact) and 'flickering' (morph) both land on (abc, 1).
+        INSERT INTO property_vocabulary VALUES (10, 'flickering', NULL, 0, 'pilot');
+        INSERT INTO property_vocabulary VALUES (11, 'sparkle',    NULL, 0, 'pilot');
+
+        -- One additional truly-dropped property.
+        INSERT INTO property_vocabulary VALUES (12, 'xyzqwerty',  NULL, 0, 'pilot');
+
+        INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
+        INSERT INTO synset_properties VALUES ('abc', 11, 1.0, NULL, NULL);
+        INSERT INTO synset_properties VALUES ('abc', 12, 1.0, NULL, NULL);
+    """)
+    conn.commit()
+
+    try:
+        result = snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    # Three input links: 1 exact (sparkle), 1 morph (flickering->flicker), 1 dropped.
+    total = result["exact"] + result["morphological"] + result["embedding"] + result["dropped"]
+    assert total == 3, (
+        f"expected per-link count to sum to 3 input links; got {total}: {result}"
+    )
+    assert result["exact"] == 1
+    assert result["morphological"] == 1
+    assert result["dropped"] == 1
+
+
 def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_later(tmp_path):
     """When a morphological match populates a (sid, cluster_id) key first, then an
     exact match for the same key arrives, the accumulator must upgrade snap_method
