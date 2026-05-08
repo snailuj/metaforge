@@ -223,8 +223,10 @@ def snap_properties(
         whole file.
 
         Drops are diagnostic-only — if open() or write() fails (PermissionError,
-        ENOSPC, etc.) we log a WARNING, disable further JSONL writes, and let
-        the canonical snap stage continue. Mirrors the in-memory-DB guard.
+        ENOSPC, etc.) OR json.dumps() fails (TypeError/ValueError on a
+        non-serialisable value such as numpy.float32, Path, Decimal) we log a
+        WARNING, disable further JSONL writes, and let the canonical snap stage
+        continue. Mirrors the in-memory-DB guard.
         """
         nonlocal dropped_fh, dropped_path
         stats["dropped"] += 1
@@ -235,7 +237,7 @@ def snap_properties(
             if dropped_fh is None:
                 dropped_fh = open(dropped_path, "w")
             dropped_fh.write(json.dumps(record) + "\n")
-        except OSError as exc:
+        except (OSError, TypeError, ValueError) as exc:
             log.warning(
                 "skipping snap_dropped.jsonl write to %s (%s: %s); "
                 "drops are diagnostic-only, snap stage continues",

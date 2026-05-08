@@ -1553,3 +1553,75 @@ def test_snap_creates_salience_sum_column(tmp_path):
         conn.close()
 
     assert "salience_sum" in columns
+
+
+def test_snap_continues_when_dropped_record_not_json_serialisable(
+    tmp_path, caplog, monkeypatch
+):
+    """If json.dumps raises (e.g. record carries a numpy.float32, Path, Decimal),
+    snap must not crash — drops are diagnostic-only. Log a WARNING naming the
+    exception class, disable further JSONL writes, and continue. Canonical
+    writes to synset_properties_curated must still complete.
+    """
+    import json as _real_json
+    import logging
+
+    import snap_properties as snap_module
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop
+
+    # Patch json.dumps in snap_properties' namespace to raise TypeError on the
+    # first call — simulating a non-JSON-safe value (numpy.float32, Path, etc.)
+    # creeping into a future drop record. The widened except must catch this.
+    call_count = {"n": 0}
+    real_dumps = _real_json.dumps
+
+    def boom_dumps(obj, *a, **kw):
+        call_count["n"] += 1
+        # Only fail on calls inside _record_drop (which serialise dict records).
+        if isinstance(obj, dict) and "reason" in obj:
+            raise TypeError("Object of type float32 is not JSON serializable")
+        return real_dumps(obj, *a, **kw)
+
+    monkeypatch.setattr(snap_module.json, "dumps", boom_dumps)
+
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    # snap_dropped.jsonl must NOT be left on disk (write blocked, file possibly
+    # opened then disabled — but no successful records persisted).
+    jsonl_path = tmp_path / "snap_dropped.jsonl"
+    if jsonl_path.exists():
+        # Even if the lazy open() succeeded before the dumps failure, the file
+        # must have no committed lines (write was the failing call).
+        with open(jsonl_path) as f:
+            assert f.read() == "", (
+                "no JSONL line should have been written when json.dumps raised"
+            )
+
+    # WARNING must mention the exception class so operators can diagnose.
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any(
+        "TypeError" in m and "diagnostic" in m.lower() for m in warning_messages
+    ), (
+        "expected WARNING naming TypeError + diagnostic-only reassurance; "
+        f"got: {warning_messages}"
+    )
+
+    # Canonical writes still succeeded — exact + luminous matches present.
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT vocab_id, snap_method FROM synset_properties_curated"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) >= 2, (
+        f"canonical synset_properties_curated rows must still be committed; got {rows}"
+    )
