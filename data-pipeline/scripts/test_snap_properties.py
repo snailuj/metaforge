@@ -573,6 +573,118 @@ def test_snap_salience_sum_default_for_single_match(tmp_path):
     assert abs(rows[0][1] - 0.85) < 0.01
 
 
+def test_snap_all_stages_integration(tmp_path):
+    """All four stages (exact / morphological / embedding / drop) in a single run
+    produce a coherent result. Regression bar for the streaming two-pass refactor:
+    Stages 1-2 must drain the synset-property cursor without loading embedding blobs,
+    and Stage 3 must fetch embeddings only for the residue.
+    """
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "all_stages.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX idx_vocab_lemma ON property_vocab_curated(lemma);
+
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
+
+        -- Vocab: warm, flicker, bright, distant
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm',     'a', 1);
+        INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'flicker',  'v', 1);
+        INSERT INTO property_vocab_curated VALUES (3, 'vs3', 'bright',   'a', 1);
+        INSERT INTO property_vocab_curated VALUES (4, 'vs4', 'distant',  'a', 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
+        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
+        INSERT INTO vocab_clusters VALUES (4, 4, 1, 1);
+    """)
+
+    # Vocab embeddings (stage 3 needs these — only for bright/distant)
+    conn.execute("INSERT INTO property_vocabulary VALUES (3, 'bright', ?, 0, 'pilot')",
+                 (_make_embedding(1.0),))
+    conn.execute("INSERT INTO property_vocabulary VALUES (4, 'distant', ?, 0, 'pilot')",
+                 (_make_embedding(-1.0),))
+
+    # Extracted properties: exact, morph, embedding-near-bright, dropped (no embedding)
+    conn.execute("INSERT INTO property_vocabulary VALUES (10, 'warm', NULL, 0, 'pilot')")
+    conn.execute("INSERT INTO property_vocabulary VALUES (11, 'flickering', NULL, 0, 'pilot')")
+    conn.execute("INSERT INTO property_vocabulary VALUES (12, 'radiant', ?, 0, 'pilot')",
+                 (_make_embedding(1.001),))   # near 'bright'
+    conn.execute("INSERT INTO property_vocabulary VALUES (13, 'xyzqwerty', NULL, 0, 'pilot')")  # dropped
+
+    # Two synsets exercise each property
+    conn.execute("INSERT INTO synset_properties VALUES ('s_a', 10, 0.9, NULL, NULL)")  # exact
+    conn.execute("INSERT INTO synset_properties VALUES ('s_a', 11, 0.8, NULL, NULL)")  # morph
+    conn.execute("INSERT INTO synset_properties VALUES ('s_a', 12, 0.7, NULL, NULL)")  # embedding
+    conn.execute("INSERT INTO synset_properties VALUES ('s_a', 13, 0.6, NULL, NULL)")  # dropped
+    conn.execute("INSERT INTO synset_properties VALUES ('s_b', 12, 0.5, NULL, NULL)")  # embedding (shared pid)
+    conn.commit()
+
+    try:
+        result = snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    # Stats: 1 exact, 1 morph, 2 embedding, 1 dropped
+    assert result["exact"] == 1
+    assert result["morphological"] == 1
+    assert result["embedding"] == 2
+    assert result["dropped"] == 1
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT synset_id, vocab_id, snap_method, salience_sum "
+            "FROM synset_properties_curated ORDER BY synset_id, vocab_id"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    by_key = {(sid, vid): (method, sal) for sid, vid, method, sal in rows}
+    assert by_key[("s_a", 1)][0] == "exact"
+    assert abs(by_key[("s_a", 1)][1] - 0.9) < 0.01
+    assert by_key[("s_a", 2)][0] == "morphological"
+    assert abs(by_key[("s_a", 2)][1] - 0.8) < 0.01
+    assert by_key[("s_a", 3)][0] == "embedding"
+    assert abs(by_key[("s_a", 3)][1] - 0.7) < 0.01
+    assert by_key[("s_b", 3)][0] == "embedding"
+    assert abs(by_key[("s_b", 3)][1] - 0.5) < 0.01
+    # vocab_id 4 (distant) and the dropped 'xyzqwerty' must not appear
+    assert ("s_a", 4) not in by_key
+    assert ("s_b", 4) not in by_key
+
+
 def test_snap_creates_salience_sum_column(tmp_path):
     """synset_properties_curated table includes salience_sum column."""
     from snap_properties import snap_properties

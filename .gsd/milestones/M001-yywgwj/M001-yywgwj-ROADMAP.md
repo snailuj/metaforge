@@ -18,7 +18,7 @@
 - [x] **S02: S02** `risk:low` `depends:[]`
   > After this: Run sweep with 3 scoring parameter variations, show ranked comparison table with aptness rate + MRR + separation score for each
 
-- [x] **S03: S03** `risk:low` `depends:[]`
+- [ ] **S03: Baseline and Sensitivity Validation** `risk:low` `depends:[S02]`
   > After this: Show baseline metrics for current algorithm alongside metrics from deliberately degraded parameters, confirming the harness detects the difference
 
 ## Boundary Map
