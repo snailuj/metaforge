@@ -127,16 +127,19 @@ def snap_properties(
 
     Returns stats dict with counts per snap stage.
     """
-    # Create output table
+    # Create output table.
+    # CHECK constraints must mirror SCHEMA.sql verbatim — without them the
+    # canonical writer strips the constraints on every snap run, leaving them
+    # only enforced on a fresh SCHEMA.sql import.
     conn.executescript("""
         DROP TABLE IF EXISTS synset_properties_curated;
         CREATE TABLE synset_properties_curated (
             synset_id    TEXT NOT NULL,
             vocab_id     INTEGER NOT NULL,
             cluster_id   INTEGER NOT NULL,
-            snap_method  TEXT NOT NULL,
+            snap_method  TEXT NOT NULL CHECK (snap_method IN ('exact', 'morphological', 'embedding')),
             snap_score   REAL,
-            salience_sum REAL NOT NULL DEFAULT 1.0,
+            salience_sum REAL NOT NULL DEFAULT 1.0 CHECK (salience_sum >= 0.0),
             PRIMARY KEY (synset_id, cluster_id)
         );
     """)

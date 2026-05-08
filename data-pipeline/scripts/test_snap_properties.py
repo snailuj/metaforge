@@ -1071,6 +1071,40 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
     assert abs(rows[0][3] - 1.0) < 0.01  # 0.4 + 0.6
 
 
+def test_snap_recreated_table_enforces_check_constraints(tmp_path):
+    """The inline DDL inside snap_properties() recreates synset_properties_curated
+    on every run. It must mirror SCHEMA.sql's CHECK constraints — otherwise the
+    constraints are decorative on the canonical writer.
+    """
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        # snap_method must be one of the three valid methods.
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO synset_properties_curated "
+                "(synset_id, vocab_id, cluster_id, snap_method, snap_score, salience_sum) "
+                "VALUES ('zzz', 99, 99, 'bogus_method', NULL, 1.0)"
+            )
+
+        # salience_sum must be non-negative.
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO synset_properties_curated "
+                "(synset_id, vocab_id, cluster_id, snap_method, snap_score, salience_sum) "
+                "VALUES ('zzz', 99, 99, 'exact', NULL, -1.0)"
+            )
+    finally:
+        conn.close()
+
+
 def test_main_basicConfig_surfaces_log_info(tmp_path):
     """`python snap_properties.py --db ...` must surface the log.info summary
     line. Without basicConfig in main(), the root logger swallows it.
