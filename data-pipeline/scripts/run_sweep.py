@@ -275,14 +275,18 @@ def load_sweep_config(path: str) -> SweepConfig:
     #
     # Belt-and-braces: the cast() below is a soft pact, so a future PR
     # adding a SweepConfig key without updating the validator would slip
-    # through silently. This assert pins the join-point — any drift
+    # through silently. This check pins the join-point — any drift
     # between the validator and the TypedDict trips here, before the cast
     # papers over the gap. Should never fire under correct validation.
+    #
+    # Use an explicit `raise` (not `assert`) so the safety net survives
+    # `python -O` / PYTHONOPTIMIZE=1, which strips assert statements.
     required_top_keys = ("db", "pairs", "controls", "variations")
-    assert all(k in data for k in required_top_keys), (
-        f"validator drift: required keys missing at cast site: "
-        f"{[k for k in required_top_keys if k not in data]}"
-    )
+    missing_top_keys = [k for k in required_top_keys if k not in data]
+    if missing_top_keys:
+        raise AssertionError(
+            f"validator drift: required keys missing at cast site: {missing_top_keys}"
+        )
     return cast(SweepConfig, data)
 
 

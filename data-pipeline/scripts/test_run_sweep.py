@@ -975,6 +975,73 @@ def test_run_sweep_argparse_lists_scoring_formulas_in_help():
     )
 
 
+def test_load_sweep_config_drift_check_fires_under_optimised_python():
+    """The validator-drift safety net at the cast site is a defence-in-depth
+    check: it must fire even when Python is invoked with ``-O``
+    (``PYTHONOPTIMIZE=1``), which strips ``assert`` statements. A plain
+    ``assert`` would silently become a no-op in optimised builds, exactly
+    the situation the comment claims it guards against.
+
+    Approach: pull the drift-check block straight out of ``run_sweep``'s
+    source (so the test can never go stale relative to prod) and run it
+    under ``python -O`` against a malformed ``data`` dict. If the prod
+    check ever regresses to ``assert``, ``-O`` will strip it and the
+    snippet will run to completion — failing this test loudly.
+    """
+    import inspect
+    import subprocess
+    import textwrap
+
+    src = inspect.getsource(run_sweep.load_sweep_config)
+    # Locate the cast-site drift block. Defined by source markers rather
+    # than line numbers so an unrelated edit higher in the function does
+    # not silently shift the slice.
+    marker_start = "required_top_keys = ("
+    marker_end = "return cast("
+    i = src.find(marker_start)
+    j = src.find(marker_end, i)
+    assert i != -1 and j != -1, "drift markers missing from load_sweep_config source"
+    # `find` lands mid-line at `r` of `required_top_keys`, so the first
+    # line has no leading indent while the rest carry the function-body
+    # 4-space prefix. textwrap.dedent only strips a *common* prefix, so
+    # restore the missing indent on line 1 before dedenting.
+    snippet = textwrap.dedent("    " + src[i:j])
+
+    # Run the snippet under -O against a malformed dict missing every
+    # required key. An `assert` would be stripped silently; an explicit
+    # raise survives -O and exits non-zero with the drift message.
+    script = textwrap.dedent(f"""
+        snippet = {snippet!r}
+        data = {{'variations': []}}  # missing db, pairs, controls
+        try:
+            exec(compile(snippet, '<drift>', 'exec'), {{'data': data}})
+        except AssertionError as e:
+            print('RAISED:AssertionError:', e)
+        except Exception as e:
+            print('RAISED:' + type(e).__name__ + ':', e)
+        else:
+            print('NO_RAISE')
+    """)
+    result = subprocess.run(
+        [sys.executable, "-O", "-c", script],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, (
+        f"subprocess failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    # Under -O, `assert` is stripped to a no-op; an explicit `raise`
+    # survives. NO_RAISE means the prod code regressed to `assert`.
+    assert "NO_RAISE" not in result.stdout, (
+        "drift-detector did not fire under -O — the cast-site check has "
+        "regressed to `assert`, which `-O` strips. Use an explicit `raise` "
+        f"instead. stdout={result.stdout!r}"
+    )
+    assert "RAISED:" in result.stdout
+    # Message must name validator drift so a future operator can find
+    # the call site from the log alone.
+    assert "validator drift" in result.stdout
+
+
 def test_run_one_variation_logs_traceback_on_failure(tmp_path, caplog, monkeypatch):
     """A non-ValueError runtime failure inside ``_run_one_variation`` must
     log the traceback alongside the WARNING message — without it the
