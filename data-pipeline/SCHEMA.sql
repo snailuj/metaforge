@@ -268,6 +268,7 @@ CREATE TABLE IF NOT EXISTS synset_properties_curated (
 
 CREATE INDEX IF NOT EXISTS idx_spc_synset ON synset_properties_curated(synset_id);
 CREATE INDEX IF NOT EXISTS idx_spc_cluster ON synset_properties_curated(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_spc_vocab ON synset_properties_curated(vocab_id);
 
 CREATE TABLE IF NOT EXISTS property_antonyms (
     vocab_id_a  INTEGER NOT NULL,
