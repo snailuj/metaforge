@@ -1071,6 +1071,29 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
     assert abs(rows[0][3] - 1.0) < 0.01  # 0.4 + 0.6
 
 
+def test_snap_progress_lines_use_logging_not_print(tmp_path, caplog):
+    """Per project standards, progress observability flows through logging not
+    stdout. Regression bar: at least one INFO 'Cluster lookup' line surfaces
+    via the snap_properties logger when caplog captures INFO.
+    """
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)
+
+    with caplog.at_level(logging.INFO, logger="snap_properties"):
+        try:
+            snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
+    assert any("Cluster lookup" in m for m in info_messages), (
+        f"expected INFO progress line via log.info; got: {info_messages}"
+    )
+
+
 def test_snap_clamps_best_score_to_unit_range(tmp_path, monkeypatch):
     """Float32 cosine drift can produce snap_score values just above 1.0
     (e.g. 1.00000011920929 observed in the live DB). Clamp to [-1.0, 1.0]

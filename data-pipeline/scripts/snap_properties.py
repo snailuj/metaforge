@@ -187,12 +187,12 @@ def snap_properties(
             "vocab_clusters table not loaded (%s); dedup will degrade to vocab_id-only",
             exc,
         )
-    print(f"    Cluster lookup loaded: {len(cluster_lookup)} entries", flush=True)
+    log.info("Cluster lookup loaded: %d entries", len(cluster_lookup))
 
     # Build normalised vocab embedding matrix for Stage 3
     vocab_matrix, vocab_ids = _build_vocab_matrix(conn)
     has_vocab_embeddings = len(vocab_ids) > 0
-    print(f"    Vocab embeddings loaded: {len(vocab_ids)} entries", flush=True)
+    log.info("Vocab embeddings loaded: %d entries", len(vocab_ids))
 
     stats: dict[str, int] = {"exact": 0, "morphological": 0, "embedding": 0, "dropped": 0}
     accumulated: dict[tuple[str, int], AccumulatedMatch] = {}
@@ -299,9 +299,10 @@ def snap_properties(
         for sid, pid, prop_text, salience in pass1_cursor:
             seen += 1
             if seen % 20000 == 0:
-                print(f"    Stages 1-2: {seen} "
-                      f"(exact={stats['exact']}, morph={stats['morphological']})",
-                      flush=True)
+                log.info(
+                    "Stages 1-2: %d (exact=%d, morph=%d)",
+                    seen, stats["exact"], stats["morphological"],
+                )
 
             prop_lower = prop_text.lower().strip()
 
@@ -330,8 +331,8 @@ def snap_properties(
             unmatched.append((sid, pid, prop_text, salience))
 
         total_links = seen
-        print(f"    Property links to snap: {total_links}", flush=True)
-        print(f"    Stage 3: {len(unmatched)} candidates for embedding match", flush=True)
+        log.info("Property links to snap: %d", total_links)
+        log.info("Stage 3: %d candidates for embedding match", len(unmatched))
 
         # Pass 2 (Stage 3): cosine-similarity match for unmatched entries.
         # Embeddings are fetched ONCE per unique property_id via a temp-table join,
@@ -369,8 +370,10 @@ def snap_properties(
 
             for j, (sid, pid, prop_text, salience) in enumerate(unmatched):
                 if (j + 1) % 2000 == 0:
-                    print(f"    Stage 3: {j + 1}/{len(unmatched)} "
-                          f"(matched={stats['embedding']})", flush=True)
+                    log.info(
+                        "Stage 3: %d/%d (matched=%d)",
+                        j + 1, len(unmatched), stats["embedding"],
+                    )
 
                 if pid in zero_norm_pids:
                     _record_drop({"text": prop_text, "synset_id": sid,
