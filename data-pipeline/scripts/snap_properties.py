@@ -202,15 +202,35 @@ def snap_properties(
         Streaming caps memory at V2 scale (~50MB if buffered as a list). Each
         record is one self-contained line, so jq/grep work without loading the
         whole file.
+
+        Drops are diagnostic-only — if open() or write() fails (PermissionError,
+        ENOSPC, etc.) we log a WARNING, disable further JSONL writes, and let
+        the canonical snap stage continue. Mirrors the in-memory-DB guard.
         """
-        nonlocal dropped_fh
+        nonlocal dropped_fh, dropped_path
         stats["dropped"] += 1
         drop_counts[record["reason"]] = drop_counts.get(record["reason"], 0) + 1
         if dropped_path is None:
             return
-        if dropped_fh is None:
-            dropped_fh = open(dropped_path, "w")
-        dropped_fh.write(json.dumps(record) + "\n")
+        try:
+            if dropped_fh is None:
+                dropped_fh = open(dropped_path, "w")
+            dropped_fh.write(json.dumps(record) + "\n")
+        except OSError as exc:
+            log.warning(
+                "skipping snap_dropped.jsonl write to %s (%s: %s); "
+                "drops are diagnostic-only, snap stage continues",
+                dropped_path,
+                type(exc).__name__,
+                exc,
+            )
+            if dropped_fh is not None:
+                try:
+                    dropped_fh.close()
+                except OSError:
+                    pass
+            dropped_fh = None
+            dropped_path = None
 
     def _merge(
         key: tuple[str, int],

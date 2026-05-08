@@ -1071,6 +1071,57 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
     assert abs(rows[0][3] - 1.0) < 0.01  # 0.4 + 0.6
 
 
+def test_snap_continues_when_dropped_jsonl_write_fails(tmp_path, caplog, monkeypatch):
+    """If opening (or writing) snap_dropped.jsonl raises OSError (e.g. PermissionError
+    or ENOSPC), snap must not crash — drops are diagnostic-only. Log a WARNING,
+    set the JSONL stream to None, and continue. Canonical writes to
+    synset_properties_curated must still complete.
+    """
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop
+
+    real_open = open
+
+    def boom_open(path, mode="r", *a, **kw):
+        if str(path).endswith("snap_dropped.jsonl") and "w" in mode:
+            raise PermissionError("simulated read-only filesystem")
+        return real_open(path, mode, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", boom_open)
+
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            result = snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    # snap_dropped.jsonl must NOT exist on disk (open was blocked).
+    assert not (tmp_path / "snap_dropped.jsonl").exists()
+
+    # WARNING naming the path + diagnostic-only reassurance.
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any(
+        "snap_dropped" in m and "diagnostic" in m.lower() for m in warning_messages
+    ), f"expected WARNING about diagnostic-only drop write failure; got: {warning_messages}"
+
+    # Canonical writes still succeeded — exact + luminous matches present.
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT vocab_id, snap_method FROM synset_properties_curated"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) >= 2, (
+        f"canonical synset_properties_curated rows must still be committed; got {rows}"
+    )
+
+
 def test_snap_re_raises_operational_error_when_not_missing_table(tmp_path):
     """OperationalError sub-cases other than 'no such table' (locked DB, disk-IO,
     missing-column, readonly) must propagate — the WARNING about vocab_clusters
