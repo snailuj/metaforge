@@ -352,16 +352,36 @@ def snap_properties(
     conn.commit()
 
     total = sum(stats.values())
-    print(f"  Snapped {total} property links:")
-    print(f"    exact: {stats['exact']}, morphological: {stats['morphological']}, "
-          f"embedding: {stats['embedding']}, dropped: {stats['dropped']}")
+    log.info(
+        "Snapped %d property links: exact=%d, morphological=%d, embedding=%d, dropped=%d",
+        total,
+        stats["exact"],
+        stats["morphological"],
+        stats["embedding"],
+        stats["dropped"],
+    )
 
     if dropped_props:
+        # Per-reason breakdown so operators can distinguish 'vocab embeddings broken'
+        # (zero_norm) from 'OOV property text' (no_embedding) from 'noise above floor'
+        # (below_threshold). Mirrors cluster_vocab.py's log.error pattern.
+        per_reason: dict[str, int] = {}
+        for d in dropped_props:
+            per_reason[d["reason"]] = per_reason.get(d["reason"], 0) + 1
+        breakdown = ", ".join(
+            f"{reason}={count}" for reason, count in sorted(per_reason.items())
+        )
+        log.warning(
+            "Snap dropped %d property links: %s",
+            len(dropped_props),
+            breakdown,
+        )
+
         db_path = conn.execute("PRAGMA database_list").fetchone()[2]
         dropped_path = Path(db_path).parent / "snap_dropped.json"
         with open(dropped_path, "w") as f:
             json.dump(dropped_props, f, indent=2)
-        print(f"    Dropped properties written to {dropped_path}")
+        log.info("Dropped properties written to %s", dropped_path)
 
     return stats
 

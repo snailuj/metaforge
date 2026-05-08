@@ -685,6 +685,34 @@ def test_snap_all_stages_integration(tmp_path):
     assert ("s_b", 4) not in by_key
 
 
+def test_snap_logs_warning_with_per_reason_breakdown_on_drops(tmp_path, caplog):
+    """When properties are dropped, log a WARNING with per-reason breakdown
+    (zero_norm / no_embedding / below_threshold) so operators can distinguish
+    'vocab embeddings broken' from 'OOV'.
+    """
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' will be dropped (no_embedding)
+
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any(
+        "dropped" in m.lower() and "no_embedding" in m for m in warning_messages
+    ), (
+        "expected WARNING with per-reason 'no_embedding' breakdown; "
+        f"got: {warning_messages}"
+    )
+
+
 def test_snap_vocab_by_lemma_lowest_vocab_id_wins_on_collision(tmp_path):
     """When two property_vocab_curated rows share a lemma (e.g. POS variants),
     snap deterministically picks the lowest vocab_id. Without ORDER BY, SQLite
