@@ -685,6 +685,78 @@ def test_snap_all_stages_integration(tmp_path):
     assert ("s_b", 4) not in by_key
 
 
+def test_snap_skips_jsonl_write_for_in_memory_db(tmp_path, caplog, monkeypatch):
+    """For an in-memory connection, PRAGMA database_list returns an empty path —
+    we must NOT silently write snap_dropped.jsonl into the caller's cwd. Log a
+    WARNING and skip the write.
+    """
+    import logging
+    import os
+
+    from snap_properties import snap_properties
+
+    # Run from inside tmp_path so any unintended cwd-write is detectable.
+    monkeypatch.chdir(tmp_path)
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm', 'a', 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+        -- 'unmatchable' -> drops at no_embedding stage.
+        INSERT INTO property_vocabulary VALUES (10, 'unmatchable', NULL, 0, 'pilot');
+        INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
+    """)
+    conn.commit()
+
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    # No .jsonl file in cwd or anywhere we can see.
+    cwd_files = os.listdir(tmp_path)
+    assert "snap_dropped.jsonl" not in cwd_files, (
+        f"in-memory DB must not write JSONL; cwd contains: {cwd_files}"
+    )
+
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any(
+        "in-memory" in m and "snap_dropped" in m for m in warning_messages
+    ), f"expected WARNING about in-memory skip; got: {warning_messages}"
+
+
 def test_snap_streams_dropped_props_to_jsonl(tmp_path):
     """Dropped properties stream to snap_dropped.jsonl (one record per line),
     not buffered in memory and dumped as a single JSON document. This caps
