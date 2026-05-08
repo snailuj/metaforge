@@ -6,6 +6,10 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 
 | Document | Purpose |
 |----------|---------|
+| `docs/roadmap/PIPELINE.md` | **Programme pipeline** — single source of truth for active / next / queued / backlog milestones. Read first when starting milestone-level work. |
+| `docs/roadmap/programme-overview.md` | Programme-level overview — what Metaforge is, current state, milestone sequence rationale |
+| `docs/decisions/log.md` | Append-only register of architectural and convention decisions |
+| `docs/inbox/captures.md` | Loose ideas captured during work, awaiting triage |
 | `Metaforge-PRD-2.md` | **Authoritative PRD** (supersedes original, parked ideas from original included) |
 | `docs/plans/2026-01-26-sprint-zero.md` | Sprint Zero implementation plan (backend complete) |
 | `docs/plans/2026-01-28-performance-tuning.md` | Performance optimisation notes and scaling strategies |
@@ -28,12 +32,12 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 - Live testing confirmed on multiple browsers and phones
 - ~300 automated tests across all code surfaces
 
-**Forge endpoint tuning in progres. Data pipeline 70% MVP-ready. Substack teaser post drafted with Opus.**
+**Forge endpoint tuning in progress. Data pipeline 70% MVP-ready. Substack teaser post drafted with Opus. Eval harness (M01) shipped — discriminative aptness rate is now the primary forge KPI; MRR is a secondary regression check.**
 
-**Next:** Metaphor Forge UI
+**Next:** see `docs/roadmap/PIPELINE.md` (M02 — Asymmetric Ortony Scoring is the next algorithm milestone). Metaphor Forge UI also queued.
 
 **Required for MVP-complete:**
-- Increase MR Rank of known metaphors
+- **Improve forge aptness** — V2 baseline (2026-05-03): aptness_rate 0.0849, separation_score 0.0103. Target: separation_score > 0.3. Closing the gap is the work of M02 (Ortony) → M03 (Cascade) → M04 (Type-aligned).
 - 2nd-Order Edge Node Rendering
 - 2-3 Substack posts
 - Sem-sim distance between words visually rendered
@@ -64,7 +68,8 @@ The superpowers skills are bundled in this repo for portability (CCotW, remote s
 | **All Errors/Exceptions Handled**| Even if the error is recoverable or negligible it should be logged, and if not recoverable it must escalate to callers. |
 | **Idempotency** | Batch functions must be idempotent to ensure composability and recovery from errors does not require wasting the work of previous runs |
 | **Observability** | Output to logs not just for errors and warnings, but to enable tracing of control flow and data transformations. Collect timing behind feature-flags for all complex or potentially long-running routines. Timer functions must devolve to NO-OP when the feature-flag is disabled and in all production deployments |
-| **Changelog & Backlog** | See skills: `backlog-capture`, `changelog-entry`, `changelog-squash`. Record issues during dev, changelog entries after user-visible commits, squash at PR time. |
+| **Pipeline** | `docs/roadmap/PIPELINE.md` is the single source of truth for active / next / queued / backlog milestones. Read it when starting milestone-level work; update it on any state change. The `metaforge-pipeline` skill surfaces a quick report. |
+| **Captures & decisions** | Loose ideas → `docs/inbox/captures.md` (triage periodically: promote, defer, discard). Architectural/convention decisions → `docs/decisions/log.md` (append-only). The `backlog-capture`, `changelog-entry`, `changelog-squash` skills remain available if you want formal GH-Issue or CHANGELOG.md tracking, but neither is mandatory. |
 
 **If you're about to write code without a failing test, STOP.**
 
