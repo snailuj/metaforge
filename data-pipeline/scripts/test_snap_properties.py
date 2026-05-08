@@ -1071,6 +1071,38 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
     assert abs(rows[0][3] - 1.0) < 0.01  # 0.4 + 0.6
 
 
+def test_snap_re_raises_operational_error_when_not_missing_table(tmp_path):
+    """OperationalError sub-cases other than 'no such table' (locked DB, disk-IO,
+    missing-column, readonly) must propagate — the WARNING about vocab_clusters
+    is misleading for those cases. Only the 'no such table' message degrades
+    gracefully.
+    """
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)
+
+    # Wrap conn so the SELECT against vocab_clusters raises a non-missing-table
+    # OperationalError (simulate locked DB or schema drift).
+    class FailingConn:
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def execute(self, sql, *args, **kw):
+            if "vocab_clusters" in sql and sql.lstrip().upper().startswith("SELECT"):
+                raise sqlite3.OperationalError("database is locked")
+            return self._real.execute(sql, *args, **kw)
+
+    proxy = FailingConn(conn)
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            snap_properties(proxy, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+
 def test_snap_logs_warning_when_vocab_clusters_table_missing(tmp_path, caplog):
     """Missing vocab_clusters table is recoverable — log WARNING, do not silently swallow."""
     import logging

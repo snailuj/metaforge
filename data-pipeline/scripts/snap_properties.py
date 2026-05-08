@@ -154,13 +154,16 @@ def snap_properties(
 
     # Load cluster lookup: vocab_id -> cluster_id.
     # Narrow the except to OperationalError — the only recoverable failure mode is
-    # "no such table" on first-run schemas. Any other exception (corruption, lock
-    # contention, schema drift) must propagate so callers can react.
+    # "no such table" on first-run schemas. Other OperationalError variants
+    # (lock contention, disk-IO, readonly, missing-column, schema drift) re-raise
+    # so callers can react and we don't pin a misleading WARNING on them.
     cluster_lookup: dict[int, int] = {}
     try:
         for vid, cid in conn.execute("SELECT vocab_id, cluster_id FROM vocab_clusters"):
             cluster_lookup[vid] = cid
     except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc).lower():
+            raise
         log.warning(
             "vocab_clusters table not loaded (%s); dedup will degrade to vocab_id-only",
             exc,
