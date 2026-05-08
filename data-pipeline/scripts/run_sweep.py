@@ -272,6 +272,17 @@ def load_sweep_config(path: str) -> SweepConfig:
 
     # Validator has enforced every required key + shape — narrow the
     # parsed dict to the schema type for downstream consumers.
+    #
+    # Belt-and-braces: the cast() below is a soft pact, so a future PR
+    # adding a SweepConfig key without updating the validator would slip
+    # through silently. This assert pins the join-point — any drift
+    # between the validator and the TypedDict trips here, before the cast
+    # papers over the gap. Should never fire under correct validation.
+    required_top_keys = ("db", "pairs", "controls", "variations")
+    assert all(k in data for k in required_top_keys), (
+        f"validator drift: required keys missing at cast site: "
+        f"{[k for k in required_top_keys if k not in data]}"
+    )
     return cast(SweepConfig, data)
 
 
