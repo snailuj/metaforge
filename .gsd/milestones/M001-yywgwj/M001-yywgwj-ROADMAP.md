@@ -12,13 +12,13 @@
 
 ## Slices
 
-- [ ] **S01: V2 Foundation + Aptness Evaluator** `risk:medium` `depends:[]`
+- [x] **S01: S01** `risk:medium` `depends:[]`
   > After this: Run aptness evaluator on 50 known-good pairs + 50 MUNCH inapt controls, display per-pair scores and aggregate separation statistics alongside V2 baseline MRR
 
-- [ ] **S02: Parameter Sweep Harness** `risk:low` `depends:[S01]`
+- [x] **S02: S02** `risk:low` `depends:[]`
   > After this: Run sweep with 3 scoring parameter variations, show ranked comparison table with aptness rate + MRR + separation score for each
 
-- [ ] **S03: Baseline and Sensitivity Validation** `risk:low` `depends:[S02]`
+- [x] **S03: S03** `risk:low` `depends:[]`
   > After this: Show baseline metrics for current algorithm alongside metrics from deliberately degraded parameters, confirming the harness detects the difference
 
 ## Boundary Map

@@ -1,7 +1,7 @@
 # Codebase Map
 
-Generated: 2026-05-02T10:27:58Z | Files: 368 | Described: 0/368
-<!-- gsd:codebase-meta {"generatedAt":"2026-05-02T10:27:58Z","fingerprint":"9aaf498ab7ad50d30380e5e46ca8cc567a405b2d","fileCount":368,"truncated":false} -->
+Generated: 2026-05-03T00:30:09Z | Files: 386 | Described: 0/386
+<!-- gsd:codebase-meta {"generatedAt":"2026-05-03T00:30:09Z","fingerprint":"cd4bbd0377f6b2c38e812153e609e31648063152","fileCount":386,"truncated":false} -->
 
 ### (root)/
 - `.gitignore`
@@ -243,13 +243,15 @@ Generated: 2026-05-02T10:27:58Z | Files: 368 | Described: 0/368
 - `data-pipeline/fixtures/metaphor_pairs_generated.json`
 - `data-pipeline/fixtures/metaphor_pairs_v2.json`
 - `data-pipeline/fixtures/metaphor_pairs.json`
+- `data-pipeline/fixtures/munch_apt.jsonl`
+- `data-pipeline/fixtures/munch_inapt.jsonl`
 
 ### data-pipeline/future-work/metaphor-vehicles/
 - `data-pipeline/future-work/metaphor-vehicles/README.md`
 - `data-pipeline/future-work/metaphor-vehicles/source_concepts.tsv`
 
 ### data-pipeline/output/
-- *(33 files: 32 .json, 1 .gz)*
+- *(38 files: 37 .json, 1 .gz)*
 
 ### data-pipeline/output/evolution/
 - `data-pipeline/output/evolution/evolution_report.md`
@@ -259,12 +261,18 @@ Generated: 2026-05-02T10:27:58Z | Files: 368 | Described: 0/368
 - `data-pipeline/output/evolution/exploration_log.json`
 
 ### data-pipeline/scripts/
-- *(54 files: 52 .py, 1 .md, 1 .sh)*
+- *(60 files: 58 .py, 1 .md, 1 .sh)*
 
 ### data-pipeline/scripts/analysis/
 - `data-pipeline/scripts/analysis/monosemy_coverage.py`
 - `data-pipeline/scripts/analysis/snap_audit.py`
 - `data-pipeline/scripts/analysis/test_snap_audit.py`
+
+### data-pipeline/sweeps/
+- `data-pipeline/sweeps/baseline_v2.yaml`
+- `data-pipeline/sweeps/README.md`
+- `data-pipeline/sweeps/sensitivity_v2.yaml`
+- `data-pipeline/sweeps/SENSITIVITY-V2-FINDINGS.md`
 
 ### deploy/
 - `deploy/cleanup-legacy-services.sh`
@@ -346,6 +354,7 @@ Generated: 2026-05-02T10:27:58Z | Files: 368 | Described: 0/368
 - `docs/reviews/sqlunet-datasets/verbnet-assessment.md`
 
 ### docs/superpowers/review-logs/
+- `docs/superpowers/review-logs/2026-05-02-milestone-M001-yywgwj-review.md`
 - `docs/superpowers/review-logs/2026-05-02-milestone-M002-kitkng-review.md`
 
 ### lib/

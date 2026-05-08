@@ -8,15 +8,19 @@ Usage:
     python cluster_vocab.py --db PATH [--threshold 0.8]
 """
 import argparse
+import logging
 import sqlite3
 import struct
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import LEXICON_V2, EMBEDDING_DIM
+
+log = logging.getLogger(__name__)
 
 
 # ── Union-Find with path compression + union by rank ──
@@ -101,8 +105,17 @@ def cluster_vocab(
     # Build matrix of embedded vocab
     embedded_vids: list[int] = []
     vectors: list[list[float]] = []
+    expected_bytes = EMBEDDING_DIM * 4  # float32
     for vid, blob in embedded_rows:
-        vec = list(struct.unpack(f"{EMBEDDING_DIM}f", blob))
+        try:
+            vec = list(struct.unpack(f"{EMBEDDING_DIM}f", blob))
+        except struct.error:
+            log.error(
+                "Corrupt embedding for vocab_id=%s: blob length=%d, expected %d "
+                "(EMBEDDING_DIM=%d float32s)",
+                vid, len(blob), expected_bytes, EMBEDDING_DIM,
+            )
+            raise
         vectors.append(vec)
         embedded_vids.append(vid)
 
@@ -119,7 +132,19 @@ def cluster_vocab(
         norms[norms == 0] = 1
         matrix /= norms
 
-        # Chunked pairwise cosine similarity with vectorised threshold
+        # Chunked pairwise cosine similarity with vectorised threshold.
+        # Total chunk-pairs is upper triangle of an (n/chunk_size) grid.
+        chunks_per_axis = (n + chunk_size - 1) // chunk_size
+        total_pairs = chunks_per_axis * (chunks_per_axis + 1) // 2
+        log.info(
+            "Clustering %d embedded vocab entries (chunk_size=%d → %d chunk pairs, threshold=%.2f)",
+            n, chunk_size, total_pairs, threshold,
+        )
+
+        pairs_done = 0
+        unions_made = 0
+        start = time.monotonic()
+        last_log = start
         for ci in range(0, n, chunk_size):
             ci_end = min(ci + chunk_size, n)
             for cj in range(ci, n, chunk_size):
@@ -136,6 +161,20 @@ def cluster_vocab(
 
                 for li, lj in zip(rows, cols):
                     uf.union(embedded_vids[ci + li], embedded_vids[cj + lj])
+                    unions_made += 1
+
+                pairs_done += 1
+                now = time.monotonic()
+                if now - last_log >= 5.0 or pairs_done == total_pairs:
+                    elapsed = now - start
+                    rate = pairs_done / elapsed if elapsed > 0 else 0
+                    eta = (total_pairs - pairs_done) / rate if rate > 0 else 0
+                    log.info(
+                        "  chunk %d/%d (%.1f%%) — %d unions so far — %.1fs elapsed, ~%.0fs remaining",
+                        pairs_done, total_pairs, 100 * pairs_done / total_pairs,
+                        unions_made, elapsed, eta,
+                    )
+                    last_log = now
 
     # Resolve clusters: cluster_id = smallest vocab_id in component
     components = uf.components()
@@ -187,7 +226,19 @@ def main():
     parser = argparse.ArgumentParser(description="Cluster curated vocabulary by embedding similarity")
     parser.add_argument("--db", default=str(LEXICON_V2), help="Path to lexicon DB")
     parser.add_argument("--threshold", type=float, default=0.8, help="Cosine similarity threshold")
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Enable debug logging",
+    )
     args = parser.parse_args()
+
+    # Configure logging when invoked as a standalone CLI so chunk-progress
+    # log.info(...) calls are visible. enrich_pipeline.py configures its own
+    # root logger when it calls cluster_vocab() in-process.
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
 
     conn = sqlite3.connect(args.db)
     try:

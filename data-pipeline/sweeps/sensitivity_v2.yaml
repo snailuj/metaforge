@@ -1,0 +1,50 @@
+# Sensitivity V2 sweep — Metaforge M001-yywgwj / S03 sensitivity demo.
+#
+# Slice goal: validate that the S02 harness detects sensitivity to deliberately
+# degraded parameters by contrasting the S02-T03 baseline anchor
+# (jaccard_salience @ percentile 95, see baseline_v2.yaml) against degraded-
+# threshold variants and a null-control scoring fn (random_uniform).
+#
+# Expected sensitivity signature:
+#   aptness_rate monotonic in threshold_percentile;
+#   |random_uniform separation_score| ≤ 0.02 (sampling-noise tolerance for
+#   V2 cohort sizes ~232 apt / ~317 inapt — see SENSITIVITY-V2-FINDINGS.md
+#   for the basis; a tighter bound requires larger cohorts or repeated runs).
+#
+# Variations:
+#   - jaccard_salience @ 95: S02 baseline anchor
+#   - jaccard_salience @ 50: degraded (more permissive) — predicts higher aptness_rate, separation_score → 0
+#   - jaccard_salience @ 99: degraded (more restrictive) — predicts lower aptness_rate, separation_score → 0
+#   - jaccard_raw      @ 95: S02 secondary scoring control
+#   - random_uniform   @ 95: T01 null reference — no semantic signal by construction
+#
+# Run with:
+#   data-pipeline/.venv/bin/python data-pipeline/scripts/run_sweep.py \
+#     --config data-pipeline/sweeps/sensitivity_v2.yaml \
+#     --output data-pipeline/output/sweep_sensitivity_v2.json \
+#     --report data-pipeline/output/sweep_sensitivity_v2.md
+#
+# Outputs land under data-pipeline/output/ (gitignored).
+
+name: sensitivity_v2
+db: data-pipeline/output/lexicon_v2.db
+pairs: data-pipeline/fixtures/metaphor_pairs_v2.json
+controls: data-pipeline/fixtures/munch_inapt.jsonl
+mrr_reference: data-pipeline/output/eval_baseline_v2.json
+
+variations:
+  - name: jaccard_salience_p95
+    scoring: jaccard_salience
+    threshold_percentile: 95
+  - name: jaccard_salience_p50
+    scoring: jaccard_salience
+    threshold_percentile: 50
+  - name: jaccard_salience_p99
+    scoring: jaccard_salience
+    threshold_percentile: 99
+  - name: jaccard_raw_p95
+    scoring: jaccard_raw
+    threshold_percentile: 95
+  - name: random_uniform_p95
+    scoring: random_uniform
+    threshold_percentile: 95

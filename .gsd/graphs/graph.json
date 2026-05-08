@@ -1,8 +1,8 @@
 {
   "nodes": [
     {
-      "id": "concept:phase:evaluating-gates",
-      "label": "Phase: evaluating-gates",
+      "id": "concept:phase:planning",
+      "label": "Phase: planning",
       "type": "concept",
       "confidence": "EXTRACTED",
       "sourceFile": "STATE.md"
@@ -53,6 +53,50 @@
     {
       "id": "task:M001:S01:T06",
       "label": "T06: Deploy V2 database to staging",
+      "type": "task",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "slice:M001:S02",
+      "label": "S02: Parameter Sweep Harness",
+      "type": "slice",
+      "confidence": "EXTRACTED",
+      "sourceFile": "milestones/M001/slices/S02/S02-PLAN.md"
+    },
+    {
+      "id": "task:M001:S02:T01",
+      "label": "T01: Make evaluate_aptness.py scoring formula pluggable via a registry",
+      "type": "task",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "task:M001:S02:T02",
+      "label": "T02: Build run_sweep.py harness over evaluate_aptness with structured results + comparison table",
+      "type": "task",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "task:M001:S02:T03",
+      "label": "T03: Define + run baseline 3-variation sweep, commit sweep config + result artifact",
+      "type": "task",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "slice:M001:S03",
+      "label": "S03: Baseline and Sensitivity Validation",
+      "type": "slice",
+      "confidence": "EXTRACTED",
+      "sourceFile": "milestones/M001/slices/S03/S03-PLAN.md"
+    },
+    {
+      "id": "task:M001:S03:T01",
+      "label": "T01: Add random_uniform null-control scoring function and tests",
+      "type": "task",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "task:M001:S03:T02",
+      "label": "T02: Author sensitivity_v2 sweep config and run end-to-end against V2 DB",
       "type": "task",
       "confidence": "EXTRACTED"
     },
@@ -169,6 +213,48 @@
       "confidence": "EXTRACTED"
     },
     {
+      "from": "milestone:M001",
+      "to": "slice:M001:S02",
+      "type": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "from": "slice:M001:S02",
+      "to": "task:M001:S02:T01",
+      "type": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "from": "slice:M001:S02",
+      "to": "task:M001:S02:T02",
+      "type": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "from": "slice:M001:S02",
+      "to": "task:M001:S02:T03",
+      "type": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "from": "milestone:M001",
+      "to": "slice:M001:S03",
+      "type": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "from": "slice:M001:S03",
+      "to": "task:M001:S03:T01",
+      "type": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "from": "slice:M001:S03",
+      "to": "task:M001:S03:T02",
+      "type": "contains",
+      "confidence": "EXTRACTED"
+    },
+    {
       "from": "milestone:M002",
       "to": "slice:M002:S01",
       "type": "contains",
@@ -229,5 +315,5 @@
       "confidence": "EXTRACTED"
     }
   ],
-  "builtAt": "2026-05-02T07:41:56.477Z"
+  "builtAt": "2026-05-03T00:35:16.282Z"
 }

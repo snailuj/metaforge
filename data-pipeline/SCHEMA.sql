@@ -267,3 +267,20 @@ CREATE TABLE IF NOT EXISTS cluster_antonyms (
     cluster_id_b INTEGER NOT NULL,
     PRIMARY KEY (cluster_id_a, cluster_id_b)
 );
+
+-- ============================================================
+-- Concreteness (Brysbaert ground truth)
+-- ============================================================
+-- Populated by import_concreteness.py from Brysbaert et al. (2014).
+-- Used as training data by predict_concreteness.py to fill gaps via k-NN
+-- regression over FastText embeddings during enrich.sh Step 4.
+
+CREATE TABLE IF NOT EXISTS synset_concreteness (
+    synset_id TEXT PRIMARY KEY,
+    -- Brysbaert concreteness lives on a 1.0-5.0 Likert scale; bound the
+    -- column so a regression bug (NaN, extrapolation) cannot persist
+    -- silently corrupt scores.
+    score REAL NOT NULL CHECK (score >= 1.0 AND score <= 5.0),
+    source TEXT NOT NULL,
+    FOREIGN KEY (synset_id) REFERENCES synsets(synset_id)
+);

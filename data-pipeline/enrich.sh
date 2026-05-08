@@ -253,19 +253,30 @@ python -u "$SCRIPTS_DIR/enrich_pipeline.py" \
 echo ""
 
 # --- Step 4: Concreteness fill --------------------------------------------
+# Requires both the shootout JSON (chosen regression model) and a populated
+# synset_concreteness baseline (Brysbaert ground truth). Skip gracefully if
+# either is missing — PRE_ENRICH.sql does not include synset_concreteness, so
+# this step is a no-op until import_concreteness.py has been run against the DB.
 
 SHOOTOUT_JSON="$OUTPUT_DIR/concreteness_shootout.json"
+HAS_BRYSBAERT=$(sqlite3 "$DB_PATH" \
+    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='synset_concreteness'")
 
-if [[ -f "$SHOOTOUT_JSON" ]]; then
+if [[ ! -f "$SHOOTOUT_JSON" ]]; then
+    echo "--- Skipping concreteness fill (no shootout JSON at $SHOOTOUT_JSON) ---"
+    echo "  Run: ./evals.sh shootout -o $SHOOTOUT_JSON"
+    echo ""
+elif [[ "$HAS_BRYSBAERT" -eq 0 ]]; then
+    echo "--- Skipping concreteness fill (synset_concreteness table not present in DB) ---"
+    echo "  Populate it first: python $SCRIPTS_DIR/import_concreteness.py"
+    echo "  (requires raw/Concreteness_ratings_Brysbaert_et_al_BRM.txt)"
+    echo ""
+else
     echo "--- Filling concreteness gaps (k-NN regression) ---"
     python -u "$SCRIPTS_DIR/predict_concreteness.py" fill \
         --db "$DB_PATH" \
         --fasttext "$FASTTEXT_VEC" \
         --shootout "$SHOOTOUT_JSON"
-    echo ""
-else
-    echo "--- Skipping concreteness fill (no shootout JSON at $SHOOTOUT_JSON) ---"
-    echo "  Run: ./evals.sh shootout -o $SHOOTOUT_JSON"
     echo ""
 fi
 
