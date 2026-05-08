@@ -448,7 +448,13 @@ def snap_properties(
         )
     finally:
         if dropped_fh is not None:
-            dropped_fh.close()
+            try:
+                dropped_fh.close()
+            except OSError as exc:
+                log.warning(
+                    "failed to close snap_dropped.jsonl handle: %s",
+                    exc,
+                )
 
     if drop_counts:
         # Per-reason breakdown so operators can distinguish 'vocab embeddings broken'

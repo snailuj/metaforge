@@ -1625,3 +1625,84 @@ def test_snap_continues_when_dropped_record_not_json_serialisable(
     assert len(rows) >= 2, (
         f"canonical synset_properties_curated rows must still be committed; got {rows}"
     )
+
+
+def test_snap_dropped_fh_close_failure_does_not_mask_original_exception(
+    tmp_path, caplog, monkeypatch
+):
+    """If an exception unwinds the snap body AND the outer dropped_fh.close()
+    in the finally clause itself raises (rare: NFS commit error, EIO,
+    unflushed ENOSPC), the close-time exception must NOT replace the original
+    exception. The operator must see what actually went wrong; the close
+    failure should be logged as a WARNING and swallowed.
+    """
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop in Stage 3
+
+    # Wrap open() so the JSONL handle's close() raises OSError on call.
+    real_open = open
+
+    class _CloseFailingFile:
+        def __init__(self, fh):
+            self._fh = fh
+
+        def write(self, *a, **kw):
+            return self._fh.write(*a, **kw)
+
+        def close(self):
+            # Flush so on-disk content stays well-formed, then raise on close.
+            try:
+                self._fh.flush()
+                self._fh.close()
+            except Exception:
+                pass
+            raise OSError("simulated EIO on close")
+
+        @property
+        def closed(self):
+            return self._fh.closed
+
+    def wrapping_open(path, mode="r", *a, **kw):
+        fh = real_open(path, mode, *a, **kw)
+        if str(path).endswith("snap_dropped.jsonl"):
+            return _CloseFailingFile(fh)
+        return fh
+
+    monkeypatch.setattr("builtins.open", wrapping_open)
+
+    # Trigger a different exception inside the snap body via executemany on
+    # synset_properties_curated — same pattern as the existing leak-guard test.
+    class FailingConn:
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def executemany(self, sql, params):
+            if "synset_properties_curated" in sql:
+                raise sqlite3.OperationalError("simulated mid-run failure")
+            return self._real.executemany(sql, params)
+
+    proxy = FailingConn(conn)
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            # The ORIGINAL OperationalError must propagate, NOT the close-time OSError.
+            with pytest.raises(sqlite3.OperationalError, match="simulated mid-run failure"):
+                snap_properties(proxy, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    # Close failure must be logged (so it isn't silently swallowed without trace).
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any(
+        "snap_dropped" in m and "close" in m.lower() for m in warning_messages
+    ), (
+        "expected WARNING about snap_dropped.jsonl close failure; "
+        f"got: {warning_messages}"
+    )
