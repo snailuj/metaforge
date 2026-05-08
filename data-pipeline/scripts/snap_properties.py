@@ -137,31 +137,28 @@ def snap_properties(
     has_vocab_embeddings = len(vocab_ids) > 0
     print(f"    Vocab embeddings loaded: {len(vocab_ids)} entries", flush=True)
 
-    # Load synset-property links with property text, embedding, and salience
-    synset_props: list[tuple[str, str, bytes | None, float]] = []
-    for sid, text, emb, salience in conn.execute("""
-        SELECT sp.synset_id, pv.text, pv.embedding, sp.salience
-        FROM synset_properties sp
-        JOIN property_vocabulary pv ON pv.property_id = sp.property_id
-    """):
-        synset_props.append((sid, text, emb, salience))
-
-    total_links = len(synset_props)
-    print(f"    Property links to snap: {total_links}", flush=True)
-
     stats = {"exact": 0, "morphological": 0, "embedding": 0, "dropped": 0}
     # accumulated: key=(synset_id, cluster_id) -> (vocab_id, snap_method, snap_score, salience_sum)
     accumulated: dict[tuple[str, int], tuple[int, str, float | None, float]] = {}
     # Track dropped properties for diagnostics
     dropped_props: list[dict] = []
 
-    # Collect unmatched properties for batched embedding lookup
-    # (index in synset_props, synset_id, embedding_bytes, salience)
-    embedding_candidates: list[tuple[int, str, bytes, float]] = []
-
-    for i, (sid, prop_text, prop_emb, salience) in enumerate(synset_props):
-        if (i + 1) % 20000 == 0:
-            print(f"    Stages 1-2: {i + 1}/{total_links} "
+    # Pass 1 (Stages 1-2): stream synset-property cursor WITHOUT loading embedding blobs.
+    # The blob column is ~1.2 KB per row; the full join is ~245k rows ≈ 294 MB if
+    # materialised. By projecting only (synset_id, property_id, text, salience) we
+    # keep peak memory in the low MBs and only carry the unmatched residue forward.
+    # Unmatched entries: (synset_id, property_id, text, salience)
+    unmatched: list[tuple[str, int, str, float]] = []
+    seen = 0
+    pass1_cursor = conn.execute("""
+        SELECT sp.synset_id, sp.property_id, pv.text, sp.salience
+        FROM synset_properties sp
+        JOIN property_vocabulary pv ON pv.property_id = sp.property_id
+    """)
+    for sid, pid, prop_text, salience in pass1_cursor:
+        seen += 1
+        if seen % 20000 == 0:
+            print(f"    Stages 1-2: {seen} "
                   f"(exact={stats['exact']}, morph={stats['morphological']})",
                   flush=True)
 
@@ -198,57 +195,91 @@ def snap_properties(
         if matched:
             continue
 
-        # Collect for Stage 3 batch processing
-        if prop_emb and has_vocab_embeddings:
-            embedding_candidates.append((i, sid, prop_emb, salience))
-        else:
+        # Defer to Pass 2 — stage 3 will fetch embeddings for residual property_ids only
+        unmatched.append((sid, pid, prop_text, salience))
+
+    total_links = seen
+    print(f"    Property links to snap: {total_links}", flush=True)
+    print(f"    Stage 3: {len(unmatched)} candidates for embedding match", flush=True)
+
+    # Pass 2 (Stage 3): cosine-similarity match for unmatched entries.
+    # Embeddings are fetched ONCE per unique property_id via a temp-table join,
+    # so blob memory scales with the unmatched residue, not with the full corpus.
+    if unmatched and has_vocab_embeddings:
+        unique_pids = {pid for _, pid, _, _ in unmatched}
+        emb_cache: dict[int, np.ndarray] = {}
+        zero_norm_pids: set[int] = set()
+
+        conn.execute(
+            "CREATE TEMP TABLE _snap_unmatched_pids (property_id INTEGER PRIMARY KEY)"
+        )
+        try:
+            conn.executemany(
+                "INSERT INTO _snap_unmatched_pids VALUES (?)",
+                [(pid,) for pid in unique_pids],
+            )
+            for pid, emb_blob in conn.execute("""
+                SELECT pv.property_id, pv.embedding
+                FROM property_vocabulary pv
+                JOIN _snap_unmatched_pids u ON u.property_id = pv.property_id
+                WHERE pv.embedding IS NOT NULL
+            """):
+                vec = np.array(
+                    struct.unpack(f"{EMBEDDING_DIM}f", emb_blob),
+                    dtype=np.float32,
+                )
+                norm = np.linalg.norm(vec)
+                if norm == 0:
+                    zero_norm_pids.add(pid)
+                else:
+                    emb_cache[pid] = vec / norm
+        finally:
+            conn.execute("DROP TABLE IF EXISTS _snap_unmatched_pids")
+
+        for j, (sid, pid, prop_text, salience) in enumerate(unmatched):
+            if (j + 1) % 2000 == 0:
+                print(f"    Stage 3: {j + 1}/{len(unmatched)} "
+                      f"(matched={stats['embedding']})", flush=True)
+
+            if pid in zero_norm_pids:
+                stats["dropped"] += 1
+                dropped_props.append({"text": prop_text, "synset_id": sid,
+                                      "salience": salience, "reason": "zero_norm"})
+                continue
+
+            vec = emb_cache.get(pid)
+            if vec is None:
+                stats["dropped"] += 1
+                dropped_props.append({"text": prop_text, "synset_id": sid,
+                                      "salience": salience, "reason": "no_embedding"})
+                continue
+
+            # Cosine similarities via single matrix-vector multiply
+            scores = vocab_matrix @ vec  # shape: (n_vocab,)
+            best_idx = int(np.argmax(scores))
+            best_score = float(scores[best_idx])
+
+            if best_score >= embedding_threshold:
+                best_vid = vocab_ids[best_idx]
+                best_cid = cluster_lookup.get(best_vid, best_vid)
+                key = (sid, best_cid)
+                if key in accumulated:
+                    existing = accumulated[key]
+                    accumulated[key] = (existing[0], existing[1], existing[2], existing[3] + salience)
+                else:
+                    accumulated[key] = (best_vid, "embedding", best_score, salience)
+                    stats["embedding"] += 1
+            else:
+                stats["dropped"] += 1
+                dropped_props.append({"text": prop_text, "synset_id": sid,
+                                      "salience": salience, "reason": "below_threshold",
+                                      "best_score": best_score})
+    else:
+        # No vocab embeddings (or no residue) — every unmatched entry is dropped
+        for sid, pid, prop_text, salience in unmatched:
             stats["dropped"] += 1
             dropped_props.append({"text": prop_text, "synset_id": sid,
                                   "salience": salience, "reason": "no_embedding"})
-
-    # Stage 3: Batch embedding similarity via numpy
-    # Each candidate gets a single matrix-vector dot product: O(V × 300)
-    print(f"    Stage 3: {len(embedding_candidates)} candidates for embedding match",
-          flush=True)
-
-    for j, (idx, sid, prop_emb, salience) in enumerate(embedding_candidates):
-        if (j + 1) % 2000 == 0:
-            print(f"    Stage 3: {j + 1}/{len(embedding_candidates)} "
-                  f"(matched={stats['embedding']})", flush=True)
-
-        # Unpack and normalise the query vector
-        vec = np.array(
-            struct.unpack(f"{EMBEDDING_DIM}f", prop_emb),
-            dtype=np.float32,
-        )
-        norm = np.linalg.norm(vec)
-        if norm == 0:
-            stats["dropped"] += 1
-            dropped_props.append({"text": synset_props[idx][1], "synset_id": sid,
-                                  "salience": salience, "reason": "zero_norm"})
-            continue
-        vec /= norm
-
-        # Cosine similarities via single matrix-vector multiply
-        scores = vocab_matrix @ vec  # shape: (n_vocab,)
-        best_idx = int(np.argmax(scores))
-        best_score = float(scores[best_idx])
-
-        if best_score >= embedding_threshold:
-            best_vid = vocab_ids[best_idx]
-            best_cid = cluster_lookup.get(best_vid, best_vid)
-            key = (sid, best_cid)
-            if key in accumulated:
-                existing = accumulated[key]
-                accumulated[key] = (existing[0], existing[1], existing[2], existing[3] + salience)
-            else:
-                accumulated[key] = (best_vid, "embedding", best_score, salience)
-                stats["embedding"] += 1
-        else:
-            stats["dropped"] += 1
-            dropped_props.append({"text": synset_props[idx][1], "synset_id": sid,
-                                  "salience": salience, "reason": "below_threshold",
-                                  "best_score": best_score})
 
     inserts = [
         (sid, vid, cid, method, score, sal_sum)
