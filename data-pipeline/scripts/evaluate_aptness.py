@@ -192,6 +192,17 @@ def _random_uniform(
     Assumption: determinism + order-symmetry are sufficient null-
     reference properties; we are NOT proving uniformity statistically
     here (would require thousands of samples and is out of scope).
+
+    Cohort-level caveat: the per-pair score is uniform over [0, 1)
+    given a fixed ``cluster_ids_union``, but the cohort-level expected
+    separation_score is unbiased ONLY when the apt and inapt cohorts
+    share similar union-size distributions; if apt unions are
+    systematically larger or smaller than inapt unions the null
+    reference becomes biased. Treat this as a sanity-floor reference,
+    not a calibrated null hypothesis test — do not interpret
+    ``separation_score - random_uniform_separation`` as "real signal
+    above null" without first checking union-size parity across
+    cohorts.
     """
     union = sorted(set(pa) | set(pb))
     if not union:

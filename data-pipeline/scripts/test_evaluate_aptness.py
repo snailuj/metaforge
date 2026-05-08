@@ -291,6 +291,30 @@ def test_load_inapt_controls_skips_non_dict_jsonl_lines_with_warning(tmp_path, c
     )
 
 
+def test_random_uniform_docstring_documents_union_size_dependency():
+    """Regression marker: the null-reference scorer's docstring must flag
+    the cohort-level union-size assumption.
+
+    Without this caveat a downstream reader interpreting
+    ``separation_score - random_uniform_separation`` as "real signal above
+    null" can be misled when apt and inapt cohorts have systematically
+    different union-size distributions. We pin the keyword presence so
+    the warning cannot silently regress to a bare "deterministic null".
+    """
+    doc = _random_uniform.__doc__ or ""
+    lower = doc.lower()
+    # The two key concepts that must appear:
+    assert "union-size" in lower or "union size" in lower, (
+        "expected the docstring to mention 'union-size' / 'union size'"
+    )
+    assert "cohort" in lower, "expected the docstring to mention 'cohort'"
+    # And the sanity-floor framing — not a calibrated null hypothesis test.
+    assert "sanity" in lower or "calibrated" in lower, (
+        "expected the docstring to frame this as a sanity-floor reference, "
+        "not a calibrated null hypothesis test"
+    )
+
+
 # --- Classification & aggregation -------------------------------------------
 
 def test_classify_aptness_uses_threshold():
