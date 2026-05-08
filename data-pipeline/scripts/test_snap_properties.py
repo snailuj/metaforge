@@ -1071,6 +1071,29 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
     assert abs(rows[0][3] - 1.0) < 0.01  # 0.4 + 0.6
 
 
+def test_accumulated_match_rejects_score_method_invariant_violations():
+    """AccumulatedMatch invariant: snap_score is None iff snap_method != 'embedding'.
+    Both illegal states must raise ValueError; both legal states must succeed.
+    """
+    from snap_properties import AccumulatedMatch
+
+    # Legal: exact/morph with score=None.
+    AccumulatedMatch(vocab_id=1, snap_method="exact", snap_score=None, salience_sum=1.0)
+    AccumulatedMatch(vocab_id=1, snap_method="morphological", snap_score=None, salience_sum=1.0)
+    # Legal: embedding with float score.
+    AccumulatedMatch(vocab_id=1, snap_method="embedding", snap_score=0.85, salience_sum=1.0)
+
+    # Illegal: exact/morph with non-None score.
+    with pytest.raises(ValueError, match="invariant"):
+        AccumulatedMatch(vocab_id=1, snap_method="exact", snap_score=0.9, salience_sum=1.0)
+    with pytest.raises(ValueError, match="invariant"):
+        AccumulatedMatch(vocab_id=1, snap_method="morphological", snap_score=0.9, salience_sum=1.0)
+
+    # Illegal: embedding with snap_score=None.
+    with pytest.raises(ValueError, match="invariant"):
+        AccumulatedMatch(vocab_id=1, snap_method="embedding", snap_score=None, salience_sum=1.0)
+
+
 def test_snap_recreated_table_enforces_check_constraints(tmp_path):
     """The inline DDL inside snap_properties() recreates synset_properties_curated
     on every run. It must mirror SCHEMA.sql's CHECK constraints — otherwise the

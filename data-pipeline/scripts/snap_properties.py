@@ -48,6 +48,17 @@ class AccumulatedMatch:
     snap_score: float | None
     salience_sum: float
 
+    def __post_init__(self) -> None:
+        # Invariant: snap_score is None iff snap_method != "embedding".
+        # exact and morphological matches have no cosine score; embedding
+        # matches always do. Reject illegal states early.
+        if (self.snap_method == "embedding") != (self.snap_score is not None):
+            raise ValueError(
+                "AccumulatedMatch invariant: snap_score must be set iff "
+                f"snap_method == 'embedding' (got method={self.snap_method!r}, "
+                f"score={self.snap_score!r})"
+            )
+
 # Ensure WordNet lemmatiser data is available
 try:
     nltk.data.find("corpora/wordnet")
