@@ -685,6 +685,44 @@ def test_snap_all_stages_integration(tmp_path):
     assert ("s_b", 4) not in by_key
 
 
+def test_snap_streams_dropped_props_to_jsonl(tmp_path):
+    """Dropped properties stream to snap_dropped.jsonl (one record per line),
+    not buffered in memory and dumped as a single JSON document. This caps
+    memory at V2 scale where the dropped list could otherwise reach ~50MB.
+    """
+    import json as _json
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' will be dropped
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    jsonl_path = tmp_path / "snap_dropped.jsonl"
+    assert jsonl_path.exists(), (
+        f"expected {jsonl_path} (one JSON object per line); not found. "
+        f"tmp_path contents: {list(tmp_path.iterdir())}"
+    )
+    # Old buffered .json file must NOT be created.
+    json_path = tmp_path / "snap_dropped.json"
+    assert not json_path.exists(), (
+        "snap_dropped.json (single-document) must not be created — "
+        "the streaming JSONL replaces it"
+    )
+
+    with open(jsonl_path) as f:
+        lines = [line for line in f if line.strip()]
+
+    assert len(lines) >= 1
+    for line in lines:
+        record = _json.loads(line)  # each line is a complete JSON object
+        assert "reason" in record
+        assert "synset_id" in record
+        assert "text" in record
+
+
 def test_snap_logs_warning_with_per_reason_breakdown_on_drops(tmp_path, caplog):
     """When properties are dropped, log a WARNING with per-reason breakdown
     (zero_norm / no_embedding / below_threshold) so operators can distinguish

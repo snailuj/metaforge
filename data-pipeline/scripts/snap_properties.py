@@ -174,8 +174,38 @@ def snap_properties(
 
     stats: dict[str, int] = {"exact": 0, "morphological": 0, "embedding": 0, "dropped": 0}
     accumulated: dict[tuple[str, int], AccumulatedMatch] = {}
-    # Track dropped properties for diagnostics
-    dropped_props: list[dict] = []
+    # Per-reason drop counts (so we can log a breakdown without buffering records).
+    drop_counts: dict[str, int] = {}
+
+    # Resolve DB path up front so we can open the dropped-records JSONL stream.
+    # PRAGMA returns an empty string for ':memory:' connections — guard so we
+    # don't silently dump a JSONL into the caller's cwd.
+    db_path_str = conn.execute("PRAGMA database_list").fetchone()[2]
+    if db_path_str:
+        dropped_path: Path | None = Path(db_path_str).parent / "snap_dropped.jsonl"
+    else:
+        dropped_path = None
+        log.warning("skipping snap_dropped.jsonl: in-memory DB has no on-disk path")
+
+    # Lazy open: only create the file if at least one drop occurs. The handle is
+    # opened on first drop and closed in finally.
+    dropped_fh = None
+
+    def _record_drop(record: dict) -> None:
+        """Stream one drop record to JSONL and bump per-reason counter.
+
+        Streaming caps memory at V2 scale (~50MB if buffered as a list). Each
+        record is one self-contained line, so jq/grep work without loading the
+        whole file.
+        """
+        nonlocal dropped_fh
+        stats["dropped"] += 1
+        drop_counts[record["reason"]] = drop_counts.get(record["reason"], 0) + 1
+        if dropped_path is None:
+            return
+        if dropped_fh is None:
+            dropped_fh = open(dropped_path, "w")
+        dropped_fh.write(json.dumps(record) + "\n")
 
     def _merge(
         key: tuple[str, int],
@@ -298,16 +328,14 @@ def snap_properties(
                       f"(matched={stats['embedding']})", flush=True)
 
             if pid in zero_norm_pids:
-                stats["dropped"] += 1
-                dropped_props.append({"text": prop_text, "synset_id": sid,
-                                      "salience": salience, "reason": "zero_norm"})
+                _record_drop({"text": prop_text, "synset_id": sid,
+                              "salience": salience, "reason": "zero_norm"})
                 continue
 
             vec = emb_cache.get(pid)
             if vec is None:
-                stats["dropped"] += 1
-                dropped_props.append({"text": prop_text, "synset_id": sid,
-                                      "salience": salience, "reason": "no_embedding"})
+                _record_drop({"text": prop_text, "synset_id": sid,
+                              "salience": salience, "reason": "no_embedding"})
                 continue
 
             # Cosine similarities via single matrix-vector multiply
@@ -321,16 +349,14 @@ def snap_properties(
                 _merge((sid, best_cid), best_vid, "embedding", best_score, salience)
                 stats["embedding"] += 1
             else:
-                stats["dropped"] += 1
-                dropped_props.append({"text": prop_text, "synset_id": sid,
-                                      "salience": salience, "reason": "below_threshold",
-                                      "best_score": best_score})
+                _record_drop({"text": prop_text, "synset_id": sid,
+                              "salience": salience, "reason": "below_threshold",
+                              "best_score": best_score})
     else:
         # No vocab embeddings (or no residue) — every unmatched entry is dropped
         for sid, pid, prop_text, salience in unmatched:
-            stats["dropped"] += 1
-            dropped_props.append({"text": prop_text, "synset_id": sid,
-                                  "salience": salience, "reason": "no_embedding"})
+            _record_drop({"text": prop_text, "synset_id": sid,
+                          "salience": salience, "reason": "no_embedding"})
 
     inserts = [
         (sid, m.vocab_id, cid, m.snap_method, m.snap_score, m.salience_sum)
@@ -361,27 +387,23 @@ def snap_properties(
         stats["dropped"],
     )
 
-    if dropped_props:
+    if dropped_fh is not None:
+        dropped_fh.close()
+
+    if drop_counts:
         # Per-reason breakdown so operators can distinguish 'vocab embeddings broken'
         # (zero_norm) from 'OOV property text' (no_embedding) from 'noise above floor'
         # (below_threshold). Mirrors cluster_vocab.py's log.error pattern.
-        per_reason: dict[str, int] = {}
-        for d in dropped_props:
-            per_reason[d["reason"]] = per_reason.get(d["reason"], 0) + 1
         breakdown = ", ".join(
-            f"{reason}={count}" for reason, count in sorted(per_reason.items())
+            f"{reason}={count}" for reason, count in sorted(drop_counts.items())
         )
         log.warning(
             "Snap dropped %d property links: %s",
-            len(dropped_props),
+            sum(drop_counts.values()),
             breakdown,
         )
-
-        db_path = conn.execute("PRAGMA database_list").fetchone()[2]
-        dropped_path = Path(db_path).parent / "snap_dropped.json"
-        with open(dropped_path, "w") as f:
-            json.dump(dropped_props, f, indent=2)
-        log.info("Dropped properties written to %s", dropped_path)
+        if dropped_path is not None:
+            log.info("Dropped properties written to %s", dropped_path)
 
     return stats
 
