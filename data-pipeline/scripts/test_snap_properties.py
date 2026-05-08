@@ -1123,6 +1123,66 @@ def test_snap_logs_warning_when_vocab_clusters_table_missing(tmp_path, caplog):
     ), f"Expected WARNING about vocab_clusters; got: {[r.message for r in caplog.records]}"
 
 
+def test_snap_dropped_jsonl_handle_closed_on_mid_function_exception(tmp_path, monkeypatch):
+    """If Pass 2 raises after _record_drop has lazily opened the JSONL stream, the
+    finally clause must close the file handle so it does not leak. The on-disk
+    JSONL must be well-formed up to the failure point (each line a complete JSON
+    object).
+    """
+    import json as _json
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop in Stage 3
+
+    # Capture the file handle the closure opens so we can introspect after the raise.
+    opened_handles: list = []
+    real_open = open
+
+    def tracking_open(path, mode="r", *a, **kw):
+        fh = real_open(path, mode, *a, **kw)
+        if str(path).endswith("snap_dropped.jsonl"):
+            opened_handles.append(fh)
+        return fh
+
+    monkeypatch.setattr("builtins.open", tracking_open)
+
+    # Wrap conn so we can fail the bulk INSERT after drops have streamed.
+    # sqlite3.Connection attributes are read-only, so use a proxy object.
+    class FailingConn:
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def executemany(self, sql, params):
+            if "synset_properties_curated" in sql:
+                raise sqlite3.OperationalError("simulated mid-run failure")
+            return self._real.executemany(sql, params)
+
+    proxy = FailingConn(conn)
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            snap_properties(proxy, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    # The drops fixture only triggers no_embedding (Stage 3 fallback) — confirm a
+    # handle was opened, then closed by the finally clause.
+    assert opened_handles, "expected JSONL handle to be opened on at least one drop"
+    fh = opened_handles[0]
+    assert fh.closed, "dropped_fh must be closed by finally clause after exception"
+
+    # Lines on disk must be well-formed JSON (no torn writes).
+    jsonl_path = tmp_path / "snap_dropped.jsonl"
+    if jsonl_path.exists():
+        with real_open(jsonl_path) as f:
+            for line in f:
+                if line.strip():
+                    _json.loads(line)
+
+
 def test_snap_creates_salience_sum_column(tmp_path):
     """synset_properties_curated table includes salience_sum column."""
     from snap_properties import snap_properties

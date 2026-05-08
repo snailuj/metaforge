@@ -188,7 +188,9 @@ def snap_properties(
         log.warning("skipping snap_dropped.jsonl: in-memory DB has no on-disk path")
 
     # Lazy open: only create the file if at least one drop occurs. The handle is
-    # opened on first drop and closed in finally.
+    # opened on first drop inside _record_drop and closed by the finally clause
+    # below — this guarantees no leak even if Pass 2, executemany, executescript,
+    # or commit raises mid-stage.
     dropped_fh = None
 
     def _record_drop(record: dict) -> None:
@@ -239,156 +241,157 @@ def snap_properties(
                 existing.salience_sum + salience,
             )
 
-    # Pass 1 (Stages 1-2): stream synset-property cursor WITHOUT loading embedding blobs.
-    # The blob column is ~1.2 KB per row; the full join is ~245k rows ≈ 294 MB if
-    # materialised. By projecting only (synset_id, property_id, text, salience) we
-    # keep peak memory in the low MBs and only carry the unmatched residue forward.
-    # Unmatched entries: (synset_id, property_id, text, salience)
-    unmatched: list[tuple[str, int, str, float]] = []
-    seen = 0
-    pass1_cursor = conn.execute("""
-        SELECT sp.synset_id, sp.property_id, pv.text, sp.salience
-        FROM synset_properties sp
-        JOIN property_vocabulary pv ON pv.property_id = sp.property_id
-    """)
-    for sid, pid, prop_text, salience in pass1_cursor:
-        seen += 1
-        if seen % 20000 == 0:
-            print(f"    Stages 1-2: {seen} "
-                  f"(exact={stats['exact']}, morph={stats['morphological']})",
-                  flush=True)
+    try:
+        # Pass 1 (Stages 1-2): stream synset-property cursor WITHOUT loading embedding blobs.
+        # The blob column is ~1.2 KB per row; the full join is ~245k rows ≈ 294 MB if
+        # materialised. By projecting only (synset_id, property_id, text, salience) we
+        # keep peak memory in the low MBs and only carry the unmatched residue forward.
+        # Unmatched entries: (synset_id, property_id, text, salience)
+        unmatched: list[tuple[str, int, str, float]] = []
+        seen = 0
+        pass1_cursor = conn.execute("""
+            SELECT sp.synset_id, sp.property_id, pv.text, sp.salience
+            FROM synset_properties sp
+            JOIN property_vocabulary pv ON pv.property_id = sp.property_id
+        """)
+        for sid, pid, prop_text, salience in pass1_cursor:
+            seen += 1
+            if seen % 20000 == 0:
+                print(f"    Stages 1-2: {seen} "
+                      f"(exact={stats['exact']}, morph={stats['morphological']})",
+                      flush=True)
 
-        prop_lower = prop_text.lower().strip()
+            prop_lower = prop_text.lower().strip()
 
-        # Stage 1: Exact match
-        if prop_lower in vocab_by_lemma:
-            vid = vocab_by_lemma[prop_lower]
-            cid = cluster_lookup.get(vid, vid)
-            _merge((sid, cid), vid, "exact", None, salience)
-            stats["exact"] += 1
-            continue
-
-        # Stage 2: Morphological normalisation
-        matched = False
-        for variant in _lemmatise(prop_lower):
-            if variant in vocab_by_lemma:
-                vid = vocab_by_lemma[variant]
+            # Stage 1: Exact match
+            if prop_lower in vocab_by_lemma:
+                vid = vocab_by_lemma[prop_lower]
                 cid = cluster_lookup.get(vid, vid)
-                _merge((sid, cid), vid, "morphological", None, salience)
-                stats["morphological"] += 1
-                matched = True
-                break
-        if matched:
-            continue
-
-        # Defer to Pass 2 — stage 3 will fetch embeddings for residual property_ids only
-        unmatched.append((sid, pid, prop_text, salience))
-
-    total_links = seen
-    print(f"    Property links to snap: {total_links}", flush=True)
-    print(f"    Stage 3: {len(unmatched)} candidates for embedding match", flush=True)
-
-    # Pass 2 (Stage 3): cosine-similarity match for unmatched entries.
-    # Embeddings are fetched ONCE per unique property_id via a temp-table join,
-    # so blob memory scales with the unmatched residue, not with the full corpus.
-    if unmatched and has_vocab_embeddings:
-        unique_pids = {pid for _, pid, _, _ in unmatched}
-        emb_cache: dict[int, np.ndarray] = {}
-        zero_norm_pids: set[int] = set()
-
-        conn.execute(
-            "CREATE TEMP TABLE _snap_unmatched_pids (property_id INTEGER PRIMARY KEY)"
-        )
-        try:
-            conn.executemany(
-                "INSERT INTO _snap_unmatched_pids VALUES (?)",
-                [(pid,) for pid in unique_pids],
-            )
-            for pid, emb_blob in conn.execute("""
-                SELECT pv.property_id, pv.embedding
-                FROM property_vocabulary pv
-                JOIN _snap_unmatched_pids u ON u.property_id = pv.property_id
-                WHERE pv.embedding IS NOT NULL
-            """):
-                vec = np.array(
-                    struct.unpack(f"{EMBEDDING_DIM}f", emb_blob),
-                    dtype=np.float32,
-                )
-                norm = np.linalg.norm(vec)
-                if norm == 0:
-                    zero_norm_pids.add(pid)
-                else:
-                    emb_cache[pid] = vec / norm
-        finally:
-            conn.execute("DROP TABLE IF EXISTS _snap_unmatched_pids")
-
-        for j, (sid, pid, prop_text, salience) in enumerate(unmatched):
-            if (j + 1) % 2000 == 0:
-                print(f"    Stage 3: {j + 1}/{len(unmatched)} "
-                      f"(matched={stats['embedding']})", flush=True)
-
-            if pid in zero_norm_pids:
-                _record_drop({"text": prop_text, "synset_id": sid,
-                              "salience": salience, "reason": "zero_norm"})
+                _merge((sid, cid), vid, "exact", None, salience)
+                stats["exact"] += 1
                 continue
 
-            vec = emb_cache.get(pid)
-            if vec is None:
+            # Stage 2: Morphological normalisation
+            matched = False
+            for variant in _lemmatise(prop_lower):
+                if variant in vocab_by_lemma:
+                    vid = vocab_by_lemma[variant]
+                    cid = cluster_lookup.get(vid, vid)
+                    _merge((sid, cid), vid, "morphological", None, salience)
+                    stats["morphological"] += 1
+                    matched = True
+                    break
+            if matched:
+                continue
+
+            # Defer to Pass 2 — stage 3 will fetch embeddings for residual property_ids only
+            unmatched.append((sid, pid, prop_text, salience))
+
+        total_links = seen
+        print(f"    Property links to snap: {total_links}", flush=True)
+        print(f"    Stage 3: {len(unmatched)} candidates for embedding match", flush=True)
+
+        # Pass 2 (Stage 3): cosine-similarity match for unmatched entries.
+        # Embeddings are fetched ONCE per unique property_id via a temp-table join,
+        # so blob memory scales with the unmatched residue, not with the full corpus.
+        if unmatched and has_vocab_embeddings:
+            unique_pids = {pid for _, pid, _, _ in unmatched}
+            emb_cache: dict[int, np.ndarray] = {}
+            zero_norm_pids: set[int] = set()
+
+            conn.execute(
+                "CREATE TEMP TABLE _snap_unmatched_pids (property_id INTEGER PRIMARY KEY)"
+            )
+            try:
+                conn.executemany(
+                    "INSERT INTO _snap_unmatched_pids VALUES (?)",
+                    [(pid,) for pid in unique_pids],
+                )
+                for pid, emb_blob in conn.execute("""
+                    SELECT pv.property_id, pv.embedding
+                    FROM property_vocabulary pv
+                    JOIN _snap_unmatched_pids u ON u.property_id = pv.property_id
+                    WHERE pv.embedding IS NOT NULL
+                """):
+                    vec = np.array(
+                        struct.unpack(f"{EMBEDDING_DIM}f", emb_blob),
+                        dtype=np.float32,
+                    )
+                    norm = np.linalg.norm(vec)
+                    if norm == 0:
+                        zero_norm_pids.add(pid)
+                    else:
+                        emb_cache[pid] = vec / norm
+            finally:
+                conn.execute("DROP TABLE IF EXISTS _snap_unmatched_pids")
+
+            for j, (sid, pid, prop_text, salience) in enumerate(unmatched):
+                if (j + 1) % 2000 == 0:
+                    print(f"    Stage 3: {j + 1}/{len(unmatched)} "
+                          f"(matched={stats['embedding']})", flush=True)
+
+                if pid in zero_norm_pids:
+                    _record_drop({"text": prop_text, "synset_id": sid,
+                                  "salience": salience, "reason": "zero_norm"})
+                    continue
+
+                vec = emb_cache.get(pid)
+                if vec is None:
+                    _record_drop({"text": prop_text, "synset_id": sid,
+                                  "salience": salience, "reason": "no_embedding"})
+                    continue
+
+                # Cosine similarities via single matrix-vector multiply
+                scores = vocab_matrix @ vec  # shape: (n_vocab,)
+                best_idx = int(np.argmax(scores))
+                best_score = float(scores[best_idx])
+
+                if best_score >= embedding_threshold:
+                    best_vid = vocab_ids[best_idx]
+                    best_cid = cluster_lookup.get(best_vid, best_vid)
+                    _merge((sid, best_cid), best_vid, "embedding", best_score, salience)
+                    stats["embedding"] += 1
+                else:
+                    _record_drop({"text": prop_text, "synset_id": sid,
+                                  "salience": salience, "reason": "below_threshold",
+                                  "best_score": best_score})
+        else:
+            # No vocab embeddings (or no residue) — every unmatched entry is dropped
+            for sid, pid, prop_text, salience in unmatched:
                 _record_drop({"text": prop_text, "synset_id": sid,
                               "salience": salience, "reason": "no_embedding"})
-                continue
 
-            # Cosine similarities via single matrix-vector multiply
-            scores = vocab_matrix @ vec  # shape: (n_vocab,)
-            best_idx = int(np.argmax(scores))
-            best_score = float(scores[best_idx])
+        inserts = [
+            (sid, m.vocab_id, cid, m.snap_method, m.snap_score, m.salience_sum)
+            for (sid, cid), m in accumulated.items()
+        ]
+        conn.executemany(
+            "INSERT INTO synset_properties_curated "
+            "(synset_id, vocab_id, cluster_id, snap_method, snap_score, salience_sum) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            inserts,
+        )
 
-            if best_score >= embedding_threshold:
-                best_vid = vocab_ids[best_idx]
-                best_cid = cluster_lookup.get(best_vid, best_vid)
-                _merge((sid, best_cid), best_vid, "embedding", best_score, salience)
-                stats["embedding"] += 1
-            else:
-                _record_drop({"text": prop_text, "synset_id": sid,
-                              "salience": salience, "reason": "below_threshold",
-                              "best_score": best_score})
-    else:
-        # No vocab embeddings (or no residue) — every unmatched entry is dropped
-        for sid, pid, prop_text, salience in unmatched:
-            _record_drop({"text": prop_text, "synset_id": sid,
-                          "salience": salience, "reason": "no_embedding"})
+        # Create indexes after bulk insert
+        conn.executescript("""
+            CREATE INDEX IF NOT EXISTS idx_spc_synset ON synset_properties_curated(synset_id);
+            CREATE INDEX IF NOT EXISTS idx_spc_vocab ON synset_properties_curated(vocab_id);
+            CREATE INDEX IF NOT EXISTS idx_spc_cluster ON synset_properties_curated(cluster_id);
+        """)
+        conn.commit()
 
-    inserts = [
-        (sid, m.vocab_id, cid, m.snap_method, m.snap_score, m.salience_sum)
-        for (sid, cid), m in accumulated.items()
-    ]
-    conn.executemany(
-        "INSERT INTO synset_properties_curated "
-        "(synset_id, vocab_id, cluster_id, snap_method, snap_score, salience_sum) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        inserts,
-    )
-
-    # Create indexes after bulk insert
-    conn.executescript("""
-        CREATE INDEX IF NOT EXISTS idx_spc_synset ON synset_properties_curated(synset_id);
-        CREATE INDEX IF NOT EXISTS idx_spc_vocab ON synset_properties_curated(vocab_id);
-        CREATE INDEX IF NOT EXISTS idx_spc_cluster ON synset_properties_curated(cluster_id);
-    """)
-    conn.commit()
-
-    total = sum(stats.values())
-    log.info(
-        "Snapped %d property links: exact=%d, morphological=%d, embedding=%d, dropped=%d",
-        total,
-        stats["exact"],
-        stats["morphological"],
-        stats["embedding"],
-        stats["dropped"],
-    )
-
-    if dropped_fh is not None:
-        dropped_fh.close()
+        total = sum(stats.values())
+        log.info(
+            "Snapped %d property links: exact=%d, morphological=%d, embedding=%d, dropped=%d",
+            total,
+            stats["exact"],
+            stats["morphological"],
+            stats["embedding"],
+            stats["dropped"],
+        )
+    finally:
+        if dropped_fh is not None:
+            dropped_fh.close()
 
     if drop_counts:
         # Per-reason breakdown so operators can distinguish 'vocab embeddings broken'
