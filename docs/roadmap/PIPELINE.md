@@ -6,20 +6,18 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Active
 
-*(none)*
+- **M02 — Asymmetric Ortony Scoring** — vehicle-side salience weighting in forge scoring
+  - Why: smallest algorithm change that uses existing V2 data, directly attacks the scoring formula's biggest theoretical flaw (symmetric overlap). First real test of the eval harness.
+  - Depends on: M01 (✅ done) + code-review-loop ([PR #17](https://github.com/snailuj/metaforge/pull/17) pending merge)
+  - Detail: [M02-ortony-scoring-roadmap.md](M02-ortony-scoring-roadmap.md)
+  - Branch: `m02/asymmetric-ortony-scoring` (cut from review tip)
 
 ## Next
 
-- **Code-review-loop on M01 + snap memory-opt refactor** — `review/m01-and-snap-memopt` branch is frozen at the post-merge HEAD ready for a full-coverage review pass. Gates M02 promotion: don't kick off a new algorithm milestone before reviewing the harness work it'll be validated against.
-  - Why: M01 had S03-only code review (clean across 3 reviewers); the milestone deliverable + the snap memopt refactor merged alongside have not had a holistic pass.
-  - Memory anchor: `project_metaforge_m01_review_branch_pending.md` — has the in-scope file list, pre-existing failures to ignore, methodological caveats.
+*(none — M03 promotes once M02 lands)*
 
 ## Queued
 
-- **M02 — Asymmetric Ortony Scoring** — vehicle-side salience weighting in forge scoring
-  - Why: smallest algorithm change that uses existing V2 data, directly attacks the scoring formula's biggest theoretical flaw (symmetric overlap). First real test of the eval harness.
-  - Depends on: M01 (✅ done) + code-review-loop above
-  - Detail: *(to be created — `docs/roadmap/M02-ortony-scoring-roadmap.md`)*
 - **M03 — Cascade Gate-and-Rank** — concreteness gate → Ortony rank → domain distance re-rank. Restructures the pipeline architecture, wires in concreteness prediction.
   - Depends on: M02
 - **M04 — Type-Aligned Structural Matching** — preserve property types during snap, type-diversity bonus in scoring. Lightweight approximation of SME isomorphic subgraph matching using data the pipeline already extracts.
@@ -40,6 +38,7 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Done (newest first)
 
+- **Code-review-loop on M01 + snap memory-opt refactor** *(PR [#17](https://github.com/snailuj/metaforge/pull/17) — pending merge)* — Holistic 4-round oscillating review (pr-review-toolkit ×3, superpowers, standards). 29 fix commits, 23 new tests (suite 512 → 535), 16 active deferrals captured. Round 4 CLEAN halt. Detail: `docs/superpowers/review-logs/2026-05-08-review-m01-and-snap-memopt-review.md`.
 - **M01 — Automated Eval Harness** *(merged 2026-05-03)* — discriminative aptness evaluator, parameter sweep harness, MUNCH preprocessor, scoring-fn registry, baseline + sensitivity sweep configs, `SENSITIVITY-V2-FINDINGS.md`. S01 V2 Foundation + Aptness Evaluator, S02 Parameter Sweep Harness, S03 Baseline and Sensitivity Validation all delivered. ([roadmap](M01-eval-harness-roadmap.md), [context](M01-eval-harness-context.md))
 - **Sprint Zero** — Backend API, data pipeline foundations, staging deployment.
 
