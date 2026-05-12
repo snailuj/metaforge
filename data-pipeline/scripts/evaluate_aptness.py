@@ -208,6 +208,50 @@ def _ortony_vehicle_salience(
     return sum(pb[c] for c in shared) / vehicle_mass
 
 
+def _ortony_imbalance(
+    pa: Mapping[int, float], pb: Mapping[int, float],
+) -> float:
+    """Imbalance-weighted asymmetric scoring (Ortony 1979, variant 2).
+
+    Formula:
+        f(pa, pb) = (Σ_{c ∈ pa ∩ pb} pb[c] × max(0, pb[c] − pa[c]))
+                   / (Σ_{c ∈ pb} pb[c]²)
+
+    Reads as "fraction of the vehicle's imbalance-weighted prominence
+    captured by properties on which the vehicle is more salient than
+    the topic". Bounded [0, 1] because each numerator term is at most
+    pb[c]² (when pa[c]=0 on a shared cluster) and the numerator only
+    sums over shared clusters whereas the denominator covers all
+    vehicle clusters.
+
+    Difference from :func:`_ortony_vehicle_salience`: equal-salience
+    properties contribute zero (max(0, pb − pa) = 0 when pb = pa).
+    This directly targets the MUNCH-bias mechanism — paraphrase pairs
+    that share equally-salient surface properties cannot move the
+    score in this formula, addressing the failure mode documented in
+    `data-pipeline/sweeps/M02-S02-sweep-findings.md`.
+
+    Asymmetric by construction: swapping (pa, pb) changes BOTH the
+    per-term subtraction direction (negative values clamp to zero) and
+    the normaliser, so the answer differs for any non-equal
+    distributions.
+
+    Zero-vehicle-mass guard: if Σ pb[c]² == 0 the formula is undefined
+    (empty vehicle or all-zero saliences); return 0.0 by convention to
+    mirror the cosine_salience and ortony_vehicle_salience guards.
+    """
+    squared_mass = sum(v * v for v in pb.values())
+    if squared_mass <= 0.0:
+        return 0.0
+    shared = set(pa) & set(pb)
+    if not shared:
+        return 0.0
+    numerator = sum(
+        pb[c] * max(0.0, pb[c] - pa[c]) for c in shared
+    )
+    return numerator / squared_mass
+
+
 def _random_uniform(
     pa: Mapping[int, float], pb: Mapping[int, float],
 ) -> float:
@@ -256,6 +300,7 @@ SCORING_FNS: dict[str, ScoringFn] = {
     "jaccard_raw": _jaccard_raw,
     "cosine_salience": _cosine_salience,
     "ortony_vehicle_salience": _ortony_vehicle_salience,
+    "ortony_imbalance": _ortony_imbalance,
     "random_uniform": _random_uniform,
 }
 

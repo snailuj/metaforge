@@ -16,6 +16,7 @@ from evaluate_aptness import (
     _cosine_salience,
     _jaccard_raw,
     _jaccard_salience,
+    _ortony_imbalance,
     _ortony_vehicle_salience,
     _random_uniform,
     aggregate_metrics,
@@ -582,6 +583,101 @@ def test_ortony_vehicle_salience_zero_vehicle_mass_returns_zero():
     zero-norm guard so the registry stays uniformly safe."""
     assert _ortony_vehicle_salience({1: 1.0}, {1: 0.0, 2: 0.0}) == 0.0
     assert _ortony_vehicle_salience({}, {}) == 0.0
+
+
+# --- ortony_imbalance (asymmetric, equal-salience penalised) ----------------
+
+# Formula contract: imbalance-weighted vehicle dominance —
+#   f(pa, pb) = (Σ_{c ∈ pa ∩ pb} pb[c] × max(0, pb[c] − pa[c]))
+#              / (Σ_{c ∈ pb} pb[c]²)
+# Reads as "fraction of the vehicle's imbalance-weighted prominence captured
+# by properties on which the vehicle is more salient than the topic". Bounded
+# [0, 1]: per shared term ≤ pb[c]², numerator's shared-only sum ≤ Σ_{c ∈ pb}
+# pb[c]² which is the denominator. Asymmetric: swapping (pa, pb) changes
+# both the per-term subtraction direction AND the normaliser.
+#
+# Difference from ortony_vehicle_salience: equal-salience properties
+# contribute zero here (max(0, pb − pa) = 0 when pb = pa). This directly
+# targets the MUNCH-bias mechanism — paraphrase pairs that share equally-
+# salient surface properties cannot move the score in this formula.
+
+
+def test_ortony_imbalance_registered_in_scoring_fns():
+    """M02-S02 contract: ortony_imbalance exposed alongside the rest."""
+    assert "ortony_imbalance" in SCORING_FNS
+    assert SCORING_FNS["ortony_imbalance"] is _ortony_imbalance
+
+
+def test_ortony_imbalance_known_overlap():
+    """Crafted case — verifies the imbalance-weighted formula end-to-end."""
+    pa = {1: 0.3, 2: 0.0}
+    pb = {1: 0.9, 3: 0.5}
+    # shared = {1}: term = pb[1] × max(0, pb[1] − pa[1])
+    #                     = 0.9 × max(0, 0.9 − 0.3) = 0.9 × 0.6 = 0.54
+    # vehicle squared-mass = pb[1]² + pb[3]² = 0.81 + 0.25 = 1.06
+    # score = 0.54 / 1.06
+    assert _ortony_imbalance(pa, pb) == pytest.approx(0.54 / 1.06)
+
+
+def test_ortony_imbalance_equal_salience_contributes_zero():
+    """Property equally salient in topic and vehicle contributes zero —
+    that's the formula's whole point. If shared properties are *only*
+    equally salient, the score collapses to 0."""
+    pa = {1: 0.7, 2: 0.3}
+    pb = {1: 0.7, 2: 0.3}
+    # shared = {1, 2}; each term = pb × max(0, pb − pa) = pb × 0 = 0
+    assert _ortony_imbalance(pa, pb) == 0.0
+
+
+def test_ortony_imbalance_no_overlap_is_zero():
+    assert _ortony_imbalance({1: 1.0, 2: 1.0}, {3: 1.0, 4: 1.0}) == 0.0
+
+
+def test_ortony_imbalance_is_asymmetric():
+    """Swapping (pa, pb) changes both the subtraction direction and the
+    normaliser, so the score must differ for asymmetric inputs."""
+    pa = {1: 0.1, 2: 0.0}
+    pb = {1: 0.9, 2: 0.5}
+    forward = _ortony_imbalance(pa, pb)
+    backward = _ortony_imbalance(pb, pa)
+    assert forward != backward
+    # Forward: shared = {1, 2}
+    #   term1 = 0.9 × max(0, 0.9 − 0.1) = 0.9 × 0.8 = 0.72
+    #   term2 = 0.5 × max(0, 0.5 − 0.0) = 0.5 × 0.5 = 0.25
+    #   denom = 0.81 + 0.25 = 1.06
+    #   forward = 0.97 / 1.06
+    assert forward == pytest.approx(0.97 / 1.06)
+    # Backward: pa'={1:0.9, 2:0.5}, pb'={1:0.1, 2:0.0}
+    #   term1 = 0.1 × max(0, 0.1 − 0.9) = 0.1 × 0 = 0
+    #   term2 = 0.0 × max(0, 0.0 − 0.5) = 0.0 × 0 = 0
+    #   backward = 0 / (0.01 + 0.0) = 0.0
+    assert backward == 0.0
+
+
+def test_ortony_imbalance_topic_dominates_returns_zero():
+    """When the topic is uniformly MORE salient on every shared cluster,
+    every max(0, pb − pa) clamps to 0 → score is 0."""
+    pa = {1: 0.9, 2: 0.8}
+    pb = {1: 0.1, 2: 0.05}
+    # Every shared term clamps to 0
+    assert _ortony_imbalance(pa, pb) == 0.0
+
+
+def test_ortony_imbalance_in_unit_interval():
+    """Bounded [0, 1]: the maximum is achieved when every vehicle cluster
+    is shared, pa[c]=0 on every shared cluster — then numerator = Σ pb[c]²
+    = denominator → score = 1.0."""
+    pa = {1: 0.0, 2: 0.0}
+    pb = {1: 0.9, 2: 0.5}
+    # shared = {1, 2}, terms = pb² each, denom = Σ pb², ratio = 1.0
+    assert _ortony_imbalance(pa, pb) == pytest.approx(1.0)
+
+
+def test_ortony_imbalance_zero_vehicle_mass_returns_zero():
+    """All-zero vehicle saliences → squared-mass denominator is 0 → score
+    0.0 (not NaN). Mirrors the zero-norm guard on the sibling formulas."""
+    assert _ortony_imbalance({1: 1.0}, {1: 0.0, 2: 0.0}) == 0.0
+    assert _ortony_imbalance({}, {}) == 0.0
 
 
 # --- random_uniform null control --------------------------------------------
