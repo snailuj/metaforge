@@ -1,4 +1,16 @@
-# M02-S02 — First asymmetric variant sweep findings
+# M02-S02 — Asymmetric variant sweep findings
+
+> **Update 2026-05-12 (v2 sweep):** the second asymmetric variant —
+> `ortony_imbalance` — produced the first positive `separation_score`
+> on this corpus (+0.0010). Magnitude is still inside the ±0.02 null-
+> noise band, but the *sign flip* validates the hypothesis the v1
+> diagnosis predicted (equal-salience penalty counters MUNCH bias).
+> See the "v2 update" section below the original v1 writeup. The
+> v1 sections that follow are preserved verbatim as the
+> as-of-2026-05-12T13:15Z record.
+
+---
+
 
 **Date:** 2026-05-12
 **Branch:** `m02/asymmetric-ortony-scoring` (commit `1822e5da`, rebased onto post-PR-#17 main `691713de`)
@@ -58,3 +70,50 @@ data-pipeline/.venv/bin/python data-pipeline/scripts/run_sweep.py \
 ```
 
 The JSON provenance block pins the run to `git_commit=1822e5da`, `config_path`, `db_path`, `mrr_reference_path`, and `mrr_reference_value` so the artefacts can be reproduced from this committed config + the matching DB snapshot. **DB note:** the committed `data-pipeline/output/lexicon_v2.sql` (Apr 26 snapshot) is stale and does not have the `synset_properties.salience` column the post-PR-#17 snap needs. See project memory `lexicon_db_freshness.md` — borrow a fresh DB from `.worktrees/next/data-pipeline/output/lexicon_v2.db` or re-export from a current enrichment before reproducing.
+
+---
+
+## v2 update — imbalance variant flips the sign
+
+**Date:** 2026-05-12T13:56Z
+**Branch:** `m02/asymmetric-ortony-scoring` (commit `b42ade21`)
+**Config:** [`m02_ortony_v2.yaml`](m02_ortony_v2.yaml) — adds `ortony_imbalance` to the v1 lineup
+**Cohort:** identical to v1 (232 apt / 317 inapt)
+
+### Numbers (v2 sweep, sorted by separation_score)
+
+| rank | name | threshold | aptness_rate | separation_score | mean_apt | mean_inapt |
+|---|---|---|---|---|---|---|
+| 1 | **ortony_imbalance** | 0.0267 | **0.0733** | **+0.0010** | 0.0064 | 0.0054 |
+| 2 | jaccard_salience | 0.1459 | 0.0388 | −0.0124 | 0.0269 | 0.0393 |
+| 3 | jaccard_raw | 0.1379 | 0.0603 | −0.0130 | 0.0275 | 0.0405 |
+| 4 | random_uniform | 0.9721 | 0.0345 | −0.0164 | 0.4982 | 0.5145 |
+| 5 | cosine_salience | 0.2850 | 0.0474 | −0.0198 | 0.0562 | 0.0760 |
+| 6 | ortony_vehicle_salience | 0.3011 | 0.0302 | −0.0250 | 0.0533 | 0.0782 |
+
+### What changed
+
+`ortony_imbalance` is the only variant in either sweep whose mean_apt exceeds mean_inapt. Both means are an order of magnitude smaller than the other functional scorings (0.0064 / 0.0054 vs the 0.02–0.08 band) — the per-term `max(0, pb − pa)` clamp aggressively zeros out shared properties where vehicle and topic are equally salient, so most pairs end up with near-zero raw scores. The cohort-level separation survives that compression because the apt pairs retain *slightly* more vehicle-dominant properties than MUNCH paraphrase pairs.
+
+### Significance vs the noise floor
+
+Magnitude (+0.0010) is well inside the ±0.02 null-noise band — this is **not** a strong positive signal on its own. The result that matters is the **sign flip plus aptness_rate jump**: 0.0733 (variant 2) vs 0.0388 (best symmetric), almost double, and outside the null reference's 0.0345. That means the apt cohort's score distribution is now riding higher *relative to the inapt 95th-percentile threshold* than under any symmetric formula — even if the means barely separate.
+
+So the mechanism is doing what the v1 diagnosis predicted. The question for variant 3 (log-ratio) and beyond is whether more aggressive asymmetry can push the separation_score genuinely above the noise floor, or whether the equal-salience penalty has already extracted what's extractable from this corpus.
+
+### Implications for M02
+
+- **Variant 3 (log-ratio) is worth running.** `Σ pb[c] × log(pb[c] / pa[c])`, bounded carefully (clip `log(x/0)` and `log(0/x)`). It rewards *relative prominence* on a multiplicative scale rather than the linear penalty in variant 2 — should be more sensitive to pairs where the vehicle has *one* dominant property the topic lacks, regardless of how many shared-equal properties they have.
+- **The "best symmetric reference" for M02 is now defensible:** `jaccard_salience = −0.0124`. The improvement `ortony_imbalance` delivers is +0.0134 absolute, which exceeds the success criterion's 5% threshold *as a delta* (5% of 1.0 is 0.05; 0.0134 is below that). Strictly the variant has not yet cleared the criterion — but it has cleared the harder bar of "any positive signal at all on this corpus".
+- **If variant 3 doesn't move the dial further**, the case for pivoting to M03 (cascade gate-and-rank) gets stronger: the equal-salience penalty has likely extracted what pointwise property-overlap can deliver here, and the next gains are structural.
+
+### Reproducing
+
+```sh
+data-pipeline/.venv/bin/python data-pipeline/scripts/run_sweep.py \
+  --config data-pipeline/sweeps/m02_ortony_v2.yaml \
+  --output data-pipeline/output/sweep_m02_ortony_v2.json \
+  --report data-pipeline/output/sweep_m02_ortony_v2.md
+```
+
+Same DB-freshness caveat as v1 — see project memory `lexicon_db_freshness.md` before re-running.

@@ -1,0 +1,41 @@
+# M02-S02 sweep v2 — adds the imbalance-weighted asymmetric variant.
+#
+# Sits next to m02_ortony_v1.yaml — both kept committed so the v1 sweep
+# stays reproducible against the findings doc that quotes it. v2 adds
+# ortony_imbalance (variant 2 from the roadmap) which penalises
+# equal-salience properties — directly targeting the MUNCH-bias mechanism
+# documented in M02-S02-sweep-findings.md.
+#
+# Run with:
+#   data-pipeline/.venv/bin/python data-pipeline/scripts/run_sweep.py \
+#     --config data-pipeline/sweeps/m02_ortony_v2.yaml \
+#     --output data-pipeline/output/sweep_m02_ortony_v2.json \
+#     --report data-pipeline/output/sweep_m02_ortony_v2.md
+#
+# Outputs land under data-pipeline/output/ (gitignored).
+
+name: m02_ortony_v2
+db: data-pipeline/output/lexicon_v2.db
+pairs: data-pipeline/fixtures/metaphor_pairs_v2.json
+controls: data-pipeline/fixtures/munch_inapt.jsonl
+mrr_reference: data-pipeline/output/eval_baseline_v2.json
+
+variations:
+  - name: jaccard_salience
+    scoring: jaccard_salience
+    threshold_percentile: 95
+  - name: jaccard_raw
+    scoring: jaccard_raw
+    threshold_percentile: 95
+  - name: cosine_salience
+    scoring: cosine_salience
+    threshold_percentile: 95
+  - name: ortony_vehicle_salience
+    scoring: ortony_vehicle_salience
+    threshold_percentile: 95
+  - name: ortony_imbalance
+    scoring: ortony_imbalance
+    threshold_percentile: 95
+  - name: random_uniform
+    scoring: random_uniform
+    threshold_percentile: 95
