@@ -248,8 +248,19 @@ def snap_properties(
             if dropped_fh is not None:
                 try:
                     dropped_fh.close()
-                except OSError:
-                    pass
+                except OSError as close_exc:
+                    # Symmetric to the outer dropped_fh close-guard in the
+                    # finally block: a close failure here must not be
+                    # silently swallowed or we lose the only trace that
+                    # recovery itself was lossy. Diagnostic stream is
+                    # already being torn down, so just log and continue.
+                    log.warning(
+                        "snap_dropped.jsonl close failed during "
+                        "write-error recovery (%s: %s); diagnostic "
+                        "stream disabled",
+                        type(close_exc).__name__,
+                        close_exc,
+                    )
             dropped_fh = None
             dropped_path = None
 

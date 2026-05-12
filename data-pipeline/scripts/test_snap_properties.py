@@ -1706,3 +1706,97 @@ def test_snap_dropped_fh_close_failure_does_not_mask_original_exception(
         "expected WARNING about snap_dropped.jsonl close failure; "
         f"got: {warning_messages}"
     )
+
+
+def test_snap_dropped_fh_inner_close_failure_is_logged(tmp_path, caplog):
+    """Symmetric to the outer-close test above: when ``_record_drop`` hits a
+    write failure and falls into its recovery branch, the recovery branch
+    *itself* calls ``dropped_fh.close()`` to release the handle before
+    setting it to None. If that close raises (rare: same NFS/EIO class as
+    the outer case), the close-time error must be logged — otherwise we
+    violate the project's "all handled errors are logged" rule and lose
+    the only trace that recovery itself was lossy.
+
+    Trigger:
+      * Patch the JSONL handle so write() raises OSError → recovery branch
+      * Same handle's close() also raises OSError → inner-close gap
+
+    Expected after fix:
+      * snap completes normally (drops are diagnostic-only, recovery
+        disables further JSONL writes; no exception escapes)
+      * WARNING logged for the original write failure (already logged today)
+      * WARNING logged for the close-during-recovery failure (the gap)
+    """
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop in Stage 3
+
+    real_open = open
+
+    class _WriteAndCloseFailingFile:
+        """Handle that fails both write() and close() with OSError.
+
+        Mirrors the outer-close test's _CloseFailingFile pattern; the extra
+        write() failure here is what drives execution into the inner
+        recovery branch in the first place.
+        """
+
+        def __init__(self, fh):
+            self._fh = fh
+            self._closed = False
+
+        def write(self, *a, **kw):
+            raise OSError("simulated ENOSPC on write")
+
+        def close(self):
+            self._closed = True
+            raise OSError("simulated EIO on inner recovery close")
+
+        @property
+        def closed(self):
+            return self._closed or self._fh.closed
+
+    def wrapping_open(path, mode="r", *a, **kw):
+        fh = real_open(path, mode, *a, **kw)
+        if str(path).endswith("snap_dropped.jsonl"):
+            return _WriteAndCloseFailingFile(fh)
+        return fh
+
+    import builtins
+
+    original_open = builtins.open
+    builtins.open = wrapping_open
+    try:
+        with caplog.at_level(logging.WARNING, logger="snap_properties"):
+            # No exception should escape — drops are diagnostic-only and the
+            # recovery branch is meant to degrade gracefully.
+            snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        builtins.open = original_open
+        conn.close()
+
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+
+    # Existing behaviour: the write failure is already logged by _record_drop.
+    assert any(
+        "snap_dropped" in m and "skipping" in m.lower()
+        for m in warning_messages
+    ), (
+        "expected WARNING about the original write failure; "
+        f"got: {warning_messages}"
+    )
+
+    # The gap Qodo flagged: the inner close failure must also be logged.
+    assert any(
+        "snap_dropped" in m
+        and "close" in m.lower()
+        and "recovery" in m.lower()
+        for m in warning_messages
+    ), (
+        "expected WARNING about the close-during-recovery failure; "
+        f"got: {warning_messages}"
+    )
