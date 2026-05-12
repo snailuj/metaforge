@@ -67,7 +67,7 @@ The current registry sits in `evaluate_aptness.py`'s `SCORING_FNS`. Each entry m
 
 ## Open questions
 
-- **Does the current pipeline produce per-side salience scores, or are they collapsed by the time scoring runs?** The post-M02-merge snap accumulator (rewritten in PR #17) carries `salience_sum` per (synset, cluster). Need to verify whether the forge endpoint hands the scoring fn enough info to compute `salience_B(p)` and `salience_A(p)` independently.
+- ~~**Does the current pipeline produce per-side salience scores, or are they collapsed by the time scoring runs?**~~ **Resolved 2026-05-12.** The eval-harness scoring registry already takes both sides separately: `ScoringFn = Callable[[Mapping[int, float], Mapping[int, float]], float]` (`evaluate_aptness.py:110-119`), and `_get_properties(conn, synset_id)` returns a per-synset `{cluster_id: salience_sum}` dict (`evaluate_aptness.py:98-105`). Asymmetric variants drop straight in as new entries in `SCORING_FNS` — no contract widening required. The Go forge handler is a separate question for Phase 3 wiring.
 - **Which baseline to compare against — pre-PR-#17 main, or post-PR-#17 (the new snap behaviour)?** The PR-#17 review loop changed snap accumulator semantics (higher-quality method wins on collision). A small number of `synset_properties_curated` rows will differ. Strongly recommend re-running `baseline_v2.yaml` on the post-PR-#17 DB *before* M02 lands its first asymmetric variant — that re-establishes the symmetric baseline against the new snap state.
 - **Should we ship a "Substack post" with the M02 results?** PIPELINE.md backlog notes 2-3 Substack posts as MVP-required. An "asymmetric scoring beats symmetric by X%" narrative is exactly the kind of post that wants to exist alongside this milestone.
 
@@ -90,5 +90,5 @@ Each slice is its own commit set on `m02/asymmetric-ortony-scoring`. A slice = o
 
 - [ ] PR #17 (code-review-loop) is merged to main, this branch rebased onto updated main
 - [ ] `baseline_v2.yaml` re-run on the post-PR-#17 DB to confirm the symmetric reference numbers
-- [ ] Read `evaluate_aptness.py:SCORING_FNS` to confirm the current registry signature and per-side data availability
-- [ ] Read the M01 SENSITIVITY-V2-FINDINGS doc for the existing symmetric baseline numbers
+- [x] Read `evaluate_aptness.py:SCORING_FNS` to confirm the current registry signature and per-side data availability *(2026-05-12 — confirmed asymmetric-ready, see Open Questions)*
+- [x] Read the M01 SENSITIVITY-V2-FINDINGS doc for the existing symmetric baseline numbers *(2026-05-12 — noise band ±0.02 on current cohort sizes; baseline aptness_rate 0.0849, separation_score 0.0103 per CLAUDE.md)*
