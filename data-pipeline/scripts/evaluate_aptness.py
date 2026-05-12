@@ -252,6 +252,58 @@ def _ortony_imbalance(
     return numerator / squared_mass
 
 
+def _ortony_log_ratio(
+    pa: Mapping[int, float], pb: Mapping[int, float],
+) -> float:
+    """Vehicle-mass-weighted sigmoid-of-log-ratio dominance (variant 3).
+
+    Formula:
+        f(pa, pb) = (Σ_{c ∈ pa ∩ pb} pb[c]² / (pa[c] + pb[c]))
+                   / (Σ_{c ∈ pb} pb[c])
+
+    Bounded analogue of the M02 roadmap's "log-ratio" candidate
+    (``Σ pb × log(pb/pa)``), which is unbounded above (pa → 0 sends
+    log to +∞) and unbounded below (pb < pa sends it negative) and so
+    breaks the [0, 1] registry contract. The substitution
+    ``log(pb/pa) → sigmoid(log(pb/pa)) = pb/(pa+pb)`` preserves the
+    "reward log-relative vehicle dominance" intuition while staying
+    bounded by construction.
+
+    Per-term reading: pb[c]² / (pa[c] + pb[c]) — vehicle salience
+    weighted by the vehicle's dominance fraction over the shared
+    cluster. Normalised by total vehicle salience mass.
+
+    Behavioural corners:
+      * ``pa[c] → 0`` on a shared cluster: term → pb[c]² / pb[c] = pb[c]
+        — collapses to the ortony_vehicle_salience contribution
+        (vehicle fully dominates).
+      * ``pa[c] = pb[c]``: term → pb[c]² / (2 pb[c]) = pb[c]/2 — softer
+        penalty than ortony_imbalance, which would zero the term.
+      * ``pa[c] ≫ pb[c]``: term → ~0 — topic dominates the shared
+        cluster, vehicle contributes little.
+
+    Zero-vehicle-mass guard: if Σ pb[c] == 0 (empty vehicle or all-zero
+    saliences) the formula is undefined; return 0.0 by convention,
+    mirroring the other ortony variants.
+    """
+    vehicle_mass = sum(pb.values())
+    if vehicle_mass <= 0.0:
+        return 0.0
+    shared = set(pa) & set(pb)
+    if not shared:
+        return 0.0
+    numerator = 0.0
+    for c in shared:
+        denom = pa[c] + pb[c]
+        if denom <= 0.0:
+            # pa[c] == pb[c] == 0 on a shared cluster — would be a strange
+            # data shape (curated salience values are normally > 0) but
+            # guard so we never propagate a 0/0 NaN.
+            continue
+        numerator += (pb[c] * pb[c]) / denom
+    return numerator / vehicle_mass
+
+
 def _random_uniform(
     pa: Mapping[int, float], pb: Mapping[int, float],
 ) -> float:
@@ -301,6 +353,7 @@ SCORING_FNS: dict[str, ScoringFn] = {
     "cosine_salience": _cosine_salience,
     "ortony_vehicle_salience": _ortony_vehicle_salience,
     "ortony_imbalance": _ortony_imbalance,
+    "ortony_log_ratio": _ortony_log_ratio,
     "random_uniform": _random_uniform,
 }
 
