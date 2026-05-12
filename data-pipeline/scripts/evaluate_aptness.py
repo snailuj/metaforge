@@ -173,6 +173,41 @@ def _cosine_salience(
     return dot / (na * nb)
 
 
+def _ortony_vehicle_salience(
+    pa: Mapping[int, float], pb: Mapping[int, float],
+) -> float:
+    """Asymmetric vehicle-coverage scoring (Ortony 1979, normalised).
+
+    Formula:
+        f(pa, pb) = (Σ_{c ∈ pa ∩ pb} pb[c]) / (Σ_{c ∈ pb} pb[c])
+
+    Reads as "what fraction of the vehicle's salience mass is captured
+    by properties also present in the topic". Bounded [0, 1] because the
+    numerator is a subset-sum of the denominator.
+
+    Asymmetric by construction: swapping (pa, pb) normalises by a
+    different mass and so produces a different score whenever the
+    salience distributions differ. This is the M02 hypothesis: the
+    symmetric variants (jaccard_salience, jaccard_raw, cosine_salience)
+    treat overlap as overlap; Ortony's account of metaphor says the
+    vehicle contributes its high-salience properties to the topic,
+    regardless of how salient those properties are in the topic, and
+    that asymmetry should be reflected in the score.
+
+    Zero-vehicle-mass guard: if Σ pb[c] == 0 (empty vehicle or all-zero
+    saliences) the formula is undefined; return 0.0 by convention to
+    mirror the cosine_salience zero-norm handling and keep the registry
+    uniformly safe.
+    """
+    vehicle_mass = sum(pb.values())
+    if vehicle_mass <= 0.0:
+        return 0.0
+    shared = set(pa) & set(pb)
+    if not shared:
+        return 0.0
+    return sum(pb[c] for c in shared) / vehicle_mass
+
+
 def _random_uniform(
     pa: Mapping[int, float], pb: Mapping[int, float],
 ) -> float:
@@ -220,6 +255,7 @@ SCORING_FNS: dict[str, ScoringFn] = {
     "jaccard_salience": _jaccard_salience,
     "jaccard_raw": _jaccard_raw,
     "cosine_salience": _cosine_salience,
+    "ortony_vehicle_salience": _ortony_vehicle_salience,
     "random_uniform": _random_uniform,
 }
 

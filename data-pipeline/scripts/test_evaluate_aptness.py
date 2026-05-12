@@ -16,6 +16,7 @@ from evaluate_aptness import (
     _cosine_salience,
     _jaccard_raw,
     _jaccard_salience,
+    _ortony_vehicle_salience,
     _random_uniform,
     aggregate_metrics,
     classify_aptness,
@@ -510,6 +511,77 @@ def test_cosine_salience_zero_norm_returns_zero():
     """All-zero salience on either side → zero norm → score 0.0 (not NaN)."""
     assert _cosine_salience({1: 0.0, 2: 0.0}, {1: 1.0, 2: 1.0}) == 0.0
     assert _cosine_salience({}, {}) == 0.0
+
+
+# --- ortony_vehicle_salience (asymmetric) -----------------------------------
+
+# Formula contract: normalised vehicle-side coverage —
+#   f(pa, pb) = (Σ_{c ∈ pa ∩ pb} pb[c]) / (Σ_{c ∈ pb} pb[c])
+# Reads as "what fraction of the vehicle's salience mass is captured by
+# properties also present in the topic". Bounded [0, 1] by construction
+# (numerator is a subset-sum of the denominator). Asymmetric: swapping
+# (pa, pb) normalises by a different mass and so produces a different
+# score whenever salience distributions differ — that asymmetry is the
+# defining behavioural property versus the three symmetric variants.
+
+
+def test_ortony_vehicle_salience_registered_in_scoring_fns():
+    """M02-S01 contract: ortony_vehicle_salience exposed alongside the S03 set."""
+    assert "ortony_vehicle_salience" in SCORING_FNS
+    assert SCORING_FNS["ortony_vehicle_salience"] is _ortony_vehicle_salience
+
+
+def test_ortony_vehicle_salience_known_overlap():
+    """Crafted case verifies the normalised-coverage formula end-to-end."""
+    pa = {1: 0.9, 2: 0.6}
+    pb = {1: 0.85, 3: 0.7}
+    # shared = {1}: num = pb[1] = 0.85
+    # vehicle mass = pb[1]+pb[3] = 0.85+0.7 = 1.55
+    assert _ortony_vehicle_salience(pa, pb) == pytest.approx(0.85 / 1.55)
+
+
+def test_ortony_vehicle_salience_no_overlap_is_zero():
+    """Disjoint cluster_ids → empty intersection → numerator 0 → score 0."""
+    assert _ortony_vehicle_salience({1: 1.0, 2: 1.0}, {3: 1.0, 4: 1.0}) == 0.0
+
+
+def test_ortony_vehicle_salience_is_asymmetric():
+    """Swapping (pa, pb) must change the score when salience distributions
+    differ — this is the defining property of the formula vs the three
+    symmetric variants.
+
+    pa has high salience on cluster 1 (its shared cluster).
+    pb has cluster 1 as a small fraction of its total mass.
+    → score(pa,pb) is small (1 contributes only ~14% of pb's mass).
+    → score(pb,pa) is large (1 contributes ~90% of pa's mass).
+    """
+    pa = {1: 0.9, 2: 0.1}
+    pb = {1: 0.1, 3: 0.6}
+    forward = _ortony_vehicle_salience(pa, pb)
+    backward = _ortony_vehicle_salience(pb, pa)
+    assert forward != backward
+    # Sanity-check direction matches the docstring rationale above:
+    assert forward == pytest.approx(0.1 / 0.7)
+    assert backward == pytest.approx(0.9 / 1.0)
+
+
+def test_ortony_vehicle_salience_in_unit_interval():
+    """Score is bounded [0, 1] because the numerator is a subset-sum of
+    the denominator. Spot-check against an extreme: vehicle fully
+    contained in topic → score = 1.0."""
+    pa = {1: 0.9, 2: 0.6, 3: 0.4}
+    pb = {1: 0.5, 2: 0.5}
+    # shared = {1,2}: num = pb[1]+pb[2] = 1.0
+    # vehicle mass = 1.0 → score = 1.0
+    assert _ortony_vehicle_salience(pa, pb) == pytest.approx(1.0)
+
+
+def test_ortony_vehicle_salience_zero_vehicle_mass_returns_zero():
+    """All-zero salience on the vehicle side → denominator 0 → score 0.0
+    (not NaN, not ZeroDivisionError). Mirrors the cosine_salience
+    zero-norm guard so the registry stays uniformly safe."""
+    assert _ortony_vehicle_salience({1: 1.0}, {1: 0.0, 2: 0.0}) == 0.0
+    assert _ortony_vehicle_salience({}, {}) == 0.0
 
 
 # --- random_uniform null control --------------------------------------------
