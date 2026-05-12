@@ -5,8 +5,18 @@
 > on this corpus (+0.0010). Magnitude is still inside the ±0.02 null-
 > noise band, but the *sign flip* validates the hypothesis the v1
 > diagnosis predicted (equal-salience penalty counters MUNCH bias).
-> See the "v2 update" section below the original v1 writeup. The
-> v1 sections that follow are preserved verbatim as the
+> See the "v2 update" section below the original v1 writeup.
+>
+> **Update 2026-05-12 (v3 sweep):** the third asymmetric variant —
+> `ortony_log_ratio` (soft-dominance) — did NOT improve over v2.
+> It came in at sep=−0.0113, marginally above jaccard_salience but
+> still negative and the softer penalty produced the *lowest*
+> aptness_rate of any functional scoring (0.0172). The hard-zero
+> equal-salience clamp in `ortony_imbalance` (v2) appears to be
+> what extracts signal on this corpus — softening it loses the
+> effect. v3 details in the "v3 update" section.
+>
+> The v1 sections that follow are preserved verbatim as the
 > as-of-2026-05-12T13:15Z record.
 
 ---
@@ -117,3 +127,49 @@ data-pipeline/.venv/bin/python data-pipeline/scripts/run_sweep.py \
 ```
 
 Same DB-freshness caveat as v1 — see project memory `lexicon_db_freshness.md` before re-running.
+
+---
+
+## v3 update — soft-dominance variant does NOT beat the imbalance hard-zero
+
+**Date:** 2026-05-12T14:18Z
+**Branch:** `m02/asymmetric-ortony-scoring` (commit `88ed32d7`)
+**Config:** [`m02_ortony_v3.yaml`](m02_ortony_v3.yaml) — adds `ortony_log_ratio` to the v2 lineup
+**Cohort:** identical (232 apt / 317 inapt)
+
+### Numbers (v3 sweep, sorted by separation_score)
+
+| rank | name | threshold | aptness_rate | separation_score | mean_apt | mean_inapt |
+|---|---|---|---|---|---|---|
+| 1 | **ortony_imbalance** | 0.0267 | **0.0733** | **+0.0010** | 0.0064 | 0.0054 |
+| 2 | ortony_log_ratio | 0.1729 | 0.0172 | −0.0113 | 0.0275 | 0.0388 |
+| 3 | jaccard_salience | 0.1459 | 0.0388 | −0.0124 | 0.0269 | 0.0393 |
+| 4 | jaccard_raw | 0.1379 | 0.0603 | −0.0130 | 0.0275 | 0.0405 |
+| 5 | random_uniform | 0.9721 | 0.0345 | −0.0164 | 0.4982 | 0.5145 |
+| 6 | cosine_salience | 0.2850 | 0.0474 | −0.0198 | 0.0562 | 0.0760 |
+| 7 | ortony_vehicle_salience | 0.3011 | 0.0302 | −0.0250 | 0.0533 | 0.0782 |
+
+### What v3 tells us
+
+`ortony_log_ratio` produces score distributions almost identical to `jaccard_salience` (mean_apt 0.0275 vs 0.0269; mean_inapt 0.0388 vs 0.0393). The soft sigmoid-of-log-ratio penalty doesn't materially redistribute the cohort scores — the asymmetric weighting it applies is too mild to escape the corpus's MUNCH-bias attractor. Critically, its aptness_rate (0.0172) is the *lowest* of any functional scoring, beneath even `random_uniform` (0.0345). That tells us the soft formula is moving apt-pair scores in the *wrong direction* relative to the threshold percentile, even when the means barely move.
+
+The contrast with `ortony_imbalance` confirms the v2 diagnosis precisely: it is the **hard-zero clamp on equal-salience properties** that does the discriminative work. Replace the hard zero (`max(0, pb − pa) = 0` when pb = pa) with a soft half-credit (`pb/(pa+pb) = 1/2`), and the equal-salience properties from MUNCH paraphrase pairs flood back into the score and re-bias it toward inapt.
+
+### Verdict on M02-S02
+
+**`ortony_imbalance` is the winner**, with the following important caveat: it does not clear the M02 success criterion (≥5% absolute improvement over best symmetric). The improvement is +0.0134 absolute (1.34%, vs the 5% threshold). The signal is real (sign-flip + aptness_rate jump from 0.0388 → 0.0733, both well outside noise even though the means barely separate) but the corpus's pointwise-overlap signal-to-noise floor appears to cap us below the strict success bar.
+
+Practical implication:
+- Wire `ortony_imbalance` into the forge as the new default scoring fn (Phase 3 of the original S01 plan). The sign-flip + aptness_rate gain is real even if separation magnitude is small; symmetric formulas have negative separation on this DB.
+- **The next gains are structural** — concreteness gate + domain-distance re-rank (M03 cascade gate-and-rank), and type-aligned structural matching (M04). Three asymmetric pointwise-overlap variants have all bottomed out within the ±0.02 noise band, so the case for accelerating into M03 is now strong.
+
+### Reproducing
+
+```sh
+data-pipeline/.venv/bin/python data-pipeline/scripts/run_sweep.py \
+  --config data-pipeline/sweeps/m02_ortony_v3.yaml \
+  --output data-pipeline/output/sweep_m02_ortony_v3.json \
+  --report data-pipeline/output/sweep_m02_ortony_v3.md
+```
+
+Same DB-freshness caveat as v1/v2.

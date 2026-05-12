@@ -1,0 +1,42 @@
+# M02-S02 sweep v3 — adds the log-ratio (soft dominance) asymmetric variant.
+#
+# Builds on v2 by adding ortony_log_ratio (variant 3 from the roadmap).
+# v1 and v2 are kept committed so historical sweep results stay
+# reproducible against their respective findings sections.
+#
+# Run with:
+#   data-pipeline/.venv/bin/python data-pipeline/scripts/run_sweep.py \
+#     --config data-pipeline/sweeps/m02_ortony_v3.yaml \
+#     --output data-pipeline/output/sweep_m02_ortony_v3.json \
+#     --report data-pipeline/output/sweep_m02_ortony_v3.md
+#
+# Outputs land under data-pipeline/output/ (gitignored).
+
+name: m02_ortony_v3
+db: data-pipeline/output/lexicon_v2.db
+pairs: data-pipeline/fixtures/metaphor_pairs_v2.json
+controls: data-pipeline/fixtures/munch_inapt.jsonl
+mrr_reference: data-pipeline/output/eval_baseline_v2.json
+
+variations:
+  - name: jaccard_salience
+    scoring: jaccard_salience
+    threshold_percentile: 95
+  - name: jaccard_raw
+    scoring: jaccard_raw
+    threshold_percentile: 95
+  - name: cosine_salience
+    scoring: cosine_salience
+    threshold_percentile: 95
+  - name: ortony_vehicle_salience
+    scoring: ortony_vehicle_salience
+    threshold_percentile: 95
+  - name: ortony_imbalance
+    scoring: ortony_imbalance
+    threshold_percentile: 95
+  - name: ortony_log_ratio
+    scoring: ortony_log_ratio
+    threshold_percentile: 95
+  - name: random_uniform
+    scoring: random_uniform
+    threshold_percentile: 95
