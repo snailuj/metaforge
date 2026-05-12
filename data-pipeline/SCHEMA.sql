@@ -182,7 +182,10 @@ CREATE INDEX idx_property_vocabulary_oov ON property_vocabulary(is_oov);
 CREATE TABLE synset_properties (
     synset_id TEXT NOT NULL,
     property_id INTEGER NOT NULL,
-    salience REAL NOT NULL DEFAULT 1.0,
+    -- salience is an LLM-emitted weight in [0.0, 1.0]; bound the column so a
+    -- prompt regression or schema drift cannot persist negative or >1 weights
+    -- silently. Mirrors the synset_concreteness.score precedent set in M01.
+    salience REAL NOT NULL DEFAULT 1.0 CHECK (salience >= 0.0 AND salience <= 1.0),
     property_type TEXT,
     relation TEXT,
     FOREIGN KEY (synset_id) REFERENCES enrichment(synset_id),
@@ -245,14 +248,28 @@ CREATE TABLE IF NOT EXISTS synset_properties_curated (
     synset_id    TEXT NOT NULL,
     vocab_id     INTEGER NOT NULL,
     cluster_id   INTEGER NOT NULL,
-    snap_method  TEXT NOT NULL,
+    -- snap_method is a closed enum written by snap_properties.py; constrain it
+    -- so an unexpected snap path (or a typo) cannot be persisted silently.
+    -- Mirrors the existing enum CHECKs on enrichment.connotation/register.
+    snap_method  TEXT NOT NULL CHECK (snap_method IN ('exact', 'morphological', 'embedding')),
+    -- snap_score is a cosine similarity (only set for the embedding path).
+    -- Clamped to [-1.0, 1.0] at write time by snap_properties.py (commit
+    -- 7a334528). A strict [-1.0, 1.0] CHECK is deferred — D6 in
+    -- docs/superpowers/review-logs/2026-05-08-review-m01-and-snap-memopt-review.md:
+    -- the live DB has one float32-drift outlier (1.00000011920929) the
+    -- CHECK would reject until renormalised on the next snap rebuild,
+    -- after which the CHECK lands without preconditions.
     snap_score   REAL,
-    salience_sum REAL NOT NULL DEFAULT 1.0,
+    -- salience_sum is a non-negative accumulator over multiple LLM properties
+    -- snapping into the same cluster; bound it so a sign/NaN regression in
+    -- snap_properties.py cannot persist silently.
+    salience_sum REAL NOT NULL DEFAULT 1.0 CHECK (salience_sum >= 0.0),
     PRIMARY KEY (synset_id, cluster_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_spc_synset ON synset_properties_curated(synset_id);
 CREATE INDEX IF NOT EXISTS idx_spc_cluster ON synset_properties_curated(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_spc_vocab ON synset_properties_curated(vocab_id);
 
 CREATE TABLE IF NOT EXISTS property_antonyms (
     vocab_id_a  INTEGER NOT NULL,

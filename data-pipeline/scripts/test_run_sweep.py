@@ -195,6 +195,39 @@ def test_load_sweep_config_rejects_unknown_variation_key(tmp_path):
     assert "scorring" in str(exc.value)
 
 
+def test_load_sweep_config_rejects_unknown_scoring_at_boundary(tmp_path):
+    """A typo in `scoring` (e.g. ``jaccard_salinece``) must fail at
+    config-load, not later inside ``_run_one_variation`` after the sweep
+    has begun churning. Failing late wastes setup, leaves partial sweep
+    artefacts and confuses error attribution — the boundary validator
+    already strict-checks every other enumerated field, so ``scoring``
+    should be no different."""
+    import evaluate_aptness  # noqa: PLC0415 — local import to read registry under test
+
+    cfg_file = tmp_path / "sweep.json"
+    cfg_file.write_text(json.dumps({
+        "name": "x",
+        "db": "db.sqlite",
+        "pairs": "p.json",
+        "controls": "c.jsonl",
+        "variations": [
+            {"name": "v1", "scoring": "not_a_real_scorer"},
+        ],
+    }))
+    with pytest.raises(ValueError) as exc:
+        load_sweep_config(str(cfg_file))
+    msg = str(exc.value)
+    # Path of the offending config (helps the operator find the file).
+    assert str(cfg_file) in msg
+    # Variation name (helps locate the offending row in a large sweep).
+    assert "v1" in msg
+    # The bad value, quoted, so the operator can grep for it.
+    assert "not_a_real_scorer" in msg
+    # Mention the registered scoring fns so the operator sees valid options.
+    for fn_name in evaluate_aptness.SCORING_FNS:
+        assert fn_name in msg
+
+
 def test_load_sweep_config_requires_variation_name(tmp_path):
     """Each variation must declare a non-empty `name`."""
     cfg_file = tmp_path / "sweep.json"
@@ -510,10 +543,40 @@ def test_main_exits_zero_when_all_variations_succeed(tmp_path):
     assert rc == 0
 
 
-def test_main_exits_two_when_all_variations_fail(tmp_path):
+def _patch_evaluate_to_fail(monkeypatch, *, fail_when_scoring: set[str]) -> None:
+    """Make ``evaluate_aptness.evaluate`` raise at runtime for variations
+    whose ``scoring`` is in ``fail_when_scoring``; defer to the real impl
+    otherwise.
+
+    This simulates a per-variation runtime failure (the broad-except
+    pathway in ``_run_one_variation``) without tripping the config-load
+    boundary check on ``scoring``. Variations therefore use registered
+    scoring names, so the schema validator is satisfied — we only inject
+    the failure once execution has started.
+    """
+    import evaluate_aptness as ea  # noqa: PLC0415 — local to keep test surface small
+    real_evaluate = ea.evaluate
+
+    def fake_evaluate(*args, scoring: str = ea.DEFAULT_SCORING, **kwargs):
+        if scoring in fail_when_scoring:
+            raise RuntimeError(
+                f"simulated per-variation runtime failure (scoring={scoring})"
+            )
+        return real_evaluate(*args, scoring=scoring, **kwargs)
+
+    monkeypatch.setattr(ea, "evaluate", fake_evaluate)
+
+
+def test_main_exits_two_when_all_variations_fail(tmp_path, monkeypatch):
+    # Both variations use registered scoring names so config-load passes,
+    # then the monkeypatched evaluate raises for each one to exercise the
+    # all-failed exit-code branch in main().
+    _patch_evaluate_to_fail(
+        monkeypatch, fail_when_scoring={"jaccard_salience", "jaccard_raw"},
+    )
     cfg_path, output_path = _write_sweep_config(tmp_path, [
-        {"name": "bad1", "scoring": "nonexistent_a"},
-        {"name": "bad2", "scoring": "nonexistent_b"},
+        {"name": "bad1", "scoring": "jaccard_salience"},
+        {"name": "bad2", "scoring": "jaccard_raw"},
     ])
     rc = run_sweep.main(argv=[
         "--config", str(cfg_path),
@@ -522,10 +585,13 @@ def test_main_exits_two_when_all_variations_fail(tmp_path):
     assert rc == 2
 
 
-def test_main_exits_one_when_some_variations_fail(tmp_path):
+def test_main_exits_one_when_some_variations_fail(tmp_path, monkeypatch):
+    # `jaccard_raw` fails at runtime; `jaccard_salience` succeeds — pins
+    # the partial-failure exit-code branch.
+    _patch_evaluate_to_fail(monkeypatch, fail_when_scoring={"jaccard_raw"})
     cfg_path, output_path = _write_sweep_config(tmp_path, [
         {"name": "good", "scoring": "jaccard_salience"},
-        {"name": "bad",  "scoring": "nonexistent_formula"},
+        {"name": "bad",  "scoring": "jaccard_raw"},
     ])
     rc = run_sweep.main(argv=[
         "--config", str(cfg_path),
@@ -534,10 +600,13 @@ def test_main_exits_one_when_some_variations_fail(tmp_path):
     assert rc == 1
 
 
-def test_main_logs_error_when_all_variations_fail(tmp_path, caplog):
+def test_main_logs_error_when_all_variations_fail(tmp_path, caplog, monkeypatch):
+    _patch_evaluate_to_fail(
+        monkeypatch, fail_when_scoring={"jaccard_salience", "jaccard_raw"},
+    )
     cfg_path, output_path = _write_sweep_config(tmp_path, [
-        {"name": "bad1", "scoring": "nonexistent_a"},
-        {"name": "bad2", "scoring": "nonexistent_b"},
+        {"name": "bad1", "scoring": "jaccard_salience"},
+        {"name": "bad2", "scoring": "jaccard_raw"},
     ])
     with caplog.at_level(logging.ERROR, logger="run_sweep"):
         run_sweep.main(argv=[
@@ -906,10 +975,110 @@ def test_run_sweep_argparse_lists_scoring_formulas_in_help():
     )
 
 
-def test_main_logs_warning_when_some_variations_fail(tmp_path, caplog):
+def test_load_sweep_config_drift_check_fires_under_optimised_python():
+    """The validator-drift safety net at the cast site is a defence-in-depth
+    check: it must fire even when Python is invoked with ``-O``
+    (``PYTHONOPTIMIZE=1``), which strips ``assert`` statements. A plain
+    ``assert`` would silently become a no-op in optimised builds, exactly
+    the situation the comment claims it guards against.
+
+    Approach: pull the drift-check block straight out of ``run_sweep``'s
+    source (so the test can never go stale relative to prod) and run it
+    under ``python -O`` against a malformed ``data`` dict. If the prod
+    check ever regresses to ``assert``, ``-O`` will strip it and the
+    snippet will run to completion — failing this test loudly.
+    """
+    import inspect
+    import subprocess
+    import textwrap
+
+    src = inspect.getsource(run_sweep.load_sweep_config)
+    # Locate the cast-site drift block. Defined by source markers rather
+    # than line numbers so an unrelated edit higher in the function does
+    # not silently shift the slice.
+    marker_start = "required_top_keys = ("
+    marker_end = "return cast("
+    i = src.find(marker_start)
+    j = src.find(marker_end, i)
+    assert i != -1 and j != -1, "drift markers missing from load_sweep_config source"
+    # `find` lands mid-line at `r` of `required_top_keys`, so the first
+    # line has no leading indent while the rest carry the function-body
+    # 4-space prefix. textwrap.dedent only strips a *common* prefix, so
+    # restore the missing indent on line 1 before dedenting.
+    snippet = textwrap.dedent("    " + src[i:j])
+
+    # Run the snippet under -O against a malformed dict missing every
+    # required key. An `assert` would be stripped silently; an explicit
+    # raise survives -O and exits non-zero with the drift message.
+    script = textwrap.dedent(f"""
+        snippet = {snippet!r}
+        data = {{'variations': []}}  # missing db, pairs, controls
+        try:
+            exec(compile(snippet, '<drift>', 'exec'), {{'data': data}})
+        except AssertionError as e:
+            print('RAISED:AssertionError:', e)
+        except Exception as e:
+            print('RAISED:' + type(e).__name__ + ':', e)
+        else:
+            print('NO_RAISE')
+    """)
+    result = subprocess.run(
+        [sys.executable, "-O", "-c", script],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, (
+        f"subprocess failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    # Under -O, `assert` is stripped to a no-op; an explicit `raise`
+    # survives. NO_RAISE means the prod code regressed to `assert`.
+    assert "NO_RAISE" not in result.stdout, (
+        "drift-detector did not fire under -O — the cast-site check has "
+        "regressed to `assert`, which `-O` strips. Use an explicit `raise` "
+        f"instead. stdout={result.stdout!r}"
+    )
+    assert "RAISED:" in result.stdout
+    # Message must name validator drift so a future operator can find
+    # the call site from the log alone.
+    assert "validator drift" in result.stdout
+
+
+def test_run_one_variation_logs_traceback_on_failure(tmp_path, caplog, monkeypatch):
+    """A non-ValueError runtime failure inside ``_run_one_variation`` must
+    log the traceback alongside the WARNING message — without it the
+    operator sees only a one-line ``error=...`` and has to re-run the
+    sweep by hand to reproduce the stack. Pin ``exc_info=True`` so a
+    future "tidy-up" cannot silently strip the traceback again.
+    """
+    _patch_evaluate_to_fail(monkeypatch, fail_when_scoring={"jaccard_raw"})
+    _, cfg = _base_config(tmp_path, [
+        {"name": "bad", "scoring": "jaccard_raw"},
+    ])
+    with caplog.at_level(logging.WARNING, logger="run_sweep"):
+        run_sweep_fn(cfg, config_path="cfg.json")
+
+    failure_records = [
+        r for r in caplog.records
+        if r.levelno == logging.WARNING and "variation failed" in r.getMessage()
+    ]
+    assert failure_records, "expected a WARNING 'variation failed' record"
+    rec = failure_records[0]
+    # exc_info must be populated so the formatted output carries the stack.
+    assert rec.exc_info is not None, (
+        "expected exc_info on the per-variation failure WARNING"
+    )
+    # Formatted output must include a traceback so an operator reading
+    # the log file (not just the LogRecord) can reproduce.
+    formatted = rec.getMessage() + "\n" + (
+        logging.Formatter().formatException(rec.exc_info) if rec.exc_info else ""
+    )
+    assert "Traceback" in formatted
+
+
+def test_main_logs_warning_when_some_variations_fail(tmp_path, caplog, monkeypatch):
+    _patch_evaluate_to_fail(monkeypatch, fail_when_scoring={"jaccard_raw"})
     cfg_path, output_path = _write_sweep_config(tmp_path, [
         {"name": "good", "scoring": "jaccard_salience"},
-        {"name": "bad",  "scoring": "nonexistent_formula"},
+        {"name": "bad",  "scoring": "jaccard_raw"},
     ])
     with caplog.at_level(logging.WARNING, logger="run_sweep"):
         run_sweep.main(argv=[

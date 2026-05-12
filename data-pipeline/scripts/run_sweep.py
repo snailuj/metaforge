@@ -232,6 +232,21 @@ def load_sweep_config(path: str) -> SweepConfig:
             duplicates.append(name)
         seen_names.append(name)
 
+        # `scoring`, when set, must name a registered scoring fn. Without
+        # this boundary check a typo (e.g. `jaccard_salinece`) only
+        # surfaces inside `_run_one_variation` after sweep setup has begun
+        # — wasted setup, partial artefacts, confused error attribution.
+        # Mirror the rest of the validator: fail fast, name the file, the
+        # variation, the bad value, and list the valid options.
+        if "scoring" in var:
+            scoring_value = var["scoring"]
+            if scoring_value not in evaluate_aptness.SCORING_FNS:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: unknown "
+                    f"scoring fn {scoring_value!r}; valid: "
+                    f"{sorted(evaluate_aptness.SCORING_FNS)}"
+                )
+
         # threshold_percentile must lie in [0, 100]. Out-of-range values
         # silently clamp to min/max sample inside `_percentile`, which is
         # a true silent fallback (no log, no signal). Reject at the schema
@@ -257,6 +272,21 @@ def load_sweep_config(path: str) -> SweepConfig:
 
     # Validator has enforced every required key + shape — narrow the
     # parsed dict to the schema type for downstream consumers.
+    #
+    # Belt-and-braces: the cast() below is a soft pact, so a future PR
+    # adding a SweepConfig key without updating the validator would slip
+    # through silently. This check pins the join-point — any drift
+    # between the validator and the TypedDict trips here, before the cast
+    # papers over the gap. Should never fire under correct validation.
+    #
+    # Use an explicit `raise` (not `assert`) so the safety net survives
+    # `python -O` / PYTHONOPTIMIZE=1, which strips assert statements.
+    required_top_keys = ("db", "pairs", "controls", "variations")
+    missing_top_keys = [k for k in required_top_keys if k not in data]
+    if missing_top_keys:
+        raise AssertionError(
+            f"validator drift: required keys missing at cast site: {missing_top_keys}"
+        )
     return cast(SweepConfig, data)
 
 
@@ -338,7 +368,7 @@ def _run_one_variation(
         duration_ms = round((time.perf_counter() - started) * 1000, 2)
         log.warning(
             "variation failed: name=%s scoring=%s error=%s",
-            name, scoring, exc,
+            name, scoring, exc, exc_info=True,
         )
         failed: FailedVariationResult = {
             "status": "failed",

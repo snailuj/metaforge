@@ -685,6 +685,856 @@ def test_snap_all_stages_integration(tmp_path):
     assert ("s_b", 4) not in by_key
 
 
+def test_snap_skips_jsonl_write_for_in_memory_db(tmp_path, caplog, monkeypatch):
+    """For an in-memory connection, PRAGMA database_list returns an empty path —
+    we must NOT silently write snap_dropped.jsonl into the caller's cwd. Log a
+    WARNING and skip the write.
+    """
+    import logging
+    import os
+
+    from snap_properties import snap_properties
+
+    # Run from inside tmp_path so any unintended cwd-write is detectable.
+    monkeypatch.chdir(tmp_path)
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm', 'a', 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+        -- 'unmatchable' -> drops at no_embedding stage.
+        INSERT INTO property_vocabulary VALUES (10, 'unmatchable', NULL, 0, 'pilot');
+        INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
+    """)
+    conn.commit()
+
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    # No .jsonl file in cwd or anywhere we can see.
+    cwd_files = os.listdir(tmp_path)
+    assert "snap_dropped.jsonl" not in cwd_files, (
+        f"in-memory DB must not write JSONL; cwd contains: {cwd_files}"
+    )
+
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any(
+        "in-memory" in m and "snap_dropped" in m for m in warning_messages
+    ), f"expected WARNING about in-memory skip; got: {warning_messages}"
+
+
+def test_snap_streams_dropped_props_to_jsonl(tmp_path):
+    """Dropped properties stream to snap_dropped.jsonl (one record per line),
+    not buffered in memory and dumped as a single JSON document. This caps
+    memory at V2 scale where the dropped list could otherwise reach ~50MB.
+    """
+    import json as _json
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' will be dropped
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    jsonl_path = tmp_path / "snap_dropped.jsonl"
+    assert jsonl_path.exists(), (
+        f"expected {jsonl_path} (one JSON object per line); not found. "
+        f"tmp_path contents: {list(tmp_path.iterdir())}"
+    )
+    # Old buffered .json file must NOT be created.
+    json_path = tmp_path / "snap_dropped.json"
+    assert not json_path.exists(), (
+        "snap_dropped.json (single-document) must not be created — "
+        "the streaming JSONL replaces it"
+    )
+
+    with open(jsonl_path) as f:
+        lines = [line for line in f if line.strip()]
+
+    assert len(lines) >= 1
+    for line in lines:
+        record = _json.loads(line)  # each line is a complete JSON object
+        assert "reason" in record
+        assert "synset_id" in record
+        assert "text" in record
+
+
+def test_snap_logs_warning_with_per_reason_breakdown_on_drops(tmp_path, caplog):
+    """When properties are dropped, log a WARNING with per-reason breakdown
+    (zero_norm / no_embedding / below_threshold) so operators can distinguish
+    'vocab embeddings broken' from 'OOV'.
+    """
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' will be dropped (no_embedding)
+
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any(
+        "dropped" in m.lower() and "no_embedding" in m for m in warning_messages
+    ), (
+        "expected WARNING with per-reason 'no_embedding' breakdown; "
+        f"got: {warning_messages}"
+    )
+
+
+def test_snap_vocab_by_lemma_lowest_vocab_id_wins_on_collision(tmp_path):
+    """When two property_vocab_curated rows share a lemma (e.g. POS variants),
+    snap deterministically picks the lowest vocab_id. Without ORDER BY, SQLite
+    returns rows in unspecified order and last-write-wins picks whichever the
+    engine returned last — unstable across rebuilds.
+    """
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "tiebreak_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX idx_vocab_lemma ON property_vocab_curated(lemma);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
+
+        -- Two vocab rows share lemma 'fast' (POS variants).
+        -- Insert in reverse vocab_id order so an unordered SELECT might return
+        -- vid=7 last. The fix is to ORDER BY vocab_id ASC so vid=3 wins.
+        INSERT INTO property_vocab_curated VALUES (7, 'vs7', 'fast', 'v', 1);
+        INSERT INTO property_vocab_curated VALUES (3, 'vs3', 'fast', 'a', 1);
+        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
+        INSERT INTO vocab_clusters VALUES (7, 7, 1, 1);
+
+        INSERT INTO property_vocabulary VALUES (10, 'fast', NULL, 0, 'pilot');
+        INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
+    """)
+    conn.commit()
+
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT vocab_id FROM synset_properties_curated WHERE synset_id='abc'"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert len(rows) == 1
+    assert rows[0][0] == 3, (
+        f"expected lowest vocab_id (3) on lemma collision, got {rows[0][0]} — "
+        "tie-breaker is unstable"
+    )
+
+
+def test_snap_stats_count_per_link_not_per_unique_key(tmp_path):
+    """stats counts must be per-link, not per-unique-(sid, cluster_id) key.
+
+    When two distinct properties snap to the SAME (sid, cluster_id) via different
+    methods, both should be counted in their respective stage buckets — otherwise
+    the summary line ('Snapped N property links') under-reports against the input
+    cursor and the per-stage counts disagree with stats['dropped'] (which is
+    already per-link).
+    """
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "perlink_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX idx_vocab_lemma ON property_vocab_curated(lemma);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
+
+        -- 'flicker' (vid=1) and 'sparkle' (vid=2) share cluster_id=1.
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'flicker', 'v', 1);
+        INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'sparkle', 'v', 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+
+        -- 'sparkle' (exact) and 'flickering' (morph) both land on (abc, 1).
+        INSERT INTO property_vocabulary VALUES (10, 'flickering', NULL, 0, 'pilot');
+        INSERT INTO property_vocabulary VALUES (11, 'sparkle',    NULL, 0, 'pilot');
+
+        -- One additional truly-dropped property.
+        INSERT INTO property_vocabulary VALUES (12, 'xyzqwerty',  NULL, 0, 'pilot');
+
+        INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
+        INSERT INTO synset_properties VALUES ('abc', 11, 1.0, NULL, NULL);
+        INSERT INTO synset_properties VALUES ('abc', 12, 1.0, NULL, NULL);
+    """)
+    conn.commit()
+
+    try:
+        result = snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    # Three input links: 1 exact (sparkle), 1 morph (flickering->flicker), 1 dropped.
+    total = result["exact"] + result["morphological"] + result["embedding"] + result["dropped"]
+    assert total == 3, (
+        f"expected per-link count to sum to 3 input links; got {total}: {result}"
+    )
+    assert result["exact"] == 1
+    assert result["morphological"] == 1
+    assert result["dropped"] == 1
+
+
+def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_later(tmp_path):
+    """When a morphological match populates a (sid, cluster_id) key first, then an
+    exact match for the same key arrives, the accumulator must upgrade snap_method
+    to 'exact' (higher quality wins) AND accumulate salience from both contributions.
+
+    Quality order: exact > morphological > embedding.
+    """
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "upgrade_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX idx_vocab_lemma ON property_vocab_curated(lemma);
+
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
+
+        -- 'flicker' (vid=1) and 'sparkle' (vid=2) share cluster_id=1.
+        -- Property 'flickering' will hit Stage 2 (morph) and snap to flicker.
+        -- Property 'sparkle' will hit Stage 1 (exact) and snap to sparkle.
+        -- Both end up keyed on (sid='abc', cluster_id=1), and Pass 1 walks
+        -- synset_properties in property_id order, so the morph match for
+        -- 'flickering' (pid=10) is inserted FIRST, then the exact match for
+        -- 'sparkle' (pid=11) hits the same accumulator key second.
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'flicker', 'v', 1);
+        INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'sparkle', 'v', 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+
+        INSERT INTO property_vocabulary VALUES (10, 'flickering', NULL, 0, 'pilot');
+        INSERT INTO property_vocabulary VALUES (11, 'sparkle',    NULL, 0, 'pilot');
+
+        INSERT INTO synset_properties VALUES ('abc', 10, 0.4, NULL, NULL);
+        INSERT INTO synset_properties VALUES ('abc', 11, 0.6, NULL, NULL);
+    """)
+    conn.commit()
+
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT synset_id, cluster_id, snap_method, salience_sum, vocab_id "
+            "FROM synset_properties_curated"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # Single row (deduped on cluster_id), method upgraded to 'exact', salience accumulated.
+    assert len(rows) == 1
+    assert rows[0][0] == "abc"
+    assert rows[0][1] == 1  # cluster_id
+    assert rows[0][2] == "exact", (
+        f"expected upgraded snap_method='exact', got {rows[0][2]!r} — "
+        "the accumulator silently kept the first-inserted morphological method"
+    )
+    assert abs(rows[0][3] - 1.0) < 0.01  # 0.4 + 0.6
+    # vocab_id must also swap on upgrade: 'flicker' (vid=1) was inserted first
+    # via morph; 'sparkle' (vid=2) arrives later via exact and replaces it.
+    assert rows[0][4] == 2, (
+        f"expected vocab_id to swap to the higher-quality match's vid (2 = sparkle), "
+        f"got {rows[0][4]} — _merge kept the lower-quality vid"
+    )
+
+
+def test_snap_progress_lines_use_logging_not_print(tmp_path, caplog):
+    """Per project standards, progress observability flows through logging not
+    stdout. Regression bar: at least one INFO 'Cluster lookup' line surfaces
+    via the snap_properties logger when caplog captures INFO.
+    """
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)
+
+    with caplog.at_level(logging.INFO, logger="snap_properties"):
+        try:
+            snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
+    assert any("Cluster lookup" in m for m in info_messages), (
+        f"expected INFO progress line via log.info; got: {info_messages}"
+    )
+
+
+def test_snap_clamps_best_score_to_unit_range(tmp_path, monkeypatch):
+    """Float32 cosine drift can produce snap_score values just above 1.0
+    (e.g. 1.00000011920929 observed in the live DB). Clamp to [-1.0, 1.0]
+    before persistence so downstream consumers (and a future CHECK constraint)
+    can rely on the unit range.
+
+    We force the drift deterministically by replacing _build_vocab_matrix's
+    output with a vector whose self-dot under float32 numerics overshoots 1.0,
+    proving the clamp path works regardless of platform arithmetic.
+    """
+    import numpy as np
+
+    import snap_properties as sp
+
+    db_path = tmp_path / "clamp_test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX idx_vocab_lemma ON property_vocab_curated(lemma);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0
+        );
+
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'bright', 'a', 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+    """)
+    same_emb = _make_embedding(1.0)
+    conn.execute(
+        "INSERT INTO property_vocabulary VALUES (1, 'bright', ?, 0, 'pilot')",
+        (same_emb,),
+    )
+    conn.execute(
+        "INSERT INTO property_vocabulary VALUES (10, 'radiant', ?, 0, 'pilot')",
+        (same_emb,),
+    )
+    conn.execute("INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL)")
+    conn.commit()
+
+    # Force float32 drift: build a vector identical to what Stage 3 will compute
+    # for the property, but normalise it slightly differently so matrix @ v
+    # overshoots 1.0. Specifically: take the property vector, normalise once,
+    # and stuff the result into the matrix. The stage-3 path will normalise
+    # the same blob a second time. Float32 drift between the two normalisation
+    # passes pushes the dot product just above 1.0.
+    raw = np.array(
+        [1.0 + i * 0.001 for i in range(300)], dtype=np.float32
+    )
+    raw_normed = raw / np.linalg.norm(raw)
+    # Add a tiny float32-representable perturbation that survives normalisation.
+    drifty = (raw_normed * np.float32(1.0 + 1e-7)).reshape(1, -1)
+
+    def fake_build_matrix(_conn):
+        return drifty, [1]
+
+    monkeypatch.setattr(sp, "_build_vocab_matrix", fake_build_matrix)
+
+    sp.snap_properties(conn, embedding_threshold=0.7)
+    conn.close()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT snap_score FROM synset_properties_curated WHERE snap_method='embedding'"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert rows, "expected an embedding match"
+    for (score,) in rows:
+        assert score is not None
+        assert -1.0 <= score <= 1.0, (
+            f"snap_score {score!r} outside [-1.0, 1.0] — float32 drift not clamped"
+        )
+
+
+def test_build_vocab_matrix_deterministic_on_lemma_collision(tmp_path):
+    """When two property_vocab_curated rows share a lemma, _build_vocab_matrix
+    must return them in deterministic vocab_id ascending order so np.argmax
+    resolves ties consistently across rebuilds.
+    """
+    from snap_properties import _build_vocab_matrix
+
+    db_path = tmp_path / "matrix_order.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+
+        -- Insert two pvc rows sharing lemma 'fast' in REVERSE vocab_id order.
+        -- Without ORDER BY pvc.vocab_id, SQLite may return vid=7 before vid=3.
+        INSERT INTO property_vocab_curated VALUES (7, 'vs7', 'fast', 'v', 1);
+        INSERT INTO property_vocab_curated VALUES (3, 'vs3', 'fast', 'a', 1);
+
+        -- Single embedding row matches both via LOWER(text)=LOWER(lemma).
+        -- (Both pvc rows have the same lemma 'fast', so the JOIN yields two
+        -- copies with identical embeddings.)
+    """)
+    emb = _make_embedding(0.5)
+    conn.execute(
+        "INSERT INTO property_vocabulary VALUES (1, 'fast', ?, 0, 'pilot')",
+        (emb,),
+    )
+    conn.commit()
+
+    # Run multiple times — first vocab_id in returned list must always be 3.
+    for _ in range(3):
+        matrix, vocab_ids = _build_vocab_matrix(conn)
+        assert len(vocab_ids) == 2, f"expected 2 rows, got {vocab_ids}"
+        assert vocab_ids[0] == 3, (
+            f"expected lowest vocab_id (3) first, got {vocab_ids} — "
+            "_build_vocab_matrix lacks ORDER BY pvc.vocab_id"
+        )
+        assert vocab_ids[1] == 7
+
+    conn.close()
+
+
+def test_accumulated_match_rejects_score_method_invariant_violations():
+    """AccumulatedMatch invariant: snap_score is None iff snap_method != 'embedding'.
+    Both illegal states must raise ValueError; both legal states must succeed.
+    """
+    from snap_properties import AccumulatedMatch
+
+    # Legal: exact/morph with score=None.
+    AccumulatedMatch(vocab_id=1, snap_method="exact", snap_score=None, salience_sum=1.0)
+    AccumulatedMatch(vocab_id=1, snap_method="morphological", snap_score=None, salience_sum=1.0)
+    # Legal: embedding with float score.
+    AccumulatedMatch(vocab_id=1, snap_method="embedding", snap_score=0.85, salience_sum=1.0)
+
+    # Illegal: exact/morph with non-None score.
+    with pytest.raises(ValueError, match="invariant"):
+        AccumulatedMatch(vocab_id=1, snap_method="exact", snap_score=0.9, salience_sum=1.0)
+    with pytest.raises(ValueError, match="invariant"):
+        AccumulatedMatch(vocab_id=1, snap_method="morphological", snap_score=0.9, salience_sum=1.0)
+
+    # Illegal: embedding with snap_score=None.
+    with pytest.raises(ValueError, match="invariant"):
+        AccumulatedMatch(vocab_id=1, snap_method="embedding", snap_score=None, salience_sum=1.0)
+
+
+def test_snap_recreated_table_enforces_check_constraints(tmp_path):
+    """The inline DDL inside snap_properties() recreates synset_properties_curated
+    on every run. It must mirror SCHEMA.sql's CHECK constraints — otherwise the
+    constraints are decorative on the canonical writer.
+    """
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        # snap_method must be one of the three valid methods.
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO synset_properties_curated "
+                "(synset_id, vocab_id, cluster_id, snap_method, snap_score, salience_sum) "
+                "VALUES ('zzz', 99, 99, 'bogus_method', NULL, 1.0)"
+            )
+
+        # salience_sum must be non-negative.
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO synset_properties_curated "
+                "(synset_id, vocab_id, cluster_id, snap_method, snap_score, salience_sum) "
+                "VALUES ('zzz', 99, 99, 'exact', NULL, -1.0)"
+            )
+    finally:
+        conn.close()
+
+
+def test_main_basicConfig_surfaces_log_info(tmp_path):
+    """`python snap_properties.py --db ...` must surface the log.info summary
+    line. Without basicConfig in main(), the root logger swallows it.
+    """
+    import subprocess
+    import sys
+
+    db_path, conn = make_snap_db(tmp_path)
+    conn.close()
+
+    script_path = Path(__file__).parent / "snap_properties.py"
+    result = subprocess.run(
+        [sys.executable, str(script_path), "--db", str(db_path), "--threshold", "0.7"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    # Combined stdout + stderr (basicConfig writes to stderr by default).
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, f"snap CLI exited {result.returncode}: {combined}"
+    assert "Snapped" in combined, (
+        f"expected 'Snapped' summary line via log.info; got:\nstdout={result.stdout!r}\n"
+        f"stderr={result.stderr!r}"
+    )
+
+
+def test_snap_continues_when_dropped_jsonl_write_fails(tmp_path, caplog, monkeypatch):
+    """If opening (or writing) snap_dropped.jsonl raises OSError (e.g. PermissionError
+    or ENOSPC), snap must not crash — drops are diagnostic-only. Log a WARNING,
+    set the JSONL stream to None, and continue. Canonical writes to
+    synset_properties_curated must still complete.
+    """
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop
+
+    real_open = open
+
+    def boom_open(path, mode="r", *a, **kw):
+        if str(path).endswith("snap_dropped.jsonl") and "w" in mode:
+            raise PermissionError("simulated read-only filesystem")
+        return real_open(path, mode, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", boom_open)
+
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            result = snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    # snap_dropped.jsonl must NOT exist on disk (open was blocked).
+    assert not (tmp_path / "snap_dropped.jsonl").exists()
+
+    # WARNING naming the path + diagnostic-only reassurance.
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any(
+        "snap_dropped" in m and "diagnostic" in m.lower() for m in warning_messages
+    ), f"expected WARNING about diagnostic-only drop write failure; got: {warning_messages}"
+
+    # Canonical writes still succeeded — exact + luminous matches present.
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT vocab_id, snap_method FROM synset_properties_curated"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) >= 2, (
+        f"canonical synset_properties_curated rows must still be committed; got {rows}"
+    )
+
+
+def test_snap_re_raises_operational_error_when_not_missing_table(tmp_path):
+    """OperationalError sub-cases other than 'no such table' (locked DB, disk-IO,
+    missing-column, readonly) must propagate — the WARNING about vocab_clusters
+    is misleading for those cases. Only the 'no such table' message degrades
+    gracefully.
+    """
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)
+
+    # Wrap conn so the SELECT against vocab_clusters raises a non-missing-table
+    # OperationalError (simulate locked DB or schema drift).
+    class FailingConn:
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def execute(self, sql, *args, **kw):
+            if "vocab_clusters" in sql and sql.lstrip().upper().startswith("SELECT"):
+                raise sqlite3.OperationalError("database is locked")
+            return self._real.execute(sql, *args, **kw)
+
+    proxy = FailingConn(conn)
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            snap_properties(proxy, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+
+def test_snap_logs_warning_when_vocab_clusters_table_missing(tmp_path, caplog):
+    """Missing vocab_clusters table is recoverable — log WARNING, do not silently swallow."""
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "no_clusters.db"
+    conn = sqlite3.connect(str(db_path))
+    # Same fixture as make_snap_db but WITHOUT the vocab_clusters table — exercise the
+    # degraded path where snapping falls back to vocab_id-only dedup.
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm', 'a', 1);
+        INSERT INTO property_vocabulary VALUES (10, 'warm', NULL, 0, 'pilot');
+        INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
+    """)
+    conn.commit()
+
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    assert any(
+        "vocab_clusters" in record.message and record.levelno == logging.WARNING
+        for record in caplog.records
+    ), f"Expected WARNING about vocab_clusters; got: {[r.message for r in caplog.records]}"
+
+
+def test_snap_dropped_jsonl_handle_closed_on_mid_function_exception(tmp_path, monkeypatch):
+    """If Pass 2 raises after _record_drop has lazily opened the JSONL stream, the
+    finally clause must close the file handle so it does not leak. The on-disk
+    JSONL must be well-formed up to the failure point (each line a complete JSON
+    object).
+    """
+    import json as _json
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop in Stage 3
+
+    # Capture the file handle the closure opens so we can introspect after the raise.
+    opened_handles: list = []
+    real_open = open
+
+    def tracking_open(path, mode="r", *a, **kw):
+        fh = real_open(path, mode, *a, **kw)
+        if str(path).endswith("snap_dropped.jsonl"):
+            opened_handles.append(fh)
+        return fh
+
+    monkeypatch.setattr("builtins.open", tracking_open)
+
+    # Wrap conn so we can fail the bulk INSERT after drops have streamed.
+    # sqlite3.Connection attributes are read-only, so use a proxy object.
+    class FailingConn:
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def executemany(self, sql, params):
+            if "synset_properties_curated" in sql:
+                raise sqlite3.OperationalError("simulated mid-run failure")
+            return self._real.executemany(sql, params)
+
+    proxy = FailingConn(conn)
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            snap_properties(proxy, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    # The drops fixture only triggers no_embedding (Stage 3 fallback) — confirm a
+    # handle was opened, then closed by the finally clause.
+    assert opened_handles, "expected JSONL handle to be opened on at least one drop"
+    fh = opened_handles[0]
+    assert fh.closed, "dropped_fh must be closed by finally clause after exception"
+
+    # Lines on disk must be well-formed JSON (no torn writes).
+    jsonl_path = tmp_path / "snap_dropped.jsonl"
+    if jsonl_path.exists():
+        with real_open(jsonl_path) as f:
+            for line in f:
+                if line.strip():
+                    _json.loads(line)
+
+
 def test_snap_creates_salience_sum_column(tmp_path):
     """synset_properties_curated table includes salience_sum column."""
     from snap_properties import snap_properties
@@ -703,3 +1553,250 @@ def test_snap_creates_salience_sum_column(tmp_path):
         conn.close()
 
     assert "salience_sum" in columns
+
+
+def test_snap_continues_when_dropped_record_not_json_serialisable(
+    tmp_path, caplog, monkeypatch
+):
+    """If json.dumps raises (e.g. record carries a numpy.float32, Path, Decimal),
+    snap must not crash — drops are diagnostic-only. Log a WARNING naming the
+    exception class, disable further JSONL writes, and continue. Canonical
+    writes to synset_properties_curated must still complete.
+    """
+    import json as _real_json
+    import logging
+
+    import snap_properties as snap_module
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop
+
+    # Patch json.dumps in snap_properties' namespace to raise TypeError on the
+    # first call — simulating a non-JSON-safe value (numpy.float32, Path, etc.)
+    # creeping into a future drop record. The widened except must catch this.
+    call_count = {"n": 0}
+    real_dumps = _real_json.dumps
+
+    def boom_dumps(obj, *a, **kw):
+        call_count["n"] += 1
+        # Only fail on calls inside _record_drop (which serialise dict records).
+        if isinstance(obj, dict) and "reason" in obj:
+            raise TypeError("Object of type float32 is not JSON serializable")
+        return real_dumps(obj, *a, **kw)
+
+    monkeypatch.setattr(snap_module.json, "dumps", boom_dumps)
+
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            snap_properties(conn, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    # snap_dropped.jsonl must NOT be left on disk (write blocked, file possibly
+    # opened then disabled — but no successful records persisted).
+    jsonl_path = tmp_path / "snap_dropped.jsonl"
+    if jsonl_path.exists():
+        # Even if the lazy open() succeeded before the dumps failure, the file
+        # must have no committed lines (write was the failing call).
+        with open(jsonl_path) as f:
+            assert f.read() == "", (
+                "no JSONL line should have been written when json.dumps raised"
+            )
+
+    # WARNING must mention the exception class so operators can diagnose.
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any(
+        "TypeError" in m and "diagnostic" in m.lower() for m in warning_messages
+    ), (
+        "expected WARNING naming TypeError + diagnostic-only reassurance; "
+        f"got: {warning_messages}"
+    )
+
+    # Canonical writes still succeeded — exact + luminous matches present.
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT vocab_id, snap_method FROM synset_properties_curated"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) >= 2, (
+        f"canonical synset_properties_curated rows must still be committed; got {rows}"
+    )
+
+
+def test_snap_dropped_fh_close_failure_does_not_mask_original_exception(
+    tmp_path, caplog, monkeypatch
+):
+    """If an exception unwinds the snap body AND the outer dropped_fh.close()
+    in the finally clause itself raises (rare: NFS commit error, EIO,
+    unflushed ENOSPC), the close-time exception must NOT replace the original
+    exception. The operator must see what actually went wrong; the close
+    failure should be logged as a WARNING and swallowed.
+    """
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop in Stage 3
+
+    # Wrap open() so the JSONL handle's close() raises OSError on call.
+    real_open = open
+
+    class _CloseFailingFile:
+        def __init__(self, fh):
+            self._fh = fh
+
+        def write(self, *a, **kw):
+            return self._fh.write(*a, **kw)
+
+        def close(self):
+            # Flush so on-disk content stays well-formed, then raise on close.
+            try:
+                self._fh.flush()
+                self._fh.close()
+            except Exception:
+                pass
+            raise OSError("simulated EIO on close")
+
+        @property
+        def closed(self):
+            return self._fh.closed
+
+    def wrapping_open(path, mode="r", *a, **kw):
+        fh = real_open(path, mode, *a, **kw)
+        if str(path).endswith("snap_dropped.jsonl"):
+            return _CloseFailingFile(fh)
+        return fh
+
+    monkeypatch.setattr("builtins.open", wrapping_open)
+
+    # Trigger a different exception inside the snap body via executemany on
+    # synset_properties_curated — same pattern as the existing leak-guard test.
+    class FailingConn:
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def executemany(self, sql, params):
+            if "synset_properties_curated" in sql:
+                raise sqlite3.OperationalError("simulated mid-run failure")
+            return self._real.executemany(sql, params)
+
+    proxy = FailingConn(conn)
+    with caplog.at_level(logging.WARNING, logger="snap_properties"):
+        try:
+            # The ORIGINAL OperationalError must propagate, NOT the close-time OSError.
+            with pytest.raises(sqlite3.OperationalError, match="simulated mid-run failure"):
+                snap_properties(proxy, embedding_threshold=0.7)
+        finally:
+            conn.close()
+
+    # Close failure must be logged (so it isn't silently swallowed without trace).
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any(
+        "snap_dropped" in m and "close" in m.lower() for m in warning_messages
+    ), (
+        "expected WARNING about snap_dropped.jsonl close failure; "
+        f"got: {warning_messages}"
+    )
+
+
+def test_snap_dropped_fh_inner_close_failure_is_logged(tmp_path, caplog):
+    """Symmetric to the outer-close test above: when ``_record_drop`` hits a
+    write failure and falls into its recovery branch, the recovery branch
+    *itself* calls ``dropped_fh.close()`` to release the handle before
+    setting it to None. If that close raises (rare: same NFS/EIO class as
+    the outer case), the close-time error must be logged — otherwise we
+    violate the project's "all handled errors are logged" rule and lose
+    the only trace that recovery itself was lossy.
+
+    Trigger:
+      * Patch the JSONL handle so write() raises OSError → recovery branch
+      * Same handle's close() also raises OSError → inner-close gap
+
+    Expected after fix:
+      * snap completes normally (drops are diagnostic-only, recovery
+        disables further JSONL writes; no exception escapes)
+      * WARNING logged for the original write failure (already logged today)
+      * WARNING logged for the close-during-recovery failure (the gap)
+    """
+    import logging
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop in Stage 3
+
+    real_open = open
+
+    class _WriteAndCloseFailingFile:
+        """Handle that fails both write() and close() with OSError.
+
+        Mirrors the outer-close test's _CloseFailingFile pattern; the extra
+        write() failure here is what drives execution into the inner
+        recovery branch in the first place.
+        """
+
+        def __init__(self, fh):
+            self._fh = fh
+            self._closed = False
+
+        def write(self, *a, **kw):
+            raise OSError("simulated ENOSPC on write")
+
+        def close(self):
+            self._closed = True
+            raise OSError("simulated EIO on inner recovery close")
+
+        @property
+        def closed(self):
+            return self._closed or self._fh.closed
+
+    def wrapping_open(path, mode="r", *a, **kw):
+        fh = real_open(path, mode, *a, **kw)
+        if str(path).endswith("snap_dropped.jsonl"):
+            return _WriteAndCloseFailingFile(fh)
+        return fh
+
+    import builtins
+
+    original_open = builtins.open
+    builtins.open = wrapping_open
+    try:
+        with caplog.at_level(logging.WARNING, logger="snap_properties"):
+            # No exception should escape — drops are diagnostic-only and the
+            # recovery branch is meant to degrade gracefully.
+            snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        builtins.open = original_open
+        conn.close()
+
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+
+    # Existing behaviour: the write failure is already logged by _record_drop.
+    assert any(
+        "snap_dropped" in m and "skipping" in m.lower()
+        for m in warning_messages
+    ), (
+        "expected WARNING about the original write failure; "
+        f"got: {warning_messages}"
+    )
+
+    # The gap Qodo flagged: the inner close failure must also be logged.
+    assert any(
+        "snap_dropped" in m
+        and "close" in m.lower()
+        and "recovery" in m.lower()
+        for m in warning_messages
+    ), (
+        "expected WARNING about the close-during-recovery failure; "
+        f"got: {warning_messages}"
+    )

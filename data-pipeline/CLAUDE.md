@@ -86,6 +86,14 @@ python data-pipeline/scripts/snap_properties.py \
   --threshold 0.7
 ```
 
+**Diagnostic artefact:** every drop (no exact, morphological, or embedding match above threshold) is streamed to `data-pipeline/output/snap_dropped.jsonl` (alongside the DB). One JSON object per line, lazy-opened on first drop:
+
+```
+{"text": "...", "synset_id": "...", "salience": 0.42, "reason": "zero_norm|no_embedding|below_threshold", "best_score": 0.61}
+```
+
+`best_score` is present only for `below_threshold` rows. The file is diagnostic-only: if `open()`/`write()` fails (ENOSPC, PermissionError, non-serialisable record) snap logs a WARNING and continues with the canonical pipeline. In-memory DBs (`:memory:`) skip the JSONL entirely — there's no on-disk path to write alongside.
+
 ### 4. Evaluate MRR
 
 Start the Go API server and query it against known metaphor pairs.

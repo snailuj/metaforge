@@ -244,6 +244,77 @@ def test_load_inapt_controls_skips_malformed_lines_with_warning(tmp_path, caplog
     )
 
 
+def test_load_inapt_controls_skips_non_dict_jsonl_lines_with_warning(tmp_path, caplog):
+    """JSONL lines that parse to non-dict values must be skipped, not crash.
+
+    `json.loads` succeeds on `null`, bare strings, lists, ints — none of which
+    support `.get("label")`. Without an isinstance gate, the loader raises
+    AttributeError and aborts the whole load. Documented intent is to tolerate
+    garbled input, so non-dict lines must be warned and skipped just like a
+    JSONDecodeError.
+    """
+    import logging as _logging
+
+    controls_file = tmp_path / "controls.jsonl"
+    controls_file.write_text(
+        '{"target": "a", "paraphrase": "b", "label": "inapt"}\n'
+        'null\n'
+        '"a string"\n'
+        '[1, 2, 3]\n'
+        '{"target": "c", "paraphrase": "d", "label": "inapt"}\n'
+    )
+
+    with caplog.at_level(_logging.WARNING, logger="evaluate_aptness"):
+        controls = load_inapt_controls(str(controls_file))
+
+    # Valid records still loaded despite the non-dict noise.
+    assert len(controls) == 2
+    assert controls[0]["target"] == "a"
+    assert controls[1]["target"] == "c"
+
+    warnings = [r for r in caplog.records if r.levelno == _logging.WARNING]
+    # One warning per non-dict line (lines 2, 3, 4).
+    assert len(warnings) >= 3, (
+        f"expected >=3 warnings for non-dict lines; got {len(warnings)}: "
+        f"{[w.getMessage() for w in warnings]}"
+    )
+    messages = [w.getMessage() for w in warnings]
+    # Each warning must reference both the file path and the offending line number.
+    assert any(str(controls_file) in m and "2" in m for m in messages), (
+        f"expected warning mentioning {controls_file} and line 2; got: {messages}"
+    )
+    assert any(str(controls_file) in m and "3" in m for m in messages), (
+        f"expected warning mentioning {controls_file} and line 3; got: {messages}"
+    )
+    assert any(str(controls_file) in m and "4" in m for m in messages), (
+        f"expected warning mentioning {controls_file} and line 4; got: {messages}"
+    )
+
+
+def test_random_uniform_docstring_documents_union_size_dependency():
+    """Regression marker: the null-reference scorer's docstring must flag
+    the cohort-level union-size assumption.
+
+    Without this caveat a downstream reader interpreting
+    ``separation_score - random_uniform_separation`` as "real signal above
+    null" can be misled when apt and inapt cohorts have systematically
+    different union-size distributions. We pin the keyword presence so
+    the warning cannot silently regress to a bare "deterministic null".
+    """
+    doc = _random_uniform.__doc__ or ""
+    lower = doc.lower()
+    # The two key concepts that must appear:
+    assert "union-size" in lower or "union size" in lower, (
+        "expected the docstring to mention 'union-size' / 'union size'"
+    )
+    assert "cohort" in lower, "expected the docstring to mention 'cohort'"
+    # And the sanity-floor framing — not a calibrated null hypothesis test.
+    assert "sanity" in lower or "calibrated" in lower, (
+        "expected the docstring to frame this as a sanity-floor reference, "
+        "not a calibrated null hypothesis test"
+    )
+
+
 # --- Classification & aggregation -------------------------------------------
 
 def test_classify_aptness_uses_threshold():

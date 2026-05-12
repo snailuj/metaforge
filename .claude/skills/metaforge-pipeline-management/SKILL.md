@@ -115,6 +115,24 @@ python data-pipeline/scripts/snap_properties.py \
 3. Embedding cosine similarity (above threshold)
 4. Drop (no match found)
 
+**Diagnostic artefact — `snap_dropped.jsonl`:** every drop is streamed to `snap_dropped.jsonl` in the same directory as the lexicon DB (e.g. `data-pipeline/output/snap_dropped.jsonl`). One self-contained JSON object per line, lazy-opened on first drop so an all-snapped run produces no file:
+
+```
+{"text": "...", "synset_id": "...", "salience": 0.42, "reason": "below_threshold", "best_score": 0.61}
+```
+
+- `reason` is one of `zero_norm`, `no_embedding`, `below_threshold`.
+- `best_score` is present only for `below_threshold` rows — it's the cosine similarity of the nearest vocab match that fell short of `--threshold`. Useful for retuning the threshold without re-running snap.
+- Diagnostic-only: if `open()`/`write()` fails (ENOSPC, PermissionError) or a record is non-serialisable, snap logs a WARNING, disables further JSONL writes, and the canonical snap stage continues uninterrupted.
+- In-memory DBs (`:memory:`) skip the JSONL entirely — there's no on-disk path to write alongside, so it would land in the caller's cwd by surprise.
+
+Inspect with jq:
+
+```bash
+jq -r '.reason' data-pipeline/output/snap_dropped.jsonl | sort | uniq -c
+jq -c 'select(.reason == "below_threshold")' data-pipeline/output/snap_dropped.jsonl | head
+```
+
 ---
 
 ## Operation 4: Evaluate MRR
