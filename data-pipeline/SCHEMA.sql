@@ -253,11 +253,12 @@ CREATE TABLE IF NOT EXISTS synset_properties_curated (
     -- Mirrors the existing enum CHECKs on enrichment.connotation/register.
     snap_method  TEXT NOT NULL CHECK (snap_method IN ('exact', 'morphological', 'embedding')),
     -- snap_score is a cosine similarity (only set for the embedding path).
-    -- NOTE: a strict [-1.0, 1.0] CHECK was considered but float32 cosine
-    -- routinely drifts ~1e-7 above 1.0; the live DB has one such value
-    -- (1.00000011920929). Until snap_properties.py clamps the score before
-    -- persistence, leaving this column unconstrained avoids rejecting
-    -- legitimate near-1.0 matches.
+    -- Clamped to [-1.0, 1.0] at write time by snap_properties.py (commit
+    -- 7a334528). A strict [-1.0, 1.0] CHECK is deferred — D6 in
+    -- docs/superpowers/review-logs/2026-05-08-review-m01-and-snap-memopt-review.md:
+    -- the live DB has one float32-drift outlier (1.00000011920929) the
+    -- CHECK would reject until renormalised on the next snap rebuild,
+    -- after which the CHECK lands without preconditions.
     snap_score   REAL,
     -- salience_sum is a non-negative accumulator over multiple LLM properties
     -- snapping into the same cluster; bound it so a sign/NaN regression in
