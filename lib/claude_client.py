@@ -49,9 +49,22 @@ def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
     if not stdout or not stdout.strip():
         raise EmptyResponseError("claude CLI returned empty stdout")
     try:
-        events = json.loads(stdout)
+        parsed = json.loads(stdout)
     except json.JSONDecodeError as e:
         raise EmptyResponseError(f"Failed to parse claude stdout as JSON: {e}") from e
+    # The claude CLI's --output-format=json schema has evolved across versions:
+    # earlier emissions were a JSON array of events (system init, then result);
+    # current emissions are a bare result object. Normalise to a list so the
+    # downstream "find last result event" logic works for both shapes —
+    # otherwise the dict-keys-iteration path raises 'str' has no .get attr.
+    if isinstance(parsed, dict):
+        events = [parsed]
+    elif isinstance(parsed, list):
+        events = parsed
+    else:
+        raise EmptyResponseError(
+            f"Unexpected claude stdout shape: {type(parsed).__name__}"
+        )
     result_event = next(
         (e for e in reversed(events) if e.get("type") == "result"), None
     )

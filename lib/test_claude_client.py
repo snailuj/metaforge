@@ -96,6 +96,35 @@ def test_parse_events_non_rate_limit_error():
         _parse_events(_make_stdout("some other error", is_error=True), 0, "")
 
 
+def test_parse_events_handles_single_result_object_schema():
+    """The claude CLI's --output-format=json schema returns a single result
+    object, not a list. Earlier versions emitted a JSON array of events
+    ({type:system,...}, {type:result,...}); current versions emit the
+    final result event directly as a top-level object. The parser must
+    accept both — otherwise the list-iteration path treats the dict's
+    keys as events and raises 'str' object has no attribute 'get'.
+    """
+    stdout = json.dumps({
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "result": "hello",
+    })
+    assert _parse_events(stdout, 0, "") == "hello"
+
+
+def test_parse_events_handles_single_result_object_rate_limit():
+    """The dict-schema path must also detect rate-limit errors so the
+    enrichment script doesn't retry on quota exhaustion."""
+    stdout = json.dumps({
+        "type": "result",
+        "is_error": True,
+        "result": "rate limit exceeded",
+    })
+    with pytest.raises(RateLimitError):
+        _parse_events(stdout, 0, "")
+
+
 def test_parse_events_strips_fences():
     stdout = _make_stdout("```json\n[1,2]\n```")
     assert _parse_events(stdout, 0, "") == "[1,2]"
