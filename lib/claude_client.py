@@ -55,7 +55,26 @@ def _strip_fences(text: str) -> str:
         # asserts that "```json\n  data  \n```" → "  data  ". We only
         # strip the fence markers themselves, never trim the body.
         return match.group(1)
-    return text
+
+    # No fence found. Sonnet sometimes emits unfenced JSON wrapped in prose
+    # (e.g. 'Continuing with the remaining entries:\n\n[...]' — observed
+    # live on the 8k enrichment run on 2026-05-14). Try to extract the
+    # outermost JSON array or object: find the earliest [ or { and the
+    # latest matching ] or }. If the resulting span fails to parse the
+    # caller will surface the original parse error — but most LLM
+    # responses are well-formed JSON wrapped in surround prose.
+    array_start = text.find('[')
+    object_start = text.find('{')
+    candidates = [s for s in (array_start, object_start) if s >= 0]
+    if not candidates:
+        return text  # No JSON-like content at all; let the caller decide.
+    start = min(candidates)
+    # Match the closing bracket of the same type that came first.
+    close_char = ']' if text[start] == '[' else '}'
+    end = text.rfind(close_char)
+    if end <= start:
+        return text
+    return text[start:end + 1]
 
 
 _RATE_LIMIT_INDICATORS = ("rate limit", "usage limit", "quota", "overloaded", "429")

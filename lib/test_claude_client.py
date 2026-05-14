@@ -147,6 +147,43 @@ def test_parse_events_strips_fences_with_trailing_prose():
     assert _parse_events(stdout, 0, "") == '{"key": "value"}'
 
 
+def test_parse_events_extracts_unfenced_json_array_with_prose_prefix():
+    """The model occasionally emits unfenced JSON prefixed with prose
+    like 'Continuing with the remaining entries:\\n\\n[...]' — caught
+    live on the 8k enrichment run after the fence-strip fix landed.
+    The extractor must find the bare JSON array even without fences.
+    """
+    payload = (
+        "Continuing with the remaining entries:\n\n"
+        "[{\"id\": \"17211\", \"text\": \"written\"}, "
+        "{\"id\": \"17212\", \"text\": \"weighty\"}]"
+    )
+    stdout = json.dumps({
+        "type": "result",
+        "is_error": False,
+        "result": payload,
+    })
+    extracted = _parse_events(stdout, 0, "")
+    parsed = json.loads(extracted)
+    assert isinstance(parsed, list)
+    assert parsed[0]["id"] == "17211"
+
+
+def test_parse_events_extracts_unfenced_json_object_with_prose_prefix():
+    """Same heuristic for JSON objects (single-dict responses, e.g. a
+    one-synset call). The extractor should pick the largest sensible
+    {...} block from the prose."""
+    payload = "Here's the result:\n{\"answer\": 42}\nLet me know if you want more."
+    stdout = json.dumps({
+        "type": "result",
+        "is_error": False,
+        "result": payload,
+    })
+    extracted = _parse_events(stdout, 0, "")
+    parsed = json.loads(extracted)
+    assert parsed == {"answer": 42}
+
+
 def test_parse_events_handles_single_result_object_rate_limit():
     """The dict-schema path must also detect rate-limit errors so the
     enrichment script doesn't retry on quota exhaustion."""
