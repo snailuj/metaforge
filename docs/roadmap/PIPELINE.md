@@ -7,8 +7,9 @@ The single source of truth for what comes next. Always read this when starting m
 ## Active
 
 - **M02 — Asymmetric Ortony Scoring** — vehicle-side salience weighting in forge scoring
+  - Status: **algorithm work paused — currently in S04 — Eval-Harness Retro.** S01 (plumbing) ✅, S02 v1/v2/v3 sweeps ✅ but all three asymmetric variants landed inside the ±0.02 null-noise band (`ortony_imbalance` best at +0.0010 separation_score — sign-flip but below the 5% success criterion). S03 (wire winner into Go forge) **parked** pending S04 conclusions. S04 audits the eval harness itself — cohort-attrition (A), union-size distribution (B), threshold-percentile sensitivity (C) — before committing to either more algorithm variants or a forge wiring whose gain may be noise. See `data-pipeline/sweeps/M02-S02-sweep-findings.md` for the v1/v2/v3 sweep details that motivate this retro.
   - Why: smallest algorithm change that uses existing V2 data, directly attacks the scoring formula's biggest theoretical flaw (symmetric overlap). First real test of the eval harness.
-  - Depends on: M01 (✅ done) + code-review-loop ([PR #17](https://github.com/snailuj/metaforge/pull/17) pending merge)
+  - Depends on: M01 — Automated Eval Harness (✅ done) + code-review-loop ([PR #17](https://github.com/snailuj/metaforge/pull/17) pending merge)
   - Detail: [M02-ortony-scoring-roadmap.md](M02-ortony-scoring-roadmap.md)
   - Branch: `m02/asymmetric-ortony-scoring` (cut from review tip)
 
