@@ -107,7 +107,11 @@ def _invoke(prompt: str, model: str, verbose: bool = False) -> str:
         input=prompt,
         capture_output=True,
         text=True,
-        timeout=300,
+        # Sonnet output rate is roughly 100-150 tokens/sec; a v2 enrichment
+        # batch of 20 synsets emits ~1800 tokens × 20 = 36k tokens which lands
+        # at 240-360s — right on the old 300s edge. 900s gives clear headroom
+        # without masking a genuine hang (anything past ~10 min is wrong).
+        timeout=900,
         env=env,
     )
     if verbose:
