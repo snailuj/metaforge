@@ -191,7 +191,17 @@ def prompt_json(
     try:
         result = json.loads(raw)
     except json.JSONDecodeError as e:
-        raise ParseError(f"Failed to parse JSON: {e}") from e
+        # Include first/last 500 chars of raw so we can diagnose without
+        # re-running. The 8k enrichment kept hitting 'Expecting value: line 1
+        # column 1 (char 0)' with no visibility into what came back — log
+        # both ends so we see whether the response was empty, prose-only,
+        # or truncated mid-stream.
+        head = raw[:500] if raw else "<empty>"
+        tail = raw[-500:] if raw and len(raw) > 1000 else ""
+        raise ParseError(
+            f"Failed to parse JSON ({e}); raw_len={len(raw)}; "
+            f"head={head!r}; tail={tail!r}"
+        ) from e
     if expect is not None and not isinstance(result, expect):
         raise ParseError(f"Expected {expect.__name__}, got {type(result).__name__}")
     return result
