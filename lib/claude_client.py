@@ -33,9 +33,28 @@ class ParseError(ClaudeError):
 # --- Internal layers ---------------------------------------------------------
 
 def _strip_fences(text: str) -> str:
-    """Remove markdown code fences from LLM output."""
-    text = re.sub(r'^```(?:json|markdown)?\n', '', text)
-    text = re.sub(r'\n```$', '', text)
+    """Extract the fenced code body from LLM output, tolerating surround prose.
+
+    Sonnet occasionally prefixes/suffixes its fenced JSON with explanatory
+    prose even when the system prompt says 'output ONLY the JSON' — e.g.
+    'Here are the properties:\\n```json\\n[...]\\n```\\nLet me know if…'.
+    The earlier `^```...$`-anchored regex left the surround prose intact,
+    so downstream json.loads crashed with 'Expecting value: line 1 column 1
+    (char 0)' on the leading 'H'. This was the failure mode that killed
+    every batch of the 8k enrichment run on 2026-05-14.
+
+    Robust strategy: if a fenced block exists anywhere in the text,
+    return just its body. Otherwise return the stripped text as-is —
+    callers without prose surround keep working unchanged.
+    """
+    match = re.search(
+        r'```(?:json|markdown)?\s*\n(.*?)\n```', text, re.DOTALL,
+    )
+    if match:
+        # Preserve internal whitespace — the pre-existing whitespace test
+        # asserts that "```json\n  data  \n```" → "  data  ". We only
+        # strip the fence markers themselves, never trim the body.
+        return match.group(1)
     return text
 
 

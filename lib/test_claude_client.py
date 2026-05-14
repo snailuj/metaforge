@@ -113,6 +113,40 @@ def test_parse_events_handles_single_result_object_schema():
     assert _parse_events(stdout, 0, "") == "hello"
 
 
+def test_parse_events_strips_fences_with_leading_prose():
+    """Sonnet sometimes prefixes its fenced JSON with explanatory prose
+    even when the system prompt says 'output only the JSON' — e.g.
+    `Here are the properties:\\n```json\\n[...]\\n```\\n`. The strict
+    anchored fence-strip regex left the prose intact, which broke the
+    downstream json.loads with 'Expecting value: line 1 column 1 (char 0)'
+    — exactly the failure mode the 8k enrichment run hit on batch 1.
+
+    The robust stripper must extract the fenced body regardless of
+    surrounding prose, in both directions.
+    """
+    payload = "Here are the properties:\n```json\n[1, 2, 3]\n```\nLet me know if you need adjustments."
+    stdout = json.dumps({
+        "type": "result",
+        "is_error": False,
+        "result": payload,
+    })
+    # After parsing + stripping we should get the bare JSON body, ready
+    # for the caller's json.loads.
+    assert _parse_events(stdout, 0, "") == "[1, 2, 3]"
+
+
+def test_parse_events_strips_fences_with_trailing_prose():
+    """Symmetric to the leading-prose case — model may close with a
+    note after the fence."""
+    payload = "```json\n{\"key\": \"value\"}\n```\n(end of response)"
+    stdout = json.dumps({
+        "type": "result",
+        "is_error": False,
+        "result": payload,
+    })
+    assert _parse_events(stdout, 0, "") == '{"key": "value"}'
+
+
 def test_parse_events_handles_single_result_object_rate_limit():
     """The dict-schema path must also detect rate-limit errors so the
     enrichment script doesn't retry on quota exhaustion."""
