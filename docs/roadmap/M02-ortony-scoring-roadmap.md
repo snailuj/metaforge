@@ -88,21 +88,81 @@ The current registry sits in `evaluate_aptness.py`'s `SCORING_FNS`. Each entry m
 
 Gating step before any further M02 — Asymmetric Ortony Scoring algorithm work. Motivation: the S02 v1/v2/v3 sweep results were disappointing in absolute terms — three asymmetric variants all landed inside the ±0.02 noise band, with `ortony_imbalance` producing only a +0.0010 separation_score (sign-flip but tiny magnitude) and the M02 success criterion (≥5% absolute improvement) unmet. Before chasing more algorithm variants — or wiring the current best (`ortony_imbalance`) into the forge as S03 — we need to confirm the eval harness is actually performing as intended on this cohort. If the harness has a structural issue (e.g. unrepresentative surviving sample, distribution-skew driving the null drift, or instability at `threshold_percentile = 95`), then comparisons between scoring formulas are not measuring what we think they are measuring, and S03 would lock in a winner picked on noise.
 
-Three concrete audits, in order:
+### S04-A — Cohort-attrition audit ✅ *Done 2026-05-15*
 
-- **S04-A — Cohort-attrition audit.** Stratify why each apt and each inapt pair drops out of scoring. The harness currently reports cohort-level counts (`apt=232/274 (unresolved=3, no_properties=39)`, `inapt=317/1447 (unresolved=469, no_properties=661)`) with no per-pair reason breakdown. Build histograms: for the 42 apt drops, break down by source word, target word, `domain` (from `metaphor_pairs_v2.json`), and `tier` (`weak`/`medium`/`strong`); for the 1130 inapt drops, break down by reason (unresolved-target vs unresolved-paraphrase vs no_properties-either-side) and by `genre` (from `munch_inapt.jsonl`). Output: `data-pipeline/sweeps/M02-S04-A-attrition-audit.md`. Acceptance: a cohort-level "is the surviving sample representative?" verdict, with evidence. Cost: ~30 min Python, no LLM calls.
+Stratified why each apt and each inapt pair drops. Two smoking guns:
 
-- **S04-B — Union-size distribution check.** The `random_uniform` null reference produced `separation_score = −0.0164`, drifting away from zero. The docstring for `_random_uniform` in `data-pipeline/scripts/evaluate_aptness.py` notes this is exactly the regime where the cohort-level expected separation_score becomes biased: *"unbiased ONLY when the apt and inapt cohorts share similar union-size distributions"*. Compute, for the resolved apt and resolved inapt cohorts, distributions of `|pa ∪ pb|`, `|pa ∩ pb|`, `|pa|`, and `|pb|` (median, p25, p75, p95). If apt and inapt p95s diverge by more than ~30%, that's direct evidence of cohort-shape mismatch driving the null drift independent of any scoring formula. Output: `data-pipeline/sweeps/M02-S04-B-union-sizes.md` with the tables + a verdict on whether the observed null drift is explained by cohort-shape mismatch. Cost: ~15 min Python.
+- **Apt cohort retention varies by 25.9pp across domains** — `emotion` retains 69% vs `cognition` 95%. The lost apt tail is dominated by abstract-emotion source words (sorrow, anxiety, contentment, shame, elation, nostalgia, ecstasy, wrath, frustration, humiliation, yearning, delight, longing, gratitude, awe, disgust, etc.). The most metaphor-relevant domain is the most under-represented.
+- **Inapt cohort retains <25% across all three MUNCH genres** (NEWS 22%, ACPROSE 24%, FICTION 16%). The cohort is a 22% slice of the source data; most drops are paraphrase substitutes (onsets, onrushes, broomed, clutched) that don't resolve to any synset.
+- Tier retention is uniform (weak/medium/strong all ~83-87%) — the bias is purely domain coverage, not metaphor strength.
 
-- **S04-C — Threshold-percentile sensitivity.** All M02 sweeps to date run at `threshold_percentile = 95`. With cohorts as small as 232 apt / 317 inapt that's a percentile estimated from ~16 inapt samples in the tail — high variance. Generate a sweep config that re-runs the contents of `m02_ortony_v3.yaml` (seven scoring formulas including the three asymmetric variants) at five `threshold_percentile` values: 50, 75, 90, 95, 99. Five percentiles × seven scoring fns = 35 variations. The sweep harness handles this natively. Output: a new sweep config `data-pipeline/sweeps/m02_s04_threshold_sensitivity.yaml` (config only — the sweep is not run as part of S04-C, only designed), plus a design doc `data-pipeline/sweeps/M02-S04-C-threshold-sensitivity-design.md` explaining the intent and what each variation tests. Cost: ~15 min to author the YAML + design doc. Running the sweep itself is a downstream action.
+Full report: [`M02-S04-A-attrition-audit.md`](../../data-pipeline/sweeps/M02-S04-A-attrition-audit.md). Generator: `data-pipeline/scripts/m02_s04_a_attrition_audit.py`.
 
-Each S04 sub-slice is independent and can be tackled in any order, but A → B → C is the recommended sequence (A and B inform whether C's threshold sweep is interpreting a clean cohort or a confounded one). **S03 stays parked until all three S04 audits report.** Once S04 lands, the M02 reassessment goes: harness clean → revisit S03 wiring (or design variant 4); harness compromised → fix the harness first, then re-run S02 v3 sweep against the fixed harness before resuming algorithm work.
+### S04-B — Union-size distribution check ✅ *Done 2026-05-15*
+
+Verdict: **cohort-shape mismatch confirmed.** Apt and inapt cohorts live in materially different property-count spaces:
+
+| metric | apt median | inapt median | Δ% |
+|---|---|---|---|
+| `|pa|` | 10 | 15 | −33% |
+| `|pa ∩ pb|` p95 | 2 | 4 | −39% |
+| `|pa ∪ pb|` | 19 | 27 | −30% |
+
+This mechanically explains the `random_uniform` null reference drifting to −0.0164 — the apt cohort's smaller unions land below thresholds computed from the inapt distribution. Independent of any scoring formula. Full report: [`M02-S04-B-union-sizes.md`](../../data-pipeline/sweeps/M02-S04-B-union-sizes.md). Generator: `data-pipeline/scripts/m02_s04_b_union_sizes.py`.
+
+### Apt-gap classification ✅ *Done 2026-05-15*
+
+Before doing a "surgical enrichment" of the 38 missing emotion-domain apt words, classified each by what would actually fix it:
+
+| status | count | what fixes it |
+|---|---|---|
+| **unenriched** | **1** | surgical enrichment (just `comedy` / synset 70072) |
+| **snap-dropped** | **37** | **snap retuning (S04-D below)** |
+| unresolved | 3 | lexicon scope expansion (not M02) |
+
+37 of the 38 missing apt synsets have LLM properties in `synset_properties` — every property dropped at snap at the current 0.7 cosine threshold. The lever is **snap retuning**, not enrichment. Full breakdown: [`M02-S04-apt-gap-classification.md`](../../data-pipeline/sweeps/M02-S04-apt-gap-classification.md). Generator: `data-pipeline/scripts/m02_s04_build_apt_gap_synsets.py`.
+
+### S04-D — Snap threshold retuning 🟡 *In progress 2026-05-15*
+
+Project memory `project_metaforge_snap_threshold_curve` records: *"Threshold default change 0.70 → 0.48 (validated, +30.4% aptness; pending qualitative API check)"*. The validation was on a prior harness (pre-M01) — needs re-verification under the M02-S04 cohort and the M02 scoring formulas.
+
+Steps:
+1. Back up DB. ✅
+2. Re-snap at threshold 0.48 (`snap_properties.py --threshold 0.48`).
+3. Re-run S04-A audit on the new snap state — verify the 37 snap-dropped synsets actually move to `has-properties`.
+4. Re-run `m02_ortony_v3.yaml` sweep on the new snap state. Compare against the pre-0.48 S02 v3 results.
+5. If S04-D lifts apt separation cleanly out of the noise band → S03 unblocks (with `ortony_imbalance` as the winner).
+6. If partial → escalate to S04-G (curated-vocab expansion).
+
+Output (when done): `data-pipeline/sweeps/M02-S04-D-snap-threshold-findings.md`.
+
+### S04-C — Threshold-percentile sensitivity ⏸ *Deferred until S04-D resolves*
+
+Config staged ([`m02_s04_threshold_sensitivity.yaml`](../../data-pipeline/sweeps/m02_s04_threshold_sensitivity.yaml)), 35 variations (7 scoring fns × 5 threshold percentiles), design doc at [`M02-S04-C-threshold-sensitivity-design.md`](../../data-pipeline/sweeps/M02-S04-C-threshold-sensitivity-design.md). Deferred so we don't measure threshold-of-threshold on a moving cohort — runs after D's new snap state stabilises.
+
+### S04-G — Curated vocab expansion ⏸ *Queued, runs only if S04-D partial*
+
+If lowering the snap threshold to 0.48 leaves residual snap drops in the apt cohort, the next lever is targeting which curated vocabulary entries are missing. Mine `data-pipeline/output/snap_dropped.jsonl` for high-frequency dropped property texts and promote them into `property_vocab_curated` (memory flags `resonant`, `earthy`, `angular` etc. as known sensorimotor losses). Then re-snap and re-evaluate.
+
+### S04-E — Synthetic matched inapt cohort ⏸ *Last-resort escalation*
+
+S04-A's 78% MUNCH attrition + the apt-vs-MUNCH cross-task asymmetry (cross-domain metaphor vs in-context paraphrase) may not be fixable inside the current cohort design. The clean alternative: generate a synthetic inapt cohort as random pairings of apt-side topics × wrong-domain vehicles drawn from the same domain distribution. Removes the attrition entirely and matches cohort structure. Biggest design change in the retro — only worth doing if D+G don't yield a clear winner.
+
+### S04-F — Re-run sweeps after enrichment top-up ⏸ *Blocked on in-flight*
+
+The 8k enrichment top-up is running concurrently with S04-D (`data-pipeline/output/enrichment_8k-topup_sonnet_v2_20260514.json`, ~52h ETA at batch-size 10). On completion, `enrich.sh --from-json` will import it into the DB. Then `m02_ortony_v3.yaml` re-runs on the enriched DB → measures whether broader coverage on its own moves the dial, independent of D/G/E.
+
+### Sequence
+
+The current execution sequence: **D-resnap → A-redux + ortony-sweep → assess → (C if D succeeds | G then re-sweep if D partial | E if both stall)**. F runs on its own track behind the in-flight enrichment.
+
+**S03 stays parked until S04 reports a winner.** Once it does: M02 reassessment goes harness clean → revisit S03 wiring (or design variant 4); harness compromised → fix the harness first, then re-run S02 v3 sweep against the fixed harness before resuming algorithm work.
 
 Each slice is its own commit set on `m02/asymmetric-ortony-scoring`. A slice = one PR is fine if they end up substantial; otherwise bundle as a single PR at the end.
 
 ## Pre-flight checklist before starting S01
 
-- [ ] PR #17 (code-review-loop) is merged to main, this branch rebased onto updated main
-- [ ] `baseline_v2.yaml` re-run on the post-PR-#17 DB to confirm the symmetric reference numbers
+- [x] PR #17 (code-review-loop) is merged to main, this branch rebased onto updated main *(merged 2026-05-12)*
+- [x] `baseline_v2.yaml` re-run on the post-PR-#17 DB to confirm the symmetric reference numbers *(2026-05-12 — recorded in `M02-S02-sweep-findings.md`: jaccard_salience separation = −0.0124 on the post-#17 DB, replacing the +0.0103 M01 reference)*
 - [x] Read `evaluate_aptness.py:SCORING_FNS` to confirm the current registry signature and per-side data availability *(2026-05-12 — confirmed asymmetric-ready, see Open Questions)*
 - [x] Read the M01 SENSITIVITY-V2-FINDINGS doc for the existing symmetric baseline numbers *(2026-05-12 — noise band ±0.02 on current cohort sizes; baseline aptness_rate 0.0849, separation_score 0.0103 per CLAUDE.md)*

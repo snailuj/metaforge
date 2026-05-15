@@ -7,11 +7,21 @@ The single source of truth for what comes next. Always read this when starting m
 ## Active
 
 - **M02 — Asymmetric Ortony Scoring** — vehicle-side salience weighting in forge scoring
-  - Status: **algorithm work paused — currently in S04 — Eval-Harness Retro.** S01 (plumbing) ✅, S02 v1/v2/v3 sweeps ✅ but all three asymmetric variants landed inside the ±0.02 null-noise band (`ortony_imbalance` best at +0.0010 separation_score — sign-flip but below the 5% success criterion). S03 (wire winner into Go forge) **parked** pending S04 conclusions. S04 audits the eval harness itself — cohort-attrition (A), union-size distribution (B), threshold-percentile sensitivity (C) — before committing to either more algorithm variants or a forge wiring whose gain may be noise. See `data-pipeline/sweeps/M02-S02-sweep-findings.md` for the v1/v2/v3 sweep details that motivate this retro.
+  - Status: **algorithm work paused — currently in S04 — Eval-Harness Retro.** S01 (plumbing) ✅, S02 v1/v2/v3 sweeps ✅ but all three asymmetric variants landed inside the ±0.02 null-noise band (`ortony_imbalance` best at +0.0010 separation_score — sign-flip but below the 5% success criterion). S03 (wire winner into Go forge) **parked**.
+  - **S04 findings so far (2026-05-15):**
+    - **S04-A** ✅ Cohort attrition has 25.9pp domain-retention spread — emotion domain at 69% vs cognition at 95%, surfacing a structural bias in the apt cohort. Inapt cohort drops to ~22% retention across all three MUNCH genres. See [`M02-S04-A-attrition-audit.md`](../../data-pipeline/sweeps/M02-S04-A-attrition-audit.md).
+    - **S04-B** ✅ Apt cohort lives in a 30% smaller property-count space than inapt (`|pa|` median 10 vs 15; `|pa ∪ pb|` median 19 vs 27). Mechanically explains the `random_uniform` null drift to −0.0164. See [`M02-S04-B-union-sizes.md`](../../data-pipeline/sweeps/M02-S04-B-union-sizes.md).
+    - **Apt-gap classification** ✅ Of 38 emotion-domain apt drops, only 1 is genuinely unenriched (`comedy`); the other 37 are **snap-dropped** — they have LLM properties in `synset_properties` but none survived snap at the current 0.7 cosine threshold. See [`M02-S04-apt-gap-classification.md`](../../data-pipeline/sweeps/M02-S04-apt-gap-classification.md). This pivots the next lever from "surgical enrichment" to **snap threshold retuning**.
+    - **S04-D** 🟡 *In progress 2026-05-15* — re-snap at threshold 0.48 (per project-memory note: validated +30.4% aptness on a prior harness, pending re-verification here). On completion: re-run S04-A audit and `m02_ortony_v3.yaml` sweep against the new snap state.
+    - **S04-C** ⏸ Threshold-percentile sensitivity sweep config staged; not run yet (deferred until D resolves so we're not measuring threshold-of-threshold on a moving cohort).
+    - **S04-G** ⏸ *New lever* — curated-vocab expansion mined from `snap_dropped.jsonl` (memory flags `resonant`, `earthy`, `angular` etc. as sensorimotor losses). Promote D's most-dropped texts into `property_vocab_curated`. Only run if D is partial.
+    - **S04-E** ⏸ Synthetic matched inapt cohort — replace MUNCH with apt-side topics × wrong-domain vehicles drawn from same domain distribution. Removes the 78% MUNCH attrition + the cross-task asymmetry. Biggest design change; queued if D + G stall.
+    - **S04-F** ⏸ Re-run all sweeps after the in-flight 8k enrichment imports. Blocked on the enrichment finishing + `--from-json` round-trip.
+  - **In-flight side-task (concurrent with S04-D):** 8k Sonnet v2 enrichment top-up running at `--batch-size 10`, ~144 synsets/hour, ~52h ETA. Output: `data-pipeline/output/enrichment_8k-topup_sonnet_v2_20260514.json`. Five enrichment-pipeline fixes shipped today (parser, timeout, fence-strip, prose-tolerant JSON extraction, preflight tripwire) — see commit log on this branch.
   - Why: smallest algorithm change that uses existing V2 data, directly attacks the scoring formula's biggest theoretical flaw (symmetric overlap). First real test of the eval harness.
-  - Depends on: M01 — Automated Eval Harness (✅ done) + code-review-loop ([PR #17](https://github.com/snailuj/metaforge/pull/17) pending merge)
+  - Depends on: M01 — Automated Eval Harness (✅ done) + code-review-loop ([PR #17](https://github.com/snailuj/metaforge/pull/17) merged)
   - Detail: [M02-ortony-scoring-roadmap.md](M02-ortony-scoring-roadmap.md)
-  - Branch: `m02/asymmetric-ortony-scoring` (cut from review tip)
+  - Branch: `m02/asymmetric-ortony-scoring`
 
 ## Next
 
@@ -29,13 +39,13 @@ The single source of truth for what comes next. Always read this when starting m
 ## Backlog (no clear slot yet)
 
 - **Snap-tuning research** — see project memories `project_metaforge_snap_threshold_curve` and `project_metaforge_signal_weighted_snap_JSJSJS`
-  - Threshold default change 0.70 → 0.48 (validated, +30.4% aptness; pending qualitative API check)
-  - Per-property signal eval extension as a closed-loop instrument
-  - Curated vocab additions for sensorimotor losses (`resonant`, `earthy`, `angular`, etc.)
-  - JSJSJS — signal-weighted snap (Stage 3 picks highest-aptness target, not highest-cosine)
+  - ~~Threshold default change 0.70 → 0.48~~ — **promoted into M02 — Asymmetric Ortony Scoring S04-D (in progress 2026-05-15)**.
+  - ~~Curated vocab additions for sensorimotor losses (`resonant`, `earthy`, `angular`, etc.)~~ — **promoted into M02 — Asymmetric Ortony Scoring S04-G (queued, runs only if S04-D is partial)**.
+  - Per-property signal eval extension as a closed-loop instrument *(still backlog)*
+  - JSJSJS — signal-weighted snap (Stage 3 picks highest-aptness target, not highest-cosine) *(still backlog)*
 - **Pre-existing Go handler test failures** — 8 tests in `api/internal/handler/handler_test.go` failing because the test fixture DB isn't being provided. Confirmed pre-existing at the pre-M01 main HEAD. Worth tackling alongside or just before the M01 review-loop since the reviewer will trip on these.
 - **CI/CD pipeline** — referenced in MVP punch list, no dedicated milestone yet
-- **20k-word enrichment** — referenced in MVP punch list, mostly compute work
+- **20k-word enrichment** — 8k top-up *in progress as a side-task of M02 — Asymmetric Ortony Scoring S04* (running 2026-05-15, ~52h ETA, ~144 synsets/hour at batch-size 10). Brings DB from ~12k → ~20k enriched synsets. After import (`enrich.sh --from-json`), feeds S04-F re-sweep.
 
 ## Done (newest first)
 
