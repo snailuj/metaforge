@@ -717,3 +717,145 @@ def test_frequency_ranked_no_enrichment_table():
     synsets = get_frequency_ranked_synsets(conn, limit=10)
     assert len(synsets) == 1
     assert synsets[0]["id"] == "300001"
+
+
+# --- preflight_check ----------------------------------------------------------
+#
+# These tests mock extract_batch so they don't hit the live API. The
+# preflight's job is to translate "what extract_batch returns" into either
+# "ok, proceed" or "abort with a clear diagnostic". Each test asserts the
+# diagnostic surfaces the right failure mode — so when claude -p output
+# drifts and the parser starts returning the wrong shape, the operator
+# sees what's wrong instead of an opaque KeyError 4 hours into a run.
+
+from enrich_properties import preflight_check, PreflightError
+
+
+def _make_minimal_db(tmp_path):
+    """Build a tiny lexicon DB with one synset so the preflight has data to draw."""
+    db_path = tmp_path / "preflight.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+        CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+        CREATE TABLE frequencies (lemma TEXT PRIMARY KEY, familiarity REAL, rarity TEXT);
+        CREATE TABLE enrichment (synset_id TEXT);
+    """)
+    conn.execute("INSERT INTO synsets VALUES (?, ?, ?)", ("9001", "n", "a thing"))
+    conn.execute("INSERT INTO lemmas VALUES (?, ?)", ("thing", "9001"))
+    conn.commit()
+    conn.close()
+    return str(db_path)
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_passes_on_valid_v2_response(mock_extract, tmp_path):
+    """Happy path: extract_batch returns a well-formed v2 single-result list."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = [{
+        "id": "9001",
+        "lemma": "thing",
+        "definition": "a thing",
+        "pos": "n",
+        "usage_example": "A thing happened.",
+        "properties": [
+            {"text": "tangible", "salience": 0.8, "type": "physical", "relation": "is tangible"},
+        ],
+        "lemma_metadata": [{"lemma": "thing", "register": "neutral", "connotation": "neutral"}],
+    }]
+    # Should not raise.
+    preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_passes_on_valid_v1_response(mock_extract, tmp_path):
+    """Happy path: extract_batch returns a v1 single-result list (looser schema)."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = [{
+        "id": "9001",
+        "lemma": "thing",
+        "definition": "a thing",
+        "pos": "n",
+        "properties": ["tangible", "physical"],
+    }]
+    preflight_check(db_path=db, model="sonnet", schema_version="v1")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_fails_when_extract_returns_non_list(mock_extract, tmp_path):
+    """Parser drift mode: response shape collapses to a dict, not a list."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = {"id": "9001", "properties": []}  # bare dict
+    with pytest.raises(PreflightError, match="expected list"):
+        preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_fails_when_extract_returns_empty_list(mock_extract, tmp_path):
+    """The merge path silently drops items with unknown IDs — if every item
+    is dropped, we get an empty list. Catch that explicitly."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = []
+    with pytest.raises(PreflightError, match="expected 1"):
+        preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_fails_when_item_missing_required_v2_key(mock_extract, tmp_path):
+    """Prompt regression: model emits results without usage_example /
+    lemma_metadata (a v2 schema requirement)."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = [{
+        "id": "9001",
+        "lemma": "thing",
+        "properties": [{"text": "tangible", "salience": 0.8, "type": "physical", "relation": "x"}],
+        # missing usage_example and lemma_metadata
+    }]
+    with pytest.raises(PreflightError, match="missing required keys"):
+        preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_fails_when_properties_empty(mock_extract, tmp_path):
+    """If properties is empty, the run will produce zero useful data even
+    if the response parses. Treat as a fatal preflight failure."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = [{
+        "id": "9001",
+        "lemma": "thing",
+        "usage_example": "A thing happened.",
+        "properties": [],
+        "lemma_metadata": [],
+    }]
+    with pytest.raises(PreflightError, match="non-empty list"):
+        preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_wraps_extract_batch_exceptions(mock_extract, tmp_path):
+    """When the parser itself raises (the most common drift mode), the
+    PreflightError must surface the cause and point at the parser file
+    so the operator knows where to look."""
+    from claude_client import ParseError
+    db = _make_minimal_db(tmp_path)
+    mock_extract.side_effect = ParseError("Failed to parse JSON: ...")
+    with pytest.raises(PreflightError, match="extract_batch raised"):
+        preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+def test_preflight_fails_when_db_has_no_synsets(tmp_path):
+    """If the DB is empty, the preflight has no test subject. Bail
+    with a clear message rather than letting the call go through with
+    an empty synset list."""
+    db_path = tmp_path / "empty.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+        CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+        CREATE TABLE frequencies (lemma TEXT PRIMARY KEY, familiarity REAL, rarity TEXT);
+        CREATE TABLE enrichment (synset_id TEXT);
+    """)
+    conn.commit()
+    conn.close()
+    with pytest.raises(PreflightError, match="no synsets available"):
+        preflight_check(db_path=str(db_path), model="sonnet", schema_version="v2")

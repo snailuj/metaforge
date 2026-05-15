@@ -228,6 +228,122 @@ def extract_batch(
     return merged
 
 
+# --- Pre-flight integration test ----------------------------------------------
+
+class PreflightError(Exception):
+    """Raised when the end-to-end preflight detects parser-API drift.
+
+    Carries the offending shape (raw response head/tail when available)
+    so the operator can diagnose without re-running.
+    """
+
+
+def preflight_check(
+    db_path: str,
+    model: str = "sonnet",
+    schema_version: str = "v2",
+    verbose: bool = False,
+) -> None:
+    """Run a single-synset enrichment end-to-end and verify the response shape.
+
+    This is the operator's tripwire against parser-API drift. The
+    claude_client parser uses heuristics (fenced extraction, then a
+    fallback that finds the largest [...]/{...} span in unfenced prose)
+    — robust today but guaranteed to break when Sonnet refresh, CLI
+    output schema change, or a prompt-quality regression flips the
+    response shape. Without this check a long enrichment run silently
+    produces zero output for hours before the operator notices.
+
+    Picks one frequency-ranked synset, runs the same extract_batch path
+    as production, and asserts the result is a list-of-one with the
+    schema-version-appropriate keys. Raises PreflightError on any
+    mismatch. Costs one Claude API call (~$0.05 with cache, ~5s wall).
+
+    Args:
+        db_path: lexicon DB to draw the test synset from
+        model: Claude model name (same as production)
+        schema_version: 'v1' or 'v2' — selects which prompt + expected schema
+        verbose: pass through to claude_client's debug logging
+
+    Raises:
+        PreflightError: any shape mismatch or empty result.
+    """
+    log.info(
+        "preflight: running single-synset enrichment (model=%s, schema=%s)",
+        model, schema_version,
+    )
+    conn = sqlite3.connect(db_path)
+    try:
+        synsets = get_frequency_ranked_synsets(conn, limit=1)
+        if not synsets:
+            raise PreflightError(
+                "no synsets available for preflight test call — "
+                "is the DB schema correct and the synsets table populated?"
+            )
+    finally:
+        conn.close()
+
+    # Pick the prompt template + formatter to match production behaviour.
+    if schema_version == "v2":
+        template = BATCH_PROMPT_V2
+        formatter = format_batch_items_v2
+        required_keys = ("id", "usage_example", "properties", "lemma_metadata")
+    else:
+        template = BATCH_PROMPT
+        formatter = format_batch_items
+        required_keys = ("id", "properties")
+
+    try:
+        results = extract_batch(
+            synsets,
+            model=model,
+            prompt_template=template,
+            formatter=formatter,
+            verbose=verbose,
+        )
+    except Exception as e:
+        raise PreflightError(
+            f"extract_batch raised during preflight ({type(e).__name__}: {e}). "
+            f"This usually means the claude_client parser is misaligned with "
+            f"the current claude -p output shape. See lib/claude_client.py "
+            f"_strip_fences/_parse_events."
+        ) from e
+
+    if not isinstance(results, list):
+        raise PreflightError(
+            f"extract_batch returned {type(results).__name__}, expected list. "
+            f"Parser drift?"
+        )
+    if len(results) != 1:
+        raise PreflightError(
+            f"extract_batch returned {len(results)} results, expected 1. "
+            f"Prompt or merge logic regression?"
+        )
+
+    r = results[0]
+    if not isinstance(r, dict):
+        raise PreflightError(
+            f"results[0] is {type(r).__name__}, expected dict."
+        )
+    missing = [k for k in required_keys if k not in r]
+    if missing:
+        raise PreflightError(
+            f"results[0] missing required keys {missing} for schema={schema_version}. "
+            f"Got keys: {sorted(r.keys())}. Prompt-quality regression or "
+            f"schema mismatch."
+        )
+    props = r.get("properties")
+    if not isinstance(props, list) or not props:
+        raise PreflightError(
+            f"results[0].properties must be a non-empty list, got {type(props).__name__} "
+            f"len={len(props) if hasattr(props, '__len__') else 'n/a'}."
+        )
+    log.info(
+        "preflight ok: synset_id=%s lemma=%s n_properties=%d",
+        r.get("id"), r.get("lemma", "?"), len(props),
+    )
+
+
 # --- Synset selection ---------------------------------------------------------
 
 def get_pilot_synsets(
@@ -688,6 +804,16 @@ def main():
         choices=["v1", "v2"],
         help="Enrichment schema version: v1 (plain strings) or v2 (structured with salience/type/relation/lemma_metadata)",
     )
+    parser.add_argument(
+        "--skip-preflight", action="store_true",
+        help=(
+            "Skip the end-to-end parser preflight that runs by default "
+            "before the batch loop. The preflight catches claude -p "
+            "output-shape drift before a long run silently produces "
+            "nothing. Only skip when iterating quickly on a known-good "
+            "parser, or when you've already verified the parser shape."
+        ),
+    )
     args = parser.parse_args()
 
     if args.verbose:
@@ -695,6 +821,25 @@ def main():
 
     output_file = Path(args.output) if args.output else None
     synset_ids_file = Path(args.synset_ids) if args.synset_ids else None
+
+    if not args.skip_preflight:
+        try:
+            preflight_check(
+                db_path=str(LEXICON_V2),
+                model=args.model,
+                schema_version=args.schema_version,
+                verbose=args.verbose,
+            )
+        except PreflightError as e:
+            print(f"PREFLIGHT FAILED: {e}", file=sys.stderr)
+            print(
+                "Aborting before the batch loop. Either fix the parser "
+                "(see lib/claude_client.py) or rerun with --skip-preflight "
+                "if you know what you're doing.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
     result = run_enrichment(
         size=args.size,
         batch_size=args.batch_size,
