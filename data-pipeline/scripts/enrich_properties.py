@@ -429,6 +429,7 @@ def get_frequency_ranked_synsets(
     limit: int,
     required_ids: list | None = None,
     offset: int = 0,
+    skip_enriched_required: bool = False,
 ) -> List[Dict]:
     """Get synsets ranked by max lemma familiarity, excluding already-enriched.
 
@@ -436,14 +437,39 @@ def get_frequency_ranked_synsets(
     remaining slots are filled with frequency-ranked synsets up to limit.
 
     For each synset, picks the most familiar lemma (for the enrichment prompt).
-    Synsets already present in the enrichment table are excluded (padding only).
+    Synsets already present in the enrichment table are excluded from the
+    frequency-ranked padding phase.
+
+    Args:
+        skip_enriched_required: by default, required_ids are fetched
+            unconditionally — useful when re-enriching specific synsets
+            for prompt iteration. Set True to also apply the
+            enrichment-exclusion rule to required_ids, so a surgical
+            --synset-ids run after an in-flight import doesn't waste
+            calls re-enriching synsets that already got picked up
+            incidentally. No-op if the enrichment table doesn't exist
+            (fresh DB).
     """
     synsets = []
     seen_ids = set()
 
-    # Phase 1: fetch required synsets by ID (unconditional — not excluded by enrichment)
+    # Detect enrichment table once and reuse across both phases.
+    has_enrichment = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='enrichment'"
+    ).fetchone()[0] > 0
+
+    # Phase 1: fetch required synsets by ID. By default this is unconditional
+    # — required_ids force inclusion regardless of enrichment status. With
+    # skip_enriched_required=True (and the enrichment table present), the
+    # same NOT IN (SELECT synset_id FROM enrichment) clause applies, so a
+    # surgical run can be passed required_ids that may overlap with prior
+    # enrichment work without wasting calls.
     if required_ids:
         placeholders = ",".join("?" for _ in required_ids)
+        req_exclude_clause = (
+            "AND s.synset_id NOT IN (SELECT synset_id FROM enrichment)"
+            if (skip_enriched_required and has_enrichment) else ""
+        )
         cursor = conn.execute(f"""
             WITH ranked_lemmas AS (
                 SELECT
@@ -458,7 +484,7 @@ def get_frequency_ranked_synsets(
                 FROM synsets s
                 JOIN lemmas l ON l.synset_id = s.synset_id
                 LEFT JOIN frequencies f ON f.lemma = l.lemma
-                WHERE s.synset_id IN ({placeholders})
+                WHERE s.synset_id IN ({placeholders}) {req_exclude_clause}
             )
             SELECT synset_id, definition, lemma, pos
             FROM ranked_lemmas
@@ -478,11 +504,7 @@ def get_frequency_ranked_synsets(
     # Phase 2: pad remaining slots with frequency-ranked synsets
     remaining = limit - len(synsets)
     if remaining > 0:
-        # Check if enrichment table exists (fresh DBs may not have it)
-        has_enrichment = conn.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='enrichment'"
-        ).fetchone()[0] > 0
-
+        # has_enrichment already detected at function entry; reuse it.
         exclude_clause = (
             "AND s.synset_id NOT IN (SELECT synset_id FROM enrichment)"
             if has_enrichment else ""
@@ -569,6 +591,7 @@ def run_enrichment(
     strategy: str = "random",
     schema_version: str = "v1",
     offset: int = 0,
+    skip_enriched_required: bool = False,
 ) -> EnrichmentResult:
     """Run property enrichment on synsets using claude CLI.
 
@@ -622,7 +645,12 @@ def run_enrichment(
         print(f"  Database: {db_path}")
 
         if strategy == "frequency":
-            synsets = get_frequency_ranked_synsets(conn, size, required_ids=required_ids, offset=offset)
+            synsets = get_frequency_ranked_synsets(
+                conn, size,
+                required_ids=required_ids,
+                offset=offset,
+                skip_enriched_required=skip_enriched_required,
+            )
         else:
             synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
         print(f"  Retrieved {len(synsets)} synsets")
@@ -805,6 +833,18 @@ def main():
         help="Enrichment schema version: v1 (plain strings) or v2 (structured with salience/type/relation/lemma_metadata)",
     )
     parser.add_argument(
+        "--skip-enriched-required", action="store_true",
+        help=(
+            "Apply the enrichment-exclusion rule to --synset-ids as well "
+            "as to frequency-padded synsets. By default --synset-ids are "
+            "fetched unconditionally (useful for re-enriching specific "
+            "synsets for prompt-iteration testing). Set this flag when "
+            "doing a surgical top-up after an in-flight enrichment "
+            "import, so synsets that already got picked up don't waste "
+            "calls. No-op if the DB has no enrichment table yet."
+        ),
+    )
+    parser.add_argument(
         "--skip-preflight", action="store_true",
         help=(
             "Skip the end-to-end parser preflight that runs by default "
@@ -852,6 +892,7 @@ def main():
         strategy=args.strategy,
         schema_version=args.schema_version,
         offset=args.offset,
+        skip_enriched_required=args.skip_enriched_required,
     )
     # Exit 75 = rate-limited (retryable), 0 = success
     if result.rate_limited:

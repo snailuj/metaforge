@@ -843,6 +843,84 @@ def test_preflight_wraps_extract_batch_exceptions(mock_extract, tmp_path):
         preflight_check(db_path=db, model="sonnet", schema_version="v2")
 
 
+def test_frequency_ranked_required_ids_includes_enriched_by_default(tmp_path):
+    """Default behaviour: required_ids forces inclusion regardless of
+    whether the synset is already in the enrichment table. This is the
+    documented 'unconditional' contract — useful for prompt-iteration
+    testing where you want to re-enrich a specific synset.
+    """
+    db_path = tmp_path / "req_unconditional.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+        CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+        CREATE TABLE frequencies (lemma TEXT PRIMARY KEY, familiarity REAL, rarity TEXT);
+        CREATE TABLE enrichment (synset_id TEXT);
+    """)
+    conn.execute("INSERT INTO synsets VALUES (?, ?, ?)", ("A", "n", "a thing"))
+    conn.execute("INSERT INTO lemmas VALUES (?, ?)", ("anvil", "A"))
+    # Mark A as already enriched.
+    conn.execute("INSERT INTO enrichment VALUES (?)", ("A",))
+    conn.commit()
+
+    result = get_frequency_ranked_synsets(conn, limit=5, required_ids=["A"])
+    assert [s["id"] for s in result] == ["A"]
+
+
+def test_frequency_ranked_required_ids_excludes_enriched_with_skip_flag(tmp_path):
+    """With skip_enriched_required=True, required_ids respects the
+    enrichment-exclusion rule that frequency padding already applies.
+    Use case: surgical --synset-ids run that runs *after* an in-flight
+    frequency run's output has been imported; we don't want to waste
+    calls re-enriching synsets that already got picked up incidentally."""
+    db_path = tmp_path / "req_skip_enriched.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+        CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+        CREATE TABLE frequencies (lemma TEXT PRIMARY KEY, familiarity REAL, rarity TEXT);
+        CREATE TABLE enrichment (synset_id TEXT);
+    """)
+    conn.executemany("INSERT INTO synsets VALUES (?, ?, ?)", [
+        ("A", "n", "a thing"),
+        ("B", "n", "another thing"),
+    ])
+    conn.executemany("INSERT INTO lemmas VALUES (?, ?)", [
+        ("anvil", "A"),
+        ("bell", "B"),
+    ])
+    # A is already enriched; B is not.
+    conn.execute("INSERT INTO enrichment VALUES (?)", ("A",))
+    conn.commit()
+
+    result = get_frequency_ranked_synsets(
+        conn, limit=5, required_ids=["A", "B"], skip_enriched_required=True,
+    )
+    # A is filtered out, B passes through.
+    assert [s["id"] for s in result] == ["B"]
+
+
+def test_frequency_ranked_required_ids_skip_flag_no_enrichment_table(tmp_path):
+    """If the enrichment table doesn't exist (fresh DB), the flag is a
+    no-op and required_ids behave unconditionally — same as without the
+    flag. Don't crash on a missing table."""
+    db_path = tmp_path / "req_skip_no_table.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+        CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+        CREATE TABLE frequencies (lemma TEXT PRIMARY KEY, familiarity REAL, rarity TEXT);
+    """)
+    conn.execute("INSERT INTO synsets VALUES (?, ?, ?)", ("A", "n", "a thing"))
+    conn.execute("INSERT INTO lemmas VALUES (?, ?)", ("anvil", "A"))
+    conn.commit()
+
+    result = get_frequency_ranked_synsets(
+        conn, limit=5, required_ids=["A"], skip_enriched_required=True,
+    )
+    assert [s["id"] for s in result] == ["A"]
+
+
 def test_preflight_fails_when_db_has_no_synsets(tmp_path):
     """If the DB is empty, the preflight has no test subject. Bail
     with a clear message rather than letting the call go through with
