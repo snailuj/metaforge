@@ -47,6 +47,27 @@ The single source of truth for what comes next. Always read this when starting m
 - **CI/CD pipeline** — referenced in MVP punch list, no dedicated milestone yet
 - **20k-word enrichment** — 8k top-up *in progress as a side-task of M02 — Asymmetric Ortony Scoring S04* (running 2026-05-15, ~52h ETA, ~144 synsets/hour at batch-size 10). Brings DB from ~12k → ~20k enriched synsets. After import (`enrich.sh --from-json`), feeds S04-F re-sweep.
 
+- **Pipeline Tooling Consolidation & Relevance Audit** *(programme-level refactor; queued for after M02 — Asymmetric Ortony Scoring lands)* — captures portability/maintainability work surfaced during the M02-S04 retro. Two sub-goals:
+  1. **Backfill four items** into the canonical production code:
+     a. Move `BATCH_PROMPT_V2_SM` (sensorimotor prompt) into `data-pipeline/scripts/enrich_properties.py` alongside `BATCH_PROMPT_V2`, with a `--prompt-variant {physical,sensorimotor}` CLI flag. Currently lives in a test-script file (`m02_s04_test_sensorimotor_prompt.py`) which is brittle.
+     b. Atomic incremental JSON writes in production `enrich_properties.py` (flush after every batch, .tmp-rename pattern). The 2525 Sonnet synsets lost when the in-flight broad run was killed on 2026-05-15 are evidence this matters.
+     c. `--clear-existing` flag on the import path that DELETEs old rows before INSERT, instead of INSERT OR IGNORE silently keeping stale data. Useful for model switches and prompt iteration.
+     d. Haiku-friendly worked-example IDs (numeric, not `oewn-foo-n`) plus explicit *"use the input ID verbatim"* instruction in the canonical prompt. Improves cross-model reliability — Haiku 39%-failed at ID format until this was patched in the local SM prompt.
+  2. **Relevance audit** of existing pipeline tooling — which scripts/wrappers are now obfuscation rather than abstraction?
+     * `data-pipeline/enrich.sh` — orchestrator wrapper for restore → enrich → pipeline → dump. In recent work we bypassed it entirely (called `enrich_properties.py` and `enrich_pipeline.run_pipeline` directly) because its assumption of restoring from `PRE_ENRICH.sql` doesn't fit incremental top-ups. Decide: keep + fix, simplify into a thin orchestrator, or retire.
+     * `data-pipeline/scripts/m02_s04_*.py` — eleven ad-hoc scripts written during the retro. Triage: archive (audit one-offs that document the retro), formalise (the patch/import workflow patterns), or delete (superseded by formal versions).
+     * Other potentially-defunct files: `evolve_prompts.py`, `evolve_trials.sh`, `ab_test_purpose_prompt.py`, `prompt_templates.py` — pre-M01 evolutionary-prompt-search era. Confirm whether any still active.
+  - Goal: keep `code-as-documentation` of valuable patterns; remove clutter that misleads future contributors.
+  - Cost estimate: ~1-day PR for the backfills + relevance audit doc.
+
+- **Pipeline Architectural Review** *(programme-level; queued after the tooling consolidation chunk above)* — design-level retro on how Metaforge maintains its three data tiers and the schema that holds them. Four lifecycle questions:
+  1. **Schema change management.** `SCHEMA.sql` is the canonical DDL but it has drifted from the committed `lexicon_v2.sql` (which is the actual data dump). When a column is added (e.g. `synset_properties.salience` in M01), how does that propagate to (a) fresh-from-PRE_ENRICH DB rebuilds, (b) in-place schema upgrades on the live DB, (c) backwards compatibility for old enrichment JSONs? Today this is implicit and breaks when assumed (see M02-S04 DB-freshness incident on 2026-05-12).
+  2. **Seed data lifecycle.** Raw sources (OEWN/sqlunet, SUBTLEX-UK, Brysbaert, SyntagNet, VerbNet, FastText) live outside the repo in `~/.local/share/metaforge/`. Provenance, versioning, and update cadence are undocumented. What's the story for "the FastText vectors have improved, refresh"?
+  3. **Enrichment data lifecycle.** `synset_properties` and friends accumulate from many model/prompt runs over time. Today INSERT OR IGNORE silently mixes them. The clear-and-import pattern (from chunk A) fixes one symptom but the deeper question is: should the DB carry a per-row `(model, prompt_variant, run_date)` provenance, so we can roll forward/back and reason about which data was used in any given M0X eval?
+  4. **Derived curation lifecycle.** `synset_properties_curated`, `property_vocab_curated`, `vocab_clusters`, `property_antonyms` are all rebuild-from-scratch outputs of the post-enrichment pipeline. Their build cost is significant (~30-60 min per full rebuild). Is there value in incremental rebuilds for surgical changes, or is the rebuild-everything pattern correct because the derived state is small relative to source state?
+  - Output: an `ARCH-REVIEW.md` doc with recommendations, possibly spawning concrete follow-on milestones.
+  - Cost estimate: ~half-day design doc, half-day to scope concrete follow-ups.
+
 ## Done (newest first)
 
 - **Code-review-loop on M01 + snap memory-opt refactor** *(PR [#17](https://github.com/snailuj/metaforge/pull/17) — pending merge)* — Holistic 4-round oscillating review (pr-review-toolkit ×3, superpowers, standards). 29 fix commits, 23 new tests (suite 512 → 535), 16 active deferrals captured. Round 4 CLEAN halt. Detail: `docs/superpowers/review-logs/2026-05-08-review-m01-and-snap-memopt-review.md`.
