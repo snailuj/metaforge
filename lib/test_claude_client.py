@@ -165,6 +165,73 @@ def test_parse_events_non_rate_limit_error():
         _parse_events(_make_stdout("some other error", is_error=True), 0, "")
 
 
+def test_parse_events_empty_stdout_includes_marker():
+    """EmptyResponseError on empty stdout must surface an empty-stdout
+    marker in the exception message so retry-loop WARNING logs and outer
+    callers can distinguish empty vs malformed vs no-result-event paths
+    without re-running. Mirrors the head/tail diagnostic pattern that
+    prompt_json already uses for JSON-decode failures."""
+    with pytest.raises(EmptyResponseError) as excinfo:
+        _parse_events("", 0, "")
+    assert "(empty)" in str(excinfo.value)
+
+
+def test_parse_events_malformed_json_includes_head_tail():
+    """Top-level json.loads failure must include stdout head/tail in the
+    exception message — otherwise the retry loop logs '... after error:
+    Failed to parse claude stdout as JSON: ...' with zero visibility
+    into what the CLI actually returned."""
+    bad = "not-json-prose " + ("x" * 700) + " trailing-tail-marker"
+    with pytest.raises(EmptyResponseError) as excinfo:
+        _parse_events(bad, 0, "")
+    msg = str(excinfo.value)
+    assert "head=" in msg
+    assert "tail=" in msg
+    assert "trailing-tail-marker" in msg
+
+
+def test_parse_events_no_result_event_includes_head_tail():
+    """No-result-event error path must include stdout diagnostic too."""
+    stdout = json.dumps([{"type": "system", "subtype": "init"}])
+    with pytest.raises(EmptyResponseError) as excinfo:
+        _parse_events(stdout, 0, "")
+    msg = str(excinfo.value)
+    assert "head=" in msg
+
+
+def test_parse_events_missing_result_field_includes_keys():
+    """Missing-result-field already names the keys; verify it still does
+    AND that the head/tail diagnostic is attached so the retry log shows
+    the actual CLI response shape."""
+    stdout = json.dumps([{"type": "result", "is_error": False}])
+    with pytest.raises(EmptyResponseError) as excinfo:
+        _parse_events(stdout, 0, "")
+    msg = str(excinfo.value)
+    assert "head=" in msg
+    assert "is_error" in msg  # the keys list is still present
+
+
+def test_parse_events_unexpected_shape_includes_head_tail():
+    """Unexpected top-level JSON shape (e.g. a string) must include the
+    stdout diagnostic so we can see what was actually returned."""
+    stdout = json.dumps("just a string")
+    with pytest.raises(EmptyResponseError) as excinfo:
+        _parse_events(stdout, 0, "")
+    msg = str(excinfo.value)
+    assert "head=" in msg
+
+
+def test_parse_events_nonzero_exit_includes_head_tail():
+    """Non-zero exit error must include stdout head/tail — currently only
+    stderr is surfaced; if the CLI emitted partial stdout (e.g. a Bus
+    Error after a 3-event prefix), that context disappears."""
+    partial = '[{"type":"system","subtype":"init"}]'
+    with pytest.raises(ClaudeError) as excinfo:
+        _parse_events(partial, 1, "claude: segfault")
+    msg = str(excinfo.value)
+    assert "head=" in msg or partial[:50] in msg
+
+
 def test_parse_events_handles_single_result_object_schema():
     """The claude CLI's --output-format=json schema returns a single result
     object, not a list. Earlier versions emitted a JSON array of events

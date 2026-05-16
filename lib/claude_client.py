@@ -130,16 +130,45 @@ def _strip_fences(text: str) -> str:
 _RATE_LIMIT_INDICATORS = ("rate limit", "usage limit", "quota", "overloaded", "429")
 
 
+def _stdout_diagnostic(stdout: str, head: int = 300, tail: int = 300) -> str:
+    """Render a short head/tail snapshot of subprocess stdout for inclusion
+    in error messages. Mirrors the diagnostic pattern that prompt_json
+    already uses for JSON-decode failures so the retry-loop WARNING log
+    surfaces enough context to diagnose without re-running.
+
+    Returns a string like `head=<first 300>...; tail=<last 300>` or
+    `head=(empty); tail=(empty)` for empty input. Total bytes capped at
+    ~head + tail to keep log lines tractable.
+    """
+    if not stdout:
+        return "head=(empty); tail=(empty)"
+    if len(stdout) <= head + tail:
+        return f"head={stdout!r}; tail=(none, len={len(stdout)})"
+    return f"head={stdout[:head]!r}; tail={stdout[-tail:]!r}"
+
+
 def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
     """Parse Claude CLI JSON event output and return the result text."""
     if returncode != 0:
-        raise ClaudeError(f"claude CLI failed (exit {returncode}): {stderr}")
+        # Include stdout head/tail too — stderr alone often loses partial
+        # event output (e.g. a CLI segfault after a 3-event prefix). The
+        # retry-loop WARNING logs the full exception message, so this
+        # diagnostic flows through to operators without re-running.
+        raise ClaudeError(
+            f"claude CLI failed (exit {returncode}); stderr={stderr!r}; "
+            f"{_stdout_diagnostic(stdout)}"
+        )
     if not stdout or not stdout.strip():
-        raise EmptyResponseError("claude CLI returned empty stdout")
+        raise EmptyResponseError(
+            f"claude CLI returned empty stdout; {_stdout_diagnostic(stdout)}"
+        )
     try:
         parsed = json.loads(stdout)
     except json.JSONDecodeError as e:
-        raise EmptyResponseError(f"Failed to parse claude stdout as JSON: {e}") from e
+        raise EmptyResponseError(
+            f"Failed to parse claude stdout as JSON: {e}; "
+            f"{_stdout_diagnostic(stdout)}"
+        ) from e
     # The claude CLI's --output-format=json schema has evolved across versions:
     # earlier emissions were a JSON array of events (system init, then result);
     # current emissions are a bare result object. Normalise to a list so the
@@ -151,13 +180,16 @@ def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
         events = parsed
     else:
         raise EmptyResponseError(
-            f"Unexpected claude stdout shape: {type(parsed).__name__}"
+            f"Unexpected claude stdout shape: {type(parsed).__name__}; "
+            f"{_stdout_diagnostic(stdout)}"
         )
     result_event = next(
         (e for e in reversed(events) if e.get("type") == "result"), None
     )
     if result_event is None:
-        raise EmptyResponseError("No result event in claude output")
+        raise EmptyResponseError(
+            f"No result event in claude output; {_stdout_diagnostic(stdout)}"
+        )
     if result_event.get("is_error"):
         error_text = result_event.get("result", "")
         if any(ind in error_text.lower() for ind in _RATE_LIMIT_INDICATORS):
@@ -167,7 +199,8 @@ def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
     if not text:
         raise EmptyResponseError(
             f"Result event missing 'result' field "
-            f"(keys: {sorted(result_event.keys())})"
+            f"(keys: {sorted(result_event.keys())}); "
+            f"{_stdout_diagnostic(stdout)}"
         )
     return _strip_fences(text.strip())
 
