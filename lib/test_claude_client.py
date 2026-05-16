@@ -100,6 +100,81 @@ def test_strip_fences_string_with_brackets_inside():
     assert parsed == {"note": "contains ] and } chars", "n": 1}
 
 
+def test_strip_fences_unfenced_logs_debug_on_fallback():
+    """When _strip_fences takes the unfenced bracket-balance scan path
+    (no fence found, span json.loads-parseable), it must emit a DEBUG log
+    so operators investigating retro can tell which extraction path won.
+    DEBUG level keeps it off prod logs by default but available behind
+    --log-level=DEBUG."""
+    import logging
+    from claude_client import _strip_fences as _sf
+    # Use 10 items so we're above the suspiciously-short threshold and
+    # only the DEBUG log fires (not the WARNING).
+    payload = "Prefix prose: " + json.dumps(list(range(10)))
+    caplog_logger = logging.getLogger("claude_client")
+    with pytest.MonkeyPatch.context() as _:
+        import io
+        log_stream = io.StringIO()
+        handler = logging.StreamHandler(log_stream)
+        handler.setLevel(logging.DEBUG)
+        caplog_logger.addHandler(handler)
+        caplog_logger.setLevel(logging.DEBUG)
+        try:
+            result = _sf(payload)
+            output = log_stream.getvalue()
+        finally:
+            caplog_logger.removeHandler(handler)
+    assert json.loads(result) == list(range(10))
+    assert "unfenced extraction" in output
+
+
+def test_strip_fences_unfenced_warns_on_suspiciously_short():
+    """If the bracket-balance scan returns a list of <3 items, emit a
+    WARNING — short results from prose-prefixed unfenced extractions are
+    the silent-mis-success mode (refusal-with-example, thinking-aloud-
+    with-fragment). Operators correlating this warning with downstream
+    unknown-ID warnings can spot mis-extractions before they corrupt
+    aggregated results."""
+    import logging
+    from claude_client import _strip_fences as _sf
+    caplog_logger = logging.getLogger("claude_client")
+    import io
+    log_stream = io.StringIO()
+    handler = logging.StreamHandler(log_stream)
+    handler.setLevel(logging.WARNING)
+    caplog_logger.addHandler(handler)
+    caplog_logger.setLevel(logging.WARNING)
+    try:
+        _sf("Brief example: [1,2,3]")
+        output = log_stream.getvalue()
+    finally:
+        caplog_logger.removeHandler(handler)
+    assert "suspiciously short" in output.lower()
+
+
+def test_strip_fences_fenced_path_silent():
+    """Fenced extraction must NOT emit the unfenced-path debug/warning —
+    they are different code branches and the observability is specific to
+    the riskier fallback."""
+    import logging
+    from claude_client import _strip_fences as _sf
+    caplog_logger = logging.getLogger("claude_client")
+    import io
+    log_stream = io.StringIO()
+    handler = logging.StreamHandler(log_stream)
+    handler.setLevel(logging.DEBUG)
+    caplog_logger.addHandler(handler)
+    caplog_logger.setLevel(logging.DEBUG)
+    try:
+        _sf("```json\n[1,2,3]\n```")
+        output = log_stream.getvalue()
+    finally:
+        caplog_logger.removeHandler(handler)
+    # Fenced path should NOT log the unfenced-extraction markers.
+    assert "unfenced extraction" not in output
+    assert "suspiciously short" not in output.lower()
+
+
 def test_strip_fences_string_with_escaped_quote():
     """Escaped quote inside string must not close the string early."""
     payload = 'Out: {"note": "a \\"quoted\\" word", "n": 2}'

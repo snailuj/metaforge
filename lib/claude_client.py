@@ -90,6 +90,19 @@ def _strip_fences(text: str) -> str:
     Robust strategy: if a fenced block exists anywhere in the text,
     return just its body. Otherwise return the stripped text as-is —
     callers without prose surround keep working unchanged.
+
+    Residual risk on the unfenced fallback: a refusal-with-example
+    pattern ("Brief example: [1,2,3]") or thinking-aloud-with-fragment
+    can return a JSON-valid but content-wrong short prefix. Mitigation:
+    we emit a DEBUG log every time the unfenced path wins so operators
+    investigating retro can tell which extraction branch fired, and a
+    WARNING when the parsed result is suspiciously short (< 3 items in a
+    list, or an empty object) — operators correlating that with
+    downstream "unknown ID" warnings can spot mis-extractions before
+    they corrupt aggregated results. The threshold isn't perfect (a
+    legit 2-item batch is possible), but downstream extract_batch
+    already logs unknown-ID warnings for items it can't map, so the
+    correlation pattern is reliable.
     """
     # Accept any lowercase language tag (json, markdown, javascript, text,
     # python, ...). Models occasionally emit ```javascript or ```text even
@@ -161,9 +174,38 @@ def _strip_fences(text: str) -> str:
             continue  # Unbalanced from this opener — try the next one.
         candidate = text[start:end + 1]
         try:
-            json.loads(candidate)
+            parsed = json.loads(candidate)
         except (ValueError, TypeError):
             continue
+        log.debug(
+            "_strip_fences: unfenced extraction (no fence found); "
+            "span=%d:%d; parsed_type=%s",
+            start, end + 1, type(parsed).__name__,
+        )
+        # Suspiciously-short heuristic: short list or empty dict from an
+        # unfenced prose-prefixed extraction is the silent-mis-success
+        # signature (refusal-with-example, thinking-aloud-with-fragment).
+        # Surface as WARNING so operators correlating logs can spot it.
+        # Threshold of <= 3 items catches the spec-example refusal pattern
+        # "Brief example: [1,2,3]" while still letting most legitimate
+        # batches (batch_size default = 20, so even a heavily-truncated
+        # response with 4 items is unlikely to be a refusal-snippet).
+        # False-positive cost is a single WARNING per genuine-short batch;
+        # false-negative cost is silent corruption of downstream aggregates,
+        # so erring towards louder is correct.
+        suspicious = (
+            (isinstance(parsed, list) and len(parsed) <= 3)
+            or (isinstance(parsed, dict) and len(parsed) == 0)
+        )
+        if suspicious:
+            head, tail, _total = _stdout_diagnostic_fields(text)
+            log.warning(
+                "_strip_fences: unfenced extraction returned suspiciously "
+                "short result (type=%s, n=%s); raw_head=%r; raw_tail=%r",
+                type(parsed).__name__,
+                len(parsed) if hasattr(parsed, "__len__") else "?",
+                head, tail,
+            )
         return candidate
 
     # No opener yielded a parseable span — fall through to the original
