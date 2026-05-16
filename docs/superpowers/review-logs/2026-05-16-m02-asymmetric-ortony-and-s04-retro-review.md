@@ -606,15 +606,14 @@ All four active adapters returned 4-section responses. Each adapter's PRIOR_FIND
 - **proposed_followup:** Pipeline Tooling Consolidation territory when the production `--clear-existing` flag (backfill item 1c) lands.
 - **status:** active
 
-#### D13 — Typed exception fields mutable post-construction + serialisation round-trip not preserved
-- **Source:** Round 3, type-design-analyzer (own #3)
+#### D13 — Typed exception fields mutable post-construction (corrected wording 2026-05-16, Round 4)
+- **Source:** Round 3, type-design-analyzer (own #3); wording corrected by Round 4 superpowers (challenge accepted on serialisation claim — not on scope)
 - **File:** `lib/claude_client.py` `_StdoutDiagnosticMixin` (after R3 Mixin refactor)
 - **Severity:** low
-- **scope_boundary:** Two distinct concerns:
-  1. **Mutability**: nothing prevents `e.stdout_head = "fake"` after raise. Mitigation requires `__slots__` + maybe `__setattr__` override.
-  2. **Serialisation**: keyword-only `__init__` doesn't round-trip via default Exception `__reduce__` which calls `__init__(*args)`. Would need custom `__reduce__` or change kw-only to positional.
-- **why_out_of_scope:** Metaforge does not currently cross process boundaries with these exceptions (the retry loop is in-process; no multiprocessing pool exchanges them). Both concerns are latent foot-guns rather than active bugs. Closing them invasive (touches every raise site + adds serialisation machinery).
-- **proposed_followup:** If a future feature crosses process boundaries (e.g. parallel sweep dispatch via multiprocessing.Pool), revisit. Capture in `docs/inbox/captures.md`.
+- **scope_boundary:** Mutability: nothing prevents `e.stdout_head = "fake"` after raise. Mitigation requires `__slots__` + maybe `__setattr__` override.
+- **why_out_of_scope:** No code path in Metaforge currently writes to typed-field attributes after raise. Mitigation invasive (touches every raise site + adds slots machinery).
+- **Note on wording correction:** Round 3 originally claimed two concerns: mutability AND serialisation-round-trip-broken. Round 4 superpowers reviewer empirically verified that typed fields DO round-trip via the default Exception `__reduce_ex__`/`__dict__` path despite the keyword-only `__init__` — the serialisation claim was technically wrong. D13 re-scoped to mutability only. The mutability concern stands.
+- **proposed_followup:** Capture in `docs/inbox/captures.md` as an immutability-tightening item alongside any future `__slots__` work.
 - **status:** active
 
 #### D14 — `_strip_fences` worst-case O(N·K) on opener density
@@ -672,6 +671,87 @@ Items resolved: 31 (12 R1 + 10 R2 + 9 R3 distinct)
 Active deferrals: 14 (D1–D14)
 Superseded deferrals: 0
 Trajectory: criticals R1+R2 → 0 critical R3; importants concentrated in same commit area each round; deferrals stable (zero challenges in R3).
+
+---
+
+## Round 4 — pr-review-toolkit + superpowers + standards (2026-05-16T15:00:00Z)
+
+**Reviewers dispatched:** code-reviewer, silent-failure-hunter (pr-review-toolkit); superpowers:code-reviewer; standards (general-purpose); ux-designer no-op.
+
+### Items Found (Round 4)
+
+**important (1 item):**
+- **r4-sf-3: Multi-payload rollback leaks deleted rows when failure lands after `curate_properties` internal commit** (silent-failure-hunter). The per-payload BEGIN/COMMIT fix from R3 (`10f43b6b`) correctly handles failures BEFORE any internal commit. But if `populate_synset_properties` raises AFTER `curate_properties` has committed internally, the rollback is a no-op — DELETEs + curate's writes are already committed. Module docstring acknowledges this honestly; production code doesn't log when the silent-leak case fires. Decision: **fix** — `log.warning` on the rollback-impossible branch.
+
+**low (5 items):**
+- **r4-sf-1: `assert` precondition stripped under `python -O`** — bare `assert conn.in_transaction` would be a no-op under optimisation flag, leaving DELETEs in autocommit. Decision: **fix** — replace with `if not ...: raise RuntimeError(...)`.
+- **r4-sp-1/cr-1: `_MAX_TIMEOUT_ATTEMPTS=1` comment-math drift** — comment claims "2× the per-call timeout" but cap is actually 1×. Decision: **fix** — amend comment.
+- **r4-sp-2: Dead-code path in timeout handler** — `if attempt < max_retries - 1: ... sleep` branch unreachable under cap=1. Latent foot-gun if cap bumped. Decision: **fix** — remove or guard.
+- **r4-sp-5: Positive-path test doesn't exercise DELETE** — `test_delete_synset_rows_within_txn_accepts_explicit_transaction` passes `[]` which short-circuits before any DELETE runs. Decision: **fix** — strengthen test to seed rows + assert deletion.
+- **r4-sp-3: Optional[X] pattern leaks to `evaluate_mrr.py:280`** — same pattern as r3-td-4 in a sibling file. Decision: **defer-out-of-scope** → out of M02 integration; capture in inbox.
+
+**cosmetic (3 items):**
+- **r4-sf-2: `_decode_stream` `errors="replace"` silently corrupts bytes** — substitutes `\ufffd` without log. Decision: **defer-out-of-scope** — bounded cost in failure-mode-only path; ClaudeTimeoutError already fail-loud.
+- **r4-sp-4: Constants defined after their first use** — works at runtime but bad readability. Decision: **fix** — move constants to top.
+- **r4-sp-6: `_MAX_TIMEOUT_ATTEMPTS` "attempts" vs "retries" vocabulary drift** — merged with comment fix.
+
+**superpowers D13 challenge:** Empirically verified that typed exception fields DO round-trip via default Exception `__reduce_ex__`. The serialisation claim in D13 was technically wrong. **Action:** correct D13 wording to retain mutability concern only (done — see D13 above).
+
+**standards: ✅ CLEAN.** 15-standard re-check holds against Round 3 fix delta. All 14 deferrals concurred. Suite green at 653 (verified locally).
+
+### Critique Sections Persisted (compact)
+
+All four active adapters returned 4-section responses with substantive PRIOR_FINDINGS_CRITIQUE (3+ categories per adapter, evidence-based), APPLIED_FIXES_CRITIQUE (per-fix yes/partial verdicts with evidence), DEFERRAL_LEDGER_REVIEW (all 14 deferrals individually addressed). Only 1 challenge raised: D13 serialisation rationale (corrected).
+
+**Convergence verdict:** R1 (1 crit + 8 imp) → R2 (1 crit + 4 imp) → R3 (0 crit + 3 imp) → R4 (0 crit + 1 imp). Importants concentrated in same area each round (current round's are all rooted in Round 3 fix delta around timeout-cap and multi-payload). Severity monotone decreasing.
+
+### Round 4 Fixes Applied
+
+Pre-fix SHA: `2b656c51` (Round 4 reviewers ran here). 6 commits across 2 subagents — **no parallel-staging interference this batch** (used `git commit -- <pathspec>` discipline).
+
+| Commit | File(s) | Fix |
+|---|---|---|
+| `d18340db` | `m02_s04_clear_and_import.py` + test | **r4-sf-1**: `assert` → `if not ...: raise RuntimeError(...)` for `-O` safety. Updated test from `pytest.raises(AssertionError)` to `RuntimeError`. |
+| `4cf18669` | `lib/claude_client.py` | **r4-sp-1/cr-1 + r4-sp-6**: Corrected `_MAX_TIMEOUT_ATTEMPTS` comment math (cap = 1× per-call timeout, one attempt total, zero retries) + vocabulary clarification (attempts vs retries). |
+| `6c25fa71` | `test_m02_s04_clear_and_import.py` | **r4-sp-5**: Strengthened positive-path test to actually exercise DELETE inside transaction — seeds 3 rows, deletes 2 via helper inside BEGIN, asserts deletion + control row survives + persistence after commit. |
+| `5e628a9c` | `lib/claude_client.py` | **r4-sp-2**: Removed dead backoff branch in timeout handler (unreachable under `_MAX_TIMEOUT_ATTEMPTS=1`). Inline comment documents the latent foot-gun: if cap is bumped, re-added backoff must use `timeout_attempts` (not `attempt`). |
+| `6119746f` | `lib/claude_client.py` | **r4-sp-4**: Moved `_RATE_LIMIT_INDICATORS`, `_STRIP_FENCES_*_THRESHOLD`, `_MAX_TIMEOUT_ATTEMPTS` into single `# Module configuration constants` block above first use. |
+| `30dbb987` | `m02_s04_clear_and_import.py` + test | **r4-sf-3 fix**: `log.warning` on rollback-impossible-due-to-inner-commit. Factored per-payload body into `_import_one_payload` helper for testability. New test mocks inner commit + populate failure → asserts WARNING fires with payload path. |
+
+### Files Modified (Round 4)
+- `lib/claude_client.py`
+- `data-pipeline/scripts/m02_s04_clear_and_import.py`
+- `data-pipeline/scripts/test_m02_s04_clear_and_import.py`
+
+### Test Results
+**Pre-round-4-fix:** 653 passed.
+**Post-round-4-fix:** 654 passed, 0 failed (+1 for strengthened positive-path test; other fixes update existing tests in-place).
+
+All Round 4 important + low items resolved:
+- ✅ r4-sf-3 multi-payload silent-leak — operator-visible WARNING
+- ✅ r4-sf-1 `-O` strips assert — RuntimeError replacement
+- ✅ r4-sp-1/cr-1 comment-math drift — corrected
+- ✅ r4-sp-2 dead-code branch — removed
+- ✅ r4-sp-5 shallow test — strengthened
+- ✅ r4-sp-4 constants ordering — fixed
+- D13 wording — corrected in ledger (mutability only; serialisation claim withdrawn)
+
+### Deferred items (Round 4)
+- **r4-sp-3** (Optional[X] leak to `evaluate_mrr.py:280`) — out of M02 integration scope; capture in `docs/inbox/captures.md`.
+- **r4-sf-2** (`_decode_stream` errors=replace silently corrupts bytes) — bounded cost in failure-mode-only path; ClaudeTimeoutError already fail-loud.
+
+These two are not promoted to ledger D-entries — they're inbox-captures, single-line follow-ups for future work.
+
+### Cumulative
+Total rounds: 4 (in progress)
+Items resolved: 37 (12 R1 + 10 R2 + 9 R3 + 6 R4 distinct)
+Active deferrals: 14 (D1–D14; D13 wording corrected R4)
+Superseded deferrals: 0
+Trajectory: criticals 0 since R3; importants 3 → 1 → expected 0 in R5; standards CLEAN R2-R4.
+
+---
+
+
 
 ---
 
