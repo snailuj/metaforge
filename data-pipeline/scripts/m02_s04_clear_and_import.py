@@ -114,13 +114,28 @@ def _delete_synset_rows_within_txn(conn, synset_ids):
           f"{n_lm} lemma_metadata rows for {len(synset_ids)} synsets.")
 
 
-def _import_one_payload(conn, path, data, vectors):
+def import_one_payload_safely(conn, path, data, vectors):
     """Clear-and-import a single enrichment payload inside its own txn.
 
-    Extracted from `main()` so the partial-atomicity behaviour can be
-    exercised in isolation by tests — in particular, the silent-leak
-    case where an inner `populate_*` commit lands before a later
-    failure, leaving the rollback path with nothing to roll back.
+    Public helper — also consumed by `m02_s04_finalise_eval_rebuild.py`
+    Phase 1 so the silent-leak-aware pattern lives in one place. Both
+    scripts share the same `BEGIN → _delete → curate → populate →
+    COMMIT` flow with identical partial-atomicity hazards; the helper
+    is the single source of truth.
+
+    Contract:
+      - Caller must have already invoked `_ensure_v2_schema(conn)`.
+      - `data` is a parsed enrichment-JSON dict with `synsets` and
+        `config.model` keys (model defaults to "unknown" if missing).
+      - `vectors` is the loaded FastText mapping.
+
+    Failure modes the helper surfaces (via `log.warning`):
+      - PARTIAL-IMPORT state when an inner commit fires and a later
+        step raises (`curate_properties` commits internally; if a
+        subsequent populate raises, DELETEs and curate writes are
+        already persisted).
+      - Rollback-of-rollback failures (e.g. `database is locked`)
+        without masking the original exception.
     """
     synset_ids = [s["id"] for s in data.get("synsets", [])]
     model_used = data.get("config", {}).get("model", "unknown")
@@ -256,7 +271,7 @@ def main():
         # `_delete_synset_rows_within_txn` on iteration 2. See module
         # docstring for the full transactional-safety rationale.
         for path, data in payloads:
-            _import_one_payload(conn, path, data, vectors)
+            import_one_payload_safely(conn, path, data, vectors)
 
         print("\nImport complete. Downstream tables "
               "(synset_properties_curated, vocab_clusters, "

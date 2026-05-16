@@ -19,8 +19,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 import m02_s04_clear_and_import as mod
 from m02_s04_clear_and_import import (
     _delete_synset_rows_within_txn,
-    _import_one_payload,
+    import_one_payload_safely,
 )
+
+# Local alias keeps the existing test bodies compact and intention-
+# revealing — the tests are exercising the silent-leak-aware import
+# path, not the helper's name.
+_import_one_payload = import_one_payload_safely
 
 
 def test_delete_synset_rows_within_txn_requires_explicit_transaction():

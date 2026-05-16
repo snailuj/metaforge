@@ -30,9 +30,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from enrich_pipeline import (
-    curate_properties,
-    populate_synset_properties,
-    populate_lemma_metadata,
     store_lemma_embeddings,
     _ensure_v2_schema,
 )
@@ -42,7 +39,7 @@ from snap_properties import snap_properties
 from build_antonyms import build_antonym_table, build_cluster_antonym_table
 from utils import LEXICON_V2, FASTTEXT_VEC, load_fasttext_vectors
 
-from m02_s04_clear_and_import import _delete_synset_rows_within_txn
+from m02_s04_clear_and_import import import_one_payload_safely
 
 
 def main():
@@ -69,26 +66,18 @@ def main():
         _ensure_v2_schema(conn)
 
         # --- Phase 1: clear + import cohort JSON ---
-        # Wrap clear-and-import in a single explicit transaction so a
-        # partial failure cannot leave the DB with rows DELETED but no
-        # replacement IMPORTED. Mirrors the canonical pattern in
-        # `m02_s04_clear_and_import.py`. Required by
-        # `_delete_synset_rows_within_txn`'s precondition (raises
-        # RuntimeError outside an explicit transaction; `raise` not
-        # `assert`, so the guard survives `python -O`).
-        print(f"\n=== Phase 1: clear-and-import cohort ({len(cohort_synset_ids)} synsets) ===")
-        conn.execute("BEGIN")
-        try:
-            _delete_synset_rows_within_txn(conn, cohort_synset_ids)
-            n_curated = curate_properties(conn, cohort_data, vectors)
-            n_links = populate_synset_properties(conn, cohort_data, cohort_model)
-            n_lm = populate_lemma_metadata(conn, cohort_data)
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        print(f"  Imported: {n_curated} new property_vocabulary rows, "
-              f"{n_links} synset-property links, {n_lm} lemma_metadata rows")
+        # Delegate to the shared silent-leak-aware helper. It owns the
+        # `BEGIN → _delete → curate → populate → COMMIT` flow with
+        # partial-atomicity tracking (inner_commit_seen) so that any
+        # raise after curate_properties' internal commit surfaces a
+        # `log.warning` rather than failing silently. Single source of
+        # truth — the same helper is the canonical path in
+        # `m02_s04_clear_and_import.py`'s own main loop.
+        print(f"\n=== Phase 1: clear-and-import cohort "
+              f"({len(cohort_synset_ids)} synsets) ===")
+        import_one_payload_safely(
+            conn, args.cohort_enrichment, cohort_data, vectors,
+        )
 
         # --- Phase 2: lemma embeddings (full sweep, idempotent INSERT OR IGNORE) ---
         print("\n=== Phase 2: lemma embeddings ===")
