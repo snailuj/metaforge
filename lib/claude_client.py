@@ -104,6 +104,40 @@ class ClaudeTimeoutError(ClaudeError):
         self.total_stderr_len = total_stderr_len
 
 
+# --- Module configuration constants ------------------------------------------
+
+_RATE_LIMIT_INDICATORS = ("rate limit", "usage limit", "quota", "overloaded", "429")
+
+# List-result length at or below which _strip_fences emits a WARNING.
+#
+# Tuned for production batch_size≈20; an operator using batch_size=2 may
+# want to lower this. Threshold balances false-positives (legitimate
+# 2-3 item batches) against silent-mis-success (refusal-with-example
+# patterns that produce 1-3 items).
+_STRIP_FENCES_SUSPICIOUS_RESULT_THRESHOLD = 3
+
+# Dict-result key-count at or below which _strip_fences emits a WARNING.
+#
+# Mirrors the list-side foot-gun: a refusal-with-example like
+# `Brief example: {"id": "0001", "text": "soft"}` produces a 2-key dict
+# that previously slipped through (Round 2's heuristic only flagged
+# EMPTY dicts). No `prompt_json(expect=dict)` callers in-tree today, but
+# closing the asymmetry pre-emptively.
+_STRIP_FENCES_SUSPICIOUS_DICT_THRESHOLD = 2
+
+# _MAX_TIMEOUT_ATTEMPTS caps the loop at exactly one attempt for
+# ClaudeTimeoutError — i.e. zero retries. Timeouts are expensive (each
+# attempt burns up to the full per-call timeout, default 900s); bounding
+# the loop at 1 attempt total caps worst-case stall at 1× the per-call
+# timeout (~15 min at defaults) rather than max_retries × timeout
+# (~75 min). Cheap-to-retry errors (ParseError, EmptyResponseError)
+# still use the full max_retries budget. Bumping this to N would allow
+# N total attempts = (N-1) retries, with worst-case wall-clock = N × timeout;
+# the retry branch below would also need to switch its backoff counter
+# from `attempt` (outer, mixes all error types) to `timeout_attempts`.
+_MAX_TIMEOUT_ATTEMPTS = 1
+
+
 # --- Internal layers ---------------------------------------------------------
 
 def _strip_fences(text: str) -> str:
@@ -248,38 +282,6 @@ def _strip_fences(text: str) -> str:
     # No opener yielded a parseable span — fall through to the original
     # text and let the caller surface the parse error.
     return text
-
-
-_RATE_LIMIT_INDICATORS = ("rate limit", "usage limit", "quota", "overloaded", "429")
-
-# List-result length at or below which _strip_fences emits a WARNING.
-#
-# Tuned for production batch_size≈20; an operator using batch_size=2 may
-# want to lower this. Threshold balances false-positives (legitimate
-# 2-3 item batches) against silent-mis-success (refusal-with-example
-# patterns that produce 1-3 items).
-_STRIP_FENCES_SUSPICIOUS_RESULT_THRESHOLD = 3
-
-# Dict-result key-count at or below which _strip_fences emits a WARNING.
-#
-# Mirrors the list-side foot-gun: a refusal-with-example like
-# `Brief example: {"id": "0001", "text": "soft"}` produces a 2-key dict
-# that previously slipped through (Round 2's heuristic only flagged
-# EMPTY dicts). No `prompt_json(expect=dict)` callers in-tree today, but
-# closing the asymmetry pre-emptively.
-_STRIP_FENCES_SUSPICIOUS_DICT_THRESHOLD = 2
-
-# _MAX_TIMEOUT_ATTEMPTS caps the loop at exactly one attempt for
-# ClaudeTimeoutError — i.e. zero retries. Timeouts are expensive (each
-# attempt burns up to the full per-call timeout, default 900s); bounding
-# the loop at 1 attempt total caps worst-case stall at 1× the per-call
-# timeout (~15 min at defaults) rather than max_retries × timeout
-# (~75 min). Cheap-to-retry errors (ParseError, EmptyResponseError)
-# still use the full max_retries budget. Bumping this to N would allow
-# N total attempts = (N-1) retries, with worst-case wall-clock = N × timeout;
-# the retry branch below would also need to switch its backoff counter
-# from `attempt` (outer, mixes all error types) to `timeout_attempts`.
-_MAX_TIMEOUT_ATTEMPTS = 1
 
 
 def _stdout_diagnostic(stdout: str, head: int = 300, tail: int = 300) -> str:
