@@ -6,7 +6,10 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Active
 
-*(none — M03 — Cascade Gate-and-Rank promotes from Next; not yet started)*
+- **M02 integration & code-review-loop** *(started 2026-05-16)* — land the M02 retro on main. M02's algorithmic premise closed empirically negative, but the retro artifacts (cohort-shape diagnostic, prompt-rename A/B, Sonnet-vs-Haiku audit, Haiku+SM rebuild scripts, eval-harness improvements) are the durable win and need to be discoverable to future agents. Stage atomic commits → PR → `/code-review-loop` → merge.
+  - Why before M03: M03 leans heavily on the retro's eval-harness improvements and cohort-shape diagnostic methodology. Better that lives on main, not bundled into the M03 PR where it would conflate two milestones.
+  - Scope: ~25 uncommitted retro files (8 atomic commits planned), gitignore additions for runtime lock/DB-backup/checkpoint patterns, PR with retro arc summary.
+  - Branch: `m02/asymmetric-ortony-scoring` (current tip).
 
 ## Next
 
@@ -16,9 +19,15 @@ The single source of truth for what comes next. Always read this when starting m
     - Trustworthy eval harness on a balanced cohort (random_uniform = +0.0068 ≈ 0, apt 271 / inapt 978, 67% MUNCH retention vs 22% before)
     - Haiku+sensorimotor enrichment: 5.4 sensorimotor properties per synset average
     - S04-A/B's cohort-shape diagnostic methodology — should be the first thing M03 runs before trusting any new verdict
-  - Depends on: M02 closed ✅
-  - Detail doc: to be created (`M03-cascade-gate-and-rank-roadmap.md`)
-  - Branch: TBD (cut from current m02 tip once it's merged)
+  - **Three-tier eval strategy** (set during 2026-05-16 planning):
+    1. **Composed harness** — run apt/inapt pairs through `gate → rank → re-rank`, score the cascade as one fn; cohort-shape preflight mandatory.
+    2. **Ablation** — pipeline-only / +gate / +rank / +re-rank; each layer must lift separation without lifting `random_uniform`.
+    3. **Lakoff-prediction tests** — independent of harness: do MUNCH-apt pairs show target-more-concrete-than-source asymmetry (pure Brysbaert)? Do apt pairs cluster at intermediate domain-distance?
+    - Go/no-go: Tier 2 ablation clean + Tier 3 predictions hold → Tier 1 separation >0.05 is trustworthy lift.
+  - **Strategic loop-back** *(noted 2026-05-16)*: after M03 + The Bridge ship, revisit the forge algorithm with the new tools (concreteness gate, domain-distance ranking, Bridge-generated novel-apt cohort). The Bridge cohort especially addresses the novelty/cliché blind spot that neither MRR nor `separation_score` measures.
+  - Depends on: M02 integration merged to main
+  - Detail doc: to be created (`M03-cascade-gate-and-rank-roadmap.md`) once M02 lands
+  - Branch: TBD (cut from fresh main after M02 PR merges)
 
 ## Queued
 
