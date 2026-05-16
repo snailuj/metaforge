@@ -112,18 +112,17 @@ def test_strip_fences_unfenced_logs_debug_on_fallback():
     # only the DEBUG log fires (not the WARNING).
     payload = "Prefix prose: " + json.dumps(list(range(10)))
     caplog_logger = logging.getLogger("claude_client")
-    with pytest.MonkeyPatch.context() as _:
-        import io
-        log_stream = io.StringIO()
-        handler = logging.StreamHandler(log_stream)
-        handler.setLevel(logging.DEBUG)
-        caplog_logger.addHandler(handler)
-        caplog_logger.setLevel(logging.DEBUG)
-        try:
-            result = _sf(payload)
-            output = log_stream.getvalue()
-        finally:
-            caplog_logger.removeHandler(handler)
+    import io
+    log_stream = io.StringIO()
+    handler = logging.StreamHandler(log_stream)
+    handler.setLevel(logging.DEBUG)
+    caplog_logger.addHandler(handler)
+    caplog_logger.setLevel(logging.DEBUG)
+    try:
+        result = _sf(payload)
+        output = log_stream.getvalue()
+    finally:
+        caplog_logger.removeHandler(handler)
     assert json.loads(result) == list(range(10))
     assert "unfenced extraction" in output
 
