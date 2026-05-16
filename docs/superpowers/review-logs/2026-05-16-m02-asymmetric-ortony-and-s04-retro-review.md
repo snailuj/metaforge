@@ -323,12 +323,103 @@ Total rounds: 1 | Items resolved: 0 | Active deferrals: 9 | Superseded deferrals
 - `lib/claude_client.py`: bracket-balance scan + widen fence regex + EmptyResponseError head/tail + max_retries validation (4 items, 1 subagent)
 - `lib/test_claude_client.py`: command-shape assertion update (1 item, 1 subagent)
 - `data-pipeline/scripts/enrich_properties.py`: log.exception + `--db` flag + skip-flag warnings (3 items, 1 subagent)
-- `data-pipeline/SCHEMA.sql`: property_type CHECK constraint (1 item, 1 subagent)
+- `data-pipeline/SCHEMA.sql`: property_type CHECK constraint (1 item, 1 subagent) — **deferred mid-flight, see D10**
 - `data-pipeline/scripts/m02_s04_clear_and_import.py`: transactional wrap (1 item — batch 2)
 - `data-pipeline/scripts/evaluate_aptness.py`: ortony_log_ratio log.warning (1 item — batch 2)
 - 3 retro audit scripts: JSONDecodeError logging (1 item across 3 files — batch 2)
 - `data-pipeline/scripts/m02_s04_prompt_audit.py`: dead code deletion (1 item — batch 2)
 
-**Defer queue:** 9 items → Deferrals Ledger D1–D9 above.
+**Defer queue:** 9 items → Deferrals Ledger D1–D9 above (D10 added mid-batch — see Round 1 Fixes Applied below).
 
+### Round 1 Fixes Applied
+
+**Batch 1 dispatched at SHA `b2198d06`; 4 subagents in parallel; 6 commits landed:**
+
+| Commit | File(s) | Fix |
+|---|---|---|
+| `fe7cccc8` | `lib/test_claude_client.py` (subagent B; subagent A's strip_fences tests rolled in due to parallel-dispatch interference — see Note below) | Updated `test_invoke_command_shape` — cmd list now 12 args incl. `--strict-mcp-config` + `--mcp-config` + `_EMPTY_MCP`; `timeout=900`. Pre-existing failure closed. |
+| `c5563cf6` | `data-pipeline/scripts/enrich_properties.py` + `test_enrich_properties.py` + `lib/claude_client.py` (subagent C; A's `_strip_fences` bracket-balance scan rolled in due to parallel-dispatch interference) | `log.exception` in batch loop, narrowed `except` to `ClaudeError` (recoverable). Programmer-error classes now propagate. Plus subagent A's `_strip_fences` bracket-balance + widened fence regex landed here. |
+| `34dc061a` | `data-pipeline/scripts/enrich_properties.py` + tests | `--db` CLI flag (matches sibling scripts) — eliminates the preflight-tests-wrong-DB footgun. |
+| `a7321060` | `lib/claude_client.py` + tests | `EmptyResponseError` + `_parse_events` failure paths now include stdout head/tail diagnostic; no longer requires `--verbose` to see the failure mode. |
+| `914946c6` | `data-pipeline/scripts/enrich_properties.py` + tests | `log.warning` when `--skip-preflight` or `--skip-enriched-required` used (operator-visible audit trail of dangerous overrides). |
+| `46499737` | `lib/claude_client.py` + tests | `_invoke_with_retries` validates `max_retries >= 1` to prevent `raise None → TypeError` foot-gun. |
+
+**Batch 1 deferral mid-flight: D10 added.** Subagent D (SCHEMA.sql property_type CHECK) correctly halted per the fix-spec step-1 pre-check after `SELECT DISTINCT property_type` revealed unexpected values in the live DB:
+- 188,206 empty-string rows (~46% of `synset_properties`)
+- 120 rows `behavior` + 14 rows `behavioural` (US-spelling and adj-form drift)
+- 4 rows hallucinated values (`spatial`, `temporal`, `structure`, `artistic`)
+
+Adding the closed-enum CHECK would reject 188,344 existing rows. The empty-string mode is too dominant to dismiss as drift — possibly an import-path bug, possibly an LLM fallback for unclassifiable properties. Either way, investigating the root cause is out of M02 integration's scope; that's `Pipeline Architectural Review` territory.
+
+**Batch 2 dispatched at SHA `46499737`; 4 subagents in parallel; 6 commits landed:**
+
+| Commit | File(s) | Fix |
+|---|---|---|
+| `606227ba` | `data-pipeline/scripts/m02_s04_clear_and_import.py` | Transactional wrap of clear+import sequence. `delete_synset_rows` no longer commits internally; caller owns the boundary. Honest docstring note: downstream `enrich_pipeline.populate_*` functions commit internally too, so the wrapper provides "rollback on first-step failure" not full end-to-end atomicity — fuller refactor noted as future work. |
+| `1150f340` | `data-pipeline/scripts/evaluate_aptness.py` + test | `log.warning` on `_ortony_log_ratio` non-positive-salience skip; cluster_id + pa[c] + pb[c] in diagnostic. New test `test_ortony_log_ratio_warns_on_non_positive_shared_cluster`. |
+| `8a2c5b09` | `data-pipeline/scripts/m02_s04_a_attrition_audit.py` | `log.warning` on malformed JSONL skip — mirrors `evaluate_aptness.load_inapt_controls` canonical pattern. |
+| `ac8dec96` | `data-pipeline/scripts/m02_s04_b_union_sizes.py` | Same pattern as above. |
+| `c0510537` | `data-pipeline/scripts/m02_s04_g_vocab_audit.py` | Same pattern as above. |
+| `097e5444` | `data-pipeline/scripts/m02_s04_prompt_audit.py` | Deleted unused `enrichment_for_synset` (29 lines) — referenced non-existent `property_text` column; would have crashed on use; no callers (grep-confirmed). |
+
+### Note on Parallel-Dispatch Interference (Batch 1)
+
+Subagents A (claude_client.py) and B (test_claude_client.py) ran in parallel. Subagent A wrote `_strip_fences` changes (Fix 1: bracket-balance + widened regex) to disk and presumably staged them between Fix 1 and Fix 2. Subagent B then committed `test_claude_client.py` and unexpectedly captured A's `lib/claude_client.py` changes that were staged. Subagent C similarly captured residual A staging in its first commit (`c5563cf6`).
+
+**Net effect:** A's Fix 1 ("robust `_strip_fences` — bracket-balance scan + accept any fence language tag") landed as content across commits `fe7cccc8` (tests in test_claude_client.py) and `c5563cf6` (code in claude_client.py) rather than as its own commit. The diff content is correct; the commit messages drift from their diffs.
+
+**Decision:** Leave the history as-is. The contents are correct (verified by `635 passed` test suite), and an interactive rebase to split commits would require force-push and history rewriting on a published branch for a cosmetic cleanup. Round 2 reviewers will see this note in handover and can call it out if it materially impedes review.
+
+**Mitigation for batch 2:** the SCHEMA.sql blocker meant only 3 subagents touched code files (not 4 as planned), which reduced parallel-dispatch interleaving risk. Plus batch 2's files were all `data-pipeline/scripts/` with no overlap into `lib/`.
+
+### Deferrals Ledger Update — D10 added
+
+#### D10 — `synset_properties.property_type` CHECK constraint blocked on data-state investigation
+- **Source:** Round 1, type-design-analyzer (item td-1); fix attempt halted by batch-1 subagent D per the fix-spec step-1 pre-check
+- **File:** `data-pipeline/SCHEMA.sql` (around line 189)
+- **Severity:** important (the invariant gap is real; the investigation is what's deferred)
+- **scope_boundary:** Schema migration / data-quality investigation, not M02 integration scope. Investigating the 188K empty-string mode + 134 spelling drifts + 4 hallucinations belongs in `Pipeline Architectural Review` Q1 (Schema change management) and/or a dedicated data-cleanup milestone.
+- **why_out_of_scope:** Adding the CHECK as specified would either:
+  (a) reject 188,344 existing rows on fresh build (SCHEMA.sql diverges from live DB content)
+  (b) codify the drift by widening the enum (wrong direction — defeats the purpose of the CHECK)
+  (c) add an `'unknown'` sink (kicks the can; documents debt)
+  Picking the right answer requires understanding *why* 46% of `property_type` is empty string. Possibilities: import-path writes `''` instead of `NULL` on missing field; LLM emits `""` for unclassifiable properties; schema-fix-up scripts wrote empties as placeholder. Without root-cause investigation, any choice bakes in something wrong.
+- **proposed_followup:**
+  1. Standalone investigation: trace the empty-string mode end-to-end (LLM output → JSON → import path). Sample 50 rows to see if there's a pattern (which synsets? which property texts?).
+  2. Backfill or normalise based on findings.
+  3. THEN add the CHECK in a dedicated schema migration (with table-recreation pattern since SQLite can't `ALTER TABLE ADD CHECK`).
+- **status:** active
+
+---
+
+### Files Modified (Round 1, both batches)
+- `lib/claude_client.py`
+- `lib/test_claude_client.py`
+- `data-pipeline/scripts/enrich_properties.py`
+- `data-pipeline/scripts/test_enrich_properties.py`
+- `data-pipeline/scripts/evaluate_aptness.py`
+- `data-pipeline/scripts/test_evaluate_aptness.py`
+- `data-pipeline/scripts/m02_s04_clear_and_import.py`
+- `data-pipeline/scripts/m02_s04_a_attrition_audit.py`
+- `data-pipeline/scripts/m02_s04_b_union_sizes.py`
+- `data-pipeline/scripts/m02_s04_g_vocab_audit.py`
+- `data-pipeline/scripts/m02_s04_prompt_audit.py`
+
+(`data-pipeline/SCHEMA.sql` was inspected but **not modified** — deferred to D10.)
+
+### Test Results
+**Pre-round-1-fix:** 611 passed, 1 failed (`test_invoke_command_shape`) — the failure the round 1 critical finding called out.
+**Post-batch-1:** 634 passed, 0 failed (test_invoke_command_shape fixed + new tests for fixes 1, 2, 3 in claude_client.py + new tests for enrich_properties fixes).
+**Post-batch-2:** 635 passed, 0 failed (+1 for new `test_ortony_log_ratio_warns_on_non_positive_shared_cluster`).
+
+Suite green. CI/CD standards violation (Round 1 Item 1) **resolved**.
+
+### Cumulative
+Total rounds: 1 (in progress)
+Items resolved: 12 (all batch-1 + batch-2 fixes landed; deferred items moved to ledger)
+Active deferrals: 10 (D1–D10)
+Superseded deferrals: 0
+Elapsed: ~1h fix-batch dispatch + suite run (batch 1 + batch 2 + test suite)
+
+---
 
