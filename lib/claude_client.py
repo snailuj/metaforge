@@ -222,7 +222,8 @@ def _strip_fences(text: str) -> str:
         # false-negative cost is silent corruption of downstream aggregates,
         # so erring towards louder is correct.
         suspicious = (
-            (isinstance(parsed, list) and len(parsed) <= 3)
+            (isinstance(parsed, list)
+             and len(parsed) <= _STRIP_FENCES_SUSPICIOUS_RESULT_THRESHOLD)
             or (isinstance(parsed, dict) and len(parsed) == 0)
         )
         if suspicious:
@@ -242,6 +243,14 @@ def _strip_fences(text: str) -> str:
 
 
 _RATE_LIMIT_INDICATORS = ("rate limit", "usage limit", "quota", "overloaded", "429")
+
+# List-result length at or below which _strip_fences emits a WARNING.
+#
+# Tuned for production batch_size≈20; an operator using batch_size=2 may
+# want to lower this. Threshold balances false-positives (legitimate
+# 2-3 item batches) against silent-mis-success (refusal-with-example
+# patterns that produce 1-3 items).
+_STRIP_FENCES_SUSPICIOUS_RESULT_THRESHOLD = 3
 
 # Timeouts are expensive to retry — each attempt burns up to `timeout`
 # seconds of wall-clock. Cheap-to-retry errors (ParseError,
