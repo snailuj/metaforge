@@ -512,6 +512,63 @@ def test_invoke_wraps_subprocess_timeout(mock_run):
 
 
 @patch("claude_client.subprocess.run")
+def test_invoke_timeout_captures_stdout_stderr_typed_fields(mock_run):
+    """ClaudeTimeoutError must capture exc.stdout / exc.stderr from the
+    underlying subprocess.TimeoutExpired so operators get a head/tail
+    diagnostic of what the CLI was emitting when it was killed. Without
+    this, the wrap discards the partial output that subprocess populates
+    when capture_output=True and the process is killed — same gap that
+    was closed for EmptyResponseError/ParseError via stdout_head/stdout_tail/
+    total_len."""
+    import subprocess as _sp
+    from claude_client import ClaudeTimeoutError
+    mock_run.side_effect = _sp.TimeoutExpired(
+        ["claude"], 900, output=b"partial", stderr=b"warn",
+    )
+    with pytest.raises(ClaudeTimeoutError) as excinfo:
+        _invoke("prompt", model="haiku")
+    e = excinfo.value
+    # Typed diagnostic fields, kw-only — mirror EmptyResponseError pattern.
+    assert hasattr(e, "stdout_head")
+    assert hasattr(e, "stdout_tail")
+    assert hasattr(e, "stderr_head")
+    assert hasattr(e, "stderr_tail")
+    assert hasattr(e, "total_stdout_len")
+    assert hasattr(e, "total_stderr_len")
+    assert hasattr(e, "timeout_seconds")
+    assert hasattr(e, "cmd_prefix")
+    assert e.timeout_seconds == 900
+    assert "partial" in e.stdout_head
+    assert "warn" in e.stderr_head
+    assert e.total_stdout_len == 7
+    assert e.total_stderr_len == 4
+    # Human-readable message should still surface head/tail of both streams.
+    msg = str(e)
+    assert "partial" in msg
+    assert "warn" in msg
+
+
+@patch("claude_client.subprocess.run")
+def test_invoke_timeout_handles_none_stdout_stderr(mock_run):
+    """If subprocess.TimeoutExpired carries None for stdout/stderr (the CLI
+    was killed before any output, or capture_output was off), the typed
+    fields should default to empty strings + total_len=0 rather than
+    raising AttributeError on .decode/.encode."""
+    import subprocess as _sp
+    from claude_client import ClaudeTimeoutError
+    mock_run.side_effect = _sp.TimeoutExpired(["claude"], 900)
+    with pytest.raises(ClaudeTimeoutError) as excinfo:
+        _invoke("prompt", model="haiku")
+    e = excinfo.value
+    assert e.stdout_head == ""
+    assert e.stdout_tail == ""
+    assert e.stderr_head == ""
+    assert e.stderr_tail == ""
+    assert e.total_stdout_len == 0
+    assert e.total_stderr_len == 0
+
+
+@patch("claude_client.subprocess.run")
 def test_invoke_verbose_logging(mock_run, caplog):
     mock_run.return_value = _make_proc(result_text="ok")
     import logging

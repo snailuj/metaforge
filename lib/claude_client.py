@@ -71,7 +71,35 @@ class ClaudeTimeoutError(ClaudeError):
     raw subprocess.TimeoutExpired escapes _invoke it bypasses that handler
     and abandons every remaining batch in the run. _invoke catches the
     subprocess timeout at the source and re-raises as this subclass so the
-    existing retry/checkpoint logic still works."""
+    existing retry/checkpoint logic still works.
+
+    Carries typed diagnostic fields (mirroring EmptyResponseError / ParseError)
+    so structured callers can inspect the partial stdout/stderr that
+    subprocess captured before SIGKILL. The message still embeds a
+    human-readable head/tail snapshot for log triage."""
+
+    def __init__(
+        self,
+        msg: str,
+        *,
+        timeout_seconds: int = 0,
+        cmd_prefix: list | None = None,
+        stdout_head: str = "",
+        stdout_tail: str = "",
+        stderr_head: str = "",
+        stderr_tail: str = "",
+        total_stdout_len: int = 0,
+        total_stderr_len: int = 0,
+    ):
+        super().__init__(msg)
+        self.timeout_seconds = timeout_seconds
+        self.cmd_prefix = cmd_prefix if cmd_prefix is not None else []
+        self.stdout_head = stdout_head
+        self.stdout_tail = stdout_tail
+        self.stderr_head = stderr_head
+        self.stderr_tail = stderr_tail
+        self.total_stdout_len = total_stdout_len
+        self.total_stderr_len = total_stderr_len
 
 
 # --- Internal layers ---------------------------------------------------------
@@ -234,6 +262,21 @@ def _stdout_diagnostic(stdout: str, head: int = 300, tail: int = 300) -> str:
     return f"head={stdout[:head]!r}; tail={stdout[-tail:]!r}"
 
 
+def _decode_stream(raw) -> str:
+    """Coerce a subprocess stream (str | bytes | None) into a str safely.
+
+    subprocess.TimeoutExpired carries `stdout` / `stderr` as whatever type
+    was captured — typically str when `text=True`, bytes when `text=False`,
+    None when capture was disabled or the process died before any output.
+    The typed-diagnostic path needs a str either way; decode bytes with
+    `errors='replace'` so a non-UTF-8 byte never blocks the wrap path."""
+    if raw is None:
+        return ""
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8", errors="replace")
+    return raw
+
+
 def _stdout_diagnostic_fields(
     stdout: str, head: int = 300, tail: int = 300,
 ) -> tuple[str, str, int]:
@@ -351,9 +394,29 @@ def _invoke(prompt: str, model: str, verbose: bool = False) -> str:
         # NOT from ClaudeError — without this wrap it escapes the narrow
         # `except ClaudeError` in enrich_properties.run_enrichment (commit
         # c5563cf6) and abandons every remaining batch in the run.
+        #
+        # Capture partial stdout/stderr that subprocess populates when
+        # capture_output=True and the process is killed. With text=True
+        # these are str; defensive-decode in case a future caller flips
+        # text=False (bytes path). Pass through head/tail typed fields so
+        # structured callers can inspect without re-running.
+        stdout_str = _decode_stream(exc.stdout)
+        stderr_str = _decode_stream(exc.stderr)
+        out_head, out_tail, out_total = _stdout_diagnostic_fields(stdout_str)
+        err_head, err_tail, err_total = _stdout_diagnostic_fields(stderr_str)
         raise ClaudeTimeoutError(
             f"Claude subprocess timed out after {timeout}s "
-            f"(cmd_prefix={cmd[:6]})"
+            f"(cmd_prefix={cmd[:6]}); "
+            f"stdout:{_stdout_diagnostic(stdout_str)}; "
+            f"stderr:{_stdout_diagnostic(stderr_str)}",
+            timeout_seconds=timeout,
+            cmd_prefix=cmd[:6],
+            stdout_head=out_head,
+            stdout_tail=out_tail,
+            stderr_head=err_head,
+            stderr_tail=err_tail,
+            total_stdout_len=out_total,
+            total_stderr_len=err_total,
         ) from exc
     if verbose:
         log.debug("claude_client raw stdout (last 2000 chars): %s",
