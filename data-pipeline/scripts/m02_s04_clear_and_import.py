@@ -177,7 +177,7 @@ def import_one_payload_safely(conn, path, data, vectors):
         # out), this preserves atomicity for the payload.
         if conn.in_transaction:
             conn.commit()
-    except Exception:
+    except Exception as original_exc:
         # Re-raise with original traceback intact (bare `raise`
         # inside the except block; never `raise e` — that would
         # lose context). Each rollback below is wrapped in its own
@@ -185,6 +185,12 @@ def import_one_payload_safely(conn, path, data, vectors):
         # `sqlite3.OperationalError: database is locked`) cannot
         # replace the original failure via `__context__` chaining —
         # the original is what the operator needs to see.
+        #
+        # We bind the outer exception as `original_exc` so the
+        # rollback-failure WARNINGs below can name it inline. The
+        # propagating traceback carries it via `__context__`, but an
+        # operator reading the WARNING line alone (no traceback) cannot
+        # tell what triggered the rollback attempt otherwise.
         if inner_commit_seen:
             # An inner commit has already fired — DELETEs and curate's
             # writes are persisted; populate_* may also be partially
@@ -217,10 +223,13 @@ def import_one_payload_safely(conn, path, data, vectors):
                     # operator should restart from snapshot.
                     log.warning(
                         "Rollback of post-inner-commit partial DML "
-                        "failed for payload %s: %s. Connection may be "
-                        "in an inconsistent state — operator should "
-                        "restart from snapshot.",
-                        path, rb_err,
+                        "failed for payload %s: %s: %s. Original "
+                        "failure that triggered rollback: %s: %s. "
+                        "Connection may be in an inconsistent state — "
+                        "operator should restart from snapshot.",
+                        path,
+                        type(rb_err).__name__, rb_err,
+                        type(original_exc).__name__, original_exc,
                     )
         else:
             # No inner commit yet — the outer BEGIN's rollback undoes
@@ -234,10 +243,13 @@ def import_one_payload_safely(conn, path, data, vectors):
                     # must not mask the original exception.
                     log.warning(
                         "Rollback of pre-inner-commit DML failed for "
-                        "payload %s: %s. Outer BEGIN may have left "
-                        "uncommitted DELETEs visible to subsequent "
-                        "operations on this connection.",
-                        path, rb_err,
+                        "payload %s: %s: %s. Original failure that "
+                        "triggered rollback: %s: %s. Outer BEGIN may "
+                        "have left uncommitted DELETEs visible to "
+                        "subsequent operations on this connection.",
+                        path,
+                        type(rb_err).__name__, rb_err,
+                        type(original_exc).__name__, original_exc,
                     )
         raise
 

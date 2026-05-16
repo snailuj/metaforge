@@ -369,6 +369,42 @@ def test_import_one_payload_preserves_original_exception_when_rollback_fails_aft
         f"expected the rollback-failed WARNING; got: {warnings}"
     )
 
+    # OF8: rollback-failure WARNING must be self-contained — render the
+    # final formatted message and assert the original failing exception's
+    # class name AND message both appear inline, alongside the rollback
+    # failure's class and message. Without this, an operator triaging the
+    # WARNING line alone (no traceback) cannot tell what triggered the
+    # rollback attempt in the first place.
+    rendered = []
+    for c in mock_log.warning.call_args_list:
+        fmt, *args = c.args
+        try:
+            rendered.append(fmt % tuple(args))
+        except TypeError:
+            rendered.append(fmt)
+    rollback_msg = next(
+        (m for m in rendered
+         if "Rollback of post-inner-commit partial DML failed" in m),
+        None,
+    )
+    assert rollback_msg is not None, (
+        f"could not find rollback-failure WARNING; got: {rendered}"
+    )
+    assert "RuntimeError" in rollback_msg, (
+        f"expected original exception class 'RuntimeError' inline; "
+        f"got: {rollback_msg}"
+    )
+    assert "original populate failure" in rollback_msg, (
+        f"expected original exception message inline; got: {rollback_msg}"
+    )
+    assert "OperationalError" in rollback_msg, (
+        f"expected rollback-failure class 'OperationalError' inline; "
+        f"got: {rollback_msg}"
+    )
+    assert "database is locked" in rollback_msg, (
+        f"expected rollback-failure message inline; got: {rollback_msg}"
+    )
+
 
 def test_import_one_payload_preserves_original_exception_when_rollback_fails_pre_inner_commit():
     """OF2 symmetry: same protection on the pre-inner-commit branch.
@@ -412,4 +448,38 @@ def test_import_one_payload_preserves_original_exception_when_rollback_fails_pre
                in w for w in warnings), (
         f"expected the rollback-failed WARNING on the pre-commit branch; "
         f"got: {warnings}"
+    )
+
+    # OF8: rollback-failure WARNING must be self-contained on the
+    # pre-inner-commit branch too — render the formatted message and
+    # assert the original failing exception's class+message appear inline
+    # alongside the rollback failure's class+message.
+    rendered = []
+    for c in mock_log.warning.call_args_list:
+        fmt, *args = c.args
+        try:
+            rendered.append(fmt % tuple(args))
+        except TypeError:
+            rendered.append(fmt)
+    rollback_msg = next(
+        (m for m in rendered
+         if "Rollback of pre-inner-commit DML failed" in m),
+        None,
+    )
+    assert rollback_msg is not None, (
+        f"could not find rollback-failure WARNING; got: {rendered}"
+    )
+    assert "RuntimeError" in rollback_msg, (
+        f"expected original exception class 'RuntimeError' inline; "
+        f"got: {rollback_msg}"
+    )
+    assert "original delete failure before any commit" in rollback_msg, (
+        f"expected original exception message inline; got: {rollback_msg}"
+    )
+    assert "OperationalError" in rollback_msg, (
+        f"expected rollback-failure class 'OperationalError' inline; "
+        f"got: {rollback_msg}"
+    )
+    assert "database is locked" in rollback_msg, (
+        f"expected rollback-failure message inline; got: {rollback_msg}"
     )
