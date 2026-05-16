@@ -235,7 +235,9 @@ def test_run_enrichment_tracks_failed_synset_ids(
     ]
     mock_get_synsets.return_value = synsets
 
-    # First batch succeeds (first 2), second batch fails (third synset)
+    # First batch succeeds (first 2), second batch fails (third synset).
+    # Use ClaudeError — the recoverable family the batch loop catches.
+    from claude_client import ClaudeError
     mock_extract.side_effect = [
         [
             {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n",
@@ -243,7 +245,7 @@ def test_run_enrichment_tracks_failed_synset_ids(
             {"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v",
              "properties": ["quiet"]},
         ],
-        RuntimeError("API failure"),
+        ClaudeError("API failure"),
     ]
 
     with patch("enrich_properties.OUTPUT_DIR", tmp_path):
@@ -278,11 +280,12 @@ def test_enrichment_output_json_includes_failed_ids(
     ]
     mock_get_synsets.return_value = synsets
 
-    # First synset succeeds, second batch fails
+    # First synset succeeds, second batch fails with a recoverable ClaudeError.
+    from claude_client import ClaudeError
     mock_extract.side_effect = [
         [{"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n",
           "properties": ["warm"]}],
-        RuntimeError("Timeout"),
+        ClaudeError("Timeout"),
     ]
 
     with patch("enrich_properties.OUTPUT_DIR", tmp_path):
@@ -937,3 +940,86 @@ def test_preflight_fails_when_db_has_no_synsets(tmp_path):
     conn.close()
     with pytest.raises(PreflightError, match="no synsets available"):
         preflight_check(db_path=str(db_path), model="sonnet", schema_version="v2")
+
+
+# --- Batch-loop exception handling -------------------------------------------
+#
+# Operators monitor the log channel, not stdout. Recoverable failures
+# (ClaudeError family) must be logged with full traceback via log.exception
+# and the loop must continue. Non-recoverable programmer errors (e.g.
+# ValueError from a template bug) must propagate — silently continuing
+# would mask a bug for the rest of the run.
+
+@patch("enrich_properties.extract_batch")
+@patch("enrich_properties.get_pilot_synsets")
+def test_run_enrichment_logs_exception_on_claude_error(
+    mock_get_synsets, mock_extract, tmp_path, caplog,
+):
+    """Batch failures from ClaudeError descendants log via log.exception
+    (ERROR level + traceback) and the loop continues to the next batch."""
+    import logging
+    from claude_client import ClaudeError
+
+    db_path = _make_test_db(tmp_path)
+    synsets = [
+        {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n"},
+        {"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v"},
+    ]
+    mock_get_synsets.return_value = synsets
+
+    # First batch raises a recoverable ClaudeError; second succeeds.
+    mock_extract.side_effect = [
+        ClaudeError("upstream hiccup"),
+        [{"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v",
+          "properties": ["quiet"]}],
+    ]
+
+    with patch("enrich_properties.OUTPUT_DIR", tmp_path), \
+         caplog.at_level(logging.ERROR, logger="enrich_properties"):
+        result = run_enrichment(
+            size=2,
+            batch_size=1,
+            delay=0,
+            output_file=tmp_path / "out.json",
+            db_path=db_path,
+        )
+
+    # The second batch should still have run.
+    assert result.succeeded == 1
+    assert result.failed == 1
+    assert result.failed_ids == ["100001"]
+
+    # An ERROR record mentioning "Batch" with attached exc_info must exist.
+    batch_records = [
+        r for r in caplog.records
+        if r.levelno == logging.ERROR and "Batch" in r.getMessage()
+    ]
+    assert batch_records, "expected an ERROR record naming the failed batch"
+    assert any(r.exc_info is not None for r in batch_records), (
+        "log.exception must attach exc_info so the traceback reaches operators"
+    )
+
+
+@patch("enrich_properties.extract_batch")
+@patch("enrich_properties.get_pilot_synsets")
+def test_run_enrichment_propagates_unexpected_exception(
+    mock_get_synsets, mock_extract, tmp_path,
+):
+    """Non-recoverable programmer errors (ValueError, KeyError, etc.) must
+    propagate — swallowing them would mask bugs for the rest of the run."""
+    db_path = _make_test_db(tmp_path)
+    synsets = [
+        {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n"},
+    ]
+    mock_get_synsets.return_value = synsets
+    mock_extract.side_effect = ValueError("template bug")
+
+    with patch("enrich_properties.OUTPUT_DIR", tmp_path):
+        with pytest.raises(ValueError, match="template bug"):
+            run_enrichment(
+                size=1,
+                batch_size=1,
+                delay=0,
+                output_file=tmp_path / "out.json",
+                db_path=db_path,
+            )

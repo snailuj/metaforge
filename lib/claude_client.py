@@ -47,8 +47,13 @@ def _strip_fences(text: str) -> str:
     return just its body. Otherwise return the stripped text as-is —
     callers without prose surround keep working unchanged.
     """
+    # Accept any lowercase language tag (json, markdown, javascript, text,
+    # python, ...). Models occasionally emit ```javascript or ```text even
+    # when the system prompt asks for JSON. Restricting to json/markdown
+    # caused the fallback extractor to run, which produced corrupt bodies
+    # on prose-with-stray-brace inputs.
     match = re.search(
-        r'```(?:json|markdown)?\s*\n(.*?)\n```', text, re.DOTALL,
+        r'```[a-z]*\s*\n(.*?)\n```', text, re.DOTALL,
     )
     if match:
         # Preserve internal whitespace — the pre-existing whitespace test
@@ -58,23 +63,68 @@ def _strip_fences(text: str) -> str:
 
     # No fence found. Sonnet sometimes emits unfenced JSON wrapped in prose
     # (e.g. 'Continuing with the remaining entries:\n\n[...]' — observed
-    # live on the 8k enrichment run on 2026-05-14). Try to extract the
-    # outermost JSON array or object: find the earliest [ or { and the
-    # latest matching ] or }. If the resulting span fails to parse the
-    # caller will surface the original parse error — but most LLM
-    # responses are well-formed JSON wrapped in surround prose.
-    array_start = text.find('[')
-    object_start = text.find('{')
-    candidates = [s for s in (array_start, object_start) if s >= 0]
-    if not candidates:
+    # live on the 8k enrichment run on 2026-05-14). Walk every opener `[`
+    # or `{` and do a one-pass, string-aware bracket-balance scan to find
+    # its matching closer; return the first balanced span that parses as
+    # JSON. A naive rfind for the closer breaks in two ways:
+    #   1) Prose-with-stray-brace: 'next batch uses {placeholder} IDs:
+    #      [1,2,3]' — first `{` is the stray brace whose balanced match
+    #      is `{placeholder}` (invalid JSON); we must skip it and find
+    #      the real `[1,2,3]` further on.
+    #   2) Strings containing `]` or `}` chars — naive rfind picks the
+    #      one inside the string literal, truncating the body.
+    # The first opener whose balanced span json.loads-parses successfully
+    # wins. Residual risk: a refusal-with-example like
+    # 'Brief example: [1,2,3]' would still return [1,2,3]; mitigation is
+    # downstream (caller logs unknown IDs and raw_response diagnostics).
+    candidate_openers = [
+        i for i, ch in enumerate(text) if ch == '[' or ch == '{'
+    ]
+    if not candidate_openers:
         return text  # No JSON-like content at all; let the caller decide.
-    start = min(candidates)
-    # Match the closing bracket of the same type that came first.
-    close_char = ']' if text[start] == '[' else '}'
-    end = text.rfind(close_char)
-    if end <= start:
-        return text
-    return text[start:end + 1]
+
+    for start in candidate_openers:
+        opener = text[start]
+        closer = ']' if opener == '[' else '}'
+        depth = 0
+        in_string = False
+        escape = False
+        end = -1
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_string:
+                # Inside a string literal — track escape state and the
+                # closing quote. Brackets/braces here are opaque to
+                # balance counting.
+                if escape:
+                    escape = False
+                elif ch == '\\':
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+                continue
+            if ch == opener:
+                depth += 1
+            elif ch == closer:
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end <= start:
+            continue  # Unbalanced from this opener — try the next one.
+        candidate = text[start:end + 1]
+        try:
+            json.loads(candidate)
+        except (ValueError, TypeError):
+            continue
+        return candidate
+
+    # No opener yielded a parseable span — fall through to the original
+    # text and let the caller surface the parse error.
+    return text
 
 
 _RATE_LIMIT_INDICATORS = ("rate limit", "usage limit", "quota", "overloaded", "429")

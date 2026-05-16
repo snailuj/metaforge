@@ -22,7 +22,7 @@ from typing import List, Dict, Optional
 log = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
-from claude_client import prompt_json, RateLimitError
+from claude_client import prompt_json, ClaudeError, RateLimitError
 
 from utils import LEXICON_V2, OUTPUT_DIR, load_checkpoint, save_checkpoint
 
@@ -708,8 +708,15 @@ def run_enrichment(
                 })
                 rate_limited = True
                 break
-            except Exception as e:
-                print(f"  BATCH FAILED after retries: {e}")
+            except ClaudeError:
+                # Recoverable upstream failure (parse / empty / non-rate-limit
+                # ClaudeError variants). Log with full traceback to the channel
+                # operators monitor, mark the batch failed, and continue.
+                # Unexpected exception classes (ValueError from a template bug,
+                # OSError from disk issues, sqlite3.OperationalError, …) are
+                # programmer errors or environmental faults — those must
+                # propagate so they don't silently mask for the rest of the run.
+                log.exception("Batch %d failed after retries", batch_idx + 1)
                 failed_batches += 1
                 failed_synset_ids.extend(s['id'] for s in batch)
                 save_checkpoint(checkpoint_path, {
