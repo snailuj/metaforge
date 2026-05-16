@@ -39,6 +39,75 @@ def test_strip_fences_whitespace():
     assert _strip_fences("```json\n  data  \n```") == "  data  "
 
 
+def test_strip_fences_javascript_language_tag():
+    """Model occasionally emits ```javascript\\n...\\n``` rather than ```json.
+    The fence regex must accept any lowercase language tag, otherwise the
+    function falls through to the unfenced extractor and can return a
+    corrupt body."""
+    assert _strip_fences("```javascript\n[1,2]\n```") == "[1,2]"
+
+
+def test_strip_fences_text_language_tag():
+    """Same as above for ```text\\n..."""
+    assert _strip_fences("```text\nsome text\n```") == "some text"
+
+
+def test_strip_fences_empty_language_tag():
+    """Regression: empty language tag must still work."""
+    assert _strip_fences("```\n[1,2]\n```") == "[1,2]"
+
+
+def test_strip_fences_unfenced_prose_with_stray_brace_before_array():
+    """Prose mentions a `{placeholder}` brace before the real JSON array.
+    Old extractor took the first opener (the `{` of `{placeholder}`),
+    then rfind('}') matched that same brace — returning `{placeholder}`
+    which fails to parse. Bracket-balance scan must extract the real
+    array `[1,2,3]` regardless of stray braces in prose."""
+    payload = "Note: the next batch uses {placeholder} IDs: [1,2,3]"
+    result = _strip_fences(payload)
+    # The result must parse as a JSON array (not as a stray brace).
+    parsed = json.loads(result)
+    assert parsed == [1, 2, 3]
+
+
+def test_strip_fences_unfenced_plain_array():
+    """Plain unfenced array — basic case."""
+    result = _strip_fences("[1,2,3]")
+    assert json.loads(result) == [1, 2, 3]
+
+
+def test_strip_fences_unfenced_plain_object():
+    """Plain unfenced object — basic case."""
+    result = _strip_fences('{"a": 1}')
+    assert json.loads(result) == {"a": 1}
+
+
+def test_strip_fences_nested_array_in_object():
+    """Bracket balance must handle depth — nested array inside object."""
+    payload = 'Result: {"items": [1, 2, [3, 4]], "ok": true}'
+    result = _strip_fences(payload)
+    parsed = json.loads(result)
+    assert parsed == {"items": [1, 2, [3, 4]], "ok": True}
+
+
+def test_strip_fences_string_with_brackets_inside():
+    """A `]` or `}` inside a JSON string literal must NOT decrement depth.
+    Old rfind-based scan would match the bracket inside the string and
+    truncate the body. Bracket-balance scan must respect string literals."""
+    payload = 'Prefix: {"note": "contains ] and } chars", "n": 1}'
+    result = _strip_fences(payload)
+    parsed = json.loads(result)
+    assert parsed == {"note": "contains ] and } chars", "n": 1}
+
+
+def test_strip_fences_string_with_escaped_quote():
+    """Escaped quote inside string must not close the string early."""
+    payload = 'Out: {"note": "a \\"quoted\\" word", "n": 2}'
+    result = _strip_fences(payload)
+    parsed = json.loads(result)
+    assert parsed == {"note": 'a "quoted" word', "n": 2}
+
+
 # --- _parse_events -----------------------------------------------------------
 
 import json
@@ -219,18 +288,28 @@ def _make_proc(result_text="ok", returncode=0, stderr=""):
 
 @patch("claude_client.subprocess.run")
 def test_invoke_command_shape(mock_run):
+    from claude_client import _EMPTY_MCP
     mock_run.return_value = _make_proc()
     _invoke("test prompt", model="haiku")
     cmd = mock_run.call_args[0][0]
-    assert cmd == [
+    # Assert the stable prefix — model/max-turns/session flags — and then
+    # check the MCP-config flags as a feature group so a single-arg tweak
+    # doesn't drift the whole list. Both --strict-mcp-config and an
+    # explicit empty MCP config are required so the CLI never inherits a
+    # user's local MCP servers during automated enrichment runs.
+    assert cmd[:9] == [
         "claude", "-p", "--output-format", "json",
         "--model", "haiku", "--max-turns", "1",
         "--no-session-persistence",
     ]
+    assert "--strict-mcp-config" in cmd
+    assert cmd[cmd.index("--mcp-config") + 1] == _EMPTY_MCP
     assert mock_run.call_args[1]["input"] == "test prompt"
     assert mock_run.call_args[1]["capture_output"] is True
     assert mock_run.call_args[1]["text"] is True
-    assert mock_run.call_args[1]["timeout"] == 120
+    # Timeout bumped 300→900 in 3eb1d101 to accommodate v2 enrichment
+    # batches (240–360s typical, 900s gives headroom without masking hangs).
+    assert mock_run.call_args[1]["timeout"] == 900
 
 
 @patch("claude_client.subprocess.run")
