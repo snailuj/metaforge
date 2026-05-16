@@ -147,8 +147,9 @@ def _stdout_diagnostic(stdout: str, head: int = 300, tail: int = 300) -> str:
     surfaces enough context to diagnose without re-running.
 
     Returns a string like `head=<first 300>...; tail=<last 300>` or
-    `head=(empty); tail=(empty)` for empty input. Total bytes capped at
-    ~head + tail to keep log lines tractable.
+    `head=(empty); tail=(empty)` for empty input. Capped at ~head + tail
+    for long stdouts; short stdouts (≤ head + tail bytes) are dumped in
+    full so the log shows the complete response when it would already fit.
     """
     if not stdout:
         return "head=(empty); tail=(empty)"
