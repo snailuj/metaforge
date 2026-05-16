@@ -587,7 +587,7 @@ def run_enrichment(
     required_synset_ids: set[str] = None,
     prompt_template: str = None,
     verbose: bool = False,
-    db_path: str = None,
+    db_path: Optional[str] = None,
     strategy: str = "random",
     schema_version: str = "v1",
     offset: int = 0,
