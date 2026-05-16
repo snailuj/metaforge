@@ -23,10 +23,13 @@ p75, p95, and prints summary tables.
 Output: data-pipeline/sweeps/M02-S04-B-union-sizes.md.
 """
 import json
+import logging
 import sqlite3
 import sys
 from pathlib import Path
 from statistics import median
+
+log = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent))
 from evaluate_aptness import lookup_primary_synset, _get_properties
@@ -87,13 +90,19 @@ def gather_inapt(conn):
     """For each inapt pair that scores, return (|pa|, |pb|, |pa∩pb|, |pa∪pb|)."""
     rows = []
     with open(INAPT) as f:
-        for line in f:
-            line = line.strip()
+        for line_no, raw in enumerate(f, start=1):
+            line = raw.strip()
             if not line:
                 continue
             try:
                 row = json.loads(line)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                # Tolerate truncated / garbled lines (e.g. from a crashed
+                # producer run) — warn with file + line number and continue.
+                log.warning(
+                    "gather_inapt: skipping malformed JSONL at %s:%d (%s)",
+                    INAPT, line_no, exc,
+                )
                 continue
             if not isinstance(row, dict) or row.get("label") != "inapt":
                 continue
