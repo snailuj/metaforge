@@ -235,7 +235,9 @@ def test_run_enrichment_tracks_failed_synset_ids(
     ]
     mock_get_synsets.return_value = synsets
 
-    # First batch succeeds (first 2), second batch fails (third synset)
+    # First batch succeeds (first 2), second batch fails (third synset).
+    # Use ClaudeError — the recoverable family the batch loop catches.
+    from claude_client import ClaudeError
     mock_extract.side_effect = [
         [
             {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n",
@@ -243,7 +245,7 @@ def test_run_enrichment_tracks_failed_synset_ids(
             {"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v",
              "properties": ["quiet"]},
         ],
-        RuntimeError("API failure"),
+        ClaudeError("API failure"),
     ]
 
     with patch("enrich_properties.OUTPUT_DIR", tmp_path):
@@ -278,11 +280,12 @@ def test_enrichment_output_json_includes_failed_ids(
     ]
     mock_get_synsets.return_value = synsets
 
-    # First synset succeeds, second batch fails
+    # First synset succeeds, second batch fails with a recoverable ClaudeError.
+    from claude_client import ClaudeError
     mock_extract.side_effect = [
         [{"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n",
           "properties": ["warm"]}],
-        RuntimeError("Timeout"),
+        ClaudeError("Timeout"),
     ]
 
     with patch("enrich_properties.OUTPUT_DIR", tmp_path):
@@ -717,3 +720,391 @@ def test_frequency_ranked_no_enrichment_table():
     synsets = get_frequency_ranked_synsets(conn, limit=10)
     assert len(synsets) == 1
     assert synsets[0]["id"] == "300001"
+
+
+# --- preflight_check ----------------------------------------------------------
+#
+# These tests mock extract_batch so they don't hit the live API. The
+# preflight's job is to translate "what extract_batch returns" into either
+# "ok, proceed" or "abort with a clear diagnostic". Each test asserts the
+# diagnostic surfaces the right failure mode — so when claude -p output
+# drifts and the parser starts returning the wrong shape, the operator
+# sees what's wrong instead of an opaque KeyError 4 hours into a run.
+
+from enrich_properties import preflight_check, PreflightError
+
+
+def _make_minimal_db(tmp_path):
+    """Build a tiny lexicon DB with one synset so the preflight has data to draw."""
+    db_path = tmp_path / "preflight.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+        CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+        CREATE TABLE frequencies (lemma TEXT PRIMARY KEY, familiarity REAL, rarity TEXT);
+        CREATE TABLE enrichment (synset_id TEXT);
+    """)
+    conn.execute("INSERT INTO synsets VALUES (?, ?, ?)", ("9001", "n", "a thing"))
+    conn.execute("INSERT INTO lemmas VALUES (?, ?)", ("thing", "9001"))
+    conn.commit()
+    conn.close()
+    return str(db_path)
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_passes_on_valid_v2_response(mock_extract, tmp_path):
+    """Happy path: extract_batch returns a well-formed v2 single-result list."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = [{
+        "id": "9001",
+        "lemma": "thing",
+        "definition": "a thing",
+        "pos": "n",
+        "usage_example": "A thing happened.",
+        "properties": [
+            {"text": "tangible", "salience": 0.8, "type": "physical", "relation": "is tangible"},
+        ],
+        "lemma_metadata": [{"lemma": "thing", "register": "neutral", "connotation": "neutral"}],
+    }]
+    # Should not raise.
+    preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_passes_on_valid_v1_response(mock_extract, tmp_path):
+    """Happy path: extract_batch returns a v1 single-result list (looser schema)."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = [{
+        "id": "9001",
+        "lemma": "thing",
+        "definition": "a thing",
+        "pos": "n",
+        "properties": ["tangible", "physical"],
+    }]
+    preflight_check(db_path=db, model="sonnet", schema_version="v1")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_fails_when_extract_returns_non_list(mock_extract, tmp_path):
+    """Parser drift mode: response shape collapses to a dict, not a list."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = {"id": "9001", "properties": []}  # bare dict
+    with pytest.raises(PreflightError, match="expected list"):
+        preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_fails_when_extract_returns_empty_list(mock_extract, tmp_path):
+    """The merge path silently drops items with unknown IDs — if every item
+    is dropped, we get an empty list. Catch that explicitly."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = []
+    with pytest.raises(PreflightError, match="expected 1"):
+        preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_fails_when_item_missing_required_v2_key(mock_extract, tmp_path):
+    """Prompt regression: model emits results without usage_example /
+    lemma_metadata (a v2 schema requirement)."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = [{
+        "id": "9001",
+        "lemma": "thing",
+        "properties": [{"text": "tangible", "salience": 0.8, "type": "physical", "relation": "x"}],
+        # missing usage_example and lemma_metadata
+    }]
+    with pytest.raises(PreflightError, match="missing required keys"):
+        preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_fails_when_properties_empty(mock_extract, tmp_path):
+    """If properties is empty, the run will produce zero useful data even
+    if the response parses. Treat as a fatal preflight failure."""
+    db = _make_minimal_db(tmp_path)
+    mock_extract.return_value = [{
+        "id": "9001",
+        "lemma": "thing",
+        "usage_example": "A thing happened.",
+        "properties": [],
+        "lemma_metadata": [],
+    }]
+    with pytest.raises(PreflightError, match="non-empty list"):
+        preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+@patch("enrich_properties.extract_batch")
+def test_preflight_wraps_extract_batch_exceptions(mock_extract, tmp_path):
+    """When the parser itself raises (the most common drift mode), the
+    PreflightError must surface the cause and point at the parser file
+    so the operator knows where to look."""
+    from claude_client import ParseError
+    db = _make_minimal_db(tmp_path)
+    mock_extract.side_effect = ParseError("Failed to parse JSON: ...")
+    with pytest.raises(PreflightError, match="extract_batch raised"):
+        preflight_check(db_path=db, model="sonnet", schema_version="v2")
+
+
+def test_frequency_ranked_required_ids_includes_enriched_by_default(tmp_path):
+    """Default behaviour: required_ids forces inclusion regardless of
+    whether the synset is already in the enrichment table. This is the
+    documented 'unconditional' contract — useful for prompt-iteration
+    testing where you want to re-enrich a specific synset.
+    """
+    db_path = tmp_path / "req_unconditional.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+        CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+        CREATE TABLE frequencies (lemma TEXT PRIMARY KEY, familiarity REAL, rarity TEXT);
+        CREATE TABLE enrichment (synset_id TEXT);
+    """)
+    conn.execute("INSERT INTO synsets VALUES (?, ?, ?)", ("A", "n", "a thing"))
+    conn.execute("INSERT INTO lemmas VALUES (?, ?)", ("anvil", "A"))
+    # Mark A as already enriched.
+    conn.execute("INSERT INTO enrichment VALUES (?)", ("A",))
+    conn.commit()
+
+    result = get_frequency_ranked_synsets(conn, limit=5, required_ids=["A"])
+    assert [s["id"] for s in result] == ["A"]
+
+
+def test_frequency_ranked_required_ids_excludes_enriched_with_skip_flag(tmp_path):
+    """With skip_enriched_required=True, required_ids respects the
+    enrichment-exclusion rule that frequency padding already applies.
+    Use case: surgical --synset-ids run that runs *after* an in-flight
+    frequency run's output has been imported; we don't want to waste
+    calls re-enriching synsets that already got picked up incidentally."""
+    db_path = tmp_path / "req_skip_enriched.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+        CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+        CREATE TABLE frequencies (lemma TEXT PRIMARY KEY, familiarity REAL, rarity TEXT);
+        CREATE TABLE enrichment (synset_id TEXT);
+    """)
+    conn.executemany("INSERT INTO synsets VALUES (?, ?, ?)", [
+        ("A", "n", "a thing"),
+        ("B", "n", "another thing"),
+    ])
+    conn.executemany("INSERT INTO lemmas VALUES (?, ?)", [
+        ("anvil", "A"),
+        ("bell", "B"),
+    ])
+    # A is already enriched; B is not.
+    conn.execute("INSERT INTO enrichment VALUES (?)", ("A",))
+    conn.commit()
+
+    result = get_frequency_ranked_synsets(
+        conn, limit=5, required_ids=["A", "B"], skip_enriched_required=True,
+    )
+    # A is filtered out, B passes through.
+    assert [s["id"] for s in result] == ["B"]
+
+
+def test_frequency_ranked_required_ids_skip_flag_no_enrichment_table(tmp_path):
+    """If the enrichment table doesn't exist (fresh DB), the flag is a
+    no-op and required_ids behave unconditionally — same as without the
+    flag. Don't crash on a missing table."""
+    db_path = tmp_path / "req_skip_no_table.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+        CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+        CREATE TABLE frequencies (lemma TEXT PRIMARY KEY, familiarity REAL, rarity TEXT);
+    """)
+    conn.execute("INSERT INTO synsets VALUES (?, ?, ?)", ("A", "n", "a thing"))
+    conn.execute("INSERT INTO lemmas VALUES (?, ?)", ("anvil", "A"))
+    conn.commit()
+
+    result = get_frequency_ranked_synsets(
+        conn, limit=5, required_ids=["A"], skip_enriched_required=True,
+    )
+    assert [s["id"] for s in result] == ["A"]
+
+
+def test_preflight_fails_when_db_has_no_synsets(tmp_path):
+    """If the DB is empty, the preflight has no test subject. Bail
+    with a clear message rather than letting the call go through with
+    an empty synset list."""
+    db_path = tmp_path / "empty.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+        CREATE TABLE lemmas (lemma TEXT, synset_id TEXT);
+        CREATE TABLE frequencies (lemma TEXT PRIMARY KEY, familiarity REAL, rarity TEXT);
+        CREATE TABLE enrichment (synset_id TEXT);
+    """)
+    conn.commit()
+    conn.close()
+    with pytest.raises(PreflightError, match="no synsets available"):
+        preflight_check(db_path=str(db_path), model="sonnet", schema_version="v2")
+
+
+# --- Batch-loop exception handling -------------------------------------------
+#
+# Operators monitor the log channel, not stdout. Recoverable failures
+# (ClaudeError family) must be logged with full traceback via log.exception
+# and the loop must continue. Non-recoverable programmer errors (e.g.
+# ValueError from a template bug) must propagate — silently continuing
+# would mask a bug for the rest of the run.
+
+@patch("enrich_properties.extract_batch")
+@patch("enrich_properties.get_pilot_synsets")
+def test_run_enrichment_logs_exception_on_claude_error(
+    mock_get_synsets, mock_extract, tmp_path, caplog,
+):
+    """Batch failures from ClaudeError descendants log via log.exception
+    (ERROR level + traceback) and the loop continues to the next batch."""
+    import logging
+    from claude_client import ClaudeError
+
+    db_path = _make_test_db(tmp_path)
+    synsets = [
+        {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n"},
+        {"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v"},
+    ]
+    mock_get_synsets.return_value = synsets
+
+    # First batch raises a recoverable ClaudeError; second succeeds.
+    mock_extract.side_effect = [
+        ClaudeError("upstream hiccup"),
+        [{"id": "100002", "lemma": "whisper", "definition": "speak softly", "pos": "v",
+          "properties": ["quiet"]}],
+    ]
+
+    with patch("enrich_properties.OUTPUT_DIR", tmp_path), \
+         caplog.at_level(logging.ERROR, logger="enrich_properties"):
+        result = run_enrichment(
+            size=2,
+            batch_size=1,
+            delay=0,
+            output_file=tmp_path / "out.json",
+            db_path=db_path,
+        )
+
+    # The second batch should still have run.
+    assert result.succeeded == 1
+    assert result.failed == 1
+    assert result.failed_ids == ["100001"]
+
+    # An ERROR record mentioning "Batch" with attached exc_info must exist.
+    batch_records = [
+        r for r in caplog.records
+        if r.levelno == logging.ERROR and "Batch" in r.getMessage()
+    ]
+    assert batch_records, "expected an ERROR record naming the failed batch"
+    assert any(r.exc_info is not None for r in batch_records), (
+        "log.exception must attach exc_info so the traceback reaches operators"
+    )
+
+
+# --- main() CLI ---------------------------------------------------------------
+
+def test_main_warns_when_skip_preflight_used(monkeypatch, tmp_path, caplog):
+    """--skip-preflight is a dangerous override; main() must log.warning so
+    operators reading logs after the fact can see the safety net was off."""
+    import logging
+    from unittest.mock import patch
+    import enrich_properties as ep
+
+    with patch.object(ep, "preflight_check") as mock_preflight, \
+         patch.object(ep, "run_enrichment") as mock_run:
+        mock_run.return_value = EnrichmentResult(
+            output_file=str(tmp_path / "out.json"),
+            requested=0, succeeded=0, failed=0,
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            ["enrich_properties.py", "--output", str(tmp_path / "out.json"),
+             "--skip-preflight"],
+        )
+        with caplog.at_level(logging.WARNING, logger="enrich_properties"):
+            ep.main()
+
+    assert not mock_preflight.called, "preflight must be skipped when flag is set"
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("preflight skipped" in r.getMessage() for r in warnings), (
+        "expected a WARNING containing 'preflight skipped'"
+    )
+
+
+def test_main_warns_when_skip_enriched_required_used(monkeypatch, tmp_path, caplog):
+    """--skip-enriched-required forces re-enrichment of synsets already in
+    the enrichment table; surface a WARNING so operators can audit later."""
+    import logging
+    from unittest.mock import patch
+    import enrich_properties as ep
+
+    with patch.object(ep, "preflight_check"), \
+         patch.object(ep, "run_enrichment") as mock_run:
+        mock_run.return_value = EnrichmentResult(
+            output_file=str(tmp_path / "out.json"),
+            requested=0, succeeded=0, failed=0,
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            ["enrich_properties.py", "--output", str(tmp_path / "out.json"),
+             "--skip-enriched-required"],
+        )
+        with caplog.at_level(logging.WARNING, logger="enrich_properties"):
+            ep.main()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    msgs = " | ".join(r.getMessage() for r in warnings)
+    assert "skip-enriched-required" in msgs or "re-enriched" in msgs, (
+        f"expected a WARNING about --skip-enriched-required; got: {msgs!r}"
+    )
+
+
+def test_main_threads_db_flag_to_preflight(monkeypatch, tmp_path):
+    """main() --db flag is threaded through to preflight_check and run_enrichment.
+
+    Without this, an operator passing --db on the command line silently
+    has the preflight test the wrong DB and the run target a different one.
+    """
+    from unittest.mock import patch
+    import enrich_properties as ep
+
+    fake_db = str(tmp_path / "alt.db")
+
+    with patch.object(ep, "preflight_check") as mock_preflight, \
+         patch.object(ep, "run_enrichment") as mock_run:
+        mock_run.return_value = EnrichmentResult(
+            output_file=str(tmp_path / "out.json"),
+            requested=0, succeeded=0, failed=0,
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            ["enrich_properties.py", "--output", str(tmp_path / "out.json"), "--db", fake_db],
+        )
+        ep.main()
+
+    assert mock_preflight.call_args.kwargs["db_path"] == fake_db
+    assert mock_run.call_args.kwargs["db_path"] == fake_db
+
+
+@patch("enrich_properties.extract_batch")
+@patch("enrich_properties.get_pilot_synsets")
+def test_run_enrichment_propagates_unexpected_exception(
+    mock_get_synsets, mock_extract, tmp_path,
+):
+    """Non-recoverable programmer errors (ValueError, KeyError, etc.) must
+    propagate — swallowing them would mask bugs for the rest of the run."""
+    db_path = _make_test_db(tmp_path)
+    synsets = [
+        {"id": "100001", "lemma": "candle", "definition": "stick of wax", "pos": "n"},
+    ]
+    mock_get_synsets.return_value = synsets
+    mock_extract.side_effect = ValueError("template bug")
+
+    with patch("enrich_properties.OUTPUT_DIR", tmp_path):
+        with pytest.raises(ValueError, match="template bug"):
+            run_enrichment(
+                size=1,
+                batch_size=1,
+                delay=0,
+                output_file=tmp_path / "out.json",
+                db_path=db_path,
+            )

@@ -22,7 +22,7 @@ from typing import List, Dict, Optional
 log = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
-from claude_client import prompt_json, RateLimitError
+from claude_client import prompt_json, ClaudeError, RateLimitError
 
 from utils import LEXICON_V2, OUTPUT_DIR, load_checkpoint, save_checkpoint
 
@@ -187,7 +187,7 @@ def format_batch_items_v2(synsets: List[Dict]) -> str:
 def extract_batch(
     synsets: List[Dict],
     model: str = "haiku",
-    prompt_template: str = None,
+    prompt_template: Optional[str] = None,
     formatter=None,
     verbose: bool = False,
 ) -> List[Dict]:
@@ -226,6 +226,122 @@ def extract_batch(
         else:
             log.warning("LLM returned unknown ID %s", rid)
     return merged
+
+
+# --- Pre-flight integration test ----------------------------------------------
+
+class PreflightError(Exception):
+    """Raised when the end-to-end preflight detects parser-API drift.
+
+    Carries the offending shape (raw response head/tail when available)
+    so the operator can diagnose without re-running.
+    """
+
+
+def preflight_check(
+    db_path: str,
+    model: str = "sonnet",
+    schema_version: str = "v2",
+    verbose: bool = False,
+) -> None:
+    """Run a single-synset enrichment end-to-end and verify the response shape.
+
+    This is the operator's tripwire against parser-API drift. The
+    claude_client parser uses heuristics (fenced extraction, then a
+    fallback that finds the largest [...]/{...} span in unfenced prose)
+    — robust today but guaranteed to break when Sonnet refresh, CLI
+    output schema change, or a prompt-quality regression flips the
+    response shape. Without this check a long enrichment run silently
+    produces zero output for hours before the operator notices.
+
+    Picks one frequency-ranked synset, runs the same extract_batch path
+    as production, and asserts the result is a list-of-one with the
+    schema-version-appropriate keys. Raises PreflightError on any
+    mismatch. Costs one Claude API call (~$0.05 with cache, ~5s wall).
+
+    Args:
+        db_path: lexicon DB to draw the test synset from
+        model: Claude model name (same as production)
+        schema_version: 'v1' or 'v2' — selects which prompt + expected schema
+        verbose: pass through to claude_client's debug logging
+
+    Raises:
+        PreflightError: any shape mismatch or empty result.
+    """
+    log.info(
+        "preflight: running single-synset enrichment (model=%s, schema=%s)",
+        model, schema_version,
+    )
+    conn = sqlite3.connect(db_path)
+    try:
+        synsets = get_frequency_ranked_synsets(conn, limit=1)
+        if not synsets:
+            raise PreflightError(
+                "no synsets available for preflight test call — "
+                "is the DB schema correct and the synsets table populated?"
+            )
+    finally:
+        conn.close()
+
+    # Pick the prompt template + formatter to match production behaviour.
+    if schema_version == "v2":
+        template = BATCH_PROMPT_V2
+        formatter = format_batch_items_v2
+        required_keys = ("id", "usage_example", "properties", "lemma_metadata")
+    else:
+        template = BATCH_PROMPT
+        formatter = format_batch_items
+        required_keys = ("id", "properties")
+
+    try:
+        results = extract_batch(
+            synsets,
+            model=model,
+            prompt_template=template,
+            formatter=formatter,
+            verbose=verbose,
+        )
+    except Exception as e:
+        raise PreflightError(
+            f"extract_batch raised during preflight ({type(e).__name__}: {e}). "
+            f"This usually means the claude_client parser is misaligned with "
+            f"the current claude -p output shape. See lib/claude_client.py "
+            f"_strip_fences/_parse_events."
+        ) from e
+
+    if not isinstance(results, list):
+        raise PreflightError(
+            f"extract_batch returned {type(results).__name__}, expected list. "
+            f"Parser drift?"
+        )
+    if len(results) != 1:
+        raise PreflightError(
+            f"extract_batch returned {len(results)} results, expected 1. "
+            f"Prompt or merge logic regression?"
+        )
+
+    r = results[0]
+    if not isinstance(r, dict):
+        raise PreflightError(
+            f"results[0] is {type(r).__name__}, expected dict."
+        )
+    missing = [k for k in required_keys if k not in r]
+    if missing:
+        raise PreflightError(
+            f"results[0] missing required keys {missing} for schema={schema_version}. "
+            f"Got keys: {sorted(r.keys())}. Prompt-quality regression or "
+            f"schema mismatch."
+        )
+    props = r.get("properties")
+    if not isinstance(props, list) or not props:
+        raise PreflightError(
+            f"results[0].properties must be a non-empty list, got {type(props).__name__} "
+            f"len={len(props) if hasattr(props, '__len__') else 'n/a'}."
+        )
+    log.info(
+        "preflight ok: synset_id=%s lemma=%s n_properties=%d",
+        r.get("id"), r.get("lemma", "?"), len(props),
+    )
 
 
 # --- Synset selection ---------------------------------------------------------
@@ -313,6 +429,7 @@ def get_frequency_ranked_synsets(
     limit: int,
     required_ids: list | None = None,
     offset: int = 0,
+    skip_enriched_required: bool = False,
 ) -> List[Dict]:
     """Get synsets ranked by max lemma familiarity, excluding already-enriched.
 
@@ -320,14 +437,39 @@ def get_frequency_ranked_synsets(
     remaining slots are filled with frequency-ranked synsets up to limit.
 
     For each synset, picks the most familiar lemma (for the enrichment prompt).
-    Synsets already present in the enrichment table are excluded (padding only).
+    Synsets already present in the enrichment table are excluded from the
+    frequency-ranked padding phase.
+
+    Args:
+        skip_enriched_required: by default, required_ids are fetched
+            unconditionally — useful when re-enriching specific synsets
+            for prompt iteration. Set True to also apply the
+            enrichment-exclusion rule to required_ids, so a surgical
+            --synset-ids run after an in-flight import doesn't waste
+            calls re-enriching synsets that already got picked up
+            incidentally. No-op if the enrichment table doesn't exist
+            (fresh DB).
     """
     synsets = []
     seen_ids = set()
 
-    # Phase 1: fetch required synsets by ID (unconditional — not excluded by enrichment)
+    # Detect enrichment table once and reuse across both phases.
+    has_enrichment = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='enrichment'"
+    ).fetchone()[0] > 0
+
+    # Phase 1: fetch required synsets by ID. By default this is unconditional
+    # — required_ids force inclusion regardless of enrichment status. With
+    # skip_enriched_required=True (and the enrichment table present), the
+    # same NOT IN (SELECT synset_id FROM enrichment) clause applies, so a
+    # surgical run can be passed required_ids that may overlap with prior
+    # enrichment work without wasting calls.
     if required_ids:
         placeholders = ",".join("?" for _ in required_ids)
+        req_exclude_clause = (
+            "AND s.synset_id NOT IN (SELECT synset_id FROM enrichment)"
+            if (skip_enriched_required and has_enrichment) else ""
+        )
         cursor = conn.execute(f"""
             WITH ranked_lemmas AS (
                 SELECT
@@ -342,7 +484,7 @@ def get_frequency_ranked_synsets(
                 FROM synsets s
                 JOIN lemmas l ON l.synset_id = s.synset_id
                 LEFT JOIN frequencies f ON f.lemma = l.lemma
-                WHERE s.synset_id IN ({placeholders})
+                WHERE s.synset_id IN ({placeholders}) {req_exclude_clause}
             )
             SELECT synset_id, definition, lemma, pos
             FROM ranked_lemmas
@@ -362,11 +504,7 @@ def get_frequency_ranked_synsets(
     # Phase 2: pad remaining slots with frequency-ranked synsets
     remaining = limit - len(synsets)
     if remaining > 0:
-        # Check if enrichment table exists (fresh DBs may not have it)
-        has_enrichment = conn.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='enrichment'"
-        ).fetchone()[0] > 0
-
+        # has_enrichment already detected at function entry; reuse it.
         exclude_clause = (
             "AND s.synset_id NOT IN (SELECT synset_id FROM enrichment)"
             if has_enrichment else ""
@@ -444,15 +582,16 @@ def run_enrichment(
     model: str = "haiku",
     delay: float = 1.0,
     resume: bool = False,
-    output_file: Path = None,
-    synset_ids_file: Path = None,
-    required_synset_ids: set[str] = None,
-    prompt_template: str = None,
+    output_file: Optional[Path] = None,
+    synset_ids_file: Optional[Path] = None,
+    required_synset_ids: Optional[set[str]] = None,
+    prompt_template: Optional[str] = None,
     verbose: bool = False,
-    db_path: str = None,
+    db_path: Optional[str] = None,
     strategy: str = "random",
     schema_version: str = "v1",
     offset: int = 0,
+    skip_enriched_required: bool = False,
 ) -> EnrichmentResult:
     """Run property enrichment on synsets using claude CLI.
 
@@ -506,7 +645,12 @@ def run_enrichment(
         print(f"  Database: {db_path}")
 
         if strategy == "frequency":
-            synsets = get_frequency_ranked_synsets(conn, size, required_ids=required_ids, offset=offset)
+            synsets = get_frequency_ranked_synsets(
+                conn, size,
+                required_ids=required_ids,
+                offset=offset,
+                skip_enriched_required=skip_enriched_required,
+            )
         else:
             synsets = get_pilot_synsets(conn, size, required_ids=required_ids)
         print(f"  Retrieved {len(synsets)} synsets")
@@ -564,8 +708,15 @@ def run_enrichment(
                 })
                 rate_limited = True
                 break
-            except Exception as e:
-                print(f"  BATCH FAILED after retries: {e}")
+            except ClaudeError:
+                # Recoverable upstream failure (parse / empty / non-rate-limit
+                # ClaudeError variants). Log with full traceback to the channel
+                # operators monitor, mark the batch failed, and continue.
+                # Unexpected exception classes (ValueError from a template bug,
+                # OSError from disk issues, sqlite3.OperationalError, …) are
+                # programmer errors or environmental faults — those must
+                # propagate so they don't silently mask for the rest of the run.
+                log.exception("Batch %d failed after retries", batch_idx + 1)
                 failed_batches += 1
                 failed_synset_ids.extend(s['id'] for s in batch)
                 save_checkpoint(checkpoint_path, {
@@ -688,6 +839,32 @@ def main():
         choices=["v1", "v2"],
         help="Enrichment schema version: v1 (plain strings) or v2 (structured with salience/type/relation/lemma_metadata)",
     )
+    parser.add_argument(
+        "--skip-enriched-required", action="store_true",
+        help=(
+            "Apply the enrichment-exclusion rule to --synset-ids as well "
+            "as to frequency-padded synsets. By default --synset-ids are "
+            "fetched unconditionally (useful for re-enriching specific "
+            "synsets for prompt-iteration testing). Set this flag when "
+            "doing a surgical top-up after an in-flight enrichment "
+            "import, so synsets that already got picked up don't waste "
+            "calls. No-op if the DB has no enrichment table yet."
+        ),
+    )
+    parser.add_argument(
+        "--db", type=str, default=str(LEXICON_V2),
+        help="Path to lexicon_v2.db; default: %(default)s",
+    )
+    parser.add_argument(
+        "--skip-preflight", action="store_true",
+        help=(
+            "Skip the end-to-end parser preflight that runs by default "
+            "before the batch loop. The preflight catches claude -p "
+            "output-shape drift before a long run silently produces "
+            "nothing. Only skip when iterating quickly on a known-good "
+            "parser, or when you've already verified the parser shape."
+        ),
+    )
     args = parser.parse_args()
 
     if args.verbose:
@@ -695,6 +872,37 @@ def main():
 
     output_file = Path(args.output) if args.output else None
     synset_ids_file = Path(args.synset_ids) if args.synset_ids else None
+
+    if args.skip_preflight:
+        log.warning(
+            "preflight skipped via --skip-preflight; parser drift will not "
+            "be caught before the batch loop"
+        )
+    else:
+        try:
+            preflight_check(
+                db_path=args.db,
+                model=args.model,
+                schema_version=args.schema_version,
+                verbose=args.verbose,
+            )
+        except PreflightError as e:
+            print(f"PREFLIGHT FAILED: {e}", file=sys.stderr)
+            print(
+                "Aborting before the batch loop. Either fix the parser "
+                "(see lib/claude_client.py) or rerun with --skip-preflight "
+                "if you know what you're doing.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+    if args.skip_enriched_required:
+        log.warning(
+            "--skip-enriched-required set; required synsets already present "
+            "in the enrichment table WILL be excluded — surgical top-up "
+            "mode (intended for use after an in-flight enrichment import)"
+        )
+
     result = run_enrichment(
         size=args.size,
         batch_size=args.batch_size,
@@ -704,9 +912,11 @@ def main():
         output_file=output_file,
         synset_ids_file=synset_ids_file,
         verbose=args.verbose,
+        db_path=args.db,
         strategy=args.strategy,
         schema_version=args.schema_version,
         offset=args.offset,
+        skip_enriched_required=args.skip_enriched_required,
     )
     # Exit 75 = rate-limited (retryable), 0 = success
     if result.rate_limited:

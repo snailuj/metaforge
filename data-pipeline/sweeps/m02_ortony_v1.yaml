@@ -1,0 +1,48 @@
+# M02-S02 sweep — first asymmetric Ortony variant vs symmetric baselines.
+#
+# Compares ortony_vehicle_salience (normalised vehicle-coverage) against
+# the four registry baselines on the same V2 cohort at threshold_percentile
+# 95. Cohort: ~232 apt pairs from metaphor_pairs_v2.json, ~317 inapt
+# controls from munch_inapt.jsonl after preprocessing.
+#
+# Pre-flight reminder: requires a post-PR-#17 lexicon DB. Pre-#17 the snap
+# accumulator used first-arrival-wins on (synset, cluster_id) collisions;
+# post-#17 it uses higher-rank-method-wins (exact > morphological >
+# embedding). A small number of synset_properties_curated rows differ
+# between snap regimes, so this config is only meaningful after a fresh
+# snap rebuild against the merged-main code (commit 691713de or later).
+#
+# Run with:
+#   data-pipeline/.venv/bin/python data-pipeline/scripts/run_sweep.py \
+#     --config data-pipeline/sweeps/m02_ortony_v1.yaml \
+#     --output data-pipeline/output/sweep_m02_ortony_v1.json \
+#     --report data-pipeline/output/sweep_m02_ortony_v1.md
+#
+# Outputs land under data-pipeline/output/ (gitignored).
+#
+# random_uniform is included as the null-noise floor so the ortony delta
+# can be interpreted against sampling noise (~±0.02 on this cohort, see
+# data-pipeline/sweeps/SENSITIVITY-V2-FINDINGS.md).
+
+name: m02_ortony_v1
+db: data-pipeline/output/lexicon_v2.db
+pairs: data-pipeline/fixtures/metaphor_pairs_v2.json
+controls: data-pipeline/fixtures/munch_inapt.jsonl
+mrr_reference: data-pipeline/output/eval_baseline_v2.json
+
+variations:
+  - name: jaccard_salience
+    scoring: jaccard_salience
+    threshold_percentile: 95
+  - name: jaccard_raw
+    scoring: jaccard_raw
+    threshold_percentile: 95
+  - name: cosine_salience
+    scoring: cosine_salience
+    threshold_percentile: 95
+  - name: ortony_vehicle_salience
+    scoring: ortony_vehicle_salience
+    threshold_percentile: 95
+  - name: random_uniform
+    scoring: random_uniform
+    threshold_percentile: 95

@@ -1,0 +1,3555 @@
+{
+  "synsets": [
+    {
+      "id": "99192",
+      "lemma": "suffering",
+      "definition": "a state of acute pain",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "sharp",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "pain feels acute and piercing"
+        },
+        {
+          "text": "burning",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "describes intense pain sensation"
+        },
+        {
+          "text": "heavy",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "suffering weighs down on person"
+        },
+        {
+          "text": "relentless",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "suffering doesn't stop or ease"
+        },
+        {
+          "text": "consuming",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "suffering takes over entirely"
+        },
+        {
+          "text": "throbbing",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "pain pulses rhythmically"
+        },
+        {
+          "text": "constricted",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "physical tightness accompanies pain"
+        },
+        {
+          "text": "darkening",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "suffering clouds mind and outlook"
+        },
+        {
+          "text": "isolating",
+          "salience": 0.65,
+          "type": "social",
+          "relation": "suffering separates from others"
+        },
+        {
+          "text": "draining",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "suffering exhausts energy"
+        },
+        {
+          "text": "numbing",
+          "salience": 0.6,
+          "type": "sensorimotor",
+          "relation": "intense suffering can dull other sensations"
+        },
+        {
+          "text": "overwhelming",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "suffering floods consciousness"
+        },
+        {
+          "text": "visceral",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "suffering is deeply felt in body"
+        }
+      ],
+      "usage_example": "She endured great suffering after the accident.",
+      "lemma_metadata": [
+        {
+          "lemma": "suffering",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "30227",
+      "lemma": "anger",
+      "definition": "make angry",
+      "pos": "v",
+      "properties": [
+        {
+          "text": "hot",
+          "salience": 0.95,
+          "type": "sensorimotor",
+          "relation": "anger feels like intense heat"
+        },
+        {
+          "text": "burning",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "anger creates burning sensation"
+        },
+        {
+          "text": "intense",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "anger is high in force or degree"
+        },
+        {
+          "text": "explosive",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "anger can burst out suddenly"
+        },
+        {
+          "text": "flushed",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "face becomes hot and red"
+        },
+        {
+          "text": "pulsing",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "heartbeat accelerates with anger"
+        },
+        {
+          "text": "aggressive",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "anger drives hostile actions"
+        },
+        {
+          "text": "consuming",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "anger takes over thought and action"
+        },
+        {
+          "text": "righteous",
+          "salience": 0.65,
+          "type": "emotional",
+          "relation": "anger often feels justified"
+        },
+        {
+          "text": "destabilizing",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "anger disrupts equilibrium"
+        },
+        {
+          "text": "sharp",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "anger feels cutting and pointed"
+        },
+        {
+          "text": "energizing",
+          "salience": 0.65,
+          "type": "effect",
+          "relation": "anger provides drive and motivation"
+        },
+        {
+          "text": "darkening",
+          "salience": 0.65,
+          "type": "emotional",
+          "relation": "anger clouds judgment"
+        }
+      ],
+      "usage_example": "His cruel words filled her with anger.",
+      "lemma_metadata": [
+        {
+          "lemma": "anger",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "72810",
+      "lemma": "anxiety",
+      "definition": "a vague unpleasant emotion that is experienced in anticipation of some (usually ill-defined) misfortune",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "fluttering",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "produces nervous fluttering in chest"
+        },
+        {
+          "text": "tightening",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "muscles tense and contract"
+        },
+        {
+          "text": "racing",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "thoughts and heart race rapidly"
+        },
+        {
+          "text": "vague",
+          "salience": 0.85,
+          "type": "emotional",
+          "relation": "source of anxiety is ill-defined"
+        },
+        {
+          "text": "suffocating",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "feels like can't breathe freely"
+        },
+        {
+          "text": "trembling",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "body shakes involuntarily"
+        },
+        {
+          "text": "anticipatory",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "anxiety looks forward to misfortune"
+        },
+        {
+          "text": "unsettling",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "anxiety disturbs peace and calm"
+        },
+        {
+          "text": "prickling",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "produces tingling sensation"
+        },
+        {
+          "text": "restless",
+          "salience": 0.75,
+          "type": "behaviour",
+          "relation": "can't settle or find stillness"
+        },
+        {
+          "text": "preoccupying",
+          "salience": 0.7,
+          "type": "effect",
+          "relation": "anxiety occupies the mind"
+        },
+        {
+          "text": "vigilant",
+          "salience": 0.65,
+          "type": "behaviour",
+          "relation": "heightened alertness to threat"
+        },
+        {
+          "text": "nebulous",
+          "salience": 0.6,
+          "type": "emotional",
+          "relation": "anxiety lacks clear definition"
+        }
+      ],
+      "usage_example": "She felt anxiety rising as the interview approached.",
+      "lemma_metadata": [
+        {
+          "lemma": "anxiety",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "58161",
+      "lemma": "indifference",
+      "definition": "the trait of lacking enthusiasm for or interest in things generally",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "flat",
+          "salience": 0.85,
+          "type": "emotional",
+          "relation": "emotional response is muted and lifeless"
+        },
+        {
+          "text": "cool",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "detached and emotionally distant"
+        },
+        {
+          "text": "numb",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "lack of feeling or sensation"
+        },
+        {
+          "text": "muted",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "response is subdued and quiet"
+        },
+        {
+          "text": "distant",
+          "salience": 0.8,
+          "type": "emotional",
+          "relation": "remote and separated from concern"
+        },
+        {
+          "text": "passive",
+          "salience": 0.75,
+          "type": "behaviour",
+          "relation": "doesn't actively engage or participate"
+        },
+        {
+          "text": "hollow",
+          "salience": 0.65,
+          "type": "emotional",
+          "relation": "lacks inner substance or feeling"
+        },
+        {
+          "text": "gray",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "colorless and lacking vibrancy"
+        },
+        {
+          "text": "still",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "lacks motion or energy"
+        },
+        {
+          "text": "detached",
+          "salience": 0.8,
+          "type": "emotional",
+          "relation": "separated from emotional involvement"
+        },
+        {
+          "text": "tepid",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "lukewarm in temperature and feeling"
+        },
+        {
+          "text": "torpid",
+          "salience": 0.6,
+          "type": "behaviour",
+          "relation": "sluggish and lethargic"
+        },
+        {
+          "text": "stagnant",
+          "salience": 0.65,
+          "type": "behaviour",
+          "relation": "no movement, change, or growth"
+        }
+      ],
+      "usage_example": "His indifference to the outcome was striking.",
+      "lemma_metadata": [
+        {
+          "lemma": "indifference",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "72733",
+      "lemma": "awe",
+      "definition": "an overwhelming feeling of wonder or admiration",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "expansive",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "opens the mind and chest"
+        },
+        {
+          "text": "overwhelming",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "floods the person with feeling"
+        },
+        {
+          "text": "breathtaking",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "takes the breath away"
+        },
+        {
+          "text": "towering",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "sense of vast height above"
+        },
+        {
+          "text": "radiant",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "shines with luminous beauty"
+        },
+        {
+          "text": "luminous",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "glows with light and grace"
+        },
+        {
+          "text": "vast",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "immense in scale and scope"
+        },
+        {
+          "text": "elevating",
+          "salience": 0.8,
+          "type": "emotional",
+          "relation": "lifts the spirit upward"
+        },
+        {
+          "text": "humbling",
+          "salience": 0.8,
+          "type": "emotional",
+          "relation": "reduces sense of self-importance"
+        },
+        {
+          "text": "reverent",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "inspires reverence and respect"
+        },
+        {
+          "text": "speechless",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "overwhelms ability to articulate"
+        },
+        {
+          "text": "transcendent",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "goes beyond ordinary experience"
+        },
+        {
+          "text": "stillness",
+          "salience": 0.65,
+          "type": "behaviour",
+          "relation": "moment of quiet contemplation"
+        }
+      ],
+      "usage_example": "He stood in awe of the vast mountain landscape.",
+      "lemma_metadata": [
+        {
+          "lemma": "awe",
+          "register": "neutral",
+          "connotation": "positive"
+        }
+      ]
+    },
+    {
+      "id": "59971",
+      "lemma": "bitter",
+      "definition": "the property of having a harsh unpleasant taste",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "harsh",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "bitter taste is harsh"
+        },
+        {
+          "text": "acrid",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "bitter flavour is acrid"
+        },
+        {
+          "text": "pungent",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "bitter taste is pungent"
+        },
+        {
+          "text": "sharp",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "bitter taste is sharp"
+        },
+        {
+          "text": "astringent",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "bitter taste causes mouth-puckering"
+        },
+        {
+          "text": "sour",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "bitter substances taste sour"
+        },
+        {
+          "text": "medicinal",
+          "salience": 0.5,
+          "type": "sensorimotor",
+          "relation": "many bitter substances smell medicinal"
+        },
+        {
+          "text": "lingering",
+          "salience": 0.75,
+          "type": "behaviour",
+          "relation": "bitter taste lingers in mouth"
+        },
+        {
+          "text": "persistent",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "bitter taste persists after swallowing"
+        },
+        {
+          "text": "unpleasant",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "bitter taste is unpleasant"
+        },
+        {
+          "text": "repulsive",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "bitter flavour is repulsive"
+        },
+        {
+          "text": "disagreeable",
+          "salience": 0.65,
+          "type": "emotional",
+          "relation": "bitter taste is disagreeable"
+        },
+        {
+          "text": "warning",
+          "salience": 0.65,
+          "type": "functional",
+          "relation": "bitterness warns of toxins"
+        },
+        {
+          "text": "defensive",
+          "salience": 0.6,
+          "type": "functional",
+          "relation": "plants use bitterness as defence"
+        }
+      ],
+      "usage_example": "The bitter taste of the medicine made her grimace.",
+      "lemma_metadata": [
+        {
+          "lemma": "bitter",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "97412",
+      "lemma": "bliss",
+      "definition": "a state of extreme happiness",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "euphoric",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "bliss is euphoric state"
+        },
+        {
+          "text": "joyful",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "bliss is joyful"
+        },
+        {
+          "text": "serene",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "bliss brings serenity"
+        },
+        {
+          "text": "peaceful",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "bliss brings peace"
+        },
+        {
+          "text": "transcendent",
+          "salience": 0.85,
+          "type": "emotional",
+          "relation": "bliss feels transcendent"
+        },
+        {
+          "text": "ethereal",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "bliss feels ethereal and weightless"
+        },
+        {
+          "text": "floating",
+          "salience": 0.75,
+          "type": "behaviour",
+          "relation": "bliss creates sense of floating"
+        },
+        {
+          "text": "weightless",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "bliss makes one feel weightless"
+        },
+        {
+          "text": "luminous",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "bliss radiates with light"
+        },
+        {
+          "text": "radiant",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "bliss makes one appear radiant"
+        },
+        {
+          "text": "warm",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "bliss feels warm and comforting"
+        },
+        {
+          "text": "uplifting",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "bliss is uplifting"
+        },
+        {
+          "text": "liberating",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "bliss is liberating"
+        },
+        {
+          "text": "boundless",
+          "salience": 0.7,
+          "type": "effect",
+          "relation": "bliss feels boundless and infinite"
+        }
+      ],
+      "usage_example": "She felt pure bliss holding her newborn child.",
+      "lemma_metadata": [
+        {
+          "lemma": "bliss",
+          "register": "formal",
+          "connotation": "positive"
+        }
+      ]
+    },
+    {
+      "id": "59094",
+      "lemma": "compassion",
+      "definition": "the humane quality of understanding the suffering of others and wanting to do something about it",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "empathetic",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "compassion is empathetic understanding"
+        },
+        {
+          "text": "caring",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "compassion is caring quality"
+        },
+        {
+          "text": "sympathetic",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "compassion is sympathetic"
+        },
+        {
+          "text": "supportive",
+          "salience": 0.9,
+          "type": "functional",
+          "relation": "compassion is supportive"
+        },
+        {
+          "text": "warm",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "compassion feels warm and embracing"
+        },
+        {
+          "text": "protective",
+          "salience": 0.8,
+          "type": "functional",
+          "relation": "compassion is protective"
+        },
+        {
+          "text": "healing",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "compassion heals emotional wounds"
+        },
+        {
+          "text": "gentle",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "compassion is gentle and tender"
+        },
+        {
+          "text": "humanitarian",
+          "salience": 0.8,
+          "type": "social",
+          "relation": "compassion is humanitarian"
+        },
+        {
+          "text": "nurturing",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "compassion nurtures others"
+        },
+        {
+          "text": "tender",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "compassion is tender"
+        },
+        {
+          "text": "soft",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "compassion has soft quality"
+        },
+        {
+          "text": "unifying",
+          "salience": 0.75,
+          "type": "social",
+          "relation": "compassion unifies people"
+        },
+        {
+          "text": "validating",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "compassion validates suffering"
+        },
+        {
+          "text": "embracing",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "compassion feels embracing"
+        }
+      ],
+      "usage_example": "She showed great compassion towards the homeless people.",
+      "lemma_metadata": [
+        {
+          "lemma": "compassion",
+          "register": "formal",
+          "connotation": "positive"
+        }
+      ]
+    },
+    {
+      "id": "72848",
+      "lemma": "contentment",
+      "definition": "happiness with one's situation in life",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "peaceful",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "contentment is peaceful"
+        },
+        {
+          "text": "satisfied",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "contentment is satisfied"
+        },
+        {
+          "text": "serene",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "contentment brings serenity"
+        },
+        {
+          "text": "calm",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "contentment promotes calmness"
+        },
+        {
+          "text": "steady",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "contentment provides steadiness"
+        },
+        {
+          "text": "fulfilling",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "contentment is fulfilling"
+        },
+        {
+          "text": "restful",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "contentment brings restful state"
+        },
+        {
+          "text": "warm",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "contentment feels warm and cosy"
+        },
+        {
+          "text": "grounded",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "contentment keeps one grounded"
+        },
+        {
+          "text": "stable",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "contentment feels stable"
+        },
+        {
+          "text": "soft",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "contentment has soft quality"
+        },
+        {
+          "text": "patient",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "contentment brings patience"
+        },
+        {
+          "text": "accepting",
+          "salience": 0.75,
+          "type": "behaviour",
+          "relation": "contentment comes from accepting"
+        },
+        {
+          "text": "sustaining",
+          "salience": 0.75,
+          "type": "functional",
+          "relation": "contentment sustains wellbeing"
+        },
+        {
+          "text": "grounding",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "contentment grounds the spirit"
+        }
+      ],
+      "usage_example": "He found contentment in his simple life.",
+      "lemma_metadata": [
+        {
+          "lemma": "contentment",
+          "register": "neutral",
+          "connotation": "positive"
+        }
+      ]
+    },
+    {
+      "id": "59234",
+      "lemma": "courage",
+      "definition": "a quality of spirit that enables you to face danger or pain without showing fear",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "brave",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "courage is bravery"
+        },
+        {
+          "text": "resolute",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "courage is resolute"
+        },
+        {
+          "text": "determined",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "courage is determined"
+        },
+        {
+          "text": "steadfast",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "courage is steadfast"
+        },
+        {
+          "text": "bold",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "courage is bold"
+        },
+        {
+          "text": "unflinching",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "courage is unflinching"
+        },
+        {
+          "text": "empowering",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "courage is empowering"
+        },
+        {
+          "text": "strong",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "courage makes one feel strong"
+        },
+        {
+          "text": "defiant",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "courage is defiant"
+        },
+        {
+          "text": "unwavering",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "courage is unwavering"
+        },
+        {
+          "text": "inspiring",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "courage is inspiring"
+        },
+        {
+          "text": "solid",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "courage provides solid foundation"
+        },
+        {
+          "text": "unyielding",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "courage is unyielding"
+        },
+        {
+          "text": "liberating",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "courage is liberating"
+        },
+        {
+          "text": "firm",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "courage stands firm"
+        }
+      ],
+      "usage_example": "She summoned the courage to speak up against injustice.",
+      "lemma_metadata": [
+        {
+          "lemma": "courage",
+          "register": "neutral",
+          "connotation": "positive"
+        }
+      ]
+    },
+    {
+      "id": "72624",
+      "lemma": "delight",
+      "definition": "a feeling of extreme pleasure or satisfaction",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "bright",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "delight radiates brightness"
+        },
+        {
+          "text": "warm",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "delight feels warm"
+        },
+        {
+          "text": "radiant",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "person glows with delight"
+        },
+        {
+          "text": "tingling",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "causes tingling sensation"
+        },
+        {
+          "text": "uplifting",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "elevates mood"
+        },
+        {
+          "text": "effervescent",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "bubbles with energy"
+        },
+        {
+          "text": "buoyant",
+          "salience": 0.75,
+          "type": "behaviour",
+          "relation": "lightens the spirit"
+        },
+        {
+          "text": "soaring",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "rises upward"
+        },
+        {
+          "text": "energizing",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "infuses with vitality"
+        },
+        {
+          "text": "liberating",
+          "salience": 0.65,
+          "type": "effect",
+          "relation": "frees from constraint"
+        },
+        {
+          "text": "exuberant",
+          "salience": 0.8,
+          "type": "emotional",
+          "relation": "expresses intense joy"
+        },
+        {
+          "text": "infectious",
+          "salience": 0.6,
+          "type": "social",
+          "relation": "spreads to others"
+        },
+        {
+          "text": "magnetic",
+          "salience": 0.55,
+          "type": "social",
+          "relation": "draws people in"
+        }
+      ],
+      "usage_example": "She felt a delight wash over her when she saw the surprise party.",
+      "lemma_metadata": [
+        {
+          "lemma": "delight",
+          "register": "neutral",
+          "connotation": "positive"
+        }
+      ]
+    },
+    {
+      "id": "72905",
+      "lemma": "despair",
+      "definition": "the feeling that everything is wrong and nothing will turn out well",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "heavy",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "weighs down completely"
+        },
+        {
+          "text": "dark",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "absence of light"
+        },
+        {
+          "text": "cold",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "emotional coldness"
+        },
+        {
+          "text": "suffocating",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "crushing pressure"
+        },
+        {
+          "text": "bottomless",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "infinite depth"
+        },
+        {
+          "text": "grey",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "bleakness of colour"
+        },
+        {
+          "text": "hollow",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "empty inside"
+        },
+        {
+          "text": "sinking",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "downward spiral"
+        },
+        {
+          "text": "consuming",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "takes over completely"
+        },
+        {
+          "text": "paralysing",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "immobilises action"
+        },
+        {
+          "text": "draining",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "depletes energy"
+        },
+        {
+          "text": "hopeless",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "absence of hope"
+        },
+        {
+          "text": "isolating",
+          "salience": 0.7,
+          "type": "social",
+          "relation": "cuts off from others"
+        },
+        {
+          "text": "endless",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "seems perpetual"
+        }
+      ],
+      "usage_example": "He fell into despair when all his efforts proved futile.",
+      "lemma_metadata": [
+        {
+          "lemma": "despair",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "72693",
+      "lemma": "disgust",
+      "definition": "strong feelings of dislike",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "repellent",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "pushes away"
+        },
+        {
+          "text": "foul",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "offensive smell or taste"
+        },
+        {
+          "text": "nauseating",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "sickens stomach"
+        },
+        {
+          "text": "acrid",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "sharp unpleasant taste"
+        },
+        {
+          "text": "putrid",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "rotting decay"
+        },
+        {
+          "text": "recoiling",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "pulls back sharply"
+        },
+        {
+          "text": "revulsive",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "causes revulsion"
+        },
+        {
+          "text": "retching",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "gagging response"
+        },
+        {
+          "text": "toxic",
+          "salience": 0.7,
+          "type": "effect",
+          "relation": "harmful and poisonous"
+        },
+        {
+          "text": "polluting",
+          "salience": 0.65,
+          "type": "effect",
+          "relation": "corrupts purity"
+        },
+        {
+          "text": "contaminating",
+          "salience": 0.65,
+          "type": "effect",
+          "relation": "spreads corruption"
+        },
+        {
+          "text": "visceral",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "gut-level reaction"
+        },
+        {
+          "text": "abhorrent",
+          "salience": 0.8,
+          "type": "emotional",
+          "relation": "strongly disliked"
+        },
+        {
+          "text": "alienating",
+          "salience": 0.6,
+          "type": "social",
+          "relation": "creates distance"
+        }
+      ],
+      "usage_example": "She felt disgust at the sight of the rotting food.",
+      "lemma_metadata": [
+        {
+          "lemma": "disgust",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "30151",
+      "lemma": "fear",
+      "definition": "be afraid or scared of; be frightened of",
+      "pos": "v",
+      "properties": [
+        {
+          "text": "sharp",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "keen cutting sensation"
+        },
+        {
+          "text": "cold",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "chilling coldness"
+        },
+        {
+          "text": "tense",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "muscle rigidity"
+        },
+        {
+          "text": "jagged",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "sharp irregular edges"
+        },
+        {
+          "text": "gripping",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "clutching sensation"
+        },
+        {
+          "text": "electric",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "charged energy"
+        },
+        {
+          "text": "piercing",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "sharp penetration"
+        },
+        {
+          "text": "racing",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "accelerated heartbeat"
+        },
+        {
+          "text": "constricting",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "tightens around"
+        },
+        {
+          "text": "vigilant",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "heightened awareness"
+        },
+        {
+          "text": "paralyzing",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "freezes action"
+        },
+        {
+          "text": "consuming",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "dominates thinking"
+        },
+        {
+          "text": "destabilizing",
+          "salience": 0.7,
+          "type": "effect",
+          "relation": "undermines security"
+        },
+        {
+          "text": "primitive",
+          "salience": 0.7,
+          "type": "social",
+          "relation": "primal survival response"
+        }
+      ],
+      "usage_example": "She felt fear grip her heart as the storm approached.",
+      "lemma_metadata": [
+        {
+          "lemma": "fear",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "42988",
+      "lemma": "go",
+      "definition": "street names for methylenedioxymethamphetamine",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "warm",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "bodily warmth"
+        },
+        {
+          "text": "tingling",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "tactile sensation"
+        },
+        {
+          "text": "electric",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "charged sensation"
+        },
+        {
+          "text": "pulsating",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "rhythmic sensation"
+        },
+        {
+          "text": "euphoric",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "extreme happiness"
+        },
+        {
+          "text": "energizing",
+          "salience": 0.9,
+          "type": "effect",
+          "relation": "boosts vitality"
+        },
+        {
+          "text": "stimulating",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "accelerates mind and body"
+        },
+        {
+          "text": "intensifying",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "heightens sensations"
+        },
+        {
+          "text": "intoxicating",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "alters consciousness"
+        },
+        {
+          "text": "elevating",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "lifts mood"
+        },
+        {
+          "text": "surging",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "rushes of sensation"
+        },
+        {
+          "text": "accelerating",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "rapid onset"
+        },
+        {
+          "text": "empathetic",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "increases emotional connection"
+        },
+        {
+          "text": "connecting",
+          "salience": 0.75,
+          "type": "social",
+          "relation": "social bonding"
+        }
+      ],
+      "usage_example": "He took go at the festival and felt energised all night.",
+      "lemma_metadata": [
+        {
+          "lemma": "go",
+          "register": "slang",
+          "connotation": "neutral"
+        }
+      ]
+    },
+    {
+      "id": "72773",
+      "lemma": "madness",
+      "definition": "a feeling of intense anger",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "hot",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "anger generates bodily heat"
+        },
+        {
+          "text": "burning",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "anger feels like internal fire"
+        },
+        {
+          "text": "red",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "anger manifests as facial flushing"
+        },
+        {
+          "text": "rapid",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "anger accelerates heartbeat and speech"
+        },
+        {
+          "text": "tense",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "anger tightens muscles"
+        },
+        {
+          "text": "explosive",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "anger erupts suddenly"
+        },
+        {
+          "text": "blinding",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "anger obscures judgment"
+        },
+        {
+          "text": "consuming",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "anger dominates all thought"
+        },
+        {
+          "text": "reckless",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "anger drives careless action"
+        },
+        {
+          "text": "uncontrolled",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "anger overwhelms rational control"
+        },
+        {
+          "text": "violent",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "anger can manifest physically"
+        },
+        {
+          "text": "destructive",
+          "salience": 0.7,
+          "type": "effect",
+          "relation": "anger wreaks damage"
+        },
+        {
+          "text": "resentful",
+          "salience": 0.65,
+          "type": "emotional",
+          "relation": "prolonged anger harbors grudge"
+        },
+        {
+          "text": "overpowering",
+          "salience": 0.7,
+          "type": "effect",
+          "relation": "anger overcomes the person"
+        },
+        {
+          "text": "raw",
+          "salience": 0.65,
+          "type": "emotional",
+          "relation": "anger is primitive emotion"
+        }
+      ],
+      "usage_example": "The madness of his anger drove him to act recklessly.",
+      "lemma_metadata": [
+        {
+          "lemma": "madness",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "72859",
+      "lemma": "gloom",
+      "definition": "a feeling of melancholy apprehension",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "dark",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "gloom feels like darkness"
+        },
+        {
+          "text": "murky",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "gloom obscures clarity"
+        },
+        {
+          "text": "heavy",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "gloom weighs heavily"
+        },
+        {
+          "text": "grey",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "gloom associated with grey colours"
+        },
+        {
+          "text": "dim",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "gloom reduces light and visibility"
+        },
+        {
+          "text": "dense",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "gloom feels thick and suffocating"
+        },
+        {
+          "text": "creeping",
+          "salience": 0.75,
+          "type": "behaviour",
+          "relation": "gloom advances slowly"
+        },
+        {
+          "text": "lingering",
+          "salience": 0.75,
+          "type": "behaviour",
+          "relation": "gloom persists over time"
+        },
+        {
+          "text": "oppressive",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "gloom presses down"
+        },
+        {
+          "text": "stifling",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "gloom restricts breathing"
+        },
+        {
+          "text": "bleak",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "gloom makes future seem desolate"
+        },
+        {
+          "text": "foreboding",
+          "salience": 0.7,
+          "type": "emotional",
+          "relation": "gloom carries sense of dread"
+        },
+        {
+          "text": "isolating",
+          "salience": 0.6,
+          "type": "social",
+          "relation": "gloom separates from joy"
+        },
+        {
+          "text": "suffocating",
+          "salience": 0.7,
+          "type": "effect",
+          "relation": "gloom cuts off air"
+        },
+        {
+          "text": "despondent",
+          "salience": 0.65,
+          "type": "emotional",
+          "relation": "gloom drains hope"
+        }
+      ],
+      "usage_example": "A palpable gloom descended on the room after the announcement.",
+      "lemma_metadata": [
+        {
+          "lemma": "gloom",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "72700",
+      "lemma": "gratitude",
+      "definition": "a feeling of thankfulness and appreciation",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "warm",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "gratitude creates emotional warmth"
+        },
+        {
+          "text": "bright",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "gratitude shines positively"
+        },
+        {
+          "text": "open",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "gratitude opens the heart"
+        },
+        {
+          "text": "light",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "gratitude lifts burden"
+        },
+        {
+          "text": "expansive",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "gratitude opens outward"
+        },
+        {
+          "text": "gentle",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "gratitude feels soft"
+        },
+        {
+          "text": "glowing",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "gratitude radiates"
+        },
+        {
+          "text": "uplifting",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "gratitude elevates mood"
+        },
+        {
+          "text": "bonding",
+          "salience": 0.75,
+          "type": "social",
+          "relation": "gratitude creates connection"
+        },
+        {
+          "text": "humbling",
+          "salience": 0.7,
+          "type": "emotional",
+          "relation": "gratitude reduces ego"
+        },
+        {
+          "text": "nourishing",
+          "salience": 0.65,
+          "type": "effect",
+          "relation": "gratitude sustains spirit"
+        },
+        {
+          "text": "generous",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "gratitude encourages giving"
+        },
+        {
+          "text": "tender",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "gratitude softens hardness"
+        },
+        {
+          "text": "affirming",
+          "salience": 0.65,
+          "type": "effect",
+          "relation": "gratitude validates worth"
+        },
+        {
+          "text": "luminous",
+          "salience": 0.6,
+          "type": "sensorimotor",
+          "relation": "gratitude has inner light"
+        }
+      ],
+      "usage_example": "She felt deep gratitude for their selfless support.",
+      "lemma_metadata": [
+        {
+          "lemma": "gratitude",
+          "register": "neutral",
+          "connotation": "positive"
+        }
+      ]
+    },
+    {
+      "id": "64254",
+      "lemma": "grief",
+      "definition": "something that causes great unhappiness",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "heavy",
+          "salience": 0.95,
+          "type": "sensorimotor",
+          "relation": "grief weighs heavily on heart"
+        },
+        {
+          "text": "dark",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "grief feels like darkness"
+        },
+        {
+          "text": "cold",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "grief brings emotional coldness"
+        },
+        {
+          "text": "numb",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "grief creates emotional numbness"
+        },
+        {
+          "text": "hollow",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "grief leaves emptiness inside"
+        },
+        {
+          "text": "grey",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "grief associated with grey tones"
+        },
+        {
+          "text": "piercing",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "grief cuts sharply through awareness"
+        },
+        {
+          "text": "aching",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "grief creates bodily pain"
+        },
+        {
+          "text": "crushing",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "grief overwhelms with weight"
+        },
+        {
+          "text": "drowning",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "grief submerges completely"
+        },
+        {
+          "text": "isolating",
+          "salience": 0.8,
+          "type": "social",
+          "relation": "grief separates from others"
+        },
+        {
+          "text": "consuming",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "grief takes over entirely"
+        },
+        {
+          "text": "raw",
+          "salience": 0.7,
+          "type": "emotional",
+          "relation": "grief is exposed and painful"
+        },
+        {
+          "text": "lingering",
+          "salience": 0.65,
+          "type": "behaviour",
+          "relation": "grief persists over time"
+        },
+        {
+          "text": "debilitating",
+          "salience": 0.65,
+          "type": "effect",
+          "relation": "grief weakens capability"
+        }
+      ],
+      "usage_example": "His grief at losing his best friend was almost unbearable.",
+      "lemma_metadata": [
+        {
+          "lemma": "grief",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "30810",
+      "lemma": "hope",
+      "definition": "expect and wish",
+      "pos": "v",
+      "properties": [
+        {
+          "text": "bright",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "hope illuminates future"
+        },
+        {
+          "text": "light",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "hope lifts heavy heart"
+        },
+        {
+          "text": "rising",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "hope moves upward"
+        },
+        {
+          "text": "open",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "hope opens to possibilities"
+        },
+        {
+          "text": "warm",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "hope creates emotional warmth"
+        },
+        {
+          "text": "luminous",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "hope has inner light"
+        },
+        {
+          "text": "buoyant",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "hope keeps one afloat"
+        },
+        {
+          "text": "forward",
+          "salience": 0.75,
+          "type": "behaviour",
+          "relation": "hope points toward future"
+        },
+        {
+          "text": "expansive",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "hope opens outward"
+        },
+        {
+          "text": "sustaining",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "hope enables perseverance"
+        },
+        {
+          "text": "uplifting",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "hope elevates spirit"
+        },
+        {
+          "text": "inspiring",
+          "salience": 0.7,
+          "type": "effect",
+          "relation": "hope motivates action"
+        },
+        {
+          "text": "yearning",
+          "salience": 0.65,
+          "type": "emotional",
+          "relation": "hope carries desire"
+        },
+        {
+          "text": "trusting",
+          "salience": 0.65,
+          "type": "emotional",
+          "relation": "hope requires faith"
+        },
+        {
+          "text": "empowering",
+          "salience": 0.7,
+          "type": "effect",
+          "relation": "hope enables agency"
+        }
+      ],
+      "usage_example": "She held onto hope that the surgery would be successful.",
+      "lemma_metadata": [
+        {
+          "lemma": "hope",
+          "register": "neutral",
+          "connotation": "positive"
+        }
+      ]
+    },
+    {
+      "id": "99680",
+      "lemma": "panic",
+      "definition": "sudden mass fear and anxiety over anticipated events",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "racing",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "heart rate accelerates rapidly"
+        },
+        {
+          "text": "trembling",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "body shakes involuntarily"
+        },
+        {
+          "text": "constricted",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "chest feels tight"
+        },
+        {
+          "text": "suffocating",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "breathing becomes difficult"
+        },
+        {
+          "text": "sudden",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "panic onset is abrupt"
+        },
+        {
+          "text": "escalating",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "panic intensity builds rapidly"
+        },
+        {
+          "text": "frenzied",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "movements become wild and uncontrolled"
+        },
+        {
+          "text": "paralyzing",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "panic immobilizes rational action"
+        },
+        {
+          "text": "disorienting",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "panic obscures clear thinking"
+        },
+        {
+          "text": "contagious",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "panic spreads person to person"
+        },
+        {
+          "text": "terrifying",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "evokes intense fear"
+        },
+        {
+          "text": "overwhelming",
+          "salience": 0.85,
+          "type": "emotional",
+          "relation": "floods awareness completely"
+        }
+      ],
+      "usage_example": "When the fire alarm sounded, panic spread through the crowd in seconds.",
+      "lemma_metadata": [
+        {
+          "lemma": "panic",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "64149",
+      "lemma": "love",
+      "definition": "any object of warm affection or devotion",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "warm",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "evokes sensation of warmth"
+        },
+        {
+          "text": "soft",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "gentle and delicate quality"
+        },
+        {
+          "text": "tender",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "evokes tender affection"
+        },
+        {
+          "text": "close",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "creates sense of intimacy and nearness"
+        },
+        {
+          "text": "cherished",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "deeply valued and protected"
+        },
+        {
+          "text": "precious",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "rare and invaluable"
+        },
+        {
+          "text": "inspiring",
+          "salience": 0.7,
+          "type": "effect",
+          "relation": "motivates and uplifts"
+        },
+        {
+          "text": "transformative",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "changes one fundamentally"
+        },
+        {
+          "text": "joyful",
+          "salience": 0.85,
+          "type": "emotional",
+          "relation": "brings happiness and contentment"
+        },
+        {
+          "text": "intimate",
+          "salience": 0.85,
+          "type": "emotional",
+          "relation": "deeply personal connection"
+        },
+        {
+          "text": "adored",
+          "salience": 0.9,
+          "type": "social",
+          "relation": "receives devoted admiration"
+        },
+        {
+          "text": "comforting",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "provides solace and reassurance"
+        }
+      ],
+      "usage_example": "She was the love of his life, someone he cherished and devoted himself to completely.",
+      "lemma_metadata": [
+        {
+          "lemma": "love",
+          "register": "neutral",
+          "connotation": "positive"
+        }
+      ]
+    },
+    {
+      "id": "71602",
+      "lemma": "shame",
+      "definition": "an unfortunate development",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "dark",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "gloomy and shadowed quality"
+        },
+        {
+          "text": "heavy",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "burdensome weight"
+        },
+        {
+          "text": "bleak",
+          "salience": 0.6,
+          "type": "sensorimotor",
+          "relation": "desolate appearance"
+        },
+        {
+          "text": "desolate",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "barren and forsaken feeling"
+        },
+        {
+          "text": "burdensome",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "weighs heavily on one"
+        },
+        {
+          "text": "disappointing",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "causes letdown"
+        },
+        {
+          "text": "regrettable",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "wished it had not occurred"
+        },
+        {
+          "text": "sorrowful",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "brings sadness"
+        },
+        {
+          "text": "lamentable",
+          "salience": 0.65,
+          "type": "emotional",
+          "relation": "worthy of lamentation"
+        },
+        {
+          "text": "deflating",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "diminishes hopes and expectations"
+        },
+        {
+          "text": "irreversible",
+          "salience": 0.6,
+          "type": "effect",
+          "relation": "cannot be undone"
+        },
+        {
+          "text": "demoralizing",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "dampens spirits and resolve"
+        }
+      ],
+      "usage_example": "It was a shame that the concert had to be cancelled at the last moment.",
+      "lemma_metadata": [
+        {
+          "lemma": "shame",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "43806",
+      "lemma": "storm",
+      "definition": "behave violently, as if in state of a great anger",
+      "pos": "v",
+      "properties": [
+        {
+          "text": "loud",
+          "salience": 0.8,
+          "type": "sensorimotor",
+          "relation": "makes forceful noise"
+        },
+        {
+          "text": "forceful",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "physical force is intense"
+        },
+        {
+          "text": "rapid",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "movement is swift"
+        },
+        {
+          "text": "turbulent",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "motion is chaotic and violent"
+        },
+        {
+          "text": "aggressive",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "confrontational and hostile manner"
+        },
+        {
+          "text": "violent",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "forceful and intense action"
+        },
+        {
+          "text": "explosive",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "sudden violent release of energy"
+        },
+        {
+          "text": "frantic",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "wild and uncontrolled movement"
+        },
+        {
+          "text": "destructive",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "causes damage and disruption"
+        },
+        {
+          "text": "chaotic",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "creates disorder and confusion"
+        },
+        {
+          "text": "angry",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "expresses intense rage"
+        },
+        {
+          "text": "fierce",
+          "salience": 0.85,
+          "type": "emotional",
+          "relation": "intensity of feeling is extreme"
+        }
+      ],
+      "usage_example": "He stormed out of the meeting, slamming the door behind him in fury.",
+      "lemma_metadata": [
+        {
+          "lemma": "storm",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "97413",
+      "lemma": "ecstasy",
+      "definition": "a state of elated bliss",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "warm",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "radiates inner warmth"
+        },
+        {
+          "text": "overwhelming",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "floods all awareness"
+        },
+        {
+          "text": "expansive",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "grows outward and fills space"
+        },
+        {
+          "text": "luminous",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "radiates light and brightness"
+        },
+        {
+          "text": "exuberant",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "expressed with enthusiastic energy"
+        },
+        {
+          "text": "effusive",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "pours out emotional expression"
+        },
+        {
+          "text": "joyful",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "pure happiness and delight"
+        },
+        {
+          "text": "blissful",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "serene state of perfect happiness"
+        },
+        {
+          "text": "euphoric",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "intense elation and joy"
+        },
+        {
+          "text": "rapturous",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "ecstatic pleasure and delight"
+        },
+        {
+          "text": "transcendent",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "transcends ordinary experience"
+        },
+        {
+          "text": "uplifting",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "elevates spirit and mood"
+        }
+      ],
+      "usage_example": "She was in ecstasy when she learned she had won the award.",
+      "lemma_metadata": [
+        {
+          "lemma": "ecstasy",
+          "register": "neutral",
+          "connotation": "positive"
+        }
+      ]
+    },
+    {
+      "id": "72875",
+      "lemma": "remorse",
+      "definition": "a feeling of deep regret (usually for some misdeed)",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "heavy",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "remorse weighs on the conscience"
+        },
+        {
+          "text": "constricting",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "creates tight feeling in chest"
+        },
+        {
+          "text": "aching",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "dull ache of guilt"
+        },
+        {
+          "text": "burning",
+          "salience": 0.7,
+          "type": "sensorimotor",
+          "relation": "burning sensation of regret"
+        },
+        {
+          "text": "gnawing",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "gnaws persistently at mind"
+        },
+        {
+          "text": "persistent",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "lingers over time"
+        },
+        {
+          "text": "painful",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "deeply painful emotion"
+        },
+        {
+          "text": "consuming",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "consumes attention"
+        },
+        {
+          "text": "introspective",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "triggers self-examination"
+        },
+        {
+          "text": "paralyzing",
+          "salience": 0.7,
+          "type": "effect",
+          "relation": "inhibits action"
+        },
+        {
+          "text": "motivating",
+          "salience": 0.65,
+          "type": "functional",
+          "relation": "drives desire for atonement"
+        },
+        {
+          "text": "isolating",
+          "salience": 0.65,
+          "type": "effect",
+          "relation": "creates distance from others"
+        },
+        {
+          "text": "clarifying",
+          "salience": 0.5,
+          "type": "effect",
+          "relation": "brings moral understanding"
+        }
+      ],
+      "usage_example": "She felt deep remorse for her betrayal and could barely look her friend in the eye.",
+      "lemma_metadata": [
+        {
+          "lemma": "remorse",
+          "register": "formal",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "72950",
+      "lemma": "bitterness",
+      "definition": "a feeling of deep and bitter anger and ill-will",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "acrid",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "acrid taste of resentment"
+        },
+        {
+          "text": "sour",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "soured by mistreatment"
+        },
+        {
+          "text": "harsh",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "harsh and abrasive quality"
+        },
+        {
+          "text": "metallic",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "metallic taste of anger"
+        },
+        {
+          "text": "festering",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "resentment festers"
+        },
+        {
+          "text": "lingering",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "persists stubbornly"
+        },
+        {
+          "text": "hostile",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "deeply antagonistic stance"
+        },
+        {
+          "text": "corrosive",
+          "salience": 0.9,
+          "type": "effect",
+          "relation": "corrodes relationships"
+        },
+        {
+          "text": "poisoning",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "taints and poisons"
+        },
+        {
+          "text": "resentful",
+          "salience": 0.85,
+          "type": "emotional",
+          "relation": "rooted in deep resentment"
+        },
+        {
+          "text": "unforgiving",
+          "salience": 0.85,
+          "type": "emotional",
+          "relation": "refuses reconciliation"
+        },
+        {
+          "text": "consuming",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "consumes one's energy"
+        }
+      ],
+      "usage_example": "Years of unfair treatment had filled him with such bitterness that he could no longer enjoy friendships.",
+      "lemma_metadata": [
+        {
+          "lemma": "bitterness",
+          "register": "neutral",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "59481",
+      "lemma": "quiet",
+      "definition": "a disposition free from stress or emotion",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "silent",
+          "salience": 0.95,
+          "type": "sensorimotor",
+          "relation": "absence of sound"
+        },
+        {
+          "text": "soft",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "gentle and muted"
+        },
+        {
+          "text": "still",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "undisturbed and motionless"
+        },
+        {
+          "text": "gentle",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "tender and non-jarring"
+        },
+        {
+          "text": "calm",
+          "salience": 0.95,
+          "type": "behaviour",
+          "relation": "absence of agitation"
+        },
+        {
+          "text": "peaceful",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "evokes serenity"
+        },
+        {
+          "text": "tranquil",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "serene and untroubled"
+        },
+        {
+          "text": "restful",
+          "salience": 0.85,
+          "type": "functional",
+          "relation": "enables rest and restoration"
+        },
+        {
+          "text": "soothing",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "soothes disturbance"
+        },
+        {
+          "text": "centered",
+          "salience": 0.8,
+          "type": "emotional",
+          "relation": "inner composure and balance"
+        },
+        {
+          "text": "untroubled",
+          "salience": 0.85,
+          "type": "emotional",
+          "relation": "free from worry"
+        },
+        {
+          "text": "spacious",
+          "salience": 0.65,
+          "type": "emotional",
+          "relation": "creates mental openness"
+        }
+      ],
+      "usage_example": "In the quiet sanctuary of the monastery, he found peace from his troubled mind.",
+      "lemma_metadata": [
+        {
+          "lemma": "quiet",
+          "register": "neutral",
+          "connotation": "positive"
+        }
+      ]
+    },
+    {
+      "id": "72713",
+      "lemma": "shame",
+      "definition": "a painful emotion resulting from an awareness of inadequacy or guilt",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "burning",
+          "salience": 0.95,
+          "type": "sensorimotor",
+          "relation": "burning sensation of exposure"
+        },
+        {
+          "text": "hot",
+          "salience": 0.95,
+          "type": "sensorimotor",
+          "relation": "face burns with shame"
+        },
+        {
+          "text": "heavy",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "weighted down by shame"
+        },
+        {
+          "text": "flushed",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "red and flushed from blushing"
+        },
+        {
+          "text": "crushing",
+          "salience": 0.95,
+          "type": "effect",
+          "relation": "crushes dignity and confidence"
+        },
+        {
+          "text": "shrinking",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "impulse to withdraw and hide"
+        },
+        {
+          "text": "exposing",
+          "salience": 0.95,
+          "type": "effect",
+          "relation": "reveals inadequacy to others"
+        },
+        {
+          "text": "mortifying",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "deeply humiliating"
+        },
+        {
+          "text": "degrading",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "diminishes self-worth"
+        },
+        {
+          "text": "freezing",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "paralyzes with shock"
+        },
+        {
+          "text": "isolating",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "separates from others"
+        },
+        {
+          "text": "silencing",
+          "salience": 0.75,
+          "type": "effect",
+          "relation": "prevents speech"
+        }
+      ],
+      "usage_example": "Shame washed over him as he realized everyone had witnessed his embarrassing mistake.",
+      "lemma_metadata": [
+        {
+          "lemma": "shame",
+          "register": "formal",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "72867",
+      "lemma": "sorrow",
+      "definition": "an emotion of great sadness associated with loss or bereavement",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "heavy",
+          "salience": 0.95,
+          "type": "sensorimotor",
+          "relation": "sorrow weighs heavily"
+        },
+        {
+          "text": "dark",
+          "salience": 0.95,
+          "type": "sensorimotor",
+          "relation": "dark and gloomy feeling"
+        },
+        {
+          "text": "deep",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "profound and bottomless"
+        },
+        {
+          "text": "cold",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "emotional coldness of loss"
+        },
+        {
+          "text": "aching",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "dull persistent ache"
+        },
+        {
+          "text": "lingering",
+          "salience": 0.9,
+          "type": "behaviour",
+          "relation": "persists over years"
+        },
+        {
+          "text": "draining",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "depletes energy"
+        },
+        {
+          "text": "mournful",
+          "salience": 0.95,
+          "type": "emotional",
+          "relation": "characterized by mourning"
+        },
+        {
+          "text": "isolating",
+          "salience": 0.85,
+          "type": "effect",
+          "relation": "separates from others"
+        },
+        {
+          "text": "darkening",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "darkens outlook and hope"
+        },
+        {
+          "text": "tender",
+          "salience": 0.7,
+          "type": "emotional",
+          "relation": "soft and gentle sadness"
+        },
+        {
+          "text": "timeless",
+          "salience": 0.6,
+          "type": "emotional",
+          "relation": "grief knows no schedule"
+        }
+      ],
+      "usage_example": "The old man sat alone, his heart heavy with sorrow for the daughter he had lost.",
+      "lemma_metadata": [
+        {
+          "lemma": "sorrow",
+          "register": "formal",
+          "connotation": "negative"
+        }
+      ]
+    },
+    {
+      "id": "72598",
+      "lemma": "longing",
+      "definition": "prolonged unfulfilled desire or need",
+      "pos": "n",
+      "properties": [
+        {
+          "text": "aching",
+          "salience": 0.9,
+          "type": "sensorimotor",
+          "relation": "longing is felt as a physical ache"
+        },
+        {
+          "text": "hollow",
+          "salience": 0.85,
+          "type": "sensorimotor",
+          "relation": "longing creates an empty feeling inside"
+        },
+        {
+          "text": "heavy",
+          "salience": 0.75,
+          "type": "sensorimotor",
+          "relation": "longing weighs on you"
+        },
+        {
+          "text": "tense",
+          "salience": 0.65,
+          "type": "sensorimotor",
+          "relation": "longing creates physical tension"
+        },
+        {
+          "text": "persistent",
+          "salience": 0.85,
+          "type": "behaviour",
+          "relation": "longing does not fade away"
+        },
+        {
+          "text": "consuming",
+          "salience": 0.8,
+          "type": "behaviour",
+          "relation": "longing dominates one's thoughts"
+        },
+        {
+          "text": "restless",
+          "salience": 0.7,
+          "type": "behaviour",
+          "relation": "longing causes agitation and restlessness"
+        },
+        {
+          "text": "lingering",
+          "salience": 0.65,
+          "type": "behaviour",
+          "relation": "longing stays with you over time"
+        },
+        {
+          "text": "yearning",
+          "salience": 0.9,
+          "type": "emotional",
+          "relation": "longing is characterized by intense yearning"
+        },
+        {
+          "text": "melancholic",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "longing evokes sadness and melancholy"
+        },
+        {
+          "text": "wistful",
+          "salience": 0.7,
+          "type": "emotional",
+          "relation": "longing has a nostalgic, wistful quality"
+        },
+        {
+          "text": "bittersweet",
+          "salience": 0.75,
+          "type": "emotional",
+          "relation": "longing combines desire with the pain of unfulfillment"
+        },
+        {
+          "text": "poignant",
+          "salience": 0.7,
+          "type": "emotional",
+          "relation": "longing evokes deep emotional resonance"
+        },
+        {
+          "text": "unfulfilled",
+          "salience": 0.95,
+          "type": "effect",
+          "relation": "longing is unfulfilled desire by definition"
+        },
+        {
+          "text": "painful",
+          "salience": 0.8,
+          "type": "effect",
+          "relation": "unfulfilled longing causes emotional pain"
+        }
+      ],
+      "usage_example": "She gazed out the window with a longing that no letter could satisfy.",
+      "lemma_metadata": [
+        {
+          "lemma": "longing",
+          "register": "neutral",
+          "connotation": "neutral"
+        }
+      ]
+    }
+  ],
+  "all_properties": [
+    "abhorrent",
+    "accelerating",
+    "accepting",
+    "aching",
+    "acrid",
+    "adored",
+    "affirming",
+    "aggressive",
+    "alienating",
+    "angry",
+    "anticipatory",
+    "astringent",
+    "bittersweet",
+    "bleak",
+    "blinding",
+    "blissful",
+    "bold",
+    "bonding",
+    "bottomless",
+    "boundless",
+    "brave",
+    "breathtaking",
+    "bright",
+    "buoyant",
+    "burdensome",
+    "burning",
+    "calm",
+    "caring",
+    "centered",
+    "chaotic",
+    "cherished",
+    "clarifying",
+    "close",
+    "cold",
+    "comforting",
+    "connecting",
+    "constricted",
+    "constricting",
+    "consuming",
+    "contagious",
+    "contaminating",
+    "cool",
+    "corrosive",
+    "creeping",
+    "crushing",
+    "dark",
+    "darkening",
+    "debilitating",
+    "deep",
+    "defensive",
+    "defiant",
+    "deflating",
+    "degrading",
+    "demoralizing",
+    "dense",
+    "desolate",
+    "despondent",
+    "destabilizing",
+    "destructive",
+    "detached",
+    "determined",
+    "dim",
+    "disagreeable",
+    "disappointing",
+    "disorienting",
+    "distant",
+    "draining",
+    "drowning",
+    "effervescent",
+    "effusive",
+    "electric",
+    "elevating",
+    "embracing",
+    "empathetic",
+    "empowering",
+    "endless",
+    "energizing",
+    "escalating",
+    "ethereal",
+    "euphoric",
+    "expansive",
+    "explosive",
+    "exposing",
+    "exuberant",
+    "festering",
+    "fierce",
+    "firm",
+    "flat",
+    "floating",
+    "flushed",
+    "fluttering",
+    "forceful",
+    "foreboding",
+    "forward",
+    "foul",
+    "frantic",
+    "freezing",
+    "frenzied",
+    "fulfilling",
+    "generous",
+    "gentle",
+    "glowing",
+    "gnawing",
+    "gray",
+    "grey",
+    "gripping",
+    "grounded",
+    "grounding",
+    "harsh",
+    "healing",
+    "heavy",
+    "hollow",
+    "hopeless",
+    "hostile",
+    "hot",
+    "humanitarian",
+    "humbling",
+    "infectious",
+    "inspiring",
+    "intense",
+    "intensifying",
+    "intimate",
+    "intoxicating",
+    "introspective",
+    "irreversible",
+    "isolating",
+    "jagged",
+    "joyful",
+    "lamentable",
+    "liberating",
+    "light",
+    "lingering",
+    "loud",
+    "luminous",
+    "magnetic",
+    "medicinal",
+    "melancholic",
+    "metallic",
+    "mortifying",
+    "motivating",
+    "mournful",
+    "murky",
+    "muted",
+    "nauseating",
+    "nebulous",
+    "nourishing",
+    "numb",
+    "numbing",
+    "nurturing",
+    "open",
+    "oppressive",
+    "overpowering",
+    "overwhelming",
+    "painful",
+    "paralysing",
+    "paralyzing",
+    "passive",
+    "patient",
+    "peaceful",
+    "persistent",
+    "piercing",
+    "poignant",
+    "poisoning",
+    "polluting",
+    "precious",
+    "preoccupying",
+    "prickling",
+    "primitive",
+    "protective",
+    "pulsating",
+    "pulsing",
+    "pungent",
+    "putrid",
+    "racing",
+    "radiant",
+    "rapid",
+    "rapturous",
+    "raw",
+    "reckless",
+    "recoiling",
+    "red",
+    "regrettable",
+    "relentless",
+    "repellent",
+    "repulsive",
+    "resentful",
+    "resolute",
+    "restful",
+    "restless",
+    "retching",
+    "reverent",
+    "revulsive",
+    "righteous",
+    "rising",
+    "satisfied",
+    "serene",
+    "sharp",
+    "shrinking",
+    "silencing",
+    "silent",
+    "sinking",
+    "soaring",
+    "soft",
+    "solid",
+    "soothing",
+    "sorrowful",
+    "sour",
+    "spacious",
+    "speechless",
+    "stable",
+    "stagnant",
+    "steadfast",
+    "steady",
+    "stifling",
+    "still",
+    "stillness",
+    "stimulating",
+    "strong",
+    "sudden",
+    "suffocating",
+    "supportive",
+    "surging",
+    "sustaining",
+    "sympathetic",
+    "tender",
+    "tense",
+    "tepid",
+    "terrifying",
+    "throbbing",
+    "tightening",
+    "timeless",
+    "tingling",
+    "torpid",
+    "towering",
+    "toxic",
+    "tranquil",
+    "transcendent",
+    "transformative",
+    "trembling",
+    "trusting",
+    "turbulent",
+    "uncontrolled",
+    "unflinching",
+    "unforgiving",
+    "unfulfilled",
+    "unifying",
+    "unpleasant",
+    "unsettling",
+    "untroubled",
+    "unwavering",
+    "unyielding",
+    "uplifting",
+    "vague",
+    "validating",
+    "vast",
+    "vigilant",
+    "violent",
+    "visceral",
+    "warm",
+    "warning",
+    "weightless",
+    "wistful",
+    "yearning"
+  ],
+  "property_frequency": {
+    "sharp": 4,
+    "burning": 5,
+    "heavy": 9,
+    "relentless": 1,
+    "consuming": 9,
+    "throbbing": 1,
+    "constricted": 2,
+    "darkening": 3,
+    "isolating": 7,
+    "draining": 3,
+    "numbing": 1,
+    "overwhelming": 4,
+    "visceral": 2,
+    "hot": 3,
+    "intense": 1,
+    "explosive": 3,
+    "flushed": 2,
+    "pulsing": 1,
+    "aggressive": 2,
+    "righteous": 1,
+    "destabilizing": 2,
+    "energizing": 3,
+    "fluttering": 1,
+    "tightening": 1,
+    "racing": 3,
+    "vague": 1,
+    "suffocating": 4,
+    "trembling": 2,
+    "anticipatory": 1,
+    "unsettling": 1,
+    "prickling": 1,
+    "restless": 2,
+    "preoccupying": 1,
+    "vigilant": 2,
+    "nebulous": 1,
+    "flat": 1,
+    "cool": 1,
+    "numb": 2,
+    "muted": 1,
+    "distant": 1,
+    "passive": 1,
+    "hollow": 4,
+    "gray": 1,
+    "still": 2,
+    "detached": 1,
+    "tepid": 1,
+    "torpid": 1,
+    "stagnant": 1,
+    "expansive": 4,
+    "breathtaking": 1,
+    "towering": 1,
+    "radiant": 3,
+    "luminous": 5,
+    "vast": 1,
+    "elevating": 2,
+    "humbling": 2,
+    "reverent": 1,
+    "speechless": 1,
+    "transcendent": 3,
+    "stillness": 1,
+    "harsh": 2,
+    "acrid": 3,
+    "pungent": 1,
+    "astringent": 1,
+    "sour": 2,
+    "medicinal": 1,
+    "lingering": 6,
+    "persistent": 3,
+    "unpleasant": 1,
+    "repulsive": 1,
+    "disagreeable": 1,
+    "warning": 1,
+    "defensive": 1,
+    "euphoric": 3,
+    "joyful": 3,
+    "serene": 2,
+    "peaceful": 3,
+    "ethereal": 1,
+    "floating": 1,
+    "weightless": 1,
+    "warm": 9,
+    "uplifting": 5,
+    "liberating": 3,
+    "boundless": 1,
+    "empathetic": 2,
+    "caring": 1,
+    "sympathetic": 1,
+    "supportive": 1,
+    "protective": 1,
+    "healing": 1,
+    "gentle": 3,
+    "humanitarian": 1,
+    "nurturing": 1,
+    "tender": 4,
+    "soft": 4,
+    "unifying": 1,
+    "validating": 1,
+    "embracing": 1,
+    "satisfied": 1,
+    "calm": 2,
+    "steady": 1,
+    "fulfilling": 1,
+    "restful": 2,
+    "grounded": 1,
+    "stable": 1,
+    "patient": 1,
+    "accepting": 1,
+    "sustaining": 2,
+    "grounding": 1,
+    "brave": 1,
+    "resolute": 1,
+    "determined": 1,
+    "steadfast": 1,
+    "bold": 1,
+    "unflinching": 1,
+    "empowering": 2,
+    "strong": 1,
+    "defiant": 1,
+    "unwavering": 1,
+    "inspiring": 3,
+    "solid": 1,
+    "unyielding": 1,
+    "firm": 1,
+    "bright": 3,
+    "tingling": 2,
+    "effervescent": 1,
+    "buoyant": 2,
+    "soaring": 1,
+    "exuberant": 2,
+    "infectious": 1,
+    "magnetic": 1,
+    "dark": 5,
+    "cold": 4,
+    "bottomless": 1,
+    "grey": 3,
+    "sinking": 1,
+    "paralysing": 1,
+    "hopeless": 1,
+    "endless": 1,
+    "repellent": 1,
+    "foul": 1,
+    "nauseating": 1,
+    "putrid": 1,
+    "recoiling": 1,
+    "revulsive": 1,
+    "retching": 1,
+    "toxic": 1,
+    "polluting": 1,
+    "contaminating": 1,
+    "abhorrent": 1,
+    "alienating": 1,
+    "tense": 3,
+    "jagged": 1,
+    "gripping": 1,
+    "electric": 2,
+    "piercing": 2,
+    "constricting": 2,
+    "paralyzing": 3,
+    "primitive": 1,
+    "pulsating": 1,
+    "stimulating": 1,
+    "intensifying": 1,
+    "intoxicating": 1,
+    "surging": 1,
+    "accelerating": 1,
+    "connecting": 1,
+    "red": 1,
+    "rapid": 2,
+    "blinding": 1,
+    "reckless": 1,
+    "uncontrolled": 1,
+    "violent": 2,
+    "destructive": 2,
+    "resentful": 2,
+    "overpowering": 1,
+    "raw": 2,
+    "murky": 1,
+    "dim": 1,
+    "dense": 1,
+    "creeping": 1,
+    "oppressive": 1,
+    "stifling": 1,
+    "bleak": 2,
+    "foreboding": 1,
+    "despondent": 1,
+    "open": 2,
+    "light": 2,
+    "glowing": 1,
+    "bonding": 1,
+    "nourishing": 1,
+    "generous": 1,
+    "affirming": 1,
+    "aching": 4,
+    "crushing": 2,
+    "drowning": 1,
+    "debilitating": 1,
+    "rising": 1,
+    "forward": 1,
+    "yearning": 2,
+    "trusting": 1,
+    "sudden": 1,
+    "escalating": 1,
+    "frenzied": 1,
+    "disorienting": 1,
+    "contagious": 1,
+    "terrifying": 1,
+    "close": 1,
+    "cherished": 1,
+    "precious": 1,
+    "transformative": 1,
+    "intimate": 1,
+    "adored": 1,
+    "comforting": 1,
+    "desolate": 1,
+    "burdensome": 1,
+    "disappointing": 1,
+    "regrettable": 1,
+    "sorrowful": 1,
+    "lamentable": 1,
+    "deflating": 1,
+    "irreversible": 1,
+    "demoralizing": 1,
+    "loud": 1,
+    "forceful": 1,
+    "turbulent": 1,
+    "frantic": 1,
+    "chaotic": 1,
+    "angry": 1,
+    "fierce": 1,
+    "effusive": 1,
+    "blissful": 1,
+    "rapturous": 1,
+    "gnawing": 1,
+    "painful": 2,
+    "introspective": 1,
+    "motivating": 1,
+    "clarifying": 1,
+    "metallic": 1,
+    "festering": 1,
+    "hostile": 1,
+    "corrosive": 1,
+    "poisoning": 1,
+    "unforgiving": 1,
+    "silent": 1,
+    "tranquil": 1,
+    "soothing": 1,
+    "centered": 1,
+    "untroubled": 1,
+    "spacious": 1,
+    "shrinking": 1,
+    "exposing": 1,
+    "mortifying": 1,
+    "degrading": 1,
+    "freezing": 1,
+    "silencing": 1,
+    "deep": 1,
+    "mournful": 1,
+    "timeless": 1,
+    "melancholic": 1,
+    "wistful": 1,
+    "bittersweet": 1,
+    "poignant": 1,
+    "unfulfilled": 1
+  },
+  "stats": {
+    "total_synsets": 31,
+    "total_properties": 418,
+    "unique_properties": 263,
+    "avg_properties_per_synset": 13.483870967741936,
+    "failed_synset_ids": [],
+    "failed_batches": 0,
+    "wall_seconds": 782.8
+  },
+  "config": {
+    "model": "haiku",
+    "batch_size": 5,
+    "size": 51,
+    "schema_version": "v2",
+    "prompt_variant": "sensorimotor",
+    "note": "M02-S04 prompt-rename A/B \u2014 physical \u2192 sensorimotor. Generated by m02_s04_reenrich_emotion_cohort.py against the 51 emotion-domain apt-cohort source words."
+  }
+}
