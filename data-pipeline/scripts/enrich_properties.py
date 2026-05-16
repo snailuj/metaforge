@@ -873,7 +873,12 @@ def main():
     output_file = Path(args.output) if args.output else None
     synset_ids_file = Path(args.synset_ids) if args.synset_ids else None
 
-    if not args.skip_preflight:
+    if args.skip_preflight:
+        log.warning(
+            "preflight skipped via --skip-preflight; parser drift will not "
+            "be caught before the batch loop"
+        )
+    else:
         try:
             preflight_check(
                 db_path=args.db,
@@ -890,6 +895,13 @@ def main():
                 file=sys.stderr,
             )
             sys.exit(2)
+
+    if args.skip_enriched_required:
+        log.warning(
+            "--skip-enriched-required set; required synsets already present "
+            "in the enrichment table WILL be excluded — surgical top-up "
+            "mode (intended for use after an in-flight enrichment import)"
+        )
 
     result = run_enrichment(
         size=args.size,

@@ -1002,6 +1002,62 @@ def test_run_enrichment_logs_exception_on_claude_error(
 
 # --- main() CLI ---------------------------------------------------------------
 
+def test_main_warns_when_skip_preflight_used(monkeypatch, tmp_path, caplog):
+    """--skip-preflight is a dangerous override; main() must log.warning so
+    operators reading logs after the fact can see the safety net was off."""
+    import logging
+    from unittest.mock import patch
+    import enrich_properties as ep
+
+    with patch.object(ep, "preflight_check") as mock_preflight, \
+         patch.object(ep, "run_enrichment") as mock_run:
+        mock_run.return_value = EnrichmentResult(
+            output_file=str(tmp_path / "out.json"),
+            requested=0, succeeded=0, failed=0,
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            ["enrich_properties.py", "--output", str(tmp_path / "out.json"),
+             "--skip-preflight"],
+        )
+        with caplog.at_level(logging.WARNING, logger="enrich_properties"):
+            ep.main()
+
+    assert not mock_preflight.called, "preflight must be skipped when flag is set"
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("preflight skipped" in r.getMessage() for r in warnings), (
+        "expected a WARNING containing 'preflight skipped'"
+    )
+
+
+def test_main_warns_when_skip_enriched_required_used(monkeypatch, tmp_path, caplog):
+    """--skip-enriched-required forces re-enrichment of synsets already in
+    the enrichment table; surface a WARNING so operators can audit later."""
+    import logging
+    from unittest.mock import patch
+    import enrich_properties as ep
+
+    with patch.object(ep, "preflight_check"), \
+         patch.object(ep, "run_enrichment") as mock_run:
+        mock_run.return_value = EnrichmentResult(
+            output_file=str(tmp_path / "out.json"),
+            requested=0, succeeded=0, failed=0,
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            ["enrich_properties.py", "--output", str(tmp_path / "out.json"),
+             "--skip-enriched-required"],
+        )
+        with caplog.at_level(logging.WARNING, logger="enrich_properties"):
+            ep.main()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    msgs = " | ".join(r.getMessage() for r in warnings)
+    assert "skip-enriched-required" in msgs or "re-enriched" in msgs, (
+        f"expected a WARNING about --skip-enriched-required; got: {msgs!r}"
+    )
+
+
 def test_main_threads_db_flag_to_preflight(monkeypatch, tmp_path):
     """main() --db flag is threaded through to preflight_check and run_enrichment.
 
