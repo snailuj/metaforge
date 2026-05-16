@@ -300,3 +300,103 @@ def test_import_one_payload_warns_when_curate_raises_after_internal_commit_but_b
         assert call_args[1] == path
     finally:
         conn.close()
+
+
+def test_import_one_payload_preserves_original_exception_when_rollback_fails_after_inner_commit():
+    """OF2: rollback failure in the WARNING branch must not mask the original.
+
+    The post-inner-commit cleanup runs `conn.rollback()` to clear any
+    implicit-txn DML the failing populate may have started. If that
+    rollback itself raises (e.g. `sqlite3.OperationalError: database is
+    locked`), it must NOT replace the original populate failure via
+    `__context__` chaining — that error is what the operator needs to
+    see.
+
+    Mock the connection wholesale so we can inject rollback failure
+    without fighting real sqlite semantics.
+    """
+    path = "/tmp/fake_payload_rollback_fails.json"
+    data = {"synsets": [{"id": "s1"}], "config": {"model": "haiku"}}
+    vectors = {}
+
+    fake_conn = mock.MagicMock(spec=sqlite3.Connection)
+    # in_transaction is True so the rollback branch is entered.
+    fake_conn.in_transaction = True
+    fake_conn.rollback.side_effect = sqlite3.OperationalError(
+        "database is locked"
+    )
+
+    def _curate_commits(_conn, _data, _vectors):
+        # No-op — we only need inner_commit_seen to be True before
+        # populate raises (set by Fix 2's try/finally).
+        pass
+
+    def _populate_raises(_conn, _data, _model):
+        raise RuntimeError("original populate failure")
+
+    with mock.patch.object(mod, "_delete_synset_rows_within_txn",
+                           lambda _c, _ids: None), \
+         mock.patch.object(mod, "curate_properties", _curate_commits), \
+         mock.patch.object(mod, "populate_synset_properties",
+                           _populate_raises), \
+         mock.patch.object(mod, "populate_lemma_metadata",
+                           lambda _c, _d: None), \
+         mock.patch.object(mod, "log") as mock_log:
+        with pytest.raises(RuntimeError, match="original populate failure"):
+            _import_one_payload(fake_conn, path, data, vectors)
+
+    # Both the PARTIAL-IMPORT WARNING and the rollback-failure WARNING
+    # must fire — operator sees both signals.
+    warnings = [c.args[0] for c in mock_log.warning.call_args_list]
+    assert any("Rollback not possible" in w for w in warnings), (
+        f"expected the partial-import WARNING; got: {warnings}"
+    )
+    assert any("Rollback of post-inner-commit partial DML failed"
+               in w for w in warnings), (
+        f"expected the rollback-failed WARNING; got: {warnings}"
+    )
+
+
+def test_import_one_payload_preserves_original_exception_when_rollback_fails_pre_inner_commit():
+    """OF2 symmetry: same protection on the pre-inner-commit branch.
+
+    Post-Fix-2, `inner_commit_seen` is set via try/finally around
+    curate_properties, so a raise from inside curate still toggles the
+    flag to True. To exercise the *false* (pre-inner-commit) branch we
+    must raise from `_delete_synset_rows_within_txn` BEFORE curate runs
+    at all. The rollback in that branch must also be hardened against
+    its own failure.
+    """
+    path = "/tmp/fake_payload_rollback_fails_pre_commit.json"
+    data = {"synsets": [{"id": "s1"}], "config": {"model": "haiku"}}
+    vectors = {}
+
+    fake_conn = mock.MagicMock(spec=sqlite3.Connection)
+    fake_conn.in_transaction = True
+    fake_conn.rollback.side_effect = sqlite3.OperationalError(
+        "database is locked"
+    )
+
+    def _delete_raises(_conn, _ids):
+        raise RuntimeError("original delete failure before any commit")
+
+    with mock.patch.object(mod, "_delete_synset_rows_within_txn",
+                           _delete_raises), \
+         mock.patch.object(mod, "curate_properties",
+                           lambda _c, _d, _v: None), \
+         mock.patch.object(mod, "populate_synset_properties",
+                           lambda _c, _d, _m: None), \
+         mock.patch.object(mod, "populate_lemma_metadata",
+                           lambda _c, _d: None), \
+         mock.patch.object(mod, "log") as mock_log:
+        with pytest.raises(RuntimeError,
+                           match="original delete failure before any commit"):
+            _import_one_payload(fake_conn, path, data, vectors)
+
+    # The rollback-failure WARNING must fire on this branch too.
+    warnings = [c.args[0] for c in mock_log.warning.call_args_list]
+    assert any("Rollback of pre-inner-commit DML failed"
+               in w for w in warnings), (
+        f"expected the rollback-failed WARNING on the pre-commit branch; "
+        f"got: {warnings}"
+    )
