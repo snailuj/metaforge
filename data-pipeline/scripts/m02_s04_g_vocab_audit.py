@@ -26,11 +26,14 @@ Three views the audit produces:
 Output: data-pipeline/sweeps/M02-S04-G-vocab-audit.md
 """
 import json
+import logging
 import sqlite3
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from statistics import mean
+
+log = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent))
 from evaluate_aptness import lookup_primary_synset, _get_properties
@@ -53,13 +56,19 @@ def load_drops():
     if not DROPPED.is_file():
         return rows
     with open(DROPPED) as f:
-        for line in f:
-            line = line.strip()
+        for line_no, raw in enumerate(f, start=1):
+            line = raw.strip()
             if not line:
                 continue
             try:
                 rows.append(json.loads(line))
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                # Tolerate truncated / garbled lines (e.g. from a crashed
+                # producer run) — warn with file + line number and continue.
+                log.warning(
+                    "load_drops: skipping malformed JSONL at %s:%d (%s)",
+                    DROPPED, line_no, exc,
+                )
                 continue
     return rows
 
