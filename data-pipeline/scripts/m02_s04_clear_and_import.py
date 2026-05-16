@@ -137,14 +137,23 @@ def _import_one_payload(conn, path, data, vectors):
     try:
         _delete_synset_rows_within_txn(conn, synset_ids)
         print("  Re-curating + populating...")
-        curate_properties(conn, data, vectors)
-        # curate_properties commits internally (see enrich_pipeline.py).
-        # From this point on, any subsequent failure leaks the DELETEs
-        # plus curate's writes — they're already persisted and
-        # unrecoverable. populate_synset_properties and
-        # populate_lemma_metadata also commit internally, so this flag
-        # is correct for the whole post-curate window.
-        inner_commit_seen = True
+        try:
+            curate_properties(conn, data, vectors)
+        finally:
+            # Pessimistic: curate_properties commits internally at
+            # enrich_pipeline.py:172 BEFORE its print()+return tail. If
+            # anything raises between that commit and our resumption —
+            # print() raising BrokenPipeError on a closed stdout pipe,
+            # OSError on ENOSPC, or future maintainer code added
+            # between the commit and the return — we MUST treat the
+            # inner commit as having fired. False positive (WARNING
+            # fires when curate raised BEFORE its commit) is operator
+            # confusion; false negative (silent leak when curate raised
+            # AFTER its commit) is data corruption. Bias toward false
+            # positive. populate_synset_properties and
+            # populate_lemma_metadata also commit internally, so this
+            # flag is correct for the whole post-curate window.
+            inner_commit_seen = True
         populate_synset_properties(conn, data, model_used)
         populate_lemma_metadata(conn, data)
         # If the populate_* helpers' internal commits already

@@ -239,3 +239,64 @@ def test_import_one_payload_warns_when_populate_raises_after_inner_commit_with_d
         )
     finally:
         conn.close()
+
+
+def test_import_one_payload_warns_when_curate_raises_after_internal_commit_but_before_return():
+    """OF1: post-commit-pre-return window in curate is now covered.
+
+    Reproduces the topology of `enrich_pipeline.curate_properties`:
+    `conn.commit()` at line 172 fires, then `print(...)` at line 173 may
+    raise (BrokenPipeError on a closed stdout, OSError on ENOSPC) before
+    `return` at line 174. The outer BEGIN's rollback cannot undo curate's
+    commit; the WARNING must still fire so the operator sees the
+    PARTIAL-IMPORT state.
+
+    Pre-fix behaviour: `inner_commit_seen = True` was set AFTER curate
+    returned, so any raise between curate's internal commit and the
+    flag-set line was missed — silent leak.
+
+    Post-fix behaviour: `inner_commit_seen = True` is set via try/finally
+    around curate, so the flag is True even if curate raises after its
+    internal commit. WARNING fires; original exception still propagates.
+    """
+    conn = sqlite3.connect(":memory:")
+    try:
+        path = "/tmp/fake_payload_curate_post_commit_raise.json"
+        data = {"synsets": [{"id": "s1"}], "config": {"model": "haiku"}}
+        vectors = {}
+
+        def _curate_commits_then_raises(_conn, _data, _vectors):
+            # Mirror curate_properties' tail: commit lands, then a later
+            # statement raises. Models BrokenPipeError on closed stdout
+            # during print(), or any future maintainer code added between
+            # the commit and return.
+            _conn.commit()
+            raise BrokenPipeError("simulated stdout pipe closed after commit")
+
+        with mock.patch.object(mod, "_delete_synset_rows_within_txn",
+                               lambda _c, _ids: None), \
+             mock.patch.object(mod, "curate_properties",
+                               _curate_commits_then_raises), \
+             mock.patch.object(mod, "populate_synset_properties",
+                               lambda _c, _d, _m: None), \
+             mock.patch.object(mod, "populate_lemma_metadata",
+                               lambda _c, _d: None), \
+             mock.patch.object(mod, "log") as mock_log:
+            with pytest.raises(BrokenPipeError,
+                               match="simulated stdout pipe closed"):
+                _import_one_payload(conn, path, data, vectors)
+
+        # The WARNING must fire — curate's internal commit has already
+        # landed before the raise, so we are in PARTIAL-IMPORT state
+        # even though `inner_commit_seen` was never assigned by the
+        # post-curate `inner_commit_seen = True` statement.
+        assert mock_log.warning.called, (
+            "expected log.warning when curate raises after its internal "
+            "commit but before returning"
+        )
+        call_args, _ = mock_log.warning.call_args
+        msg = call_args[0]
+        assert "Rollback not possible" in msg
+        assert call_args[1] == path
+    finally:
+        conn.close()
