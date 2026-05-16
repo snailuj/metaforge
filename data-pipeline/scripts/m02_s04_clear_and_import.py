@@ -56,19 +56,24 @@ from enrich_pipeline import (
 from utils import LEXICON_V2, FASTTEXT_VEC, load_fasttext_vectors
 
 
-def delete_synset_rows(conn, synset_ids):
+def _delete_synset_rows_within_txn(conn, synset_ids):
     """Wipe the LLM-data rows for the given synset_ids.
 
     Touches synset_properties, enrichment, lemma_metadata only.
     Downstream curated/vocab/cluster/antonym tables get fully rebuilt
     by a later run_pipeline pass and don't need surgical handling.
 
-    NOTE: This function intentionally does NOT commit — the caller owns
-    the transaction boundary so the DELETEs can be rolled back together
-    with any subsequent import work that fails. Callers that want the
-    DELETEs persisted must commit (or rely on a downstream call inside
-    `enrich_pipeline` that commits on success).
+    The leading underscore + `_within_txn` suffix mark this as a
+    transaction-internal helper: it issues unflushed DELETEs and relies
+    on the caller's `BEGIN ... COMMIT` boundary to persist or roll them
+    back atomically with subsequent import work. The precondition assert
+    below surfaces a contract violation immediately rather than letting
+    the DELETEs leak at the next auto-commit boundary.
     """
+    assert conn.in_transaction, (
+        "_delete_synset_rows_within_txn must be called inside an explicit "
+        "transaction (BEGIN ... COMMIT) — the caller owns the txn boundary."
+    )
     if not synset_ids:
         return
     ph = ",".join("?" for _ in synset_ids)
@@ -130,7 +135,7 @@ def main():
                 model_used = data.get("config", {}).get("model", "unknown")
                 print(f"\n--- {path} ({len(synset_ids)} synsets, "
                       f"model={model_used}) ---")
-                delete_synset_rows(conn, synset_ids)
+                _delete_synset_rows_within_txn(conn, synset_ids)
                 print("  Re-curating + populating...")
                 curate_properties(conn, data, vectors)
                 populate_synset_properties(conn, data, model_used)

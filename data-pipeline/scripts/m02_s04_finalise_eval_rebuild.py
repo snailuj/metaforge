@@ -42,7 +42,7 @@ from snap_properties import snap_properties
 from build_antonyms import build_antonym_table, build_cluster_antonym_table
 from utils import LEXICON_V2, FASTTEXT_VEC, load_fasttext_vectors
 
-from m02_s04_clear_and_import import delete_synset_rows
+from m02_s04_clear_and_import import _delete_synset_rows_within_txn
 
 
 def main():
@@ -69,11 +69,22 @@ def main():
         _ensure_v2_schema(conn)
 
         # --- Phase 1: clear + import cohort JSON ---
+        # Wrap clear-and-import in a single explicit transaction so a
+        # partial failure cannot leave the DB with rows DELETED but no
+        # replacement IMPORTED. Mirrors the canonical pattern in
+        # `m02_s04_clear_and_import.py`. Required by
+        # `_delete_synset_rows_within_txn` (precondition assert).
         print(f"\n=== Phase 1: clear-and-import cohort ({len(cohort_synset_ids)} synsets) ===")
-        delete_synset_rows(conn, cohort_synset_ids)
-        n_curated = curate_properties(conn, cohort_data, vectors)
-        n_links = populate_synset_properties(conn, cohort_data, cohort_model)
-        n_lm = populate_lemma_metadata(conn, cohort_data)
+        conn.execute("BEGIN")
+        try:
+            _delete_synset_rows_within_txn(conn, cohort_synset_ids)
+            n_curated = curate_properties(conn, cohort_data, vectors)
+            n_links = populate_synset_properties(conn, cohort_data, cohort_model)
+            n_lm = populate_lemma_metadata(conn, cohort_data)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         print(f"  Imported: {n_curated} new property_vocabulary rows, "
               f"{n_links} synset-property links, {n_lm} lemma_metadata rows")
 
