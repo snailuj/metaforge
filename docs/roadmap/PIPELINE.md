@@ -6,35 +6,31 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Active
 
-- **M02 — Asymmetric Ortony Scoring** — vehicle-side salience weighting in forge scoring
-  - Status: **algorithm work paused — currently in S04 — Eval-Harness Retro.** S01 (plumbing) ✅, S02 v1/v2/v3 sweeps ✅ but all three asymmetric variants landed inside the ±0.02 null-noise band (`ortony_imbalance` best at +0.0010 separation_score — sign-flip but below the 5% success criterion). S03 (wire winner into Go forge) **parked**.
-  - **S04 findings so far (2026-05-15):**
-    - **S04-A** ✅ Cohort attrition has 25.9pp domain-retention spread — emotion domain at 69% vs cognition at 95%, surfacing a structural bias in the apt cohort. Inapt cohort drops to ~22% retention across all three MUNCH genres. See [`M02-S04-A-attrition-audit.md`](../../data-pipeline/sweeps/M02-S04-A-attrition-audit.md).
-    - **S04-B** ✅ Apt cohort lives in a 30% smaller property-count space than inapt (`|pa|` median 10 vs 15; `|pa ∪ pb|` median 19 vs 27). Mechanically explains the `random_uniform` null drift to −0.0164. See [`M02-S04-B-union-sizes.md`](../../data-pipeline/sweeps/M02-S04-B-union-sizes.md).
-    - **Apt-gap classification** ✅ Of 38 emotion-domain apt drops, only 1 is genuinely unenriched (`comedy`); the other 37 are **snap-dropped** — they have LLM properties in `synset_properties` but none survived snap at the current 0.7 cosine threshold. See [`M02-S04-apt-gap-classification.md`](../../data-pipeline/sweeps/M02-S04-apt-gap-classification.md). This pivots the next lever from "surgical enrichment" to **snap threshold retuning**.
-    - **S04-D** 🟡 *In progress 2026-05-15* — re-snap at threshold 0.48 (per project-memory note: validated +30.4% aptness on a prior harness, pending re-verification here). On completion: re-run S04-A audit and `m02_ortony_v3.yaml` sweep against the new snap state.
-    - **S04-C** ⏸ Threshold-percentile sensitivity sweep config staged; not run yet (deferred until D resolves so we're not measuring threshold-of-threshold on a moving cohort).
-    - **S04-G** ⏸ *New lever* — curated-vocab expansion mined from `snap_dropped.jsonl` (memory flags `resonant`, `earthy`, `angular` etc. as sensorimotor losses). Promote D's most-dropped texts into `property_vocab_curated`. Only run if D is partial.
-    - **S04-E** ⏸ Synthetic matched inapt cohort — replace MUNCH with apt-side topics × wrong-domain vehicles drawn from same domain distribution. Removes the 78% MUNCH attrition + the cross-task asymmetry. Biggest design change; queued if D + G stall.
-    - **S04-F** ⏸ Re-run all sweeps after the in-flight 8k enrichment imports. Blocked on the enrichment finishing + `--from-json` round-trip.
-  - **In-flight side-task (concurrent with S04-D):** 8k Sonnet v2 enrichment top-up running at `--batch-size 10`, ~144 synsets/hour, ~52h ETA. Output: `data-pipeline/output/enrichment_8k-topup_sonnet_v2_20260514.json`. Five enrichment-pipeline fixes shipped today (parser, timeout, fence-strip, prose-tolerant JSON extraction, preflight tripwire) — see commit log on this branch.
-  - Why: smallest algorithm change that uses existing V2 data, directly attacks the scoring formula's biggest theoretical flaw (symmetric overlap). First real test of the eval harness.
-  - Depends on: M01 — Automated Eval Harness (✅ done) + code-review-loop ([PR #17](https://github.com/snailuj/metaforge/pull/17) merged)
-  - Detail: [M02-ortony-scoring-roadmap.md](M02-ortony-scoring-roadmap.md)
-  - Branch: `m02/asymmetric-ortony-scoring`
+*(none — M03 — Cascade Gate-and-Rank promotes from Next; not yet started)*
 
 ## Next
 
-*(none — M03 promotes once M02 lands)*
+- **M03 — Cascade Gate-and-Rank** — concreteness gate → Ortony rank → domain-distance re-rank. Restructures the pipeline from pointwise formula choice (M02 territory) to structural primitives. Wires in concreteness prediction (already available via `synset_concreteness`) and domain-distance re-rank.
+  - Why now: M02 — Asymmetric Ortony Scoring closed empirically negative on 2026-05-16. Every variant in the pointwise-property-overlap family (symmetric, asymmetric, null) landed within ±0.06 of zero separation on a balanced cohort. The pointwise approach is exhausted; structural primitives are the next available lever.
+  - **Inherits from M02's retro work**:
+    - Trustworthy eval harness on a balanced cohort (random_uniform = +0.0068 ≈ 0, apt 271 / inapt 978, 67% MUNCH retention vs 22% before)
+    - Haiku+sensorimotor enrichment: 5.4 sensorimotor properties per synset average
+    - S04-A/B's cohort-shape diagnostic methodology — should be the first thing M03 runs before trusting any new verdict
+  - Depends on: M02 closed ✅
+  - Detail doc: to be created (`M03-cascade-gate-and-rank-roadmap.md`)
+  - Branch: TBD (cut from current m02 tip once it's merged)
 
 ## Queued
 
-- **M03 — Cascade Gate-and-Rank** — concreteness gate → Ortony rank → domain distance re-rank. Restructures the pipeline architecture, wires in concreteness prediction.
-  - Depends on: M02
 - **M04 — Type-Aligned Structural Matching** — preserve property types during snap, type-diversity bonus in scoring. Lightweight approximation of SME isomorphic subgraph matching using data the pipeline already extracts.
   - Depends on: M03
 - **M05 — Novelty Tracking** *(optional for MVP, valuable for Substack narrative)* — MuseScorer-style dynamic buckets, creative yield curve dashboard metric. Additive measurement layer.
   - Depends on: M03
+- **The Bridge** *(new feature, surfaced during M02-S04 close on 2026-05-16)* — dual of the Forge: given source AND target, return the path through wordspace linking them. Graph search rather than ranking; different mechanism class than pointwise scoring. Two product values:
+  - **Explanatory:** "anger → fire" returns the conceptual chain (e.g. `anger → heat → consuming → destruction → fire`), surfacing the metaphor's mechanism for users
+  - **Inapt cohort generation:** weak/no-path queries can semi-supervisedly produce inapt examples, expanding the eval cohort beyond MUNCH
+  - Algorithmic notes: branching factor ~78/hop, mitigated via salience-weighted edges, bidirectional BFS, embedding-prefilter A*, concreteness gradient, and a precomputed cluster-cluster adjacency matrix. 2-3 hops covers most apt metaphors.
+  - Cost: ~2 days to shippable demo. Independent of M03/M04/M05 — could slot in any time.
 
 ## Backlog (no clear slot yet)
 
@@ -70,7 +66,8 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Done (newest first)
 
-- **Code-review-loop on M01 + snap memory-opt refactor** *(PR [#17](https://github.com/snailuj/metaforge/pull/17) — pending merge)* — Holistic 4-round oscillating review (pr-review-toolkit ×3, superpowers, standards). 29 fix commits, 23 new tests (suite 512 → 535), 16 active deferrals captured. Round 4 CLEAN halt. Detail: `docs/superpowers/review-logs/2026-05-08-review-m01-and-snap-memopt-review.md`.
+- **M02 — Asymmetric Ortony Scoring** *(closed empirically negative 2026-05-16)* — built three asymmetric scoring variants (`ortony_vehicle_salience`, `ortony_imbalance`, `ortony_log_ratio`) and exercised them via the M01 eval harness. The S04 retro identified a cohort-shape mismatch confound that was producing artifactual signal on the original sweeps. After the Haiku+sensorimotor rebuild balanced the cohort, **no scoring formula in the pointwise-property-overlap family beats the random_uniform null reference**. M02's algorithmic premise is empirically refuted. What M02 *did* deliver: a trustworthy eval harness on a balanced cohort, the `physical → sensorimotor` prompt rename (5.4 vs 0.8 sensorimotor props per synset), Haiku adopted as production enrichment model, and a cohort-shape diagnostic methodology (S04-A/B) that is now standard eval-harness toolkit. Detail: [`M02-S04-CLOSING-findings.md`](../../data-pipeline/sweeps/M02-S04-CLOSING-findings.md), [`M02-ortony-scoring-roadmap.md`](M02-ortony-scoring-roadmap.md).
+- **Code-review-loop on M01 + snap memory-opt refactor** *(PR [#17](https://github.com/snailuj/metaforge/pull/17) — merged 2026-05-12)* — Holistic 4-round oscillating review (pr-review-toolkit ×3, superpowers, standards). 29 fix commits, 23 new tests (suite 512 → 535), 16 active deferrals captured. Round 4 CLEAN halt. Detail: `docs/superpowers/review-logs/2026-05-08-review-m01-and-snap-memopt-review.md`.
 - **M01 — Automated Eval Harness** *(merged 2026-05-03)* — discriminative aptness evaluator, parameter sweep harness, MUNCH preprocessor, scoring-fn registry, baseline + sensitivity sweep configs, `SENSITIVITY-V2-FINDINGS.md`. S01 V2 Foundation + Aptness Evaluator, S02 Parameter Sweep Harness, S03 Baseline and Sensitivity Validation all delivered. ([roadmap](M01-eval-harness-roadmap.md), [context](M01-eval-harness-context.md))
 - **Sprint Zero** — Backend API, data pipeline foundations, staging deployment.
 

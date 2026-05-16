@@ -1,9 +1,34 @@
 # M02 — Asymmetric Ortony Scoring
 
-**Status:** Active
-**Branch:** `m02/asymmetric-ortony-scoring` (cut from review tip; rebases onto main once PR #17 lands)
-**Depends on:** M01 Eval Harness + code-review-loop (PR #17)
-**Eval target:** discriminative aptness on `apt_pairs_v2` vs `inapt_controls_v2`, measured via `run_sweep.py` against `baseline_v2.yaml`
+**Status:** **Closed (empirically negative) 2026-05-16.** S04 retro complete. See [`M02-S04-CLOSING-findings.md`](../../data-pipeline/sweeps/M02-S04-CLOSING-findings.md) for the verdict and what's next.
+**Branch:** `m02/asymmetric-ortony-scoring` (rebased onto post-PR-#17 main)
+**Depends on:** M01 — Automated Eval Harness ✅ + code-review-loop ✅ (PR #17 merged 2026-05-12)
+**Eval target:** discriminative aptness on `apt_pairs_v2` vs `inapt_controls_v2`, measured via `run_sweep.py` against `m02_ortony_v3.yaml`
+
+## Outcome
+
+On the original cohort, the v2 sweep suggested `ortony_imbalance`
+edged ahead with separation_score = +0.0010. The S04 retro showed
+that signal was a cohort-shape artifact (S04-A/B). After the
+Haiku+sensorimotor rebuild balanced the cohort (apt 271 / inapt 978,
+random_uniform null at +0.0068 ≈ 0), **no scoring formula in the
+pointwise-property-overlap family beats the null reference**.
+`ortony_imbalance` collapses to −0.0005.
+
+**M02's algorithmic premise is empirically refuted.** What M02 *did*
+deliver:
+
+  * The eval harness is now trustworthy on a balanced cohort
+  * The `physical → sensorimotor` prompt rename (5.4 sensorimotor
+    properties per synset vs ~0.8 before)
+  * Haiku adopted for production enrichment (faster, cheaper,
+    slightly higher sensorimotor density)
+  * S04-A/B's cohort-shape diagnostic methodology is now standard
+    eval-harness toolkit
+
+The next milestone is **M03 — Cascade Gate-and-Rank** (structural
+primitives rather than pointwise formula choice), which inherits a
+much-better substrate than M02 had.
 
 ---
 
