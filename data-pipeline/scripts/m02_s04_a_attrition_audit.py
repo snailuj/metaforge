@@ -21,10 +21,13 @@ Output: `data-pipeline/sweeps/M02-S04-A-attrition-audit.md` with tables
 and a verdict on whether the resolved cohort is representative.
 """
 import json
+import logging
 import sqlite3
 import sys
 from collections import Counter
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent))
 from evaluate_aptness import lookup_primary_synset, _get_properties
@@ -117,13 +120,19 @@ def audit_inapt(conn):
     """Walk inapt controls; return list of per-pair audit dicts."""
     audit = []
     with open(INAPT) as f:
-        for line in f:
-            line = line.strip()
+        for line_no, raw in enumerate(f, start=1):
+            line = raw.strip()
             if not line:
                 continue
             try:
                 row = json.loads(line)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                # Tolerate truncated / garbled lines (e.g. from a crashed
+                # producer run) — warn with file + line number and continue.
+                log.warning(
+                    "audit_inapt: skipping malformed JSONL at %s:%d (%s)",
+                    INAPT, line_no, exc,
+                )
                 continue
             if not isinstance(row, dict):
                 continue
