@@ -297,8 +297,16 @@ def _ortony_log_ratio(
         denom = pa[c] + pb[c]
         if denom <= 0.0:
             # pa[c] == pb[c] == 0 on a shared cluster — would be a strange
-            # data shape (curated salience values are normally > 0) but
-            # guard so we never propagate a 0/0 NaN.
+            # data shape (curated salience values are normally > 0). Warn
+            # with enough context to find the offending row so a curation
+            # bug (NULL → 0 coalesce, accidental clamp) does not silently
+            # shrink the score; then continue so we never propagate 0/0 NaN.
+            log.warning(
+                "ortony_log_ratio: skipping shared cluster %d with "
+                "non-positive salience (pa=%s, pb=%s) — likely "
+                "curated-salience corruption",
+                c, pa[c], pb[c],
+            )
             continue
         numerator += (pb[c] * pb[c]) / denom
     return numerator / vehicle_mass

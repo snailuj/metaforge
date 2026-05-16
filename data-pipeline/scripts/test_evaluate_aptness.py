@@ -795,6 +795,42 @@ def test_ortony_log_ratio_zero_vehicle_mass_returns_zero():
     assert _ortony_log_ratio({}, {}) == 0.0
 
 
+def test_ortony_log_ratio_warns_on_non_positive_shared_cluster(caplog):
+    """A shared cluster with zero salience on both sides must emit a WARNING.
+
+    The non-positive-salience guard exists to defend against curated-salience
+    corruption (NULL coalesced to 0, accidental clamp, etc.). Silently
+    skipping the cluster lets a data-quality regression shrink the score with
+    no signal — violates the "All Errors/Exceptions Handled" + observability
+    policies. The guard must log enough context (cluster_id + both saliences)
+    to find the offending row, then continue.
+    """
+    import logging as _logging
+
+    # cluster 1 — zero salience on both sides → triggers guard
+    # cluster 2 — normal salience on both sides → contributes to score
+    pa = {1: 0.0, 2: 0.5}
+    pb = {1: 0.0, 2: 0.8}
+
+    with caplog.at_level(_logging.WARNING, logger="evaluate_aptness"):
+        score = _ortony_log_ratio(pa, pb)
+
+    # Score is still computed correctly: cluster 1 skipped, cluster 2 contributes.
+    # vehicle_mass = 0.0 + 0.8 = 0.8
+    # cluster 2 term = pb[2]² / (pa[2] + pb[2]) = 0.64 / 1.3
+    expected = (0.8 * 0.8 / (0.5 + 0.8)) / 0.8
+    assert score == pytest.approx(expected)
+
+    warnings = [r for r in caplog.records if r.levelno == _logging.WARNING]
+    assert warnings, "expected at least one WARNING for the non-positive shared cluster"
+    messages = [w.getMessage() for w in warnings]
+    # Message must name the function + flag the non-positive condition + identify the cluster.
+    assert any(
+        "ortony_log_ratio" in m and "non-positive" in m and "1" in m
+        for m in messages
+    ), f"expected a warning naming the function, 'non-positive', and cluster 1; got: {messages}"
+
+
 # --- random_uniform null control --------------------------------------------
 
 def test_random_uniform_registered_in_scoring_fns():
