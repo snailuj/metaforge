@@ -194,14 +194,17 @@ def import_one_payload_safely(conn, path, data, vectors):
             # partial INSERT from populate_synset_properties) so the
             # connection is left clean for subsequent payloads.
             log.warning(
-                "Rollback not possible for payload %s — "
-                "curate_properties' internal commit already fired "
-                "before the failure point. Database is in "
-                "PARTIAL-IMPORT state: DELETEs and curated vocab "
-                "writes are already persisted; populate_* writes may "
-                "also be partial. Manual repair required from "
-                "snapshot. See module docstring for partial-atomicity "
-                "caveat.",
+                "Possible PARTIAL-IMPORT state for payload %s — "
+                "curate_properties may have committed before the failure "
+                "point (try/finally pessimistically assumes it did). If "
+                "curate's commit DID fire, DELETEs and curated vocab "
+                "writes are persisted and rollback below only undoes "
+                "post-curate partial DML. If curate raised BEFORE its "
+                "commit, the outer BEGIN's rollback restored a clean "
+                "state and this WARNING is a benign false positive. "
+                "Operator should verify with SELECT against the affected "
+                "synsets before restoring from snapshot. See module "
+                "docstring for partial-atomicity caveat.",
                 path,
             )
             if conn.in_transaction:

@@ -123,7 +123,7 @@ def test_import_one_payload_warns_when_rollback_impossible_after_inner_commit():
       - stubbing `populate_synset_properties` to raise RuntimeError.
 
     The original RuntimeError must propagate (no exception swallowing),
-    and `log.warning` must fire with "Rollback not possible" and the
+    and `log.warning` must fire with the partial-import wording and the
     payload path.
     """
     conn = sqlite3.connect(":memory:")
@@ -154,7 +154,7 @@ def test_import_one_payload_warns_when_rollback_impossible_after_inner_commit():
         assert mock_log.warning.called, "expected log.warning on silent-leak"
         call_args, _ = mock_log.warning.call_args
         msg = call_args[0]
-        assert "Rollback not possible" in msg
+        assert "Possible PARTIAL-IMPORT state" in msg
         # First positional arg after the format string is the payload path.
         assert call_args[1] == path
     finally:
@@ -232,7 +232,7 @@ def test_import_one_payload_warns_when_populate_raises_after_inner_commit_with_d
         )
         call_args, _ = mock_log.warning.call_args
         msg = call_args[0]
-        assert "Rollback not possible" in msg
+        assert "Possible PARTIAL-IMPORT state" in msg
         assert call_args[1] == path
 
         # And the connection must be left in a clean state for any
@@ -309,7 +309,7 @@ def test_import_one_payload_warns_when_curate_raises_after_internal_commit_but_b
         )
         call_args, _ = mock_log.warning.call_args
         msg = call_args[0]
-        assert "Rollback not possible" in msg
+        assert "Possible PARTIAL-IMPORT state" in msg
         assert call_args[1] == path
     finally:
         conn.close()
@@ -361,7 +361,7 @@ def test_import_one_payload_preserves_original_exception_when_rollback_fails_aft
     # Both the PARTIAL-IMPORT WARNING and the rollback-failure WARNING
     # must fire — operator sees both signals.
     warnings = [c.args[0] for c in mock_log.warning.call_args_list]
-    assert any("Rollback not possible" in w for w in warnings), (
+    assert any("Possible PARTIAL-IMPORT state" in w for w in warnings), (
         f"expected the partial-import WARNING; got: {warnings}"
     )
     assert any("Rollback of post-inner-commit partial DML failed"
