@@ -187,7 +187,7 @@ def format_batch_items_v2(synsets: List[Dict]) -> str:
 def extract_batch(
     synsets: List[Dict],
     model: str = "haiku",
-    prompt_template: str = None,
+    prompt_template: Optional[str] = None,
     formatter=None,
     verbose: bool = False,
 ) -> List[Dict]:
@@ -582,10 +582,10 @@ def run_enrichment(
     model: str = "haiku",
     delay: float = 1.0,
     resume: bool = False,
-    output_file: Path = None,
-    synset_ids_file: Path = None,
-    required_synset_ids: set[str] = None,
-    prompt_template: str = None,
+    output_file: Optional[Path] = None,
+    synset_ids_file: Optional[Path] = None,
+    required_synset_ids: Optional[set[str]] = None,
+    prompt_template: Optional[str] = None,
     verbose: bool = False,
     db_path: Optional[str] = None,
     strategy: str = "random",

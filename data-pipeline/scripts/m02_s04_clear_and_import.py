@@ -12,20 +12,29 @@ pipeline pass after all imports are done. Avoids running snap twice.
 
 Transactional safety
 --------------------
-The clear-and-import sequence runs inside an explicit transaction
-(`BEGIN ... COMMIT`) with `ROLLBACK` on any exception, so a partial
-failure cannot leave the DB with rows DELETED but no replacement
-IMPORTED. The canonical pattern mirrors `m02_s04_patch_and_repipeline.py`.
+Each payload's clear-and-import runs inside its own explicit
+transaction (`BEGIN ... COMMIT`) with `ROLLBACK` on any exception, so a
+partial failure cannot leave a given synset with rows DELETED but no
+replacement IMPORTED. The per-payload boundary is the honest model
+here: `enrich_pipeline.curate_properties / populate_synset_properties /
+populate_lemma_metadata` each issue their own `conn.commit()` at the
+end of their run, so wrapping the whole multi-payload loop in a single
+outer transaction was a fiction — the outer txn would collapse on
+iteration 1 and `_delete_synset_rows_within_txn`'s precondition would
+fire on iteration 2.
 
-Caveat: `enrich_pipeline.curate_properties / populate_synset_properties /
-populate_lemma_metadata` each issue their own `conn.commit()` at the end
-of their run, which collapses the outer transaction at each successful
-step. The wrapper still guarantees that *if a populate_* step raises
-before its internal commit, the DELETEs (and any work since the last
-internal commit) roll back* — which is the dominant failure mode
-(LLM-shape mismatch, schema drift, OOM during embedding lookups). For
-true end-to-end atomicity, the inner functions would need their commits
-hoisted out — a refactor beyond this script's scope.
+With per-payload BEGIN/COMMIT we still guarantee that *if a populate_*
+step raises before its internal commit, the DELETEs (and any work
+since the last internal commit) roll back* — the dominant failure
+mode (LLM-shape mismatch, schema drift, OOM during embedding lookups).
+For true end-to-end atomicity within a single payload, the inner
+functions would need their commits hoisted out — a refactor beyond
+this script's scope.
+
+Cross-payload atomicity is intentionally not provided: later payloads
+in a multi-payload run are independent clear-and-import operations
+applied in order. If payload N fails, payloads 0..N-1 remain committed
+and the operator re-runs from payload N.
 
 This script does NOT snapshot the database. Operators running it against
 production data should snapshot first; the sibling
@@ -124,32 +133,40 @@ def main():
     conn = sqlite3.connect(args.db)
     try:
         _ensure_v2_schema(conn)
-        # Wrap the entire clear-and-import flow in a single explicit
-        # transaction so a partial failure cannot leave the DB with
-        # rows DELETED but no replacement IMPORTED. See module docstring
-        # for the caveat about inner commits in `enrich_pipeline`.
-        conn.execute("BEGIN")
-        try:
-            for path, data in payloads:
-                synset_ids = [s["id"] for s in data.get("synsets", [])]
-                model_used = data.get("config", {}).get("model", "unknown")
-                print(f"\n--- {path} ({len(synset_ids)} synsets, "
-                      f"model={model_used}) ---")
+        # Per-payload BEGIN/COMMIT. The inner enrich_pipeline.populate_*
+        # helpers each commit internally, so a single outer transaction
+        # cannot span multiple payloads — it would collapse on iteration
+        # 1 and trip the precondition assert in
+        # `_delete_synset_rows_within_txn` on iteration 2. See module
+        # docstring for the full transactional-safety rationale.
+        for path, data in payloads:
+            synset_ids = [s["id"] for s in data.get("synsets", [])]
+            model_used = data.get("config", {}).get("model", "unknown")
+            print(f"\n--- {path} ({len(synset_ids)} synsets, "
+                  f"model={model_used}) ---")
+            conn.execute("BEGIN")
+            try:
                 _delete_synset_rows_within_txn(conn, synset_ids)
                 print("  Re-curating + populating...")
                 curate_properties(conn, data, vectors)
                 populate_synset_properties(conn, data, model_used)
                 populate_lemma_metadata(conn, data)
-            conn.commit()
-        except Exception:
-            # Re-raise with original traceback intact (bare `raise`
-            # inside the except block; never `raise e` — that would
-            # lose context). If rollback itself fails (rare; usually
-            # only on a dropped connection), let that propagate too —
-            # masking the original error here would be worse than a
-            # noisy double-fault.
-            conn.rollback()
-            raise
+                # If the populate_* helpers' internal commits already
+                # closed the txn, this commit is a no-op; if they did
+                # not (e.g. a future refactor hoists their commits
+                # out), this preserves atomicity for the payload.
+                if conn.in_transaction:
+                    conn.commit()
+            except Exception:
+                # Re-raise with original traceback intact (bare `raise`
+                # inside the except block; never `raise e` — that would
+                # lose context). Only roll back if we still hold the
+                # txn; if an inner commit already landed, there is
+                # nothing to roll back and calling rollback() would
+                # raise OperationalError, masking the original error.
+                if conn.in_transaction:
+                    conn.rollback()
+                raise
 
         print("\nImport complete. Downstream tables "
               "(synset_properties_curated, vocab_clusters, "
