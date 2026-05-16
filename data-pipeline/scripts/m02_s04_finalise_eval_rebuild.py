@@ -73,7 +73,9 @@ def main():
         # partial failure cannot leave the DB with rows DELETED but no
         # replacement IMPORTED. Mirrors the canonical pattern in
         # `m02_s04_clear_and_import.py`. Required by
-        # `_delete_synset_rows_within_txn` (precondition assert).
+        # `_delete_synset_rows_within_txn`'s precondition (raises
+        # RuntimeError outside an explicit transaction; `raise` not
+        # `assert`, so the guard survives `python -O`).
         print(f"\n=== Phase 1: clear-and-import cohort ({len(cohort_synset_ids)} synsets) ===")
         conn.execute("BEGIN")
         try:
