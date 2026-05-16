@@ -254,6 +254,15 @@ def _invoke_with_retries(
     Retries on EmptyResponseError, ParseError, and generic ClaudeError.
     Does NOT retry on RateLimitError (surfaces immediately).
     """
+    # Foot-gun guard: max_retries < 1 means the loop body never executes,
+    # last_error stays None, and `raise last_error` raises
+    # `TypeError: exceptions must derive from BaseException`. Catch the
+    # bad input early with a clean ValueError so callers see what they
+    # actually did wrong.
+    if max_retries < 1:
+        raise ValueError(
+            f"max_retries must be >= 1, got {max_retries}"
+        )
     last_error = None
     for attempt in range(max_retries):
         try:

@@ -443,6 +443,21 @@ def test_exponential_backoff(mock_invoke, mock_sleep):
     assert sleeps[1] == 8   # min(4 * 2^1, 120)
 
 
+def test_invoke_with_retries_rejects_zero():
+    """max_retries=0 must raise ValueError, not the TypeError footgun
+    that comes from `raise last_error` when last_error is still None
+    (the loop body never executed)."""
+    with pytest.raises(ValueError, match="max_retries"):
+        _invoke_with_retries("prompt", model="haiku", max_retries=0)
+
+
+def test_invoke_with_retries_rejects_negative():
+    """max_retries=-1 same as zero — must be a clean ValueError, not
+    a silent fall-through."""
+    with pytest.raises(ValueError, match="max_retries"):
+        _invoke_with_retries("prompt", model="haiku", max_retries=-1)
+
+
 # --- prompt_text -------------------------------------------------------------
 
 from claude_client import prompt_text
