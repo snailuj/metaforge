@@ -127,10 +127,24 @@ def _import_one_payload(conn, path, data, vectors):
     print(f"\n--- {path} ({len(synset_ids)} synsets, "
           f"model={model_used}) ---")
     conn.execute("BEGIN")
+    # Track partial-atomicity explicitly rather than relying on
+    # `conn.in_transaction`. sqlite3.Connection auto-opens an implicit
+    # transaction on the first DML after a commit, so once any inner
+    # helper has committed, in_transaction toggles back to True on the
+    # next INSERT — making it an unreliable signal for "has an inner
+    # commit already happened?". This flag is the honest answer.
+    inner_commit_seen = False
     try:
         _delete_synset_rows_within_txn(conn, synset_ids)
         print("  Re-curating + populating...")
         curate_properties(conn, data, vectors)
+        # curate_properties commits internally (see enrich_pipeline.py).
+        # From this point on, any subsequent failure leaks the DELETEs
+        # plus curate's writes — they're already persisted and
+        # unrecoverable. populate_synset_properties and
+        # populate_lemma_metadata also commit internally, so this flag
+        # is correct for the whole post-curate window.
+        inner_commit_seen = True
         populate_synset_properties(conn, data, model_used)
         populate_lemma_metadata(conn, data)
         # If the populate_* helpers' internal commits already
@@ -142,28 +156,34 @@ def _import_one_payload(conn, path, data, vectors):
     except Exception:
         # Re-raise with original traceback intact (bare `raise`
         # inside the except block; never `raise e` — that would
-        # lose context). Only roll back if we still hold the
-        # txn; if an inner commit already landed, there is
-        # nothing to roll back and calling rollback() would
-        # raise OperationalError, masking the original error.
-        #
-        # When the txn has already been closed by an inner commit,
-        # the silent-leak case is real: DELETEs and any successful
-        # populate_* writes are persisted, and no rollback is
-        # possible. Log a WARNING so the operator sees the partial
-        # state rather than discovering it later by accident.
-        if conn.in_transaction:
-            conn.rollback()
-        else:
+        # lose context).
+        if inner_commit_seen:
+            # An inner commit has already fired — DELETEs and curate's
+            # writes are persisted; populate_* may also be partially
+            # persisted. Surface the silent-leak state to the operator.
+            # Then still attempt rollback of any implicit-txn DML that
+            # sqlite3 auto-opened after the inner commit (e.g. a
+            # partial INSERT from populate_synset_properties) so the
+            # connection is left clean for subsequent payloads.
             log.warning(
-                "Rollback not possible for payload %s — inner commits "
-                "in enrich_pipeline.populate_* fired before the failure "
-                "point. Database is in partial-import state: DELETEs "
-                "and any prior successful populate_* steps are already "
-                "persisted. Manual repair required from snapshot. See "
-                "module docstring for partial-atomicity caveat.",
+                "Rollback not possible for payload %s — "
+                "curate_properties' internal commit already fired "
+                "before the failure point. Database is in "
+                "PARTIAL-IMPORT state: DELETEs and curated vocab "
+                "writes are already persisted; populate_* writes may "
+                "also be partial. Manual repair required from "
+                "snapshot. See module docstring for partial-atomicity "
+                "caveat.",
                 path,
             )
+            if conn.in_transaction:
+                conn.rollback()
+        else:
+            # No inner commit yet — the outer BEGIN's rollback undoes
+            # everything (DELETEs from `_delete_synset_rows_within_txn`
+            # and anything else issued under the BEGIN).
+            if conn.in_transaction:
+                conn.rollback()
         raise
 
 

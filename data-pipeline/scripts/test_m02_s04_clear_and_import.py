@@ -154,3 +154,88 @@ def test_import_one_payload_warns_when_rollback_impossible_after_inner_commit():
         assert call_args[1] == path
     finally:
         conn.close()
+
+
+def test_import_one_payload_warns_when_populate_raises_after_inner_commit_with_dml():
+    """Pin the DOMINANT silent-leak path that the in_transaction proxy missed.
+
+    Round 4 gated the WARNING on `if not conn.in_transaction`. That works
+    in the narrow case where populate raises BEFORE any DML, but the
+    dominant production failure mode is: curate commits → populate issues
+    an INSERT (sqlite3 auto-opens an implicit txn, so
+    `conn.in_transaction == True` again) → populate then raises
+    mid-execution. Under the Round 4 logic, the implicit-txn branch is
+    taken, rollback only undoes the partial INSERT, and the WARNING never
+    fires — the DELETEs and curate's writes leak silently.
+
+    This test simulates that exact sequence:
+      - `_delete_synset_rows_within_txn` is no-op'd,
+      - `curate_properties` commits (closing the outer BEGIN),
+      - `populate_synset_properties` executes a DML statement (opening
+        an implicit txn — `conn.in_transaction` flips back to True) and
+        THEN raises.
+
+    The fix must surface the WARNING regardless of the implicit-txn
+    state, by tracking partial-atomicity explicitly via a flag set after
+    curate's inner commit.
+    """
+    conn = sqlite3.connect(":memory:")
+    try:
+        # Provide a target table for the DML inside the populate stub so
+        # the INSERT genuinely opens an implicit transaction. Use a
+        # throwaway schema; the helper itself is mocked, so we don't
+        # need real synset_properties columns here.
+        conn.executescript(
+            "CREATE TABLE scratch (id TEXT);"
+        )
+
+        path = "/tmp/fake_payload_with_dml.json"
+        data = {"synsets": [{"id": "s1"}], "config": {"model": "haiku"}}
+        vectors = {}
+
+        def _curate_commits(_conn, _data, _vectors):
+            _conn.commit()
+
+        def _populate_dml_then_raises(_conn, _data, _model):
+            # First DML after curate's commit — sqlite3 auto-begins an
+            # implicit transaction, so in_transaction flips back to True.
+            _conn.execute("INSERT INTO scratch (id) VALUES (?)", ("dml-row",))
+            assert _conn.in_transaction, (
+                "precondition: implicit txn must be open after DML"
+            )
+            raise RuntimeError("simulated mid-populate failure")
+
+        with mock.patch.object(mod, "_delete_synset_rows_within_txn",
+                               lambda _c, _ids: None), \
+             mock.patch.object(mod, "curate_properties", _curate_commits), \
+             mock.patch.object(mod, "populate_synset_properties",
+                               _populate_dml_then_raises), \
+             mock.patch.object(mod, "populate_lemma_metadata",
+                               lambda _c, _d: None), \
+             mock.patch.object(mod, "log") as mock_log:
+            with pytest.raises(RuntimeError,
+                               match="simulated mid-populate failure"):
+                _import_one_payload(conn, path, data, vectors)
+
+        # The WARNING must fire even though the implicit txn was open at
+        # the moment populate raised — the partial-atomicity gap is
+        # determined by whether an inner commit has already happened,
+        # not by the live in_transaction state.
+        assert mock_log.warning.called, (
+            "expected log.warning to fire on DML-then-raise after "
+            "curate's inner commit"
+        )
+        call_args, _ = mock_log.warning.call_args
+        msg = call_args[0]
+        assert "Rollback not possible" in msg
+        assert call_args[1] == path
+
+        # And the connection must be left in a clean state for any
+        # subsequent payload — rollback of the partial INSERT should
+        # have run on the way out.
+        assert not conn.in_transaction, (
+            "connection should be left out of any implicit txn so the "
+            "next payload's BEGIN can run"
+        )
+    finally:
+        conn.close()
