@@ -229,11 +229,16 @@ def _strip_fences(text: str) -> str:
         )
         if suspicious:
             head, tail, _total = _stdout_diagnostic_fields(text)
+            # Cap parsed-value repr so a borderline-large dict doesn't
+            # blow up the log line; 200 chars is enough to identify the
+            # contents downstream "unknown ID" warnings will correlate to.
             log.warning(
                 "_strip_fences: unfenced extraction returned suspiciously "
-                "short result (type=%s, n=%s); raw_head=%r; raw_tail=%r",
+                "short result (type=%s, n=%s); parsed_value=%s; "
+                "raw_head=%r; raw_tail=%r",
                 type(parsed).__name__,
                 len(parsed) if hasattr(parsed, "__len__") else "?",
+                repr(parsed)[:200],
                 head, tail,
             )
         return candidate

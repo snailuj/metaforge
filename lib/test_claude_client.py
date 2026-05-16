@@ -197,6 +197,33 @@ def test_strip_fences_unfenced_warns_on_suspiciously_short():
     assert "suspiciously short" in output.lower()
 
 
+def test_strip_fences_warning_includes_parsed_value():
+    """Suspicious-short WARNING must include the parsed value (capped repr)
+    so operators triaging a downstream 'unknown ID' correlation can read
+    the actual contents without reconstructing from raw_head. Round 2's
+    log included type/len/raw_head/raw_tail but not the parsed value
+    itself."""
+    import logging
+    from claude_client import _strip_fences as _sf
+    caplog_logger = logging.getLogger("claude_client")
+    import io
+    log_stream = io.StringIO()
+    handler = logging.StreamHandler(log_stream)
+    handler.setLevel(logging.WARNING)
+    caplog_logger.addHandler(handler)
+    caplog_logger.setLevel(logging.WARNING)
+    try:
+        _sf("Brief example: [42, 43, 44]")
+        output = log_stream.getvalue()
+    finally:
+        caplog_logger.removeHandler(handler)
+    # The parsed list contents must appear in the WARNING — pick out a
+    # distinctive value so we know it's the parsed value, not the raw_head.
+    assert "42" in output
+    assert "43" in output
+    assert "parsed_value" in output
+
+
 def test_strip_fences_fenced_path_silent():
     """Fenced extraction must NOT emit the unfenced-path debug/warning —
     they are different code branches and the observability is specific to
