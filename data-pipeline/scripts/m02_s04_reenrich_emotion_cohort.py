@@ -1,0 +1,266 @@
+"""M02-S04 — Re-enrich the 51 emotion-domain apt source words under
+the renamed `physical` → `sensorimotor` prompt.
+
+Inputs:
+  * `data-pipeline/output/m02_s04_emotion_synset_ids.json` (51 ids)
+  * `BATCH_PROMPT_V2_SM` — the renamed prompt body, sourced from
+    `m02_s04_test_sensorimotor_prompt.py` (the A/B-validated copy)
+
+Output:
+  * `data-pipeline/output/enrichment_emotion-sm_sonnet_v2_20260515.json`
+    in the same shape as the other enrichment JSONs the pipeline
+    produces, so `enrich.sh --from-json` can ingest it (or a surgical
+    patch script can read it).
+
+This does NOT touch the DB. The downstream patch / import is the
+caller's decision — we always want a fresh JSON to inspect before
+applying.
+
+Cost: ~$2.50 for 51 calls in batches of 5 (~5 min wall).
+"""
+import argparse
+import json
+import logging
+import sqlite3
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
+from claude_client import prompt_json, RateLimitError
+from m02_s04_test_sensorimotor_prompt import BATCH_PROMPT_V2_SM
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DB_PATH = REPO_ROOT / "data-pipeline" / "output" / "lexicon_v2.db"
+DEFAULT_SYNSET_IDS = REPO_ROOT / "data-pipeline" / "output" / "m02_s04_emotion_synset_ids.json"
+DEFAULT_OUTPUT = REPO_ROOT / "data-pipeline" / "output" / "enrichment_emotion-sm_sonnet_v2_20260515.json"
+LOG = logging.getLogger(__name__)
+
+DEFAULT_BATCH_SIZE = 5  # smaller than prod default so output volume stays comfortable
+
+
+def fetch_synset_meta(conn, synset_id):
+    """(lemma, definition, pos) — most-familiar lemma per synset."""
+    row = conn.execute(
+        """
+        WITH ranked AS (
+            SELECT l.lemma, s.definition, s.pos,
+                   COALESCE(f.familiarity, 0) AS fam,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY s.synset_id
+                       ORDER BY COALESCE(f.familiarity, 0) DESC, l.lemma
+                   ) AS rn
+            FROM synsets s
+            JOIN lemmas l ON l.synset_id = s.synset_id
+            LEFT JOIN frequencies f ON f.lemma = l.lemma
+            WHERE s.synset_id = ?
+        )
+        SELECT lemma, definition, pos FROM ranked WHERE rn = 1
+        """,
+        (synset_id,),
+    ).fetchone()
+    return row
+
+
+def format_batch_items(synset_metas):
+    """Format the multi-synset batch for BATCH_PROMPT_V2_SM."""
+    lines = []
+    for sid, lemma, definition in synset_metas:
+        lines.append(f"ID: {sid}")
+        lines.append(f"Word: {lemma}")
+        lines.append(f"Lemmas: {lemma}")
+        lines.append(f"Definition: {definition}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def run_batch(synset_metas, model="sonnet"):
+    """Send one BATCH_PROMPT_V2_SM call with the given synset metas.
+    Returns the parsed JSON list (each entry is a synset dict)."""
+    batch_items = format_batch_items(synset_metas)
+    prompt = BATCH_PROMPT_V2_SM.format(batch_items=batch_items)
+    return prompt_json(prompt, model=model, expect=list, max_retries=3)
+
+
+def build_payload(all_results, failed_synset_ids, wall_seconds, *,
+                  model, batch_size, total_size):
+    """Assemble the output JSON in the canonical pipeline shape.
+
+    Extracted so we can call it after every batch for incremental writes
+    — without this, a 6-hour run that crashes after batch 200 loses
+    everything from batch 1. The file matches the production enrichment
+    JSON shape exactly so enrich_pipeline.run_pipeline can ingest it
+    without conversion.
+    """
+    all_property_texts = set()
+    property_frequency = {}
+    for r in all_results:
+        for p in r["properties"]:
+            text = p.get("text") if isinstance(p, dict) else p
+            if text:
+                all_property_texts.add(text)
+                property_frequency[text] = property_frequency.get(text, 0) + 1
+    return {
+        "synsets": all_results,
+        "all_properties": sorted(all_property_texts),
+        "property_frequency": property_frequency,
+        "stats": {
+            "total_synsets": len(all_results),
+            "total_properties": sum(len(r["properties"]) for r in all_results),
+            "unique_properties": len(all_property_texts),
+            "avg_properties_per_synset": (
+                sum(len(r["properties"]) for r in all_results)
+                / len(all_results) if all_results else 0
+            ),
+            "failed_synset_ids": failed_synset_ids,
+            "failed_batches": len(failed_synset_ids) // max(batch_size, 1),
+            "wall_seconds": round(wall_seconds, 1),
+        },
+        "config": {
+            "model": model,
+            "batch_size": batch_size,
+            "size": total_size,
+            "schema_version": "v2",
+            "prompt_variant": "sensorimotor",
+            "note": (
+                "M02-S04 prompt-rename — physical → sensorimotor. "
+                "Generated by m02_s04_reenrich_emotion_cohort.py with "
+                "incremental writes (file is updated after every batch "
+                "so a mid-run crash preserves all completed work)."
+            ),
+        },
+    }
+
+
+def write_payload(payload, output_path):
+    """Atomic write: dump to a .tmp sibling then rename. Prevents a
+    crash mid-flush from leaving a half-written JSON the next reader
+    would refuse to parse."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = output_path.with_suffix(output_path.suffix + ".tmp")
+    with open(tmp, "w") as f:
+        json.dump(payload, f, indent=2)
+    tmp.replace(output_path)
+
+
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", default="sonnet",
+                        help="Claude model alias (default: sonnet)")
+    parser.add_argument("--output", default=str(DEFAULT_OUTPUT),
+                        help="Output JSON path")
+    parser.add_argument("--synset-ids-file", default=str(DEFAULT_SYNSET_IDS),
+                        help="JSON list of synset_ids to enrich")
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE,
+                        help=f"Synsets per batch (default {DEFAULT_BATCH_SIZE})")
+    args = parser.parse_args()
+    output_path = Path(args.output)
+    model = args.model
+    batch_size = args.batch_size
+
+    with open(args.synset_ids_file) as f:
+        synset_ids = json.load(f)
+    print(f"Re-enriching {len(synset_ids)} synsets under the renamed "
+          f"(sensorimotor) prompt — model={model}, batch_size={batch_size}.")
+    wall_start = time.monotonic()
+
+    conn = sqlite3.connect(str(DB_PATH))
+    try:
+        # Resolve metadata for each synset_id up front.
+        synset_metas = []
+        for sid in synset_ids:
+            meta = fetch_synset_meta(conn, sid)
+            if meta is None:
+                LOG.warning("Skipping synset_id %s — no metadata.", sid)
+                continue
+            lemma, definition, pos = meta
+            synset_metas.append((str(sid), lemma, definition, pos))
+        print(f"Resolved metadata for {len(synset_metas)} synsets.")
+    finally:
+        conn.close()
+
+    # Batch and call. After each batch we (a) accumulate results and
+    # (b) write the in-progress JSON to disk so a crash anywhere in a
+    # multi-hour run preserves all completed batches.
+    all_results = []
+    failed_synset_ids = []
+    n_batches = (len(synset_metas) + batch_size - 1) // batch_size
+
+    def flush():
+        """Build current payload and atomically write to output_path."""
+        elapsed = time.monotonic() - wall_start
+        payload = build_payload(
+            all_results, failed_synset_ids, elapsed,
+            model=model, batch_size=batch_size,
+            total_size=len(synset_metas),
+        )
+        write_payload(payload, output_path)
+
+    try:
+        for i in range(0, len(synset_metas), batch_size):
+            batch = synset_metas[i:i + batch_size]
+            batch_num = i // batch_size + 1
+            # Pass only the (sid, lemma, definition) triples to formatting.
+            batch_for_prompt = [(s[0], s[1], s[2]) for s in batch]
+            print(f"  Batch {batch_num}/{n_batches} ({len(batch)} synsets)...")
+            try:
+                results = run_batch(batch_for_prompt, model=model)
+            except RateLimitError as e:
+                print(f"    RateLimitError: {e}")
+                failed_synset_ids.extend([s[0] for s in batch])
+                flush()
+                time.sleep(60)
+                continue
+            except Exception as e:
+                print(f"    BATCH FAILED: {type(e).__name__}: {e}")
+                failed_synset_ids.extend([s[0] for s in batch])
+                flush()
+                continue
+            # Merge with local metadata (matches the production
+            # extract_batch output shape so the downstream patch step
+            # can read it directly).
+            local = {s[0]: s for s in batch}
+            for r in results:
+                rid = str(r.get("id", ""))
+                if rid not in local:
+                    LOG.warning("LLM returned unknown ID %s", rid)
+                    continue
+                _, lemma, definition, pos = local[rid]
+                all_results.append({
+                    "id": rid,
+                    "lemma": lemma,
+                    "definition": definition,
+                    "pos": pos,
+                    "properties": r.get("properties", []),
+                    "usage_example": r.get("usage_example", ""),
+                    "lemma_metadata": r.get("lemma_metadata", []),
+                })
+                n_props = len(r.get("properties", []))
+                n_sm = sum(1 for p in r.get("properties", [])
+                           if p.get("type") == "sensorimotor")
+                print(f"    {lemma}: {n_props} properties, {n_sm} sensorimotor")
+            # Incremental flush after every batch — keeps the on-disk
+            # JSON within one batch of the live state regardless of
+            # how the run terminates (KeyboardInterrupt, OOM, signal).
+            flush()
+    except KeyboardInterrupt:
+        print("\nInterrupted — flushing partial state to disk.")
+        flush()
+        raise
+
+    # Final flush — redundant with the per-batch flushes, but ensures
+    # the final wall_seconds is recorded accurately on a clean exit.
+    flush()
+    wall_seconds = time.monotonic() - wall_start
+    print(f"\nWrote {output_path}")
+    print(f"Wall time: {wall_seconds:.1f}s ({int(wall_seconds // 60)}m {int(wall_seconds % 60)}s)")
+    print(f"  synsets enriched: {len(all_results)}")
+    print(f"  failed synsets: {len(failed_synset_ids)}")
+    if failed_synset_ids:
+        print(f"  failed ids: {failed_synset_ids}")
+
+
+if __name__ == "__main__":
+    main()
