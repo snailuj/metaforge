@@ -304,14 +304,17 @@ def _ortony_log_ratio(
             # Include the full property profile (sorted cluster ids, capped
             # at 10 to bound log-line size) — cluster id alone is not enough
             # to identify which (topic_synset, vehicle_synset) pair triggered
-            # the warning across thousands of per-pair invocations.
+            # the warning across thousands of per-pair invocations. Also log
+            # the full profile size (pa_n / pb_n) alongside the truncated key
+            # list so an operator can distinguish a complete small profile
+            # from a truncated large one.
             log.warning(
                 "ortony_log_ratio: skipping shared cluster %d with "
-                "non-positive salience (pa=%s, pb=%s); pa_keys=%s; "
-                "pb_keys=%s — likely curated-salience corruption",
+                "non-positive salience (pa=%s, pb=%s); pa_n=%d, pa_keys=%s; "
+                "pb_n=%d, pb_keys=%s — likely curated-salience corruption",
                 c, pa[c], pb[c],
-                sorted(pa.keys())[:10],
-                sorted(pb.keys())[:10],
+                len(pa), sorted(pa.keys())[:10],
+                len(pb), sorted(pb.keys())[:10],
             )
             continue
         numerator += (pb[c] * pb[c]) / denom

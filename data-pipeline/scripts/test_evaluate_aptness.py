@@ -839,6 +839,13 @@ def test_ortony_log_ratio_warns_on_non_positive_shared_cluster(caplog):
     assert any(
         "[1, 2]" in m for m in messages
     ), f"expected sorted property profile [1, 2] in warning; got: {messages}"
+    # The key list is capped at 10 entries to bound log-line size — an operator
+    # seeing 10 keys cannot tell whether that is the entire profile or a
+    # truncation of (say) 100 keys. The full profile size must accompany the
+    # truncated key list so truncation is unambiguous.
+    assert any(
+        "pa_n=2" in m and "pb_n=2" in m for m in messages
+    ), f"expected pa_n + pb_n profile size hint in warning; got: {messages}"
 
 
 # --- random_uniform null control --------------------------------------------

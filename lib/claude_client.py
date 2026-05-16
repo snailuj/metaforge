@@ -243,6 +243,13 @@ def _strip_fences(text: str) -> str:
 
 _RATE_LIMIT_INDICATORS = ("rate limit", "usage limit", "quota", "overloaded", "429")
 
+# Timeouts are expensive to retry — each attempt burns up to `timeout`
+# seconds of wall-clock. Cheap-to-retry errors (ParseError,
+# EmptyResponseError) deserve the full max_retries budget; timeouts
+# get capped here to bound worst-case stall to ~2× the per-call timeout
+# rather than max_retries × timeout (~75 min at defaults).
+_MAX_TIMEOUT_ATTEMPTS = 1
+
 
 def _stdout_diagnostic(stdout: str, head: int = 300, tail: int = 300) -> str:
     """Render a short head/tail snapshot of subprocess stdout for inclusion
@@ -447,11 +454,32 @@ def _invoke_with_retries(
             f"max_retries must be >= 1, got {max_retries}"
         )
     last_error = None
+    timeout_attempts = 0
     for attempt in range(max_retries):
         try:
             return _invoke(prompt, model=model, verbose=verbose)
         except RateLimitError:
             raise
+        except ClaudeTimeoutError as e:
+            # Timeout retries are expensive (up to `timeout` seconds each).
+            # Cap at _MAX_TIMEOUT_ATTEMPTS regardless of max_retries so a
+            # stalled batch fails fast rather than burning ~75 min worst-
+            # case at the default timeout=900s × max_retries=5.
+            last_error = e
+            timeout_attempts += 1
+            if timeout_attempts >= _MAX_TIMEOUT_ATTEMPTS:
+                log.warning(
+                    "Claude subprocess timeout on attempt %d/%d; not "
+                    "retrying further (max_timeout_attempts=%d, each retry "
+                    "burns up to the per-call timeout)",
+                    attempt + 1, max_retries, _MAX_TIMEOUT_ATTEMPTS,
+                )
+                raise
+            if attempt < max_retries - 1:
+                backoff = min(4 * 2 ** attempt, 120)
+                log.warning("Retry %d/%d after timeout: %s",
+                            attempt + 1, max_retries, e)
+                time.sleep(backoff)
         except ClaudeError as e:
             last_error = e
             if attempt < max_retries - 1:

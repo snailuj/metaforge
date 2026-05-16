@@ -618,6 +618,45 @@ def test_exhausts_retries(mock_invoke, mock_sleep):
 
 @patch("claude_client.time.sleep")
 @patch("claude_client._invoke")
+def test_timeout_caps_retries_at_one(mock_invoke, mock_sleep, caplog):
+    """ClaudeTimeoutError is expensive to retry — each attempt burns up
+    to 900s wall-clock. With max_retries=5 worst case is ~75 minutes per
+    stalled batch. Cap timeout retries at 1 so cheap-to-retry errors
+    (ParseError, EmptyResponseError) keep the full budget but timeouts
+    fail fast."""
+    from claude_client import ClaudeTimeoutError
+    import logging
+    mock_invoke.side_effect = ClaudeTimeoutError(
+        "timeout", timeout_seconds=900,
+    )
+    with caplog.at_level(logging.WARNING, logger="claude_client"):
+        with pytest.raises(ClaudeTimeoutError):
+            _invoke_with_retries("prompt", model="haiku", max_retries=5)
+    # Must fail after attempt 1, not attempt 5.
+    assert mock_invoke.call_count == 1
+    # WARNING log should fire so operators can see the suppression.
+    assert any(
+        "timeout" in r.message.lower() and "not retrying" in r.message.lower()
+        for r in caplog.records
+    ), [r.message for r in caplog.records]
+
+
+@patch("claude_client.time.sleep")
+@patch("claude_client._invoke")
+def test_non_timeout_errors_keep_full_retry_budget(mock_invoke, mock_sleep):
+    """Non-timeout ClaudeError subclasses (ParseError, EmptyResponseError,
+    generic) must continue to follow max_retries — only timeouts get
+    capped. Regression guard against accidentally tightening all retries."""
+    mock_invoke.side_effect = [
+        EmptyResponseError("e1"), EmptyResponseError("e2"), "ok",
+    ]
+    result = _invoke_with_retries("prompt", model="haiku", max_retries=5)
+    assert result == "ok"
+    assert mock_invoke.call_count == 3
+
+
+@patch("claude_client.time.sleep")
+@patch("claude_client._invoke")
 def test_exponential_backoff(mock_invoke, mock_sleep):
     mock_invoke.side_effect = [EmptyResponseError("e1"), EmptyResponseError("e2"), "ok"]
     _invoke_with_retries("prompt", model="haiku", max_retries=5)
