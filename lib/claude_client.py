@@ -496,6 +496,13 @@ def _invoke_with_retries(
             # Cap at _MAX_TIMEOUT_ATTEMPTS regardless of max_retries so a
             # stalled batch fails fast rather than burning ~75 min worst-
             # case at the default timeout=900s × max_retries=5.
+            #
+            # Under the current cap of 1 we always re-raise on the first
+            # timeout — no backoff/sleep path is needed. If the cap is
+            # bumped to N > 1, re-add a backoff branch here that uses
+            # `timeout_attempts` (not the outer `attempt`, which mixes
+            # all error types) so the wait grows with timeout retries
+            # specifically.
             last_error = e
             timeout_attempts += 1
             if timeout_attempts >= _MAX_TIMEOUT_ATTEMPTS:
@@ -506,11 +513,6 @@ def _invoke_with_retries(
                     attempt + 1, max_retries, _MAX_TIMEOUT_ATTEMPTS,
                 )
                 raise
-            if attempt < max_retries - 1:
-                backoff = min(4 * 2 ** attempt, 120)
-                log.warning("Retry %d/%d after timeout: %s",
-                            attempt + 1, max_retries, e)
-                time.sleep(backoff)
         except ClaudeError as e:
             last_error = e
             if attempt < max_retries - 1:
