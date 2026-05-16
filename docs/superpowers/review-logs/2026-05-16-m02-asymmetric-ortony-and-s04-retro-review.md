@@ -71,13 +71,14 @@
 - **proposed_followup:** Address as part of Pipeline Tooling Consolidation backfill 1a; when `BATCH_PROMPT_V2_SM` moves to production `enrich_properties.py`, the production error-handling pattern (structured exception types, `log.exception`) supersedes this retro script's contract.
 - **status:** active
 
-### D2 — `m02_s04_patch_and_repipeline.py` rollback discards original exception
-- **Source:** Round 1, silent-failure-hunter (item sf-8)
+### D2 — `m02_s04_patch_and_repipeline.py` rollback-failure obscures original (corrected wording 2026-05-16, Round 2)
+- **Source:** Round 1, silent-failure-hunter (item sf-8); wording corrected by Round 2 silent-failure-hunter (challenge accepted on rationale text — not on scope)
 - **File:** `data-pipeline/scripts/m02_s04_patch_and_repipeline.py:86-107`
 - **Severity:** low
 - **scope_boundary:** Same as D1 — ad-hoc retro script captured in Pipeline Tooling Consolidation.
 - **why_out_of_scope:** One-shot retro flow that already executed against the production DB during M02-S04. The rollback path has not actually fired in practice (no operator report of OperationalError-on-rollback); the deeper pattern (transactional clear-and-import) is captured in Pipeline Tooling Consolidation backfill 1c (`--clear-existing` flag on production import path).
-- **proposed_followup:** Subsumed by Pipeline Tooling Consolidation backfill 1c; the production `--clear-existing` flag should use Python's `raise ... from e` pattern correctly from the start.
+- **Note on wording:** Round 1 framed this as "rollback discards original exception". Round 2 silent-failure-hunter correctly challenged: Python's `except: rollback; raise` uses bare `raise` which preserves the original exception via `__context__`. The actual residual concern is "if `rollback()` itself raises during exception handling, the rollback error's traceback obscures the original DELETE error" — not "original discarded". Severity unchanged (low — connection-died-during-rollback is rare); scope unchanged.
+- **proposed_followup:** Subsumed by Pipeline Tooling Consolidation backfill 1c; the production `--clear-existing` flag should use Python's `raise ... from e` pattern correctly from the start (chain the rollback failure under the original DELETE error).
 - **status:** active
 
 ### D3 — `prompt_json` `expect: type` weak static contract
@@ -420,6 +421,141 @@ Items resolved: 12 (all batch-1 + batch-2 fixes landed; deferred items moved to 
 Active deferrals: 10 (D1–D10)
 Superseded deferrals: 0
 Elapsed: ~1h fix-batch dispatch + suite run (batch 1 + batch 2 + test suite)
+
+---
+
+## Round 2 — pr-review-toolkit (2026-05-16T12:30:00Z)
+
+**Agents dispatched:** code-reviewer, silent-failure-hunter, type-design-analyzer (parallel)
+
+### Items Found (Round 2 — deduplicated across pr-review-toolkit + superpowers + standards)
+
+**Cross-cutting:** Bracket-balance silent wrong-span pick was flagged by 3 reviewers (cr-1, sf-3, sp-1) — merged.
+
+**code-reviewer (3 items):**
+- [low] r2-cr-1 **Bracket-balance returns first-matching short JSON-valid prefix** — same as r2-sf-3/sp-1; merged.
+- [cosmetic] r2-cr-2 **`_stdout_diagnostic` docstring incorrect for small-stdout branch** — claims byte-cap but dumps full repr.
+- [cosmetic] r2-cr-3 **`prompt_json` inline head/tail duplicates `_stdout_diagnostic` (DRY drift)** — same as r2-sp-3.
+
+**silent-failure-hunter (5 items):**
+- [CRITICAL] r2-sf-1 **`subprocess.TimeoutExpired` regression from narrow `except ClaudeError`** — Round 1's narrowed except in `enrich_properties.run_enrichment` accidentally lets `subprocess.TimeoutExpired` escape per-batch isolation, abandoning checkpointing for all remaining batches. Real regression.
+  - Decision: **fix** — wrap subprocess.run in `claude_client._invoke` to raise `ClaudeTimeoutError(ClaudeError)`.
+- [important] r2-sf-2 **`prompt_json` + `prompt_batch` ParseError paths lack head/tail diagnostic** — 3 sibling sites at lines 317, 345, 347; same pattern as Round 1's `_parse_events` fix but anchor-incomplete.
+  - Decision: **fix** — extend `_stdout_diagnostic` usage to upper layer.
+- [important] r2-sf-3 **Bracket-balance picks wrong span on multi-block prose** — same as r2-cr-1; merged.
+  - Decision: **fix** — add observability (log.debug on fallback, log.warning on suspiciously-short result).
+- [low] r2-sf-4 **`_ortony_log_ratio` warning lacks pair identity** — cluster id alone insufficient diagnostic when fn called per-pair across thousands.
+  - Decision: **fix** — include `pa.keys()`+`pb.keys()` profile in warning.
+- [low] r2-sf-5 **`_strip_fences` never logs even when fallback path fires** — observability gap.
+  - Decision: **fix** — combined with r2-sf-3 fix.
+- D2 verdict: **challenge** on wording (not scope) — bare `raise` preserves original exception via `__context__`; rationale text amended in D2 above.
+
+**type-design-analyzer (4 items):**
+- [low] r2-td-1 **`EmptyResponseError` diagnostic untyped (magic-string contract)** — head/tail buried in args[0] f-string; downstream callers must regex-parse to get structured access.
+  - Decision: **fix** — add typed `__init__` with `stdout_head`, `stdout_tail`, `total_len` fields.
+- [cosmetic] r2-td-2 **`_strip_fences` bool-flag state machine vs Literal enum** — bool flags acceptable for tight private loop with extensive docstring; over-engineering to lift.
+  - Decision: **defer-out-of-scope** → D11.
+- [low] r2-td-3 **`delete_synset_rows` contract change not encoded in signature** — docstring-only "no longer commits" contract.
+  - Decision: **fix** — rename to `_delete_synset_rows_within_txn` + precondition assert.
+- [cosmetic] r2-td-4 **`run_enrichment(db_path: str = None)` typed lie** — should be `Optional[str]`.
+  - Decision: **fix** — one-line annotation change.
+
+**superpowers (3 items):**
+- [low] r2-sp-1 = r2-cr-1 = r2-sf-3 — merged.
+- [cosmetic] r2-sp-2 = r2-cr-2 — merged.
+- [cosmetic] r2-sp-3 = r2-cr-3 — merged.
+
+**standards: ✅ CLEAN.** All 12 round-1 fixes correctly close their target standards violations; all 15 standards re-checked individually; all 10 deferrals concurred with substantive scope-boundary rationale. No new findings. Single-adapter CLEAN, not round-CLEAN (other 4 adapters found items).
+
+### Critique Sections (Persisted — verbatim summaries)
+
+**code-reviewer:**
+- PRIOR_FINDINGS_CRITIQUE: 8 categories checked across the 12 round-1 fixes; identified 3 gaps in own-previous-round findings (the first-block-wins variant of the bracket-balance hazard; the prompt_json DRY drift; the docstring inaccuracy).
+- APPLIED_FIXES_CRITIQUE: 8 of 10 fixes correct; 2 partial (`a7321060` left DRY drift in prompt_json; `c5563cf6` introduced regression for TimeoutExpired noted by sf-1; bracket-balance scan introduces new first-block-wins false-positive).
+- DEFERRAL_LEDGER_REVIEW: all 10 concurred.
+
+**silent-failure-hunter:**
+- PRIOR_FINDINGS_CRITIQUE: ≥11 categories checked; 3 substantive gaps in own prior-round findings (sf-1 regression — narrowing changed the silent-failure profile rather than closing it; sf-2 anchor-incomplete; sf-3 multi-block-prose wrong-span).
+- APPLIED_FIXES_CRITIQUE: 7 correct, 5 partial, 1 dead-code-removal clean.
+- DEFERRAL_LEDGER_REVIEW: 9 concur, 1 challenge (D2 wording — accepted).
+
+**type-design-analyzer:**
+- PRIOR_FINDINGS_CRITIQUE: 8 categories checked; 3 gaps in own prior-round (`EmptyResponseError` untyped; `delete_synset_rows` contract; `run_enrichment` Optional drift).
+- APPLIED_FIXES_CRITIQUE: 8 clean, 4 partial (introduced or failed to lift structural-typing items), 1 doc-only.
+- DEFERRAL_LEDGER_REVIEW: all 10 concurred.
+
+**superpowers:**
+- PRIOR_FINDINGS_CRITIQUE: 7 categories checked; 3 minor gaps (empty-container false-positive on bracket-balance; diagnostic-length asymmetry; unicode-escape state-machine comment).
+- APPLIED_FIXES_CRITIQUE: 11 correct, 1 partial-by-design (transactional wrap with honest caveat).
+- DEFERRAL_LEDGER_REVIEW: all 10 concurred (D10 specifically scrutinised — three-candidate-fix counterfactual analysis held up).
+
+**standards:**
+- PRIOR_FINDINGS_CRITIQUE: 15-standard re-check; no gaps; round 1's coverage was thorough; flagged 2 unflagged-but-non-violation observations.
+- APPLIED_FIXES_CRITIQUE: all 12 fixes correctly close their target standards violations; no regressions; UK English consistent.
+- DEFERRAL_LEDGER_REVIEW: all 10 concurred.
+- **CLEAN: true** (adapter-CLEAN, not round-CLEAN).
+
+### Round 2 Triage Summary
+
+**Fix queue (10 items):**
+- `lib/claude_client.py`: r2-sf-1 (CRITICAL), r2-sf-2 (important), r2-sf-3/cr-1/sp-1 (low, merged), r2-sf-5 (low), r2-td-1 (low), r2-cr-2/sp-2 (cosmetic), r2-cr-3/sp-3 (cosmetic) — 6 fixes, 1 subagent
+- `enrich_properties.py`: r2-td-4 (cosmetic) — 1 fix, 1 subagent
+- `evaluate_aptness.py`: r2-sf-4 (low) — 1 fix, 1 subagent
+- `m02_s04_clear_and_import.py`: r2-td-3 (low) — 1 fix, 1 subagent
+
+**Defer queue (1 new):** r2-td-2 → D11 (cosmetic, over-engineering).
+
+### Round 2 Deferrals Ledger Update — D11 added
+
+#### D11 — `_strip_fences` bool-flag state machine vs Literal/enum state
+- **Source:** Round 2, type-design-analyzer (item r2-td-2)
+- **File:** `lib/claude_client.py:95-105`
+- **Severity:** cosmetic
+- **scope_boundary:** Pure code-style refactor — lift implicit state (`in_string`, `escape` bool flags) into an explicit `Literal["struct","str","esc"]` state enum.
+- **why_out_of_scope:** The bool-flag representation is acceptable for a 30-line private helper with extensive docstring + 12 new strip_fences tests pinning the invariants. Lifting to a state enum would be over-engineering for a tight loop; the *invariant* (depth count only advances outside string literals; escape state lives only inside strings) is correctly enforced — it's just not lifted into the type system. Cosmetic.
+- **proposed_followup:** Capture in `docs/inbox/captures.md` if there's future refactor pressure on `_strip_fences` (e.g., needing to handle unicode escapes or new fence languages).
+- **status:** active
+
+### Round 2 Fixes Applied
+
+Pre-fix SHA: `17083cc7` (Round 2 reviewers ran at this SHA).
+
+**Batch 2-1 dispatched at `17083cc7`; 4 subagents in parallel; 9 commits landed:**
+
+| Commit | File(s) | Fix |
+|---|---|---|
+| `1d8f2585` | `lib/claude_client.py` + tests | **CRITICAL fix**: wrap `subprocess.TimeoutExpired` as new `ClaudeTimeoutError(ClaudeError)`. Closes Round 2 sf-1 regression — retry/checkpoint logic now correctly catches subprocess timeouts via the existing `except ClaudeError` umbrella. |
+| `ae6d4662` | `lib/claude_client.py` | Docstring correction: `_stdout_diagnostic` clarifies that short stdouts (≤head+tail) are dumped in full. |
+| `33c6e46d` | `lib/claude_client.py` + tests | Typed fields on `EmptyResponseError` and `ParseError` — added `stdout_head`, `stdout_tail`, `total_len` attributes; threaded through all raise sites in `_parse_events` + `prompt_json` + `prompt_batch`. |
+| `3cb044ff` | `lib/claude_client.py` + tests | Regression tests pinning head/tail behaviour on `prompt_json` + `prompt_batch` ParseError paths (locks Fix 2-4 contract). |
+| `5f01f0c3` | `lib/claude_client.py` | DRY refactor: `prompt_json` + `prompt_batch` now call `_stdout_diagnostic` instead of inline head/tail logic. |
+| `83097eee` | `lib/claude_client.py` + tests | `_strip_fences` observability: DEBUG on every unfenced extraction; WARNING when result list ≤3 items or empty dict (suspicious-mis-success signature). Threshold caveat documented in commit body. |
+| `c34c733f` | `data-pipeline/scripts/enrich_properties.py` | `run_enrichment` annotation: `db_path: str = None` → `db_path: Optional[str] = None`. |
+| `f52217e5` | `data-pipeline/scripts/evaluate_aptness.py` + tests | `_ortony_log_ratio` warning now includes `pa.keys()` + `pb.keys()` (Option A — preserve pure-function semantics; capped at 10 each to avoid log-line explosion). |
+| `04bff62b` | `data-pipeline/scripts/m02_s04_clear_and_import.py` + `m02_s04_finalise_eval_rebuild.py` | Renamed `delete_synset_rows` → `_delete_synset_rows_within_txn` + `assert conn.in_transaction` precondition; updated cross-file caller in `m02_s04_finalise_eval_rebuild.py` to wrap Phase 1 in explicit BEGIN/COMMIT/ROLLBACK (bonus atomicity gain). |
+
+### Files Modified (Round 2)
+- `lib/claude_client.py`
+- `lib/test_claude_client.py`
+- `data-pipeline/scripts/enrich_properties.py`
+- `data-pipeline/scripts/evaluate_aptness.py`
+- `data-pipeline/scripts/test_evaluate_aptness.py`
+- `data-pipeline/scripts/m02_s04_clear_and_import.py`
+- `data-pipeline/scripts/m02_s04_finalise_eval_rebuild.py`
+
+### Test Results
+**Pre-round-2-fix:** 635 passed.
+**Post-round-2-fix:** 644 passed, 0 failed (+9 tests for the new typed exception fields, ClaudeTimeoutError, observability, pair-identity, etc.).
+
+CRITICAL regression (r2-sf-1) **resolved**.
+
+### Cumulative
+Total rounds: 2 (in progress)
+Items resolved: 22 (12 in Round 1 + 10 in Round 2)
+Active deferrals: 11 (D1–D11)
+Superseded deferrals: 0
+Standards adapter: CLEAN in Round 2.
+Other adapters: not CLEAN (each found new items; all addressed except D11).
 
 ---
 
