@@ -380,22 +380,22 @@ def prompt_json(
     try:
         result = json.loads(raw)
     except json.JSONDecodeError as e:
-        # Include first/last chars of raw so we can diagnose without
+        # Surface raw response head/tail so we can diagnose without
         # re-running. The 8k enrichment kept hitting 'Expecting value: line 1
-        # column 1 (char 0)' with no visibility into what came back — log
-        # both ends so we see whether the response was empty, prose-only,
-        # or truncated mid-stream.
+        # column 1 (char 0)' with no visibility into what came back. Use the
+        # canonical _stdout_diagnostic helper at 500/500 — JSON payloads are
+        # longer than CLI events so the larger window matters.
         head, tail, total = _stdout_diagnostic_fields(raw, head=500, tail=500)
         raise ParseError(
-            f"Failed to parse JSON ({e}); raw_len={total}; "
-            f"head={head!r}; tail={tail!r}",
+            f"Failed to parse JSON ({e}); "
+            f"{_stdout_diagnostic(raw, head=500, tail=500)}",
             stdout_head=head, stdout_tail=tail, total_len=total,
         ) from e
     if expect is not None and not isinstance(result, expect):
         head, tail, total = _stdout_diagnostic_fields(raw, head=500, tail=500)
         raise ParseError(
             f"Expected {expect.__name__}, got {type(result).__name__}; "
-            f"raw_len={total}; head={head!r}; tail={tail!r}",
+            f"{_stdout_diagnostic(raw, head=500, tail=500)}",
             stdout_head=head, stdout_tail=tail, total_len=total,
         )
     return result
@@ -428,14 +428,14 @@ def prompt_batch(
             head, tail, total = _stdout_diagnostic_fields(raw, head=500, tail=500)
             raise ParseError(
                 f"Failed to parse batch JSON: {e}; "
-                f"raw_len={total}; head={head!r}; tail={tail!r}",
+                f"{_stdout_diagnostic(raw, head=500, tail=500)}",
                 stdout_head=head, stdout_tail=tail, total_len=total,
             ) from e
         if not isinstance(batch_results, list):
             head, tail, total = _stdout_diagnostic_fields(raw, head=500, tail=500)
             raise ParseError(
                 f"Expected list from batch, got {type(batch_results).__name__}; "
-                f"raw_len={total}; head={head!r}; tail={tail!r}",
+                f"{_stdout_diagnostic(raw, head=500, tail=500)}",
                 stdout_head=head, stdout_tail=tail, total_len=total,
             )
         all_results.extend(batch_results)
