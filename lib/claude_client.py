@@ -22,7 +22,35 @@ class RateLimitError(ClaudeError):
     """Usage/rate limit exhausted."""
 
 
-class EmptyResponseError(ClaudeError):
+class _StdoutDiagnosticMixin:
+    """Shared typed-diagnostic __init__ for ClaudeError subclasses that
+    carry stdout head/tail/total_len fields.
+
+    Lifted from the identical 12-line bodies on EmptyResponseError and
+    ParseError. Inheritance order is `(_StdoutDiagnosticMixin, ClaudeError)`
+    so this __init__ wins; it calls super().__init__(msg) which lands on
+    ClaudeError → Exception with the message string preserved. Kept as a
+    mixin (rather than a fourth ClaudeError subclass) so the existing
+    public hierarchy is unchanged — issubclass(EmptyResponseError,
+    ClaudeError) continues to hold, and tests asserting that hierarchy
+    don't need updating.
+    """
+
+    def __init__(
+        self,
+        msg: str,
+        *,
+        stdout_head: str = "",
+        stdout_tail: str = "",
+        total_len: int = 0,
+    ):
+        super().__init__(msg)
+        self.stdout_head = stdout_head
+        self.stdout_tail = stdout_tail
+        self.total_len = total_len
+
+
+class EmptyResponseError(_StdoutDiagnosticMixin, ClaudeError):
     """Empty stdout or missing result field.
 
     Carries typed diagnostic fields so structured callers don't have to
@@ -30,38 +58,12 @@ class EmptyResponseError(ClaudeError):
     human-readable head/tail snapshot for logs.
     """
 
-    def __init__(
-        self,
-        msg: str,
-        *,
-        stdout_head: str = "",
-        stdout_tail: str = "",
-        total_len: int = 0,
-    ):
-        super().__init__(msg)
-        self.stdout_head = stdout_head
-        self.stdout_tail = stdout_tail
-        self.total_len = total_len
 
-
-class ParseError(ClaudeError):
+class ParseError(_StdoutDiagnosticMixin, ClaudeError):
     """Cannot parse the LLM response.
 
     Same typed-diagnostic contract as EmptyResponseError.
     """
-
-    def __init__(
-        self,
-        msg: str,
-        *,
-        stdout_head: str = "",
-        stdout_tail: str = "",
-        total_len: int = 0,
-    ):
-        super().__init__(msg)
-        self.stdout_head = stdout_head
-        self.stdout_tail = stdout_tail
-        self.total_len = total_len
 
 
 class ClaudeTimeoutError(ClaudeError):
