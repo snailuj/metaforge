@@ -11,11 +11,16 @@ proceeds and actually deletes rows.
 import sqlite3
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from m02_s04_clear_and_import import _delete_synset_rows_within_txn
+import m02_s04_clear_and_import as mod
+from m02_s04_clear_and_import import (
+    _delete_synset_rows_within_txn,
+    _import_one_payload,
+)
 
 
 def test_delete_synset_rows_within_txn_requires_explicit_transaction():
@@ -96,5 +101,56 @@ def test_delete_synset_rows_within_txn_accepts_explicit_transaction():
                 f"SELECT COUNT(*) FROM {table} WHERE synset_id IN ('s1', 's2')"
             ).fetchone()[0]
             assert count == 0, f"{table} still has deleted rows after commit"
+    finally:
+        conn.close()
+
+
+def test_import_one_payload_warns_when_rollback_impossible_after_inner_commit():
+    """Silent-leak surface: when an inner populate_* commits and a later
+    populate_* then raises, the outer rollback path has nothing to roll
+    back. That partial-import state was previously silent; the helper
+    must now log a WARNING naming the payload before re-raising.
+
+    We simulate the sequence by:
+      - stubbing `_delete_synset_rows_within_txn` to a no-op,
+      - stubbing `curate_properties` to issue `conn.commit()` (closing
+        the outer txn),
+      - stubbing `populate_synset_properties` to raise RuntimeError.
+
+    The original RuntimeError must propagate (no exception swallowing),
+    and `log.warning` must fire with "Rollback not possible" and the
+    payload path.
+    """
+    conn = sqlite3.connect(":memory:")
+    try:
+        path = "/tmp/fake_payload.json"
+        data = {"synsets": [{"id": "s1"}], "config": {"model": "haiku"}}
+        vectors = {}
+
+        def _curate_commits(_conn, _data, _vectors):
+            _conn.commit()
+
+        def _populate_raises(_conn, _data, _model):
+            raise RuntimeError("simulated populate failure")
+
+        with mock.patch.object(mod, "_delete_synset_rows_within_txn",
+                               lambda _c, _ids: None), \
+             mock.patch.object(mod, "curate_properties", _curate_commits), \
+             mock.patch.object(mod, "populate_synset_properties",
+                               _populate_raises), \
+             mock.patch.object(mod, "populate_lemma_metadata",
+                               lambda _c, _d: None), \
+             mock.patch.object(mod, "log") as mock_log:
+            with pytest.raises(RuntimeError,
+                               match="simulated populate failure"):
+                _import_one_payload(conn, path, data, vectors)
+
+        # Exactly one WARNING, naming the payload and the rollback gap.
+        assert mock_log.warning.called, "expected log.warning on silent-leak"
+        call_args, _ = mock_log.warning.call_args
+        msg = call_args[0]
+        assert "Rollback not possible" in msg
+        # First positional arg after the format string is the payload path.
+        assert call_args[1] == path
     finally:
         conn.close()

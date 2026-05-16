@@ -64,6 +64,8 @@ from enrich_pipeline import (
 )
 from utils import LEXICON_V2, FASTTEXT_VEC, load_fasttext_vectors
 
+log = logging.getLogger(__name__)
+
 
 def _delete_synset_rows_within_txn(conn, synset_ids):
     """Wipe the LLM-data rows for the given synset_ids.
@@ -112,6 +114,59 @@ def _delete_synset_rows_within_txn(conn, synset_ids):
           f"{n_lm} lemma_metadata rows for {len(synset_ids)} synsets.")
 
 
+def _import_one_payload(conn, path, data, vectors):
+    """Clear-and-import a single enrichment payload inside its own txn.
+
+    Extracted from `main()` so the partial-atomicity behaviour can be
+    exercised in isolation by tests — in particular, the silent-leak
+    case where an inner `populate_*` commit lands before a later
+    failure, leaving the rollback path with nothing to roll back.
+    """
+    synset_ids = [s["id"] for s in data.get("synsets", [])]
+    model_used = data.get("config", {}).get("model", "unknown")
+    print(f"\n--- {path} ({len(synset_ids)} synsets, "
+          f"model={model_used}) ---")
+    conn.execute("BEGIN")
+    try:
+        _delete_synset_rows_within_txn(conn, synset_ids)
+        print("  Re-curating + populating...")
+        curate_properties(conn, data, vectors)
+        populate_synset_properties(conn, data, model_used)
+        populate_lemma_metadata(conn, data)
+        # If the populate_* helpers' internal commits already
+        # closed the txn, this commit is a no-op; if they did
+        # not (e.g. a future refactor hoists their commits
+        # out), this preserves atomicity for the payload.
+        if conn.in_transaction:
+            conn.commit()
+    except Exception:
+        # Re-raise with original traceback intact (bare `raise`
+        # inside the except block; never `raise e` — that would
+        # lose context). Only roll back if we still hold the
+        # txn; if an inner commit already landed, there is
+        # nothing to roll back and calling rollback() would
+        # raise OperationalError, masking the original error.
+        #
+        # When the txn has already been closed by an inner commit,
+        # the silent-leak case is real: DELETEs and any successful
+        # populate_* writes are persisted, and no rollback is
+        # possible. Log a WARNING so the operator sees the partial
+        # state rather than discovering it later by accident.
+        if conn.in_transaction:
+            conn.rollback()
+        else:
+            log.warning(
+                "Rollback not possible for payload %s — inner commits "
+                "in enrich_pipeline.populate_* fired before the failure "
+                "point. Database is in partial-import state: DELETEs "
+                "and any prior successful populate_* steps are already "
+                "persisted. Manual repair required from snapshot. See "
+                "module docstring for partial-atomicity caveat.",
+                path,
+            )
+        raise
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser()
@@ -140,37 +195,11 @@ def main():
         # Per-payload BEGIN/COMMIT. The inner enrich_pipeline.populate_*
         # helpers each commit internally, so a single outer transaction
         # cannot span multiple payloads — it would collapse on iteration
-        # 1 and trip the precondition assert in
+        # 1 and trip the precondition raise in
         # `_delete_synset_rows_within_txn` on iteration 2. See module
         # docstring for the full transactional-safety rationale.
         for path, data in payloads:
-            synset_ids = [s["id"] for s in data.get("synsets", [])]
-            model_used = data.get("config", {}).get("model", "unknown")
-            print(f"\n--- {path} ({len(synset_ids)} synsets, "
-                  f"model={model_used}) ---")
-            conn.execute("BEGIN")
-            try:
-                _delete_synset_rows_within_txn(conn, synset_ids)
-                print("  Re-curating + populating...")
-                curate_properties(conn, data, vectors)
-                populate_synset_properties(conn, data, model_used)
-                populate_lemma_metadata(conn, data)
-                # If the populate_* helpers' internal commits already
-                # closed the txn, this commit is a no-op; if they did
-                # not (e.g. a future refactor hoists their commits
-                # out), this preserves atomicity for the payload.
-                if conn.in_transaction:
-                    conn.commit()
-            except Exception:
-                # Re-raise with original traceback intact (bare `raise`
-                # inside the except block; never `raise e` — that would
-                # lose context). Only roll back if we still hold the
-                # txn; if an inner commit already landed, there is
-                # nothing to roll back and calling rollback() would
-                # raise OperationalError, masking the original error.
-                if conn.in_transaction:
-                    conn.rollback()
-                raise
+            _import_one_payload(conn, path, data, vectors)
 
         print("\nImport complete. Downstream tables "
               "(synset_properties_curated, vocab_clusters, "
