@@ -23,11 +23,45 @@ class RateLimitError(ClaudeError):
 
 
 class EmptyResponseError(ClaudeError):
-    """Empty stdout or missing result field."""
+    """Empty stdout or missing result field.
+
+    Carries typed diagnostic fields so structured callers don't have to
+    regex-parse the message string. The message still includes a
+    human-readable head/tail snapshot for logs.
+    """
+
+    def __init__(
+        self,
+        msg: str,
+        *,
+        stdout_head: str = "",
+        stdout_tail: str = "",
+        total_len: int = 0,
+    ):
+        super().__init__(msg)
+        self.stdout_head = stdout_head
+        self.stdout_tail = stdout_tail
+        self.total_len = total_len
 
 
 class ParseError(ClaudeError):
-    """Cannot parse the LLM response."""
+    """Cannot parse the LLM response.
+
+    Same typed-diagnostic contract as EmptyResponseError.
+    """
+
+    def __init__(
+        self,
+        msg: str,
+        *,
+        stdout_head: str = "",
+        stdout_tail: str = "",
+        total_len: int = 0,
+    ):
+        super().__init__(msg)
+        self.stdout_head = stdout_head
+        self.stdout_tail = stdout_tail
+        self.total_len = total_len
 
 
 class ClaudeTimeoutError(ClaudeError):
@@ -158,6 +192,21 @@ def _stdout_diagnostic(stdout: str, head: int = 300, tail: int = 300) -> str:
     return f"head={stdout[:head]!r}; tail={stdout[-tail:]!r}"
 
 
+def _stdout_diagnostic_fields(
+    stdout: str, head: int = 300, tail: int = 300,
+) -> tuple[str, str, int]:
+    """Structured sibling of `_stdout_diagnostic` returning the head/tail/
+    total_len components as typed fields. Lets exception classes carry
+    machine-readable diagnostic context alongside the human-readable
+    message. Symmetric byte-cap behaviour with `_stdout_diagnostic`."""
+    if not stdout:
+        return ("", "", 0)
+    total = len(stdout)
+    if total <= head + tail:
+        return (stdout, "", total)
+    return (stdout[:head], stdout[-tail:], total)
+
+
 def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
     """Parse Claude CLI JSON event output and return the result text."""
     if returncode != 0:
@@ -169,16 +218,19 @@ def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
             f"claude CLI failed (exit {returncode}); stderr={stderr!r}; "
             f"{_stdout_diagnostic(stdout)}"
         )
+    head, tail, total = _stdout_diagnostic_fields(stdout)
     if not stdout or not stdout.strip():
         raise EmptyResponseError(
-            f"claude CLI returned empty stdout; {_stdout_diagnostic(stdout)}"
+            f"claude CLI returned empty stdout; {_stdout_diagnostic(stdout)}",
+            stdout_head=head, stdout_tail=tail, total_len=total,
         )
     try:
         parsed = json.loads(stdout)
     except json.JSONDecodeError as e:
         raise EmptyResponseError(
             f"Failed to parse claude stdout as JSON: {e}; "
-            f"{_stdout_diagnostic(stdout)}"
+            f"{_stdout_diagnostic(stdout)}",
+            stdout_head=head, stdout_tail=tail, total_len=total,
         ) from e
     # The claude CLI's --output-format=json schema has evolved across versions:
     # earlier emissions were a JSON array of events (system init, then result);
@@ -192,14 +244,16 @@ def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
     else:
         raise EmptyResponseError(
             f"Unexpected claude stdout shape: {type(parsed).__name__}; "
-            f"{_stdout_diagnostic(stdout)}"
+            f"{_stdout_diagnostic(stdout)}",
+            stdout_head=head, stdout_tail=tail, total_len=total,
         )
     result_event = next(
         (e for e in reversed(events) if e.get("type") == "result"), None
     )
     if result_event is None:
         raise EmptyResponseError(
-            f"No result event in claude output; {_stdout_diagnostic(stdout)}"
+            f"No result event in claude output; {_stdout_diagnostic(stdout)}",
+            stdout_head=head, stdout_tail=tail, total_len=total,
         )
     if result_event.get("is_error"):
         error_text = result_event.get("result", "")
@@ -211,7 +265,8 @@ def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
         raise EmptyResponseError(
             f"Result event missing 'result' field "
             f"(keys: {sorted(result_event.keys())}); "
-            f"{_stdout_diagnostic(stdout)}"
+            f"{_stdout_diagnostic(stdout)}",
+            stdout_head=head, stdout_tail=tail, total_len=total,
         )
     return _strip_fences(text.strip())
 
@@ -325,19 +380,24 @@ def prompt_json(
     try:
         result = json.loads(raw)
     except json.JSONDecodeError as e:
-        # Include first/last 500 chars of raw so we can diagnose without
+        # Include first/last chars of raw so we can diagnose without
         # re-running. The 8k enrichment kept hitting 'Expecting value: line 1
         # column 1 (char 0)' with no visibility into what came back — log
         # both ends so we see whether the response was empty, prose-only,
         # or truncated mid-stream.
-        head = raw[:500] if raw else "<empty>"
-        tail = raw[-500:] if raw and len(raw) > 1000 else ""
+        head, tail, total = _stdout_diagnostic_fields(raw, head=500, tail=500)
         raise ParseError(
-            f"Failed to parse JSON ({e}); raw_len={len(raw)}; "
-            f"head={head!r}; tail={tail!r}"
+            f"Failed to parse JSON ({e}); raw_len={total}; "
+            f"head={head!r}; tail={tail!r}",
+            stdout_head=head, stdout_tail=tail, total_len=total,
         ) from e
     if expect is not None and not isinstance(result, expect):
-        raise ParseError(f"Expected {expect.__name__}, got {type(result).__name__}")
+        head, tail, total = _stdout_diagnostic_fields(raw, head=500, tail=500)
+        raise ParseError(
+            f"Expected {expect.__name__}, got {type(result).__name__}; "
+            f"raw_len={total}; head={head!r}; tail={tail!r}",
+            stdout_head=head, stdout_tail=tail, total_len=total,
+        )
     return result
 
 
@@ -365,9 +425,19 @@ def prompt_batch(
         try:
             batch_results = json.loads(raw)
         except json.JSONDecodeError as e:
-            raise ParseError(f"Failed to parse batch JSON: {e}") from e
+            head, tail, total = _stdout_diagnostic_fields(raw, head=500, tail=500)
+            raise ParseError(
+                f"Failed to parse batch JSON: {e}; "
+                f"raw_len={total}; head={head!r}; tail={tail!r}",
+                stdout_head=head, stdout_tail=tail, total_len=total,
+            ) from e
         if not isinstance(batch_results, list):
-            raise ParseError(f"Expected list from batch, got {type(batch_results).__name__}")
+            head, tail, total = _stdout_diagnostic_fields(raw, head=500, tail=500)
+            raise ParseError(
+                f"Expected list from batch, got {type(batch_results).__name__}; "
+                f"raw_len={total}; head={head!r}; tail={tail!r}",
+                stdout_head=head, stdout_tail=tail, total_len=total,
+            )
         all_results.extend(batch_results)
         if on_batch:
             batch_index = i // batch_size + 1

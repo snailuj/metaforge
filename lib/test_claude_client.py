@@ -221,6 +221,40 @@ def test_parse_events_unexpected_shape_includes_head_tail():
     assert "head=" in msg
 
 
+def test_empty_response_error_typed_fields():
+    """EmptyResponseError must expose stdout_head, stdout_tail, total_len
+    as typed attributes so structured callers don't have to regex-parse
+    the message. Round 1's diagnostic is interpolated into args[0] only;
+    type-design-analyzer flagged that as a magic-string contract."""
+    bad = "prose-prefix " + ("x" * 700) + " trailing-tail"
+    with pytest.raises(EmptyResponseError) as excinfo:
+        _parse_events(bad, 0, "")
+    e = excinfo.value
+    assert hasattr(e, "stdout_head")
+    assert hasattr(e, "stdout_tail")
+    assert hasattr(e, "total_len")
+    assert e.total_len == len(bad)
+    assert "prose-prefix" in e.stdout_head
+    assert "trailing-tail" in e.stdout_tail
+
+
+def test_parse_error_typed_fields():
+    """ParseError raised from prompt_json's JSON-decode path must expose
+    the same typed fields as EmptyResponseError."""
+    with patch("claude_client._invoke_with_retries") as mock_invoke:
+        # Long enough to exceed the 500+500 cap so head/tail split applies.
+        mock_invoke.return_value = "not-json-prose " + ("x" * 1500) + " end-marker"
+        with pytest.raises(ParseError) as excinfo:
+            prompt_json("prompt", model="haiku")
+        e = excinfo.value
+        assert hasattr(e, "stdout_head")
+        assert hasattr(e, "stdout_tail")
+        assert hasattr(e, "total_len")
+        assert e.total_len > 0
+        assert "end-marker" in e.stdout_tail
+        assert "not-json-prose" in e.stdout_head
+
+
 def test_parse_events_nonzero_exit_includes_head_tail():
     """Non-zero exit error must include stdout head/tail — currently only
     stderr is surfaced; if the CLI emitted partial stdout (e.g. a Bus
