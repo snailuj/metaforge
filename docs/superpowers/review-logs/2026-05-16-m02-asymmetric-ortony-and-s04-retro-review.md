@@ -559,3 +559,119 @@ Other adapters: not CLEAN (each found new items; all addressed except D11).
 
 ---
 
+## Round 3 — pr-review-toolkit + superpowers + standards + type-design (2026-05-16T13:45:00Z)
+
+**Reviewers dispatched:** code-reviewer, silent-failure-hunter, type-design-analyzer (pr-review-toolkit); superpowers:code-reviewer; standards (general-purpose); ux-designer no-op.
+
+### Items Found (Round 3 — merged + deduplicated)
+
+**important (3 items — all from Round 2 fix delta):**
+- **r3-td-1: Multi-payload `_delete_synset_rows_within_txn` assert regression** (type-design-analyzer). `conn.execute("BEGIN")` runs once outside the loop; inner commits in `enrich_pipeline.populate_*` collapse the outer transaction; iteration-2 DELETE assert fails. Real regression from Round 2 fix `04bff62b`. Decision: **fix** — move BEGIN/COMMIT inside loop (per-payload atomicity).
+- **r3-sp-1: ClaudeTimeoutError drops `exc.stdout`/`exc.stderr`** (superpowers). Round 2 `1d8f2585` wrapped TimeoutExpired but discarded the subprocess's partial output. Decision: **fix** — typed `stdout_head`/`stdout_tail`/`stderr_head`/`stderr_tail` fields.
+- **r3-sp-2: Retry loop doesn't differentiate ClaudeTimeoutError — 75-min worst case** (superpowers). `max_retries=5 × 900s = 75 min` per stalled batch. Decision: **fix** — cap timeout retries at 1.
+
+**low (5 items):**
+- **r3-td-2: Suspiciously-short heuristic threshold not tuneable** (superpowers own-3). Decision: **fix** — lift to module constant.
+- **r3-td-3: `delete_synset_rows_within_txn` precondition assert not unit-tested** (type-design own-5). Decision: **fix** — add test file with red/green for the assert.
+- **r3-td-4: 5 remaining `T = None` typed-lies in `enrich_properties.py`** (type-design own-4). Decision: **fix** — apply `Optional[X]` to all 5 sites.
+- **r3-sf-4: `_ortony_log_ratio` warning lacks total-size hint** (silent-failure-hunter own-5). Decision: **fix** — include `pa_n=N`, `pb_n=N`.
+- **bracket-balance dict-side asymmetry** (silent-failure-hunter own-1): suspicious-short heuristic flags empty dicts but not small non-empty ones. Decision: **fix** — symmetric dict threshold.
+
+**cosmetic (7 items):**
+- Parsed-value content in WARNING (sf own-2) — **fix** (one-line log arg).
+- DRY drift: prompt_json builds diagnostic twice (sf own-3) — **fix** combined with Mixin lift.
+- Mixin lift for typed-field __init__ duplication (type-design own-2) — **fix** — `_StdoutDiagnosticMixin`.
+- Dead `MonkeyPatch.context()` scaffold in test (sf own-6) — **fix**.
+- ClaudeTimeoutError missing typed __init__ (type-design own-1) — **fix** combined with r3-sp-1.
+- Typed fields mutable + serialisation round-trip (type-design own-3) — **defer** → D13.
+- `conn.in_transaction` necessary-but-insufficient (type-design own-6) — **defer** → D12.
+- `_strip_fences` worst-case O(N·K) opener density (superpowers own-4) — **defer** → D14.
+
+**standards:** No new items at the per-standard level. Concurred with all 11 deferrals.
+
+### Critique Sections Persisted (compact summary)
+
+All four active adapters returned 4-section responses. Each adapter's PRIOR_FINDINGS_CRITIQUE substantively examined the previous round's findings; APPLIED_FIXES_CRITIQUE assessed all 10 Round 2 fix commits with per-fix yes/partial verdicts; DEFERRAL_LEDGER_REVIEW covered all 11 active deferrals individually. **No challenges raised this round (all 11 concurred).**
+
+**Convergence verdict (per superpowers reviewer):** "Broadly converging — severity trend critical→critical→none for criticals, the round-3 importants are concentrated in the `1d8f2585` commit area rather than scattered, deferrals stable (no challenges). But not yet zero-finding."
+
+### Deferrals Ledger Update — D12, D13, D14 added
+
+#### D12 — `conn.in_transaction` precondition necessary-but-insufficient under sqlite3 implicit-BEGIN
+- **Source:** Round 3, type-design-analyzer (own #6)
+- **File:** `data-pipeline/scripts/m02_s04_clear_and_import.py:73-76`
+- **Severity:** low
+- **scope_boundary:** Requires either a `TransactionalConnection` Protocol wrapper that explicitly tracks "we BEGIN'd it" vs "the connection happens to be in implicit-DML-tx", or a coding convention that's hard to enforce mechanically.
+- **why_out_of_scope:** Current call sites all use explicit `conn.execute("BEGIN")` immediately before the call — so the assert correctly catches the most common misuse ("forgot to BEGIN"). The implicit-BEGIN-from-prior-DML misuse is structurally rare. Lifting to a Protocol/wrapper is invasive across all sqlite3.Connection uses.
+- **proposed_followup:** Pipeline Tooling Consolidation territory when the production `--clear-existing` flag (backfill item 1c) lands.
+- **status:** active
+
+#### D13 — Typed exception fields mutable post-construction + serialisation round-trip not preserved
+- **Source:** Round 3, type-design-analyzer (own #3)
+- **File:** `lib/claude_client.py` `_StdoutDiagnosticMixin` (after R3 Mixin refactor)
+- **Severity:** low
+- **scope_boundary:** Two distinct concerns:
+  1. **Mutability**: nothing prevents `e.stdout_head = "fake"` after raise. Mitigation requires `__slots__` + maybe `__setattr__` override.
+  2. **Serialisation**: keyword-only `__init__` doesn't round-trip via default Exception `__reduce__` which calls `__init__(*args)`. Would need custom `__reduce__` or change kw-only to positional.
+- **why_out_of_scope:** Metaforge does not currently cross process boundaries with these exceptions (the retry loop is in-process; no multiprocessing pool exchanges them). Both concerns are latent foot-guns rather than active bugs. Closing them invasive (touches every raise site + adds serialisation machinery).
+- **proposed_followup:** If a future feature crosses process boundaries (e.g. parallel sweep dispatch via multiprocessing.Pool), revisit. Capture in `docs/inbox/captures.md`.
+- **status:** active
+
+#### D14 — `_strip_fences` worst-case O(N·K) on opener density
+- **Source:** Round 3, superpowers (own #4)
+- **File:** `lib/claude_client.py:137-179`
+- **Severity:** low
+- **scope_boundary:** Algorithmic complexity tightening — early-exit on the bracket-balance scan when start position passes the last balanced closer of a previously-tried opener, OR cap candidate_openers to first M (e.g. 20).
+- **why_out_of_scope:** Bounded in practice: typical LLM responses are < 100 KB; K (opener count) scales with prose density but rarely > 50 for production batches. Tests against pathological inputs all complete in milliseconds.
+- **proposed_followup:** If a future production incident traces back to `_strip_fences` CPU spend on adversarial LLM output, add the early-exit. Capture in `docs/inbox/captures.md`.
+- **status:** active
+
+### Round 3 Fixes Applied
+
+Pre-fix SHA: `1d12a0f3`. 9 commits landed across 4 subagents (with parallel-staging interleaving on 2 of 9 — content correct, message attribution mixed):
+
+| Commit | Fix |
+|---|---|
+| `350ae27a` | **r3-sp-1**: `ClaudeTimeoutError` typed `__init__` with timeout_seconds + cmd_prefix + stdout/stderr head/tail/len. `_invoke` reads `exc.stdout`/`exc.stderr` via `_decode_stream` helper. |
+| `ed1b7eee` | **r3-sp-2**: `_MAX_TIMEOUT_ATTEMPTS=1`; retry loop caps timeout retries at 1. (Also bundled subagent D's `_ortony_log_ratio` pair_n size hint due to parallel staging.) |
+| `b3e498c9` | **r3-td-2**: `_STRIP_FENCES_SUSPICIOUS_RESULT_THRESHOLD = 3` lifted to module constant. |
+| `19b358b5` | **dict-side symmetry**: `_STRIP_FENCES_SUSPICIOUS_DICT_THRESHOLD = 2`; suspicious heuristic now flags small non-empty dicts. |
+| `1ef8f875` | **sf-2**: WARNING log includes `parsed_value=%s` capped via `repr(parsed)[:200]`. |
+| `f8d821d6` | **td-2 Mixin**: `_StdoutDiagnosticMixin` extracted; `EmptyResponseError(_StdoutDiagnosticMixin, ClaudeError)` and `ParseError(_StdoutDiagnosticMixin, ClaudeError)`. MRO verified. |
+| `3f47e392` | **sf-6**: dead `pytest.MonkeyPatch.context()` scaffold removed. |
+| `e8679702` | **td-5**: new `data-pipeline/scripts/test_m02_s04_clear_and_import.py` pins the precondition assert with 2 tests. |
+| `10f43b6b` | **r3-td-4**: 5 sibling `T = None` typed-lies converted to `Optional[X] = None`. (Also bundled subagent B's **r3-td-1 multi-payload regression fix** — BEGIN/COMMIT moved inside `for path, data in payloads:` loop in `m02_s04_clear_and_import.py`, due to parallel staging.) |
+
+### Note on Parallel-Dispatch Interference (Batch 3, recurrent)
+
+Despite explicit `git add <file>` in every subagent prompt, parallel staging interleaving recurred. Root cause: `git commit` (no pathspec) commits *all* staged content; multiple subagents share the working directory + index. When subagent C's `git add data-pipeline/scripts/enrich_properties.py` ran while subagent B had already staged `data-pipeline/scripts/m02_s04_clear_and_import.py`, the subsequent commit captured both. Same pattern as Round 1.
+
+**Mitigation for future batches:** prefer `git commit -- <pathspec>` (pathspec restricts commit to specified files even if index has more). Or single-file batches. Or per-subagent worktrees (heavy).
+
+**Decision for Round 3:** Leave history as-is — content correct (verified by 653 tests passing); rewriting history on published branch trades cosmetic clarity for force-push risk. Round 4 reviewers see this note in handover.
+
+### Files Modified (Round 3)
+- `lib/claude_client.py`, `lib/test_claude_client.py`
+- `data-pipeline/scripts/enrich_properties.py`
+- `data-pipeline/scripts/evaluate_aptness.py`, `test_evaluate_aptness.py`
+- `data-pipeline/scripts/m02_s04_clear_and_import.py`
+- `data-pipeline/scripts/test_m02_s04_clear_and_import.py` (new)
+
+### Test Results
+**Pre-round-3-fix:** 644 passed.
+**Post-round-3-fix:** 653 passed, 0 failed (+9 tests for ClaudeTimeoutError fields, retry-cap, dict-side suspicious threshold, parsed-value WARNING, mixin lift, precondition-assert pinning, pair_n assertion).
+
+All 3 Round 3 **important** findings resolved:
+- ✅ r3-td-1 multi-payload regression — per-payload BEGIN/COMMIT
+- ✅ r3-sp-1 ClaudeTimeoutError diagnostic loss — typed fields capture stdout/stderr
+- ✅ r3-sp-2 75-min retry burn — cap at 1 attempt
+
+### Cumulative
+Total rounds: 3 (in progress)
+Items resolved: 31 (12 R1 + 10 R2 + 9 R3 distinct)
+Active deferrals: 14 (D1–D14)
+Superseded deferrals: 0
+Trajectory: criticals R1+R2 → 0 critical R3; importants concentrated in same commit area each round; deferrals stable (zero challenges in R3).
+
+---
+
