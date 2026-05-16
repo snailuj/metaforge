@@ -1,12 +1,12 @@
 """Tests for `m02_s04_clear_and_import` — pin the transaction-boundary contract.
 
-The `_delete_synset_rows_within_txn` helper enforces an `assert
-conn.in_transaction` precondition so that DELETEs never leak past an
-implicit auto-commit. The assert is the *only* mechanism guarding the
-invariant — a future maintainer who refactors it away (e.g. because
-"asserts are defensive and `python -O` strips them") would get a silent
-regression. These tests pin the contract: calling the helper outside a
-txn raises `AssertionError`; calling it inside a txn proceeds.
+The `_delete_synset_rows_within_txn` helper enforces an
+`if not conn.in_transaction: raise RuntimeError(...)` precondition so
+that DELETEs never leak past an implicit auto-commit. A real `raise`
+(rather than an `assert`) survives `python -O` / `PYTHONOPTIMIZE=1`,
+which strips assertions. These tests pin the contract: calling the
+helper outside a txn raises `RuntimeError`; calling it inside a txn
+proceeds and actually deletes rows.
 """
 import sqlite3
 import sys
@@ -23,14 +23,16 @@ def test_delete_synset_rows_within_txn_requires_explicit_transaction():
 
     `sqlite3.connect(":memory:")` returns a connection in autocommit
     mode (no implicit txn), so `conn.in_transaction` is False until a
-    DML statement or explicit BEGIN. Calling the helper here must trip
-    the precondition assert immediately — before any DELETE runs.
+    DML statement or explicit BEGIN. Calling the helper here must raise
+    `RuntimeError` immediately — before any DELETE runs. `RuntimeError`
+    (rather than `AssertionError`) is chosen deliberately so the guard
+    survives `python -O` / `PYTHONOPTIMIZE=1`.
     """
     conn = sqlite3.connect(":memory:")
     try:
         # Sanity check: no implicit txn open.
         assert not conn.in_transaction
-        with pytest.raises(AssertionError, match="explicit transaction"):
+        with pytest.raises(RuntimeError, match="explicit transaction"):
             _delete_synset_rows_within_txn(conn, ["synset-1"])
     finally:
         conn.close()

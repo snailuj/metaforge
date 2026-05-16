@@ -75,14 +75,18 @@ def _delete_synset_rows_within_txn(conn, synset_ids):
     The leading underscore + `_within_txn` suffix mark this as a
     transaction-internal helper: it issues unflushed DELETEs and relies
     on the caller's `BEGIN ... COMMIT` boundary to persist or roll them
-    back atomically with subsequent import work. The precondition assert
+    back atomically with subsequent import work. The precondition raise
     below surfaces a contract violation immediately rather than letting
-    the DELETEs leak at the next auto-commit boundary.
+    the DELETEs leak at the next auto-commit boundary. We use a real
+    `raise RuntimeError` (not `assert`) so the guard survives
+    `python -O` / `PYTHONOPTIMIZE=1`, which strips assertions.
     """
-    assert conn.in_transaction, (
-        "_delete_synset_rows_within_txn must be called inside an explicit "
-        "transaction (BEGIN ... COMMIT) — the caller owns the txn boundary."
-    )
+    if not conn.in_transaction:
+        raise RuntimeError(
+            "_delete_synset_rows_within_txn must be called inside an "
+            "explicit transaction (caller forgot conn.execute('BEGIN'); "
+            "without BEGIN the DELETEs run in autocommit and leak)"
+        )
     if not synset_ids:
         return
     ph = ",".join("?" for _ in synset_ids)
