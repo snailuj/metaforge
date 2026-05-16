@@ -623,3 +623,43 @@ def test_prompt_batch_non_list_raises(mock_invoke):
     mock_invoke.return_value = '{"not": "a list"}'
     with pytest.raises(ParseError, match="Expected list"):
         prompt_batch(items=["a"], template="{batch_items}", batch_size=10, model="haiku")
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_json_wrong_type_includes_head_tail(mock_invoke):
+    """prompt_json's expect-type-mismatch ParseError must include head/tail
+    diagnostic context so operators can see what was returned without
+    re-running the prompt. Round 1 added the diagnostic only on the
+    json.loads failure path."""
+    mock_invoke.return_value = '{"key": "val"}'
+    with pytest.raises(ParseError) as excinfo:
+        prompt_json("prompt", model="haiku", expect=list)
+    msg = str(excinfo.value)
+    assert "head=" in msg
+    assert "tail=" in msg
+    # Typed fields populated too.
+    assert excinfo.value.total_len > 0
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_batch_malformed_json_includes_head_tail(mock_invoke):
+    """prompt_batch JSON-decode failure must surface head/tail diagnostic
+    so operators don't get a terse 'Failed to parse batch JSON: …' with
+    zero visibility into the raw response."""
+    mock_invoke.return_value = "prose only, no JSON here at all — operator must see this"
+    with pytest.raises(ParseError) as excinfo:
+        prompt_batch(items=["a"], template="{batch_items}", batch_size=10, model="haiku")
+    msg = str(excinfo.value)
+    assert "head=" in msg
+    assert "tail=" in msg
+
+
+@patch("claude_client._invoke_with_retries")
+def test_prompt_batch_non_list_includes_head_tail(mock_invoke):
+    """Same for the non-list-batch case."""
+    mock_invoke.return_value = '{"not": "a list"}'
+    with pytest.raises(ParseError) as excinfo:
+        prompt_batch(items=["a"], template="{batch_items}", batch_size=10, model="haiku")
+    msg = str(excinfo.value)
+    assert "head=" in msg
+    assert "tail=" in msg
