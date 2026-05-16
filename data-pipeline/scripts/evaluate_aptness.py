@@ -301,11 +301,17 @@ def _ortony_log_ratio(
             # with enough context to find the offending row so a curation
             # bug (NULL → 0 coalesce, accidental clamp) does not silently
             # shrink the score; then continue so we never propagate 0/0 NaN.
+            # Include the full property profile (sorted cluster ids, capped
+            # at 10 to bound log-line size) — cluster id alone is not enough
+            # to identify which (topic_synset, vehicle_synset) pair triggered
+            # the warning across thousands of per-pair invocations.
             log.warning(
                 "ortony_log_ratio: skipping shared cluster %d with "
-                "non-positive salience (pa=%s, pb=%s) — likely "
-                "curated-salience corruption",
+                "non-positive salience (pa=%s, pb=%s); pa_keys=%s; "
+                "pb_keys=%s — likely curated-salience corruption",
                 c, pa[c], pb[c],
+                sorted(pa.keys())[:10],
+                sorted(pb.keys())[:10],
             )
             continue
         numerator += (pb[c] * pb[c]) / denom

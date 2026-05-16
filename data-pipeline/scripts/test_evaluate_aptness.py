@@ -829,6 +829,16 @@ def test_ortony_log_ratio_warns_on_non_positive_shared_cluster(caplog):
         "ortony_log_ratio" in m and "non-positive" in m and "1" in m
         for m in messages
     ), f"expected a warning naming the function, 'non-positive', and cluster 1; got: {messages}"
+    # Cluster id alone does not identify which (topic, vehicle) pair triggered
+    # the warning — _ortony_log_ratio is called per-pair across thousands of
+    # pairs. The warning must include the full property profile (sorted cluster
+    # ids on each side) so an operator can recognise the pair in retro.
+    assert any(
+        "pa_keys" in m and "pb_keys" in m for m in messages
+    ), f"expected pa_keys + pb_keys profile fingerprint in warning; got: {messages}"
+    assert any(
+        "[1, 2]" in m for m in messages
+    ), f"expected sorted property profile [1, 2] in warning; got: {messages}"
 
 
 # --- random_uniform null control --------------------------------------------
