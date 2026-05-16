@@ -852,6 +852,10 @@ def main():
         ),
     )
     parser.add_argument(
+        "--db", type=str, default=str(LEXICON_V2),
+        help="Path to lexicon_v2.db; default: %(default)s",
+    )
+    parser.add_argument(
         "--skip-preflight", action="store_true",
         help=(
             "Skip the end-to-end parser preflight that runs by default "
@@ -872,7 +876,7 @@ def main():
     if not args.skip_preflight:
         try:
             preflight_check(
-                db_path=str(LEXICON_V2),
+                db_path=args.db,
                 model=args.model,
                 schema_version=args.schema_version,
                 verbose=args.verbose,
@@ -896,6 +900,7 @@ def main():
         output_file=output_file,
         synset_ids_file=synset_ids_file,
         verbose=args.verbose,
+        db_path=args.db,
         strategy=args.strategy,
         schema_version=args.schema_version,
         offset=args.offset,

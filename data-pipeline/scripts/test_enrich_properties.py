@@ -1000,6 +1000,35 @@ def test_run_enrichment_logs_exception_on_claude_error(
     )
 
 
+# --- main() CLI ---------------------------------------------------------------
+
+def test_main_threads_db_flag_to_preflight(monkeypatch, tmp_path):
+    """main() --db flag is threaded through to preflight_check and run_enrichment.
+
+    Without this, an operator passing --db on the command line silently
+    has the preflight test the wrong DB and the run target a different one.
+    """
+    from unittest.mock import patch
+    import enrich_properties as ep
+
+    fake_db = str(tmp_path / "alt.db")
+
+    with patch.object(ep, "preflight_check") as mock_preflight, \
+         patch.object(ep, "run_enrichment") as mock_run:
+        mock_run.return_value = EnrichmentResult(
+            output_file=str(tmp_path / "out.json"),
+            requested=0, succeeded=0, failed=0,
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            ["enrich_properties.py", "--output", str(tmp_path / "out.json"), "--db", fake_db],
+        )
+        ep.main()
+
+    assert mock_preflight.call_args.kwargs["db_path"] == fake_db
+    assert mock_run.call_args.kwargs["db_path"] == fake_db
+
+
 @patch("enrich_properties.extract_batch")
 @patch("enrich_properties.get_pilot_synsets")
 def test_run_enrichment_propagates_unexpected_exception(
