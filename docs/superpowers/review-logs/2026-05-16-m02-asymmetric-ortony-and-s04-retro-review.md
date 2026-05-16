@@ -808,6 +808,95 @@ Trajectory: 2 of 4 adapters CLEAN in R5; the 2 not-CLEAN raised items now fixed.
 
 ---
 
+## Round 6 — pr-review-toolkit + superpowers + standards (2026-05-16T17:30:00Z)
+
+**Reviewers dispatched:** code-reviewer, silent-failure-hunter (pr-review-toolkit); superpowers; standards (general-purpose); ux-designer no-op.
+
+### Items Found (Round 6)
+
+**important (3 items — gaps in R5's silent-leak fix):**
+- **OF3: Sibling silent-leak pattern in `m02_s04_finalise_eval_rebuild.py:80-89`** — flagged independently by BOTH pr-review-toolkit code-reviewer AND silent-failure-hunter (high-confidence cross-validation). The R5 `inner_commit_seen` fix was site-specific to `_import_one_payload`. The sibling script wraps the same BEGIN → curate (commits) → populate (commits + may raise) → bare `except: rollback; raise` flow. Same silent-leak class. Decision: **fix** — extract helper to public API, sibling consumes it.
+- **OF1: Post-commit-pre-return gap inside `curate_properties`** (silent-failure-hunter). The R5 flag is set AFTER curate returns; if curate's `print()` (line 173 of enrich_pipeline.py) or any post-commit code raises (BrokenPipeError, ENOSPC), the commit has fired but the flag-set never runs → silent leak. Decision: **fix** — use try/finally to set flag pessimistically.
+- **OF2: Rollback failure masks original exception in WARNING branch** (silent-failure-hunter). R5 refactor reintroduced the same hazard R4's comment explicitly warned about. If `conn.rollback()` raises, the original populate failure becomes `__context__` instead of the propagating exception. Decision: **fix** — wrap rollback in try/except.
+
+**medium (1 item):**
+- **OF5: New R5 test asserts `not conn.in_transaction` but does NOT verify partial DML row was rolled back** (silent-failure-hunter). Decision: **fix** — add `SELECT COUNT(*) FROM scratch == 0` assertion.
+
+**cosmetic (2 items — deferred):**
+- **OF4: WARNING message lacks multi-payload run context** (operator can't tell which payloads succeeded). Decision: **defer-out-of-scope** → D15.
+- **OF6: Duplicated `if conn.in_transaction: rollback()` blocks** in both branches with similar structure. Decision: **defer-out-of-scope** → D16.
+
+**CLEAN verdicts (R6):**
+- pr-review-toolkit code-reviewer: CLEAN false (1 important — OF3 sibling silent-leak)
+- pr-review-toolkit silent-failure-hunter: CLEAN false (6 items, 3 HIGH severity — OF1, OF2, OF3, OF4, OF5, OF6)
+- superpowers: **CLEAN ✅** (R6 IS the convergence point per its analysis; helper extraction correct, flag placement correct, tests faithful)
+- standards: **CLEAN ✅** (all 15 standards re-checked; new code is exemplary on TDD + Observability + Comments-explain-intent)
+
+**Cross-reviewer disagreement on convergence:** superpowers + standards declared CLEAN. pr-review-toolkit reviewers disagreed — surfaced OF3 (sibling silent-leak) which is materially important. The class-of-bug propagation discipline is the gap the CLEAN reviewers missed.
+
+### Critique Sections (compact)
+
+All four active adapters returned 4-section responses. **Zero deferral challenges in R6.** D12 noted as "predicted r5-st-1 + OF1" — recommendation to amend wording to cite the in-tree examples (deferred).
+
+### Round 6 Deferrals Ledger Update — D15, D16 added
+
+#### D15 — WARNING message lacks multi-payload run context
+- **Source:** Round 6, silent-failure-hunter (OF4)
+- **File:** `data-pipeline/scripts/m02_s04_clear_and_import.py` (the silent-leak WARNING message)
+- **Severity:** medium
+- **scope_boundary:** Operator-actionability polish on WARNING message. Requires threading `idx`+`total` from `main()`'s loop into the helper.
+- **why_out_of_scope:** Current message names the payload + points to module docstring. Multi-payload index would be cleaner but the docstring already documents the resume strategy. Polish, not load-bearing.
+- **proposed_followup:** Pipeline Tooling Consolidation territory when the production `--clear-existing` flag is scoped; operator-facing message clarity should be designed alongside production rollout.
+- **status:** active
+
+#### D16 — Duplicated `if conn.in_transaction: rollback()` cleanup blocks
+- **Source:** Round 6, silent-failure-hunter (OF6)
+- **File:** `data-pipeline/scripts/m02_s04_clear_and_import.py:179-186` (both branches of the except handler)
+- **Severity:** cosmetic
+- **scope_boundary:** Both branches need the rollback for connection cleanup (different intent: implicit-tx vs outer BEGIN); structurally similar but semantically distinct. Comments documenting the intent already present.
+- **why_out_of_scope:** A naive de-dup would lose the per-branch context comments and risk re-introducing OF1-class confusion. Better to leave the duplication with explicit comments than to over-DRY.
+- **proposed_followup:** Reconsider if a future refactor introduces a third branch with the same rollback pattern (3-way duplication might justify lifting).
+- **status:** active
+
+### Round 6 Fixes Applied
+
+Pre-fix SHA: `784246fc`. 4 commits across 1 subagent (single file ownership for both files — clean dispatch):
+
+| Commit | File(s) | Fix |
+|---|---|---|
+| `f6d600c4` | `m02_s04_clear_and_import.py` + tests | **OF1**: `inner_commit_seen = True` now set via try/finally around `curate_properties` → covers post-commit-pre-return gap (BrokenPipeError from `print()`, etc.). New test reproduces topology with curate mocked to `conn.commit(); raise BrokenPipeError` — pre-fix verified silent (no WARNING); post-fix verified WARNING fires. Trade-off: false-positive WARNING on the narrow path "curate raised before its own commit" — operator confusion << silent data leak. |
+| `2c6284d6` | `m02_s04_clear_and_import.py` + tests | **OF2**: Both rollback calls now wrapped in `try/except sqlite3.Error`. Secondary WARNING logged on rollback failure; original exception preserved via bare `raise`. Two new tests using `MagicMock(spec=sqlite3.Connection)` to inject `OperationalError` on rollback — verify original `RuntimeError` propagates AND rollback-failure WARNING fires. |
+| `63ebbd2e` | `test_m02_s04_clear_and_import.py` | **OF5**: R5's `_warns_when_populate_raises_after_inner_commit_with_dml` test now asserts `SELECT COUNT(*) FROM scratch == 0` after the rollback path — pins that the partial INSERT was actually rolled back (not merely "no txn open"). |
+| `5ac70c3d` | `m02_s04_clear_and_import.py` + `m02_s04_finalise_eval_rebuild.py` + test | **OF3 (refactor)**: Renamed `_import_one_payload` → `import_one_payload_safely` (public helper). `m02_s04_finalise_eval_rebuild.py` Phase 1 (was lines 80-89) now delegates to the helper. Single source of truth for the silent-leak-aware import pattern. Bare `_delete_synset_rows_within_txn` / `curate_properties` / `populate_*` calls removed from finalise. Smoke-test import confirmed. |
+
+### Files Modified (Round 6)
+- `data-pipeline/scripts/m02_s04_clear_and_import.py`
+- `data-pipeline/scripts/test_m02_s04_clear_and_import.py`
+- `data-pipeline/scripts/m02_s04_finalise_eval_rebuild.py`
+
+### Test Results
+**Pre-round-6-fix:** 655 passed.
+**Post-round-6-fix:** 658 passed, 0 failed (+3 for OF1 BrokenPipeError test + 2 OF2 rollback-failure tests; OF5 strengthens existing test without adding a new one).
+
+All 3 Round 6 important findings + 1 medium resolved:
+- ✅ OF1 post-commit-pre-return — try/finally
+- ✅ OF2 rollback masking — try/except sqlite3.Error
+- ✅ OF3 sibling silent-leak — shared helper
+- ✅ OF5 partial-DML rollback assertion — added
+
+### Cumulative
+Total rounds: 6 (in progress)
+Items resolved: 43 (12 R1 + 10 R2 + 9 R3 + 6 R4 + 2 R5 + 4 R6 distinct)
+Active deferrals: 16 (D1–D16; D2 wording R2, D13 wording R4)
+Superseded deferrals: 0
+Trajectory: criticals 0 since R3; importants 3→1→1→3→0 expected in R7. Standards CLEAN R2-R6. Superpowers CLEAN R6. Class-of-bug propagation discipline now applied (sibling silent-leak fixed at source via shared helper).
+
+---
+
+
+
+---
+
 
 
 ---
