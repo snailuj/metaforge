@@ -10,6 +10,27 @@ Downstream tables (synset_properties_curated, vocab, clusters,
 antonyms) are NOT touched here — they will be rebuilt by a full
 pipeline pass after all imports are done. Avoids running snap twice.
 
+Transactional safety
+--------------------
+The clear-and-import sequence runs inside an explicit transaction
+(`BEGIN ... COMMIT`) with `ROLLBACK` on any exception, so a partial
+failure cannot leave the DB with rows DELETED but no replacement
+IMPORTED. The canonical pattern mirrors `m02_s04_patch_and_repipeline.py`.
+
+Caveat: `enrich_pipeline.curate_properties / populate_synset_properties /
+populate_lemma_metadata` each issue their own `conn.commit()` at the end
+of their run, which collapses the outer transaction at each successful
+step. The wrapper still guarantees that *if a populate_* step raises
+before its internal commit, the DELETEs (and any work since the last
+internal commit) roll back* — which is the dominant failure mode
+(LLM-shape mismatch, schema drift, OOM during embedding lookups). For
+true end-to-end atomicity, the inner functions would need their commits
+hoisted out — a refactor beyond this script's scope.
+
+This script does NOT snapshot the database. Operators running it against
+production data should snapshot first; the sibling
+`m02_s04_patch_and_repipeline.py` shows the backup-file pattern.
+
 Usage (one JSON):
   data-pipeline/.venv/bin/python data-pipeline/scripts/m02_s04_clear_and_import.py \\
     --enrichment data-pipeline/output/enrichment_top20k_haiku-sm_v2_20260515.json
@@ -41,6 +62,12 @@ def delete_synset_rows(conn, synset_ids):
     Touches synset_properties, enrichment, lemma_metadata only.
     Downstream curated/vocab/cluster/antonym tables get fully rebuilt
     by a later run_pipeline pass and don't need surgical handling.
+
+    NOTE: This function intentionally does NOT commit — the caller owns
+    the transaction boundary so the DELETEs can be rolled back together
+    with any subsequent import work that fails. Callers that want the
+    DELETEs persisted must commit (or rely on a downstream call inside
+    `enrich_pipeline` that commits on success).
     """
     if not synset_ids:
         return
@@ -63,7 +90,6 @@ def delete_synset_rows(conn, synset_ids):
             f"DELETE FROM lemma_metadata WHERE synset_id IN ({ph})",
             synset_ids,
         ).rowcount
-    conn.commit()
     print(f"  Deleted: {n_sp} synset_properties, {n_e} enrichment, "
           f"{n_lm} lemma_metadata rows for {len(synset_ids)} synsets.")
 
@@ -93,16 +119,32 @@ def main():
     conn = sqlite3.connect(args.db)
     try:
         _ensure_v2_schema(conn)
-        for path, data in payloads:
-            synset_ids = [s["id"] for s in data.get("synsets", [])]
-            model_used = data.get("config", {}).get("model", "unknown")
-            print(f"\n--- {path} ({len(synset_ids)} synsets, "
-                  f"model={model_used}) ---")
-            delete_synset_rows(conn, synset_ids)
-            print("  Re-curating + populating...")
-            curate_properties(conn, data, vectors)
-            populate_synset_properties(conn, data, model_used)
-            populate_lemma_metadata(conn, data)
+        # Wrap the entire clear-and-import flow in a single explicit
+        # transaction so a partial failure cannot leave the DB with
+        # rows DELETED but no replacement IMPORTED. See module docstring
+        # for the caveat about inner commits in `enrich_pipeline`.
+        conn.execute("BEGIN")
+        try:
+            for path, data in payloads:
+                synset_ids = [s["id"] for s in data.get("synsets", [])]
+                model_used = data.get("config", {}).get("model", "unknown")
+                print(f"\n--- {path} ({len(synset_ids)} synsets, "
+                      f"model={model_used}) ---")
+                delete_synset_rows(conn, synset_ids)
+                print("  Re-curating + populating...")
+                curate_properties(conn, data, vectors)
+                populate_synset_properties(conn, data, model_used)
+                populate_lemma_metadata(conn, data)
+            conn.commit()
+        except Exception:
+            # Re-raise with original traceback intact (bare `raise`
+            # inside the except block; never `raise e` — that would
+            # lose context). If rollback itself fails (rare; usually
+            # only on a dropped connection), let that propagate too —
+            # masking the original error here would be worse than a
+            # noisy double-fault.
+            conn.rollback()
+            raise
 
         print("\nImport complete. Downstream tables "
               "(synset_properties_curated, vocab_clusters, "
