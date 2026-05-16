@@ -128,6 +128,51 @@ def test_strip_fences_unfenced_logs_debug_on_fallback():
     assert "unfenced extraction" in output
 
 
+def test_strip_fences_unfenced_warns_on_suspiciously_short_dict():
+    """Dict-side symmetry with the list-side threshold: small non-empty
+    dicts (e.g. a refusal-with-example {\"id\": \"0001\", \"text\": \"soft\"})
+    must also trigger the WARNING. Round 2's heuristic only flagged
+    EMPTY dicts, letting 2-key refusal snippets slip through."""
+    import logging
+    from claude_client import _strip_fences as _sf
+    caplog_logger = logging.getLogger("claude_client")
+    import io
+    log_stream = io.StringIO()
+    handler = logging.StreamHandler(log_stream)
+    handler.setLevel(logging.WARNING)
+    caplog_logger.addHandler(handler)
+    caplog_logger.setLevel(logging.WARNING)
+    try:
+        _sf('Brief example: {"id": "0001", "text": "soft"}')
+        output = log_stream.getvalue()
+    finally:
+        caplog_logger.removeHandler(handler)
+    assert "suspiciously short" in output.lower()
+
+
+def test_strip_fences_large_dict_no_warning():
+    """A legitimate large dict (≥ threshold + 1 keys) from a fenced
+    extraction must NOT trigger the suspicious-short WARNING. Regression
+    guard against the dict-side heuristic over-firing on real payloads."""
+    import logging
+    from claude_client import _strip_fences as _sf
+    caplog_logger = logging.getLogger("claude_client")
+    import io
+    log_stream = io.StringIO()
+    handler = logging.StreamHandler(log_stream)
+    handler.setLevel(logging.WARNING)
+    caplog_logger.addHandler(handler)
+    caplog_logger.setLevel(logging.WARNING)
+    try:
+        big_dict = {f"k{i}": i for i in range(10)}
+        payload = f"```json\n{json.dumps(big_dict)}\n```"
+        _sf(payload)
+        output = log_stream.getvalue()
+    finally:
+        caplog_logger.removeHandler(handler)
+    assert "suspiciously short" not in output.lower()
+
+
 def test_strip_fences_unfenced_warns_on_suspiciously_short():
     """If the bracket-balance scan returns a list of <3 items, emit a
     WARNING — short results from prose-prefixed unfenced extractions are

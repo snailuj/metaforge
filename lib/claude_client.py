@@ -224,7 +224,8 @@ def _strip_fences(text: str) -> str:
         suspicious = (
             (isinstance(parsed, list)
              and len(parsed) <= _STRIP_FENCES_SUSPICIOUS_RESULT_THRESHOLD)
-            or (isinstance(parsed, dict) and len(parsed) == 0)
+            or (isinstance(parsed, dict)
+                and len(parsed) <= _STRIP_FENCES_SUSPICIOUS_DICT_THRESHOLD)
         )
         if suspicious:
             head, tail, _total = _stdout_diagnostic_fields(text)
@@ -251,6 +252,15 @@ _RATE_LIMIT_INDICATORS = ("rate limit", "usage limit", "quota", "overloaded", "4
 # 2-3 item batches) against silent-mis-success (refusal-with-example
 # patterns that produce 1-3 items).
 _STRIP_FENCES_SUSPICIOUS_RESULT_THRESHOLD = 3
+
+# Dict-result key-count at or below which _strip_fences emits a WARNING.
+#
+# Mirrors the list-side foot-gun: a refusal-with-example like
+# `Brief example: {"id": "0001", "text": "soft"}` produces a 2-key dict
+# that previously slipped through (Round 2's heuristic only flagged
+# EMPTY dicts). No `prompt_json(expect=dict)` callers in-tree today, but
+# closing the asymmetry pre-emptively.
+_STRIP_FENCES_SUSPICIOUS_DICT_THRESHOLD = 2
 
 # Timeouts are expensive to retry — each attempt burns up to `timeout`
 # seconds of wall-clock. Cheap-to-retry errors (ParseError,
