@@ -269,11 +269,16 @@ _STRIP_FENCES_SUSPICIOUS_RESULT_THRESHOLD = 3
 # closing the asymmetry pre-emptively.
 _STRIP_FENCES_SUSPICIOUS_DICT_THRESHOLD = 2
 
-# Timeouts are expensive to retry — each attempt burns up to `timeout`
-# seconds of wall-clock. Cheap-to-retry errors (ParseError,
-# EmptyResponseError) deserve the full max_retries budget; timeouts
-# get capped here to bound worst-case stall to ~2× the per-call timeout
-# rather than max_retries × timeout (~75 min at defaults).
+# _MAX_TIMEOUT_ATTEMPTS caps the loop at exactly one attempt for
+# ClaudeTimeoutError — i.e. zero retries. Timeouts are expensive (each
+# attempt burns up to the full per-call timeout, default 900s); bounding
+# the loop at 1 attempt total caps worst-case stall at 1× the per-call
+# timeout (~15 min at defaults) rather than max_retries × timeout
+# (~75 min). Cheap-to-retry errors (ParseError, EmptyResponseError)
+# still use the full max_retries budget. Bumping this to N would allow
+# N total attempts = (N-1) retries, with worst-case wall-clock = N × timeout;
+# the retry branch below would also need to switch its backoff counter
+# from `attempt` (outer, mixes all error types) to `timeout_attempts`.
 _MAX_TIMEOUT_ATTEMPTS = 1
 
 
