@@ -3,11 +3,16 @@
 
 # Data pipeline outputs (generated, large)
 data-pipeline/output/*.db
+data-pipeline/output/*.db.*-backup
 data-pipeline/output/*.sql
 data-pipeline/output/sweep_*.json
 data-pipeline/output/sweep_*.md
+data-pipeline/output/checkpoint_*.json
 data-pipeline/raw/
 data-pipeline/input/brysbaert-concreteness/
+
+# Claude Code runtime state
+.claude/scheduled_tasks.lock
 
 # Python virtual env
 *.venv/
