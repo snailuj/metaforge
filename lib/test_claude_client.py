@@ -386,6 +386,23 @@ def test_invoke_returns_parsed_text(mock_run):
 
 
 @patch("claude_client.subprocess.run")
+def test_invoke_wraps_subprocess_timeout(mock_run):
+    """subprocess.TimeoutExpired must be wrapped as ClaudeTimeoutError
+    (a ClaudeError subclass), otherwise the narrow `except ClaudeError`
+    in enrich_properties.run_enrichment (commit c5563cf6) lets the
+    timeout escape and abandons every remaining batch in the run."""
+    import subprocess as _sp
+    from claude_client import ClaudeTimeoutError, ClaudeError
+    mock_run.side_effect = _sp.TimeoutExpired(["claude"], 900)
+    with pytest.raises(ClaudeTimeoutError) as excinfo:
+        _invoke("prompt", model="haiku")
+    # Must be a ClaudeError subclass so retry/checkpoint logic still wraps it.
+    assert isinstance(excinfo.value, ClaudeError)
+    # Message should surface the timeout duration for operator visibility.
+    assert "900" in str(excinfo.value)
+
+
+@patch("claude_client.subprocess.run")
 def test_invoke_verbose_logging(mock_run, caplog):
     mock_run.return_value = _make_proc(result_text="ok")
     import logging

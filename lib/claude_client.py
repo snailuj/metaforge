@@ -30,6 +30,16 @@ class ParseError(ClaudeError):
     """Cannot parse the LLM response."""
 
 
+class ClaudeTimeoutError(ClaudeError):
+    """Wraps subprocess.TimeoutExpired so upstream stalls remain inside the
+    ClaudeError hierarchy. enrich_properties.run_enrichment narrowed its
+    batch-failure handler to `except ClaudeError` (commit c5563cf6) — if a
+    raw subprocess.TimeoutExpired escapes _invoke it bypasses that handler
+    and abandons every remaining batch in the run. _invoke catches the
+    subprocess timeout at the source and re-raises as this subclass so the
+    existing retry/checkpoint logic still works."""
+
+
 # --- Internal layers ---------------------------------------------------------
 
 def _strip_fences(text: str) -> str:
@@ -215,26 +225,38 @@ def _invoke(prompt: str, model: str, verbose: bool = False) -> str:
     # Strip CLAUDECODE env var so `claude -p` doesn't refuse to run
     # when invoked from within a Claude Code session.
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
-    proc = subprocess.run(
-        [
-            "claude", "-p",
-            "--output-format", "json",
-            "--model", model,
-            "--max-turns", "1",
-            "--no-session-persistence",
-            "--strict-mcp-config",
-            "--mcp-config", _EMPTY_MCP,
-        ],
-        input=prompt,
-        capture_output=True,
-        text=True,
-        # Sonnet output rate is roughly 100-150 tokens/sec; a v2 enrichment
-        # batch of 20 synsets emits ~1800 tokens × 20 = 36k tokens which lands
-        # at 240-360s — right on the old 300s edge. 900s gives clear headroom
-        # without masking a genuine hang (anything past ~10 min is wrong).
-        timeout=900,
-        env=env,
-    )
+    cmd = [
+        "claude", "-p",
+        "--output-format", "json",
+        "--model", model,
+        "--max-turns", "1",
+        "--no-session-persistence",
+        "--strict-mcp-config",
+        "--mcp-config", _EMPTY_MCP,
+    ]
+    # Sonnet output rate is roughly 100-150 tokens/sec; a v2 enrichment
+    # batch of 20 synsets emits ~1800 tokens × 20 = 36k tokens which lands
+    # at 240-360s — right on the old 300s edge. 900s gives clear headroom
+    # without masking a genuine hang (anything past ~10 min is wrong).
+    timeout = 900
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # subprocess.TimeoutExpired inherits from subprocess.SubprocessError,
+        # NOT from ClaudeError — without this wrap it escapes the narrow
+        # `except ClaudeError` in enrich_properties.run_enrichment (commit
+        # c5563cf6) and abandons every remaining batch in the run.
+        raise ClaudeTimeoutError(
+            f"Claude subprocess timed out after {timeout}s "
+            f"(cmd_prefix={cmd[:6]})"
+        ) from exc
     if verbose:
         log.debug("claude_client raw stdout (last 2000 chars): %s",
                   proc.stdout[-2000:] if proc.stdout else "<empty>")
