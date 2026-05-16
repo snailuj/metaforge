@@ -104,35 +104,6 @@ def fetch_apt_source_words(domain_filter=None):
     return words
 
 
-def enrichment_for_synset(conn, synset_id):
-    """Pull (text, salience, type, snap_method, snap_score) per LLM
-    property emitted for this synset.
-
-    Joins synset_properties → property_vocabulary (for the text and
-    type) and LEFT JOIN to synset_properties_curated (so we see what
-    snapped vs what dropped)."""
-    rows = conn.execute(
-        """
-        SELECT
-            sp.property_id,
-            pv.property_text AS text,
-            sp.salience,
-            sp.property_type AS type,
-            spc.vocab_id     AS snapped_vocab_id,
-            spc.snap_method  AS snap_method,
-            spc.snap_score   AS snap_score
-        FROM synset_properties sp
-        JOIN property_vocabulary pv ON pv.property_id = sp.property_id
-        LEFT JOIN synset_properties_curated spc
-            ON spc.synset_id = sp.synset_id
-        WHERE sp.synset_id = ?
-        ORDER BY sp.salience DESC, pv.property_text
-        """,
-        (synset_id,),
-    ).fetchall()
-    return rows
-
-
 def main():
     # Decide between emotion-only (the original investigation) and
     # cross-domain (the M02-S04 sidestep — does emotion underperform
