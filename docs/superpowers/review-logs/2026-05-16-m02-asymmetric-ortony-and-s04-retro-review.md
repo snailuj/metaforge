@@ -751,6 +751,67 @@ Trajectory: criticals 0 since R3; importants 3 → 1 → expected 0 in R5; stand
 
 ---
 
+## Round 5 — pr-review-toolkit + superpowers + standards (2026-05-16T16:30:00Z)
+
+**Reviewers dispatched:** code-reviewer, silent-failure-hunter (pr-review-toolkit); superpowers; standards (general-purpose); ux-designer no-op.
+
+### Items Found (Round 5)
+
+**important (1 item — material bug in Round 4's silent-leak fix):**
+- **r5-st-1: Rollback-feasibility check `if conn.in_transaction` is an insufficient proxy** (standards reviewer). Round 4 commit `30dbb987` added `log.warning` on the rollback-impossible branch gated by `if conn.in_transaction: rollback() else: log.warning(); raise`. But sqlite3 auto-begins implicit transactions on the first DML after a commit. Real failure topology: curate commits → populate's INSERT opens implicit tx (`in_transaction == True`) → populate raises → except branch sees `in_transaction == True` and skips WARNING. **Silent leak persists on the dominant failure path** — only the narrow "fail immediately after curate, before any DML" subcase fires the WARNING. Material bug. Decision: **fix** — track `inner_commit_seen` flag explicitly.
+
+**cosmetic (1 item):**
+- **r5-sp-1: Stale "(precondition assert)" comment** in `m02_s04_finalise_eval_rebuild.py:76` after R4's `assert → raise RuntimeError` migration. Decision: **fix** — one-word replacement.
+
+**CLEAN verdicts (R5):**
+- pr-review-toolkit code-reviewer: **CLEAN ✅** (4-section gate satisfied, all 14 deferrals concurred)
+- pr-review-toolkit silent-failure-hunter: **CLEAN ✅** (verified no other production assert patterns; `log.warning` surfacing confirmed; D13 mutability re-verified by grep — no in-tree mutation sites)
+- superpowers: CLEAN false (1 cosmetic)
+- standards: CLEAN false (1 important — the rollback proxy weakness)
+
+**Convergence (per Round 5 superpowers):** R1 (1c+8i) → R2 (1c+4i) → R3 (0c+3i) → R4 (0c+1i) → R5 (0c+1i+1cosmetic). At asymptote; the R5 important is a 2nd-order gap inside R4's silent-leak fix. R6 expected to be all-CLEAN if R5 fixes hold.
+
+### Critique Sections (compact)
+
+All four active adapters returned 4-section responses with substantive PRIOR_FINDINGS_CRITIQUE (≥3 categories per adapter, evidence-based), APPLIED_FIXES_CRITIQUE (per-fix yes/partial/correct verdicts with evidence including line numbers + targeted test runs), DEFERRAL_LEDGER_REVIEW (all 14 deferrals individually addressed). **Zero deferral challenges** in R5 (D2 + D13 wording corrections from prior rounds verified intact).
+
+### Round 5 Fixes Applied
+
+Pre-fix SHA: `d7d9787e` (Round 5 reviewers ran here).
+
+**Batch 5-1 dispatched at `d7d9787e`; 1 subagent (both fixes in related files); 2 commits landed cleanly (no parallel-staging interference):**
+
+| Commit | File(s) | Fix |
+|---|---|---|
+| `38f42c87` | `m02_s04_clear_and_import.py` + tests | **r5-st-1 fix**: Replaced `if conn.in_transaction` rollback-feasibility proxy with explicit `inner_commit_seen` flag set after `curate_properties` returns. WARNING now fires on the dominant production failure path (curate commits → populate INSERTs → populate raises mid-execution). New test `test_import_one_payload_warns_when_populate_raises_after_inner_commit_with_dml` exercises the previously-missed topology (pre-fix verified to fail; post-fix passes). Subagent verified by reading `enrich_pipeline.py` that all 3 inner functions (`curate_properties`, `populate_synset_properties`, `populate_lemma_metadata`) commit internally — flag placement immediately after curate covers the entire post-curate gap correctly. |
+| `56151d3f` | `m02_s04_finalise_eval_rebuild.py` | **r5-sp-1 fix**: Replaced stale "(precondition assert)" comment with accurate description noting precondition now raises `RuntimeError` outside an explicit transaction. |
+
+### Files Modified (Round 5)
+- `data-pipeline/scripts/m02_s04_clear_and_import.py`
+- `data-pipeline/scripts/test_m02_s04_clear_and_import.py`
+- `data-pipeline/scripts/m02_s04_finalise_eval_rebuild.py`
+
+### Test Results
+**Pre-round-5-fix:** 654 passed.
+**Post-round-5-fix:** 655 passed, 0 failed (+1 for new dominant-failure-path test).
+
+Round 5 finding resolved:
+- ✅ r5-st-1 silent-leak proxy weakness — `inner_commit_seen` flag now reliably gates WARNING
+- ✅ r5-sp-1 stale comment — corrected
+
+### Cumulative
+Total rounds: 5 (in progress)
+Items resolved: 39 (12 R1 + 10 R2 + 9 R3 + 6 R4 + 2 R5 distinct)
+Active deferrals: 14 (D1–D14; D2 wording corrected R2, D13 wording corrected R4)
+Superseded deferrals: 0
+Trajectory: 2 of 4 adapters CLEAN in R5; the 2 not-CLEAN raised items now fixed. R6 expected all-CLEAN.
+
+---
+
+
+
+---
+
 
 
 ---
