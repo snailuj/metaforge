@@ -893,6 +893,62 @@ Trajectory: criticals 0 since R3; importants 3→1→1→3→0 expected in R7. S
 
 ---
 
+## Round 7 — pr-review-toolkit + superpowers + standards (2026-05-16T18:45:00Z)
+
+**Reviewers dispatched:** code-reviewer, silent-failure-hunter (pr-review-toolkit); superpowers; standards (general-purpose); ux-designer no-op.
+
+### Items Found (Round 7) — **FIRST ROUND WITH 0 IMPORTANT FINDINGS** ✨
+
+**low (2 items — both WARNING-message ergonomics polish; explicitly NOT silent failures per silent-failure-hunter):**
+- **OF7: WARNING wording asserts persistence as fact** in the inner_commit_seen=True branch — after R6 OF1 fix (try/finally pessimistic flag), there's a deliberate false-positive path where the WARNING fires but rollback succeeds. Wording reads as definitive ("already persisted", "Manual repair required") which over-alarms in the false-positive case. Raised by both silent-failure-hunter and superpowers. Decision: **fix** — soften wording with explicit branch-discrimination.
+- **OF8: Rollback-failure WARNING lacks original exception text inline** — Recoverable via traceback's `__context__` chain, but the WARNING line alone isn't self-contained for operator triage. Raised by silent-failure-hunter. Decision: **fix** — bind outer exception, include class+message in both rollback-failure WARNINGs.
+
+**CLEAN verdicts (R7):**
+- pr-review-toolkit code-reviewer: **CLEAN ✅** (R7 IS the convergence point per its analysis)
+- pr-review-toolkit silent-failure-hunter: CLEAN false (2 LOW items, but explicitly "No silent leaks remain in the clear-and-import path" — message polish only)
+- superpowers: CLEAN true-with-caveat (OF7 cosmetic deferred-acceptable)
+- standards: **CLEAN ✅** (15-standard re-check; helper extraction noted as exemplary FP+DRY+Refactor-Mercilessly)
+
+**Adversarial lesson:** Round 6 saw 2 of 4 adapters declare CLEAN; pr-review-toolkit reviewers disagreed and correctly surfaced OF3 (sibling silent-leak). Lesson noted: single-adapter CLEAN insufficient — cross-validation across reviewer types catches different blind spots. R7 reflects this — even with 2/4 adapters fully CLEAN, the silent-failure-hunter's 2 LOW findings are addressed rather than dismissed.
+
+### Critique Sections (compact)
+
+All four active adapters returned 4-section responses. Zero deferral challenges. silent-failure-hunter and superpowers both noted D12's in-tree counter-examples (r5-st-1 + R6 OF1) — recommendation to amend D12 wording deferred as cosmetic.
+
+### Round 7 Fixes Applied
+
+Pre-fix SHA: `5570d3d6`. 2 commits in single subagent (single file ownership for both fixes — clean dispatch):
+
+| Commit | Fix |
+|---|---|
+| `f58938b6` | **OF7**: Softened WARNING wording. Now explicitly branch-discriminates: "If curate's commit DID fire, DELETEs and curated vocab writes are persisted; populate_* may be partial. If curate raised BEFORE its commit, the outer BEGIN's rollback restored a clean state and this WARNING is a benign false positive. Operator should verify with SELECT against affected synsets before restoring from snapshot." Three test assertions updated to match new wording. |
+| `e99596a4` | **OF8**: Outer except handler binds `original_exc`; included in both rollback-failure WARNINGs as `type(original_exc).__name__: original_exc`. Rollback exception itself also rendered as `type(rb_err).__name__: rb_err`. Operator now sees the full chain inline. Existing OF2 rollback-failure tests strengthened to assert 4 substrings: original class+message + rollback class+message. |
+
+### Files Modified (Round 7)
+- `data-pipeline/scripts/m02_s04_clear_and_import.py`
+- `data-pipeline/scripts/test_m02_s04_clear_and_import.py`
+
+### Test Results
+**Pre-round-7-fix:** 658 passed.
+**Post-round-7-fix:** 658 passed, 0 failed (no net new tests; existing assertions updated to match new wording).
+
+Both Round 7 LOW findings resolved:
+- ✅ OF7 WARNING false-positive amplification — wording softened with explicit branch discrimination
+- ✅ OF8 rollback WARNING lacks original — outer exception bound and included
+
+### Cumulative
+Total rounds: 7 (in progress)
+Items resolved: 45 (12 R1 + 10 R2 + 9 R3 + 6 R4 + 2 R5 + 4 R6 + 2 R7 distinct)
+Active deferrals: 16 (D1–D16; D2 wording R2, D13 wording R4)
+Superseded deferrals: 0
+Trajectory: criticals 0 since R3; importants 3→1→1→3→0 in R7. **R7 is first round with 0 importants — stop-nudge trajectory starts.** R8 expected all-CLEAN.
+
+---
+
+
+
+---
+
 
 
 ---
