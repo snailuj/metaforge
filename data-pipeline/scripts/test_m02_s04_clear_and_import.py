@@ -237,6 +237,14 @@ def test_import_one_payload_warns_when_populate_raises_after_inner_commit_with_d
             "connection should be left out of any implicit txn so the "
             "next payload's BEGIN can run"
         )
+        # Stronger: assert the partial INSERT was actually rolled back,
+        # not merely that no transaction is open. `not in_transaction`
+        # could also be satisfied by an inadvertent commit; the
+        # row-level check pins the rollback semantics.
+        remaining = conn.execute("SELECT COUNT(*) FROM scratch").fetchone()[0]
+        assert remaining == 0, (
+            f"partial DML row should have been rolled back; found {remaining}"
+        )
     finally:
         conn.close()
 
