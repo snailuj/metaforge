@@ -2,7 +2,23 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+
+@pytest.fixture(autouse=True)
+def _redirect_parse_failure_dumps(tmp_path, monkeypatch):
+    """Redirect parse-failure dumps to a per-test tmp_path.
+
+    Without this, any test that drives prompt_json into a ParseError
+    leaks a real .txt file into data-pipeline/logs/parse_failures/
+    — the production diagnostic dir. Test-induced leakage there is
+    indistinguishable from genuine production parse failures and
+    pollutes the diagnostic record.
+    """
+    import claude_client
+    monkeypatch.setattr(claude_client, "PARSE_FAILURE_DUMP_DIR", tmp_path)
 
 
 def test_import():
