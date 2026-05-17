@@ -42,9 +42,21 @@ Enrichment options (--enrich only):
   --resume              Resume from checkpoint
   --retry SECS          Auto-retry on rate limit every SECS seconds (default: off)
   --retry-window SECS   Total retry window in seconds         (default: 18000 = 5h)
+  --skip-enriched-required
+                        Exclude --synset-ids already present in the enrichment
+                        table (surgical top-up after partial import). No-op if
+                        the DB has no enrichment table yet. Requires
+                        --no-restore to be meaningful (otherwise the restore
+                        step wipes the enrichment table first).
   --verbose             Enable debug logging
 
 General:
+  --no-restore          Skip restoring PRE_ENRICH.sql into the target DB
+                        (use when running --enrich against an already-enriched
+                        DB, e.g. to feed --skip-enriched-required).
+  --no-pipeline         Skip the downstream curate/snap/antonym pipeline step
+                        after enrichment (use when staging JSONs for separate
+                        import / inspection).
   --no-dump             Skip exporting lexicon_v2.sql after pipeline
   --help                Show this message
 
@@ -87,6 +99,9 @@ RETRY_DELAY=0
 RETRY_WINDOW=18000  # 5 hours in seconds
 VERBOSE=false
 DUMP_SQL=true
+RESTORE_BASELINE=true
+RUN_PIPELINE=true
+SKIP_ENRICHED_REQUIRED=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -113,6 +128,9 @@ while [[ $# -gt 0 ]]; do
         --retry-window) RETRY_WINDOW="$2"; shift 2 ;;
         --verbose|-v) VERBOSE=true; shift ;;
         --no-dump)    DUMP_SQL=false; shift ;;
+        --no-restore) RESTORE_BASELINE=false; shift ;;
+        --no-pipeline) RUN_PIPELINE=false; shift ;;
+        --skip-enriched-required) SKIP_ENRICHED_REQUIRED=true; shift ;;
         --help|-h)    usage ;;
         *)            echo "Unknown option: $1" >&2; echo >&2; usage ;;
     esac
@@ -167,11 +185,21 @@ fi
 
 # --- Step 1: Restore baseline into target DB ------------------------------
 
-echo "--- Restoring baseline into $DB_PATH ---"
-rm -f "$DB_PATH"
-sqlite3 "$DB_PATH" < "$BASELINE_SQL"
-echo "  Restored $(sqlite3 "$DB_PATH" "SELECT count(*) FROM synsets;") synsets"
-echo ""
+if [[ "$RESTORE_BASELINE" == true ]]; then
+    echo "--- Restoring baseline into $DB_PATH ---"
+    rm -f "$DB_PATH"
+    sqlite3 "$DB_PATH" < "$BASELINE_SQL"
+    echo "  Restored $(sqlite3 "$DB_PATH" "SELECT count(*) FROM synsets;") synsets"
+    echo ""
+else
+    echo "--- Skipping baseline restore (--no-restore) — keeping current $DB_PATH ---"
+    if [[ ! -f "$DB_PATH" ]]; then
+        echo "ERROR: --no-restore requires an existing DB at $DB_PATH" >&2
+        exit 1
+    fi
+    echo "  Current synsets: $(sqlite3 "$DB_PATH" "SELECT count(*) FROM synsets;")"
+    echo ""
+fi
 
 # --- Step 2: Enrichment (LLM or pre-computed) -----------------------------
 
@@ -205,6 +233,12 @@ if [[ "$ENRICH" == true ]]; then
     fi
     if [[ "$VERBOSE" == true ]]; then
         ENRICH_ARGS+=(--verbose)
+    fi
+    if [[ "$SKIP_ENRICHED_REQUIRED" == true ]]; then
+        ENRICH_ARGS+=(--skip-enriched-required)
+    fi
+    if [[ -n "$DB_PATH" ]]; then
+        ENRICH_ARGS+=(--db "$DB_PATH")
     fi
 
     if [[ "$RETRY_DELAY" -gt 0 ]]; then
@@ -244,6 +278,14 @@ elif [[ ${#FROM_JSON_FILES[@]} -gt 0 ]]; then
 fi
 
 # --- Step 3: Downstream pipeline ------------------------------------------
+
+if [[ "$RUN_PIPELINE" == false ]]; then
+    echo "--- Skipping downstream pipeline (--no-pipeline) ---"
+    echo "  Staged JSON(s): ${ENRICHMENT_FILES[*]}"
+    echo "  Import later via: ./enrich.sh --db ... --from-json ${ENRICHMENT_FILES[*]}"
+    echo ""
+    exit 0
+fi
 
 echo "--- Running downstream enrichment pipeline ---"
 python -u "$SCRIPTS_DIR/enrich_pipeline.py" \
