@@ -61,6 +61,42 @@ def test_save_checkpoint_overwrites_existing(tmp_path):
     assert loaded["completed_ids"] == ["s1"]
 
 
+def test_save_checkpoint_fsyncs_before_rename(tmp_path, monkeypatch):
+    """save_checkpoint forces the kernel write cache to disk before rename.
+
+    Atomic rename alone gives crash-safety against process death but not
+    against OS panic / power loss: without fsync, the kernel may delay
+    pushing the new bytes to the platter even after the rename is durable.
+    For a long unattended enrichment run, recovering from a power loss must
+    not silently drop the last completed batches.
+
+    Contract: at least one fsync must hit the data file's fd before the
+    rename promotes it to the canonical path, AND the directory must be
+    fsync'd after rename so the directory entry is durable.
+    """
+    import os
+    import utils as utils_mod
+
+    cp = tmp_path / "checkpoint.json"
+    fsync_calls = []
+    real_fsync = os.fsync
+
+    def spy_fsync(fd):
+        fsync_calls.append(fd)
+        return real_fsync(fd)
+
+    monkeypatch.setattr(utils_mod.os, "fsync", spy_fsync)
+    save_checkpoint(cp, {"completed_ids": ["s1"], "synsets": [{"id": "s1"}]})
+
+    # Expect at least 2 fsyncs: one for the data file fd, one for the dir fd.
+    assert len(fsync_calls) >= 2, (
+        f"expected ≥2 fsync calls (file + dir); got {len(fsync_calls)}"
+    )
+    assert cp.exists()
+    loaded = json.loads(cp.read_text())
+    assert loaded["completed_ids"] == ["s1"]
+
+
 def test_load_checkpoint_handles_corrupt_json(tmp_path):
     """load_checkpoint recovers from corrupt JSON by returning empty state."""
     cp = tmp_path / "checkpoint.json"

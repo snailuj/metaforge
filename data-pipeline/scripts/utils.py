@@ -233,17 +233,30 @@ def load_checkpoint(checkpoint_path: Path) -> dict:
 
 
 def save_checkpoint(checkpoint_path: Path, state: dict):
-    """Save checkpoint state to disk atomically.
+    """Save checkpoint state to disk durably and atomically.
 
-    Writes to a temporary file then renames to prevent truncation on crash.
+    Writes to a temporary file, fsyncs the data, renames to the canonical
+    path, then fsyncs the parent directory. Atomic rename alone protects
+    against process crash; the fsync pair protects against OS panic and
+    power loss — important for multi-hour unattended runs where losing
+    the last few checkpoints would mean re-paying API cost for batches
+    we'd already completed.
     """
-    fd, tmp_path = tempfile.mkstemp(
-        dir=checkpoint_path.parent, suffix=".tmp"
-    )
+    checkpoint_path = Path(checkpoint_path)
+    parent = checkpoint_path.parent
+    fd, tmp_path = tempfile.mkstemp(dir=parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(state, f)
+            f.flush()
+            os.fsync(f.fileno())
         Path(tmp_path).rename(checkpoint_path)
+        # Fsync the directory so the rename's new directory entry is durable.
+        dir_fd = os.open(parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     except Exception:
         Path(tmp_path).unlink(missing_ok=True)
         raise
