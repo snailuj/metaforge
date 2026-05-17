@@ -3,15 +3,27 @@
 Provides prompt_text, prompt_json, and prompt_batch for interacting
 with the Claude CLI, with built-in retries and error handling.
 """
+import datetime
 import json
 import logging
 import os
 import re
 import subprocess
 import time
+import uuid
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+# When prompt_json hits an unparseable response, the canonical ParseError
+# message only carries head + tail (500 chars each). The middle is where
+# most JSON-decoder errors actually land — Haiku's missing-comma /
+# truncated-string failures sit at char ~20k in a ~22k response. Without
+# the full payload, diagnosing means re-running and hoping for repro.
+# Dumping the byte-exact raw text per failure costs ~25KB/file at worst
+# and is bounded by the failure rate (≈3-4% for batch=20 haiku in the
+# M02-S04 retro). Operators can prune the dump dir periodically.
+PARSE_FAILURE_DUMP_DIR = Path(__file__).resolve().parent.parent / "data-pipeline" / "logs" / "parse_failures"
 
 
 class ClaudeError(Exception):
@@ -536,6 +548,30 @@ def prompt_text(
     return _invoke_with_retries(prompt, model=model, max_retries=max_retries, verbose=verbose)
 
 
+def _dump_parse_failure(raw: str, *, reason: str, error: str = "") -> None:
+    """Write the full failing raw response to PARSE_FAILURE_DUMP_DIR.
+
+    Best-effort: failures to write are logged at WARNING but never raised,
+    so a disk-full / permission error never escalates a parse failure into
+    a different exception class that bypasses callers' `except ClaudeError`
+    handlers.
+    """
+    try:
+        PARSE_FAILURE_DUMP_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        # Suffix the filename with a short random tag so two failures
+        # landing in the same microsecond can't clobber each other.
+        path = PARSE_FAILURE_DUMP_DIR / f"raw-{ts}-{uuid.uuid4().hex[:6]}.txt"
+        path.write_text(raw, encoding="utf-8")
+        log.warning(
+            "parse failure dumped: %s (%d bytes, reason=%s)%s",
+            path, len(raw), reason,
+            f", error={error!r}" if error else "",
+        )
+    except Exception:
+        log.exception("could not dump failing raw response (reason=%s)", reason)
+
+
 def prompt_json(
     prompt: str,
     model: str = "sonnet",
@@ -554,6 +590,7 @@ def prompt_json(
         # canonical _stdout_diagnostic helper at 500/500 — JSON payloads are
         # longer than CLI events so the larger window matters.
         head, tail, total = _stdout_diagnostic_fields(raw, head=500, tail=500)
+        _dump_parse_failure(raw, reason="json_decode_error", error=str(e))
         raise ParseError(
             f"Failed to parse JSON ({e}); "
             f"{_stdout_diagnostic(raw, head=500, tail=500)}",

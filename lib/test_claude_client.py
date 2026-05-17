@@ -810,6 +810,43 @@ def test_prompt_json_no_type_check(mock_invoke):
     assert result == {"key": "val"}
 
 
+@patch("claude_client._invoke_with_retries")
+def test_prompt_json_dumps_full_raw_on_parse_failure(mock_invoke, tmp_path, monkeypatch):
+    """On ParseError, the full raw response must be dumped to a file under
+    PARSE_FAILURE_DUMP_DIR so the entire payload is recoverable. The default
+    ParseError message only carries 500-char head + 500-char tail, eliding
+    the middle — which is exactly where most JSON-decoder errors land
+    (missing comma between objects, truncated string). Without the full
+    dump, diagnosing requires re-running and hoping the failure repeats.
+
+    The dump must:
+      1. Land in a directory we control (PARSE_FAILURE_DUMP_DIR), so the
+         filesystem cost stays bounded and operators know where to look.
+      2. Contain the byte-exact raw text json.loads received.
+      3. Have a filename that is unique per failure (timestamp-based).
+    """
+    import claude_client
+    monkeypatch.setattr(claude_client, "PARSE_FAILURE_DUMP_DIR", tmp_path)
+
+    # Build a payload large enough that head + tail can't cover it.
+    big_bad = '[' + ', '.join('{"x": 1}' for _ in range(200)) + ']'
+    # Inject a parse-breaking corruption deep in the middle.
+    corruption_idx = len(big_bad) // 2
+    big_bad = big_bad[:corruption_idx] + ' BAD_TOKEN ' + big_bad[corruption_idx:]
+    mock_invoke.return_value = big_bad
+
+    with pytest.raises(ParseError):
+        prompt_json("prompt", model="haiku")
+
+    dumps = list(tmp_path.glob("*.txt"))
+    assert len(dumps) == 1, (
+        f"expected exactly one dump file under {tmp_path}; got {dumps}"
+    )
+    assert dumps[0].read_text(encoding="utf-8") == big_bad, (
+        "dumped content must be byte-exact with the raw response"
+    )
+
+
 # --- prompt_batch ------------------------------------------------------------
 
 from claude_client import prompt_batch
