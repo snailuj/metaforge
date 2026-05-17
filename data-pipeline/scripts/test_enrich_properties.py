@@ -121,6 +121,56 @@ def test_extract_batch_no_retry_on_usage_exhausted(mock_prompt_json):
     assert mock_prompt_json.call_count == 1
 
 
+# --- BATCH_PROMPT_V2 sensorimotor + verbatim-ID contract ---------------------
+
+def test_batch_prompt_v2_uses_sensorimotor_not_physical_as_type_field():
+    """The v2 prompt's type-field vocabulary must use `sensorimotor`, not the
+    pre-upgrade `physical`. The M02-S04 prompt rename moved the type value
+    from `physical` (which Haiku tended to read as "is the synset physical?")
+    to `sensorimotor` (unambiguously: "is this property a perceptual
+    descriptor?"). The rename is one-way; v2 means sensorimotor from
+    2026-05-15 onwards.
+    """
+    from enrich_properties import BATCH_PROMPT_V2
+    assert '"sensorimotor"' in BATCH_PROMPT_V2, (
+        "expected the sensorimotor type-field value in BATCH_PROMPT_V2; "
+        "did the rename get reverted?"
+    )
+    # The OLD type-field value should not appear as a JSON value in any
+    # worked example. Plain-prose mentions of "physical" elsewhere in the
+    # prompt (e.g. describing the conceptual category) are acceptable.
+    assert '"type": "physical"' not in BATCH_PROMPT_V2, (
+        "BATCH_PROMPT_V2 still has a worked example tagging a property "
+        'as "type": "physical"; this is the pre-rename vocabulary.'
+    )
+
+
+def test_batch_prompt_v2_uses_numeric_worked_example_ids():
+    """The v2 worked examples must use numeric IDs (the verbatim format the
+    pipeline actually sends), not the legacy `oewn-foo-n` form. Haiku
+    mirrored the example format and produced parser-rejected OEWN IDs when
+    the worked examples used `oewn-candle-n` / `oewn-volcano-n` — see
+    PIPELINE.md backlog item 5(a)(d).
+    """
+    from enrich_properties import BATCH_PROMPT_V2
+    assert "oewn-candle-n" not in BATCH_PROMPT_V2 and "oewn-volcano-n" not in BATCH_PROMPT_V2, (
+        "BATCH_PROMPT_V2 still has legacy `oewn-foo-n` worked-example IDs; "
+        "Haiku will mirror them and the parser will reject the output."
+    )
+
+
+def test_batch_prompt_v2_explicitly_instructs_verbatim_id_reuse():
+    """The v2 prompt must explicitly tell the model to echo the input ID
+    verbatim, not invent a new format. Without this instruction, Haiku
+    drifted to `oewn-` prefixed IDs even with numeric worked examples.
+    """
+    from enrich_properties import BATCH_PROMPT_V2
+    assert "use the exact ID string from the input" in BATCH_PROMPT_V2, (
+        "BATCH_PROMPT_V2 lacks the verbatim-ID instruction that the "
+        "M02-S04 fix added; Haiku will silently reformat IDs."
+    )
+
+
 # --- 8. extract_batch uses custom prompt_template ----------------------------
 
 @patch("enrich_properties.prompt_json")

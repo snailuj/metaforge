@@ -95,6 +95,20 @@ Output ONLY a valid JSON array (no markdown, no explanation):
 [{{"id": "...", "properties": [...]}}, ...]
 """
 
+# BATCH_PROMPT_V2 — sensorimotor variant (2026-05-15 onwards).
+#
+# The M02-S04 retro replaced the original "physical" type-field value with
+# "sensorimotor": Haiku tended to read "physical" as a question about the
+# synset ("is grief physical? no"), so abstract concepts got 0 physical
+# properties and the cohort balance collapsed. "Sensorimotor" is read
+# correctly as a question about the property word ("does this word describe
+# a perception/movement?") and lifts abstract synsets from 0 to ~4.6
+# sensorimotor properties on the emotion cohort with no regression on
+# concrete domains. Worked-example IDs are numeric (matching the verbatim
+# format the pipeline sends) plus an explicit "echo the input ID" directive
+# — Haiku otherwise mirrors the example format and produces parser-rejected
+# `oewn-foo-n` IDs. See PIPELINE.md backlog 5(a)(a/d) and
+# `M02-S04-prompt-rename-test.md` for the A/B evidence.
 BATCH_PROMPT_V2 = """You are extracting sensory and behavioural properties for specific word senses, with salience weights and metadata.
 
 These properties power a metaphor discovery engine that finds cross-domain conceptual links between unrelated words. For example, "anger" connects to "fire" via shared properties like "destructive", "consuming", "intense". Prioritise properties that could bridge between concepts from different domains — the more transferable and evocative a property, the more valuable it is.
@@ -114,19 +128,19 @@ For each word sense, provide:
      - 0.9-1.0: Defining, inescapable (fire → hot, ice → cold)
      - 0.6-0.8: Strong association (fire → dangerous, ice → slippery)
      - 0.3-0.5: Secondary/contextual (fire → ancient, ice → seasonal)
-   - "type": one of "physical", "behaviour", "effect", "functional", "emotional", "social"
+   - "type": one of "sensorimotor", "behaviour", "effect", "functional", "emotional", "social"
    - "relation": short phrase linking word to property (e.g. "fire emits heat")
 
    Property types:
-   - physical: texture, weight, temperature, luminosity, sound, colour, shape, size, material, smell, taste. Physical properties are the primary bridge for cross-domain metaphors (concrete → abstract).
+   - sensorimotor: texture, weight, temperature, luminosity, sound, colour, shape, size, material, smell, taste. Sensorimotor properties are the primary bridge for cross-domain metaphors (concrete → abstract).
    - behaviour: speed, rhythm, intensity, duration, pattern of movement
    - effect: what it causes, its consequences, its aftermath
    - functional: what it does, enables, or is used for
    - emotional: feelings it evokes or is associated with
    - social: cultural, relational, or status associations
 
-   IMPORTANT: At least 4 of your properties must have type "physical". Most concrete nouns
-   have at least 4 physical qualities. If the concept genuinely has fewer, include as many
+   IMPORTANT: At least 4 of your properties must have type "sensorimotor". Most concrete nouns
+   have at least 4 sensorimotor qualities. If the concept genuinely has fewer, include as many
    as truly apply.
 
 3. **lemma_metadata**: For EACH listed lemma, provide:
@@ -134,19 +148,23 @@ For each word sense, provide:
    - "register": "formal", "neutral", "informal", or "slang"
    - "connotation": "positive", "neutral", or "negative"
 
+IMPORTANT: in your output, **use the exact ID string from the input** for each synset. The IDs are opaque tokens — do not prefix them with `oewn-`, do not append `-n`/`-v`/`-a`, do not guess a format. Whatever ID appeared after `ID:` in the input is what you should put in the `id` field of your output object.
+
 Examples:
 
+ID: 12345
 Word: candle
 Lemmas: candle, taper
 Definition: stick of wax with a wick; gives light when burning
 
-{{"id": "oewn-candle-n", "usage_example": "She lit a candle and watched the flame flicker in the draught.", "properties": [{{"text": "warm", "salience": 0.9, "type": "physical", "relation": "candle emits warmth"}}, {{"text": "flickering", "salience": 0.85, "type": "behaviour", "relation": "flame flickers"}}, {{"text": "ephemeral", "salience": 0.7, "type": "effect", "relation": "candle burns away"}}, {{"text": "luminous", "salience": 0.8, "type": "physical", "relation": "candle gives light"}}, {{"text": "waxy", "salience": 0.75, "type": "physical", "relation": "made of wax"}}, {{"text": "fragile", "salience": 0.6, "type": "physical", "relation": "wick is delicate"}}, {{"text": "aromatic", "salience": 0.5, "type": "effect", "relation": "scented candles smell"}}, {{"text": "ceremonial", "salience": 0.4, "type": "social", "relation": "used in rituals"}}, {{"text": "intimate", "salience": 0.65, "type": "emotional", "relation": "evokes closeness"}}, {{"text": "ancient", "salience": 0.3, "type": "social", "relation": "pre-electric lighting"}}], "lemma_metadata": [{{"lemma": "candle", "register": "neutral", "connotation": "positive"}}, {{"lemma": "taper", "register": "formal", "connotation": "neutral"}}]}}
+{{"id": "12345", "usage_example": "She lit a candle and watched the flame flicker in the draught.", "properties": [{{"text": "warm", "salience": 0.9, "type": "sensorimotor", "relation": "candle emits warmth"}}, {{"text": "flickering", "salience": 0.85, "type": "behaviour", "relation": "flame flickers"}}, {{"text": "ephemeral", "salience": 0.7, "type": "effect", "relation": "candle burns away"}}, {{"text": "luminous", "salience": 0.8, "type": "sensorimotor", "relation": "candle gives light"}}, {{"text": "waxy", "salience": 0.75, "type": "sensorimotor", "relation": "made of wax"}}, {{"text": "fragile", "salience": 0.6, "type": "sensorimotor", "relation": "wick is delicate"}}, {{"text": "aromatic", "salience": 0.5, "type": "effect", "relation": "scented candles smell"}}, {{"text": "ceremonial", "salience": 0.4, "type": "social", "relation": "used in rituals"}}, {{"text": "intimate", "salience": 0.65, "type": "emotional", "relation": "evokes closeness"}}, {{"text": "ancient", "salience": 0.3, "type": "social", "relation": "pre-electric lighting"}}], "lemma_metadata": [{{"lemma": "candle", "register": "neutral", "connotation": "positive"}}, {{"lemma": "taper", "register": "formal", "connotation": "neutral"}}]}}
 
+ID: 67890
 Word: volcano
 Lemmas: volcano
 Definition: a mountain formed by volcanic material
 
-{{"id": "oewn-volcano-n", "usage_example": "The volcano erupted, sending a plume of ash into the sky.", "properties": [{{"text": "hot", "salience": 0.95, "type": "physical", "relation": "volcano radiates extreme heat"}}, {{"text": "conical", "salience": 0.8, "type": "physical", "relation": "volcano has cone shape"}}, {{"text": "towering", "salience": 0.85, "type": "physical", "relation": "volcano is very tall"}}, {{"text": "molten", "salience": 0.9, "type": "physical", "relation": "contains molten lava"}}, {{"text": "ashy", "salience": 0.7, "type": "physical", "relation": "produces ash"}}, {{"text": "eruptive", "salience": 0.85, "type": "behaviour", "relation": "volcano erupts violently"}}, {{"text": "destructive", "salience": 0.75, "type": "effect", "relation": "eruptions destroy surroundings"}}, {{"text": "dormant", "salience": 0.5, "type": "behaviour", "relation": "may be inactive for years"}}, {{"text": "rumbling", "salience": 0.65, "type": "physical", "relation": "produces low sounds"}}, {{"text": "ancient", "salience": 0.4, "type": "social", "relation": "geological timescale"}}], "lemma_metadata": [{{"lemma": "volcano", "register": "neutral", "connotation": "negative"}}]}}
+{{"id": "67890", "usage_example": "The volcano erupted, sending a plume of ash into the sky.", "properties": [{{"text": "hot", "salience": 0.95, "type": "sensorimotor", "relation": "volcano radiates extreme heat"}}, {{"text": "conical", "salience": 0.8, "type": "sensorimotor", "relation": "volcano has cone shape"}}, {{"text": "towering", "salience": 0.85, "type": "sensorimotor", "relation": "volcano is very tall"}}, {{"text": "molten", "salience": 0.9, "type": "sensorimotor", "relation": "contains molten lava"}}, {{"text": "ashy", "salience": 0.7, "type": "sensorimotor", "relation": "produces ash"}}, {{"text": "eruptive", "salience": 0.85, "type": "behaviour", "relation": "volcano erupts violently"}}, {{"text": "destructive", "salience": 0.75, "type": "effect", "relation": "eruptions destroy surroundings"}}, {{"text": "dormant", "salience": 0.5, "type": "behaviour", "relation": "may be inactive for years"}}, {{"text": "rumbling", "salience": 0.65, "type": "sensorimotor", "relation": "produces low sounds"}}, {{"text": "ancient", "salience": 0.4, "type": "social", "relation": "geological timescale"}}], "lemma_metadata": [{{"lemma": "volcano", "register": "neutral", "connotation": "negative"}}]}}
 (NOT: magmatic, pyroclastic, geological — these are taxonomic labels, not experiential properties)
 
 Now extract properties for each of these word senses:
