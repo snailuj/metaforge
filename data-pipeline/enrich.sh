@@ -155,12 +155,14 @@ echo ""
 
 errors=0
 
-if [[ ! -f "$BASELINE_SQL" ]]; then
+# Baseline SQL is only needed for the restore step.
+if [[ "$RESTORE_BASELINE" == true && ! -f "$BASELINE_SQL" ]]; then
     echo "ERROR: Missing baseline dump: $BASELINE_SQL"
     errors=1
 fi
 
-if [[ ! -f "$FASTTEXT_VEC" ]]; then
+# FastText vectors are only needed for the downstream pipeline step.
+if [[ "$RUN_PIPELINE" == true && ! -f "$FASTTEXT_VEC" ]]; then
     echo "ERROR: Missing FastText vectors: $FASTTEXT_VEC"
     errors=1
 fi
