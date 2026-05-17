@@ -4,10 +4,17 @@
 # Data pipeline outputs (generated, large)
 data-pipeline/output/*.db
 data-pipeline/output/*.db.*-backup
+data-pipeline/output/*.db.pre-*
 data-pipeline/output/*.sql
 data-pipeline/output/sweep_*.json
 data-pipeline/output/sweep_*.md
 data-pipeline/output/checkpoint_*.json
+data-pipeline/output/checkpoint_*.json.pre-*
+# Negation: re-include explicit "do not delete" sentinels (small text companion
+# files placed next to a snapshot the user wants protected from automated
+# pruning — e.g. lexicon_v2.db.pre-purge-20260517.keep-for-m03-baseline).
+!data-pipeline/output/*.keep-for-*
+data-pipeline/logs/
 data-pipeline/raw/
 data-pipeline/input/brysbaert-concreteness/
 
