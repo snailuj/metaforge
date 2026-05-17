@@ -22,7 +22,7 @@ texts that aren't yet in property_vocabulary.
 
 Usage:
   data-pipeline/.venv/bin/python data-pipeline/scripts/m02_s04_import_only.py \\
-      --enrichment data-pipeline/output/enrichment_top20k_haiku-sm_v2_20260515.json
+      --enrichment data-pipeline/output/enrichment_top1630_haiku-sm_v2_20260515.json
 """
 import argparse
 import json

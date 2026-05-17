@@ -42,7 +42,7 @@ production data should snapshot first; the sibling
 
 Usage (one JSON):
   data-pipeline/.venv/bin/python data-pipeline/scripts/m02_s04_clear_and_import.py \\
-    --enrichment data-pipeline/output/enrichment_top20k_haiku-sm_v2_20260515.json
+    --enrichment data-pipeline/output/enrichment_top1630_haiku-sm_v2_20260515.json
 
 Usage (multiple, processed in order — later JSONs win on overlap):
   data-pipeline/.venv/bin/python data-pipeline/scripts/m02_s04_clear_and_import.py \\
