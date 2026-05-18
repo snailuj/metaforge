@@ -1,8 +1,9 @@
-"""M03 cascade evaluator — concreteness gate → Ortony rank (S01 scope).
+"""M03 cascade evaluator — concreteness gate → Ortony rank → domain-distance re-rank.
 
 This is the architectural shift from M02's pointwise SCORING_FNS family
-to a composed cascade. The S01 slice ships the scaffolding + the
-concreteness-gate stage; the domain-distance re-rank stage lands in S02.
+to a composed cascade. S01 shipped the scaffolding + concreteness gate;
+S02 adds the domain-distance re-rank stage (monotonic-up-to-cap reward
+shape, fail-open on missing centroids).
 
 Pre-flight findings ([`M03-S01-preflight-findings.md`](docs/roadmap/...))
 established:
@@ -25,7 +26,9 @@ no_properties from unresolved.
 """
 from __future__ import annotations
 
+import math
 import sqlite3
+import struct
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +36,8 @@ from typing import Literal, Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 from evaluate_aptness import SCORING_FNS, _get_properties
+
+_VALID_COMPOSITIONS = ("multiplicative", "additive")
 
 
 CascadeStatus = Literal[
@@ -95,6 +100,67 @@ def _concreteness(conn: sqlite3.Connection, synset_id: str) -> Optional[float]:
     return float(row[0]) if row else None
 
 
+# --- Centroid lookup + cosine distance ---------------------------------------
+
+def _centroid(conn: sqlite3.Connection, synset_id: str) -> Optional[list[float]]:
+    """Return the centroid vector for a synset, or None if absent.
+
+    synset_centroids.centroid is a packed float32 BLOB (300 floats in
+    the real DB, sized by FastText embedding dim). Test fixtures use a
+    smaller dim; the decode handles either by reading the BLOB length.
+
+    Returns None on any of: row missing, BLOB NULL, BLOB empty, OR
+    synset_centroids table absent entirely. The last case happens on
+    pre-M03 DB snapshots / fixture DBs that pre-date the centroid
+    pipeline — the cascade must remain usable on those by failing open
+    through the re-rank rather than crashing on `no such table`.
+    """
+    try:
+        row = conn.execute(
+            "SELECT centroid FROM synset_centroids WHERE synset_id = ?",
+            (synset_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        # Likely "no such table: synset_centroids" on a fixture DB or
+        # pre-pipeline snapshot. Fail open.
+        return None
+    if row is None or row[0] is None or len(row[0]) == 0:
+        return None
+    blob = row[0]
+    n_floats = len(blob) // 4
+    return list(struct.unpack(f"{n_floats}f", blob))
+
+
+def _cosine_distance(va: list[float], vb: list[float]) -> Optional[float]:
+    """Cosine distance ∈ [0, 2]. Returns None if either vector has zero norm
+    (cosine is undefined for the zero vector — treat as 'missing centroid').
+    """
+    dot = sum(a * b for a, b in zip(va, vb))
+    na = math.sqrt(sum(a * a for a in va))
+    nb = math.sqrt(sum(b * b for b in vb))
+    if na == 0.0 or nb == 0.0:
+        return None
+    return 1.0 - (dot / (na * nb))
+
+
+def _re_rank_bonus(d: float, d_cap: float) -> float:
+    """Monotonic-up-to-cap reward shape.
+
+    bonus = clip(d / d_cap, 0.0, 1.0). Distances above d_cap saturate
+    at 1.0; distances ≤ 0 yield 0. The triangular-around-intermediate
+    shape from the initial roadmap draft was discarded after pre-flight
+    showed the inapt MUNCH cohort doesn't sample the too-far arm at all.
+    """
+    if d_cap <= 0.0:
+        return 0.0
+    ratio = d / d_cap
+    if ratio < 0.0:
+        return 0.0
+    if ratio > 1.0:
+        return 1.0
+    return ratio
+
+
 # --- Main evaluator ----------------------------------------------------------
 
 def evaluate_cascade_pair(
@@ -128,6 +194,11 @@ def evaluate_cascade_pair(
         raise ValueError(
             f"Unknown ortony_scoring: {config.ortony_scoring!r}. "
             f"Registered in SCORING_FNS: {known}"
+        )
+    if config.composition not in _VALID_COMPOSITIONS:
+        raise ValueError(
+            f"Unknown composition: {config.composition!r}. "
+            f"Valid: {', '.join(_VALID_COMPOSITIONS)}"
         )
 
     # --- Stage 1: concreteness gate ------------------------------------------
@@ -170,16 +241,33 @@ def evaluate_cascade_pair(
     scoring_fn = SCORING_FNS[config.ortony_scoring]
     ortony_score = scoring_fn(pa, pb)
 
-    # --- Stage 3: domain-distance re-rank — DEFERRED TO S02 ------------------
-    # In S01 the final_score equals the Ortony score directly. Once S02 lands,
-    # this section will compute centroid distance + re_rank_bonus and compose
-    # the final score per CascadeConfig.composition.
+    # --- Stage 3: domain-distance re-rank (S02) ------------------------------
+    # Fail-open: if either centroid is missing OR has zero norm, the re-rank
+    # stage skips entirely and the final_score falls back to the Ortony
+    # score. cosine_distance / re_rank_bonus stay None so the harness can
+    # route these pairs into a missing-centroid ablation bucket.
+    va = _centroid(conn, synset_id_topic)
+    vb = _centroid(conn, synset_id_vehicle)
+    cosine_distance: Optional[float] = None
+    re_rank_bonus: Optional[float] = None
+    if va is not None and vb is not None:
+        d = _cosine_distance(va, vb)
+        if d is not None:
+            cosine_distance = d
+            re_rank_bonus = _re_rank_bonus(d, config.d_cap)
+
+    if re_rank_bonus is None:
+        final_score = ortony_score
+    elif config.composition == "multiplicative":
+        final_score = ortony_score * (1.0 + config.alpha * re_rank_bonus)
+    else:  # "additive" — validated above
+        final_score = ortony_score + config.alpha * re_rank_bonus
 
     return CascadeResult(
-        final_score=ortony_score,
+        final_score=final_score,
         gate_passed=True,
         ortony_score=ortony_score,
-        cosine_distance=None,
-        re_rank_bonus=None,
+        cosine_distance=cosine_distance,
+        re_rank_bonus=re_rank_bonus,
         status="scored",
     )
