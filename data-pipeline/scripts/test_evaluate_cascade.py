@@ -22,6 +22,7 @@ from evaluate_cascade import (
     CascadeConfig,
     CascadeResult,
     evaluate_cascade_pair,
+    evaluate_cohort,
 )
 
 
@@ -547,6 +548,139 @@ def test_re_rank_skipped_when_gate_drops():
     assert result.cosine_distance is None
     assert result.re_rank_bonus is None
     assert result.final_score == 0.0
+
+
+# --- evaluate_cohort: cohort-level evaluation contract ---------------------
+
+def _write_fixture_cohorts(tmp_path):
+    """Stage tiny apt-pairs JSON + inapt-controls JSONL files.
+
+    Apt: 2 pairs that should pass the gate (both topic→vehicle pairs
+    have concrete vehicles, matching the fixture DB).
+    Inapt: 2 pairs that should be gate-dropped (target/paraphrase both
+    abstract; delta ≈ 0).
+    Plus 1 inapt with an unresolved lemma (cohort-attrition counter).
+    """
+    import json as _json
+    pairs_path = tmp_path / "apt.json"
+    controls_path = tmp_path / "inapt.jsonl"
+    pairs_path.write_text(_json.dumps([
+        {"source": "anger", "target": "fire",  "tier": "strong", "domain": "emotion"},
+        {"source": "hope",  "target": "light", "tier": "strong", "domain": "emotion"},
+    ]))
+    controls_path.write_text(
+        '{"target": "similar", "paraphrase": "alike",  "label": "inapt"}\n'
+        '{"target": "anger",   "paraphrase": "alike",  "label": "inapt"}\n'
+        '{"target": "ghost",   "paraphrase": "phantom","label": "inapt"}\n'
+    )
+    return str(pairs_path), str(controls_path)
+
+
+def test_evaluate_cohort_returns_shape_matching_evaluate_aptness(tmp_path):
+    """The cohort result must carry the same top-level keys as
+    evaluate_aptness.evaluate so the sweep harness can consume both
+    evaluators through a single result-shape pathway.
+    """
+    conn = _build_fixture_db_with_centroids()
+    pairs, controls = _write_fixture_cohorts(tmp_path)
+    result = evaluate_cohort(
+        conn, pairs_file=pairs, controls_file=controls,
+        config=CascadeConfig(), threshold_percentile=95.0,
+        db_path=":memory:",
+    )
+    # Shape parity with evaluate_aptness.evaluate
+    assert "aptness_rate" in result
+    assert "false_positive_rate" in result
+    assert "separation_score" in result
+    assert "aggregate" in result
+    assert "per_pair_scores" in result
+    assert "config" in result
+    # Cascade-specific stats: ablation slices must be available.
+    agg = result["aggregate"]
+    assert "n_apt" in agg
+    assert "n_inapt" in agg
+    assert "apt_gate_dropped" in agg
+    assert "inapt_gate_dropped" in agg
+    assert "apt_missing_concreteness" in agg
+    assert "inapt_missing_concreteness" in agg
+
+
+def test_evaluate_cohort_routes_apt_pairs_through_gate(tmp_path):
+    """Apt-cohort pairs are (source=topic, target=vehicle) — the cascade
+    must use them in that order (vehicle as second arg) so the signed
+    gate predicate gets the directionality right.
+    """
+    conn = _build_fixture_db_with_centroids()
+    pairs, controls = _write_fixture_cohorts(tmp_path)
+    result = evaluate_cohort(
+        conn, pairs_file=pairs, controls_file=controls,
+        config=CascadeConfig(), threshold_percentile=95.0,
+        db_path=":memory:",
+    )
+    # Both apt pairs in the fixture have concrete vehicles → should pass
+    # the gate. None should be gate-dropped.
+    assert result["aggregate"]["apt_gate_dropped"] == 0
+
+
+def test_evaluate_cohort_drops_inapt_at_the_gate(tmp_path):
+    """Inapt-cohort pairs are (target, paraphrase) — both abstract
+    lemmas in the fixture. The signed gate should reject them. (Anger
+    vs alike: both have concreteness ≈ 2.0 in the fixture.)
+    """
+    conn = _build_fixture_db_with_centroids()
+    pairs, controls = _write_fixture_cohorts(tmp_path)
+    result = evaluate_cohort(
+        conn, pairs_file=pairs, controls_file=controls,
+        config=CascadeConfig(), threshold_percentile=95.0,
+        db_path=":memory:",
+    )
+    # 'similar'+'alike' (both ≈2.0), 'anger'+'alike' (2.0/2.1), 'ghost'+'phantom' (unresolved)
+    # → first two land in gate_dropped, third lands in unresolved.
+    assert result["aggregate"]["inapt_gate_dropped"] >= 1
+
+
+def test_evaluate_cohort_honours_no_gate_baseline(tmp_path):
+    """concreteness_threshold = -inf reduces to no-gate — every pair
+    that resolves with both concreteness scores reaches the Ortony
+    stage. Required for the M02-baseline ablation slice.
+    """
+    import math
+    conn = _build_fixture_db_with_centroids()
+    pairs, controls = _write_fixture_cohorts(tmp_path)
+    cfg = CascadeConfig(concreteness_threshold=-math.inf)
+    result = evaluate_cohort(
+        conn, pairs_file=pairs, controls_file=controls,
+        config=cfg, threshold_percentile=95.0, db_path=":memory:",
+    )
+    # All pairs that resolve to both synsets+concreteness should pass
+    # the gate when threshold = -inf.
+    assert result["aggregate"]["apt_gate_dropped"] == 0
+    assert result["aggregate"]["inapt_gate_dropped"] == 0
+
+
+def test_evaluate_cohort_config_block_records_cascade_params(tmp_path):
+    """The result's config block must include the cascade hyperparameters
+    (threshold, d_cap, alpha, composition, ortony_scoring) so a stored
+    sweep result is self-describing.
+    """
+    conn = _build_fixture_db_with_centroids()
+    pairs, controls = _write_fixture_cohorts(tmp_path)
+    cfg = CascadeConfig(
+        concreteness_threshold=1.5, ortony_scoring="jaccard_raw",
+        d_cap=0.5, alpha=0.25, composition="additive",
+    )
+    result = evaluate_cohort(
+        conn, pairs_file=pairs, controls_file=controls,
+        config=cfg, threshold_percentile=90.0, db_path=":memory:",
+    )
+    rc = result["config"]
+    assert rc["evaluator"] == "cascade"
+    assert rc["concreteness_threshold"] == 1.5
+    assert rc["ortony_scoring"] == "jaccard_raw"
+    assert rc["d_cap"] == 0.5
+    assert rc["alpha"] == 0.25
+    assert rc["composition"] == "additive"
+    assert rc["threshold_percentile"] == 90.0
 
 
 def test_re_rank_handles_zero_norm_centroid_as_missing():

@@ -35,7 +35,16 @@ from pathlib import Path
 from typing import Literal, Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
-from evaluate_aptness import SCORING_FNS, _get_properties
+from evaluate_aptness import (
+    SCORING_FNS,
+    _get_properties,
+    _percentile,
+    classify_aptness,
+    load_apt_pairs,
+    load_inapt_controls,
+    lookup_primary_synset,
+)
+from utils import get_git_commit
 
 _VALID_COMPOSITIONS = ("multiplicative", "additive")
 
@@ -271,3 +280,180 @@ def evaluate_cascade_pair(
         re_rank_bonus=re_rank_bonus,
         status="scored",
     )
+
+
+# --- Cohort orchestrator -----------------------------------------------------
+
+def _score_cascade_cohort(
+    conn: sqlite3.Connection,
+    pairs: list[dict],
+    word_topic_key: str,
+    word_vehicle_key: str,
+    cohort_label: str,
+    config: CascadeConfig,
+) -> dict:
+    """Score every pair in a cohort through the cascade.
+
+    Returns a dict with the cohort label, list of scored final_scores,
+    per-pair detail rows, and the cascade-specific attrition counters
+    (gate_dropped, missing_concreteness, no_properties, unresolved).
+
+    word_topic_key / word_vehicle_key let one helper serve both cohorts:
+      * apt cohort  → topic_key='source',  vehicle_key='target'
+      * inapt cohort → topic_key='target',  vehicle_key='paraphrase'
+
+    On apt pairs the direction is the Lakoff one. On inapt MUNCH pairs
+    there's no inherent direction — the helper simply preserves the
+    field order the fixture stores, so an asymmetric gate filters out
+    most paraphrase substitutes (which lack the concrete-vehicle shape
+    that defines a metaphor pair).
+    """
+    scores: list[float] = []
+    per_pair: list[dict] = []
+    counters = {
+        "unresolved": 0,
+        "missing_concreteness": 0,
+        "gate_dropped": 0,
+        "no_properties": 0,
+        "scored": 0,
+    }
+
+    for p in pairs:
+        word_topic = p.get(word_topic_key)
+        word_vehicle = p.get(word_vehicle_key)
+        if not word_topic or not word_vehicle:
+            counters["unresolved"] += 1
+            per_pair.append({
+                "class": cohort_label,
+                "word_topic": word_topic,
+                "word_vehicle": word_vehicle,
+                "status": "unresolved",
+                "score": None,
+            })
+            continue
+        sid_topic = lookup_primary_synset(conn, word_topic)
+        sid_vehicle = lookup_primary_synset(conn, word_vehicle)
+        if sid_topic is None or sid_vehicle is None:
+            counters["unresolved"] += 1
+            per_pair.append({
+                "class": cohort_label,
+                "word_topic": word_topic,
+                "word_vehicle": word_vehicle,
+                "status": "unresolved",
+                "score": None,
+            })
+            continue
+
+        result = evaluate_cascade_pair(conn, sid_topic, sid_vehicle, config)
+        counters[result.status] = counters.get(result.status, 0) + 1
+        row = {
+            "class": cohort_label,
+            "word_topic": word_topic,
+            "word_vehicle": word_vehicle,
+            "synset_topic": sid_topic,
+            "synset_vehicle": sid_vehicle,
+            "status": result.status,
+            "score": round(result.final_score, 6) if result.final_score is not None else None,
+            "gate_passed": result.gate_passed,
+            "ortony_score": round(result.ortony_score, 6) if result.ortony_score is not None else None,
+            "cosine_distance": round(result.cosine_distance, 6) if result.cosine_distance is not None else None,
+            "re_rank_bonus": round(result.re_rank_bonus, 6) if result.re_rank_bonus is not None else None,
+        }
+        per_pair.append(row)
+
+        # Scoring policy: pairs the gate dropped contribute 0.0 to the
+        # cohort mean (they're explicitly judged "not metaphorical").
+        # missing_concreteness / no_properties / unresolved do NOT
+        # contribute — they're attrition, not scored zeros, so they
+        # cannot deflate the mean.
+        if result.status == "scored":
+            scores.append(result.final_score)  # type: ignore[arg-type]
+        elif result.status == "gate_dropped":
+            scores.append(0.0)
+
+    return {
+        "cohort": cohort_label,
+        "scores": scores,
+        "per_pair": per_pair,
+        "counters": counters,
+    }
+
+
+def evaluate_cohort(
+    conn: sqlite3.Connection,
+    pairs_file: str,
+    controls_file: str,
+    config: CascadeConfig,
+    threshold_percentile: float = 95.0,
+    db_path: str | None = None,
+) -> dict:
+    """Run the cascade on an apt+inapt cohort and return a sweep-compatible
+    result dict.
+
+    Shape parity with ``evaluate_aptness.evaluate``:
+      * aptness_rate, false_positive_rate, separation_score at top level
+      * aggregate dict with mean_apt_score, mean_inapt_score, n_apt,
+        n_inapt — plus cascade-specific attrition counters
+      * per_pair_scores list with both cohorts
+      * config block with cascade hyperparameters
+
+    The aggregate-level attrition counters are namespaced by cohort
+    (`apt_gate_dropped`, `inapt_gate_dropped`, etc.) so the sweep
+    harness can render ablation slices without re-walking the per-pair
+    list.
+    """
+    apt_pairs = load_apt_pairs(pairs_file)
+    inapt_controls = load_inapt_controls(controls_file)
+
+    apt = _score_cascade_cohort(
+        conn, apt_pairs, "source", "target", "apt", config,
+    )
+    inapt = _score_cascade_cohort(
+        conn, inapt_controls, "target", "paraphrase", "inapt", config,
+    )
+
+    apt_scores = apt["scores"]
+    inapt_scores = inapt["scores"]
+
+    threshold = _percentile(inapt_scores, threshold_percentile)
+    classification = classify_aptness(apt_scores, inapt_scores, threshold)
+
+    mean_apt = sum(apt_scores) / len(apt_scores) if apt_scores else 0.0
+    mean_inapt = sum(inapt_scores) / len(inapt_scores) if inapt_scores else 0.0
+
+    aggregate = {
+        "mean_apt_score": round(mean_apt, 6),
+        "mean_inapt_score": round(mean_inapt, 6),
+        "separation_score": round(mean_apt - mean_inapt, 6),
+        "n_apt": len(apt_scores),
+        "n_inapt": len(inapt_scores),
+    }
+    # Namespace the attrition counters by cohort so the aggregate-level
+    # dict carries everything the sweep harness's ablation table needs
+    # without forcing per-pair walks.
+    for status, count in apt["counters"].items():
+        aggregate[f"apt_{status}"] = count
+    for status, count in inapt["counters"].items():
+        aggregate[f"inapt_{status}"] = count
+
+    return {
+        "aptness_rate": round(classification["aptness_rate"], 6),
+        "false_positive_rate": round(classification["false_positive_rate"], 6),
+        "separation_score": aggregate["separation_score"],
+        "aggregate": aggregate,
+        "per_pair_scores": apt["per_pair"] + inapt["per_pair"],
+        "config": {
+            "evaluator": "cascade",
+            "concreteness_threshold": config.concreteness_threshold,
+            "ortony_scoring": config.ortony_scoring,
+            "d_cap": config.d_cap,
+            "alpha": config.alpha,
+            "composition": config.composition,
+            "threshold": round(threshold, 6),
+            "threshold_percentile": threshold_percentile,
+            "pairs_file": pairs_file,
+            "controls_file": controls_file,
+            "db": db_path,
+            "git_commit": get_git_commit(),
+        },
+    }
