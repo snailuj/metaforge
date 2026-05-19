@@ -45,6 +45,11 @@ FIXTURE_SCHEMA = """
         salience_sum REAL NOT NULL DEFAULT 1.0,
         PRIMARY KEY (synset_id, cluster_id)
     );
+    CREATE TABLE synset_concreteness (
+        synset_id TEXT PRIMARY KEY,
+        score     REAL NOT NULL,
+        source    TEXT NOT NULL
+    );
 """
 
 FIXTURE_DATA = """
@@ -63,6 +68,11 @@ FIXTURE_DATA = """
         ('S002', 2, 3, 'exact', 1.0, 0.7),
         ('S003', 3, 4, 'exact', 1.0, 0.5),
         ('S004', 4, 5, 'exact', 1.0, 0.5);
+    INSERT INTO synset_concreteness (synset_id, score, source) VALUES
+        ('S001', 2.0, 'brysbaert'),   -- anger    (abstract topic)
+        ('S002', 4.5, 'brysbaert'),   -- fire     (concrete vehicle)
+        ('S003', 2.5, 'brysbaert'),   -- approach (abstract)
+        ('S004', 2.4, 'brysbaert');   -- coming   (abstract)
 """
 
 
@@ -1090,3 +1100,155 @@ def test_main_logs_warning_when_some_variations_fail(tmp_path, caplog, monkeypat
         if r.levelno == logging.WARNING and "sweep finish" in r.getMessage()
     ]
     assert finish_warnings, "expected a WARNING 'sweep finish' record on partial failure"
+
+
+# --- M03 cascade evaluator integration --------------------------------------
+
+def test_cascade_variation_runs_through_sweep(tmp_path):
+    """A variation with `evaluator: cascade` must dispatch through the
+    cascade module and produce a row carrying the standard fields the
+    aptness evaluator returns (separation_score, aptness_rate, etc.).
+    """
+    _, cfg = _base_config(tmp_path, [
+        {
+            "name": "cascade_default",
+            "evaluator": "cascade",
+            "concreteness_threshold": 1.0,
+            "ortony_scoring": "jaccard_salience",
+            "d_cap": 0.77,
+            "alpha": 0.5,
+            "composition": "multiplicative",
+        },
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+
+    assert len(result["variations"]) == 1
+    row = result["variations"][0]
+    assert row["status"] == "ok", row
+    assert row["name"] == "cascade_default"
+    # Shape parity with aptness rows
+    for k in ("separation_score", "aptness_rate", "mean_apt_score",
+              "mean_inapt_score", "n_apt", "n_inapt", "threshold"):
+        assert k in row, f"cascade row missing {k}"
+
+
+def test_cascade_variation_carries_attrition_counters(tmp_path):
+    """Cascade rows must surface gate-drop / missing-concreteness /
+    no-properties / unresolved counters per cohort so the sweep JSON is
+    self-sufficient for the ablation table.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {
+            "name": "cascade_default",
+            "evaluator": "cascade",
+            "concreteness_threshold": 1.0,
+        },
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    row = result["variations"][0]
+    assert row["status"] == "ok", row
+    # Attrition counters present and integer-typed.
+    for k in ("apt_gate_dropped", "inapt_gate_dropped",
+              "apt_missing_concreteness", "inapt_missing_concreteness",
+              "apt_unresolved", "inapt_unresolved"):
+        assert k in row, f"cascade row missing {k}"
+        assert isinstance(row[k], int)
+
+
+def test_cascade_and_aptness_variations_coexist(tmp_path):
+    """One sweep config can mix `evaluator: cascade` and the default
+    aptness evaluator — required for the Stage-1 ablation table where
+    no-gate cascade variations reproduce M02 baselines alongside the
+    full cascade variants.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {"name": "m02_jaccard", "scoring": "jaccard_salience"},
+        {
+            "name": "m03_cascade",
+            "evaluator": "cascade",
+            "concreteness_threshold": 1.0,
+            "alpha": 0.5,
+        },
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    statuses = {v["name"]: v["status"] for v in result["variations"]}
+    assert statuses == {"m02_jaccard": "ok", "m03_cascade": "ok"}
+
+
+def test_cascade_unknown_ortony_scoring_fails_variation_not_sweep(tmp_path):
+    """A bad ortony_scoring name should fail just that variation —
+    matches the existing isolation contract for aptness scoring typos.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {"name": "good", "evaluator": "cascade",
+         "concreteness_threshold": 1.0, "ortony_scoring": "jaccard_salience"},
+        {"name": "bad",  "evaluator": "cascade",
+         "concreteness_threshold": 1.0, "ortony_scoring": "nonexistent"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    statuses = {v["name"]: v["status"] for v in result["variations"]}
+    assert statuses == {"good": "ok", "bad": "failed"}
+
+
+def test_cascade_evaluator_rejects_unknown_value_at_config_boundary(tmp_path):
+    """`evaluator: not_a_real_evaluator` must fail at config-load, not
+    at runtime — matches the strict-allow-list pattern for `scoring`.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {"name": "v1", "evaluator": "bogus_evaluator"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    with pytest.raises(ValueError, match="evaluator"):
+        load_sweep_config(str(cfg_path))
+
+
+def test_cascade_concreteness_threshold_must_be_numeric(tmp_path):
+    """Type-check at the config boundary — a string concreteness_threshold
+    silently coerces to a comparison error mid-sweep, which is a footgun.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {"name": "v1", "evaluator": "cascade",
+         "concreteness_threshold": "not_a_number"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    with pytest.raises(ValueError, match="concreteness_threshold"):
+        load_sweep_config(str(cfg_path))
+
+
+def test_cascade_composition_must_be_in_allowlist(tmp_path):
+    """Composition typo (`mult` vs `multiplicative`) caught at config
+    boundary, not at evaluation time."""
+    _, cfg = _base_config(tmp_path, [
+        {"name": "v1", "evaluator": "cascade", "composition": "mult"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    with pytest.raises(ValueError, match="composition"):
+        load_sweep_config(str(cfg_path))
+
+
+def test_aptness_evaluator_default_when_omitted(tmp_path):
+    """If `evaluator` is omitted, the variation runs through the existing
+    aptness path. Backwards-compat: M02-era sweep configs keep working
+    unchanged."""
+    _, cfg = _base_config(tmp_path, [
+        {"name": "legacy", "scoring": "jaccard_salience"},  # no evaluator key
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    row = result["variations"][0]
+    assert row["status"] == "ok"
+    # Aptness rows DON'T carry cascade-specific attrition counters.
+    assert "apt_gate_dropped" not in row

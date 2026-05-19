@@ -57,15 +57,21 @@ log = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
 
 
-class OkVariationResult(TypedDict):
+class OkVariationResult(TypedDict, total=False):
     """Successful variation row. ``status`` is the discriminator.
 
     ``false_positive_rate`` is preserved alongside ``aptness_rate`` because
     consumers (sweep-report tooling) compare them as a pair when judging
     a variation; dropping it would silently regress those reports.
+
+    The M03 cascade evaluator surfaces additional attrition counters
+    (``apt_gate_dropped`` etc.) as optional fields. ``total=False`` makes
+    them ``NotRequired`` at the TypedDict layer while keeping the core
+    fields as runtime invariants enforced by `_run_one_variation`.
     """
     status: Literal["ok"]
     name: str
+    evaluator: str
     scoring: str
     threshold_percentile: float
     threshold: float
@@ -77,6 +83,20 @@ class OkVariationResult(TypedDict):
     n_apt: int
     n_inapt: int
     duration_ms: float
+    # M03 cascade-only fields (NotRequired in practice — present iff evaluator == 'cascade')
+    concreteness_threshold: float
+    ortony_scoring: str
+    d_cap: float
+    alpha: float
+    composition: str
+    apt_gate_dropped: int
+    inapt_gate_dropped: int
+    apt_missing_concreteness: int
+    inapt_missing_concreteness: int
+    apt_unresolved: int
+    inapt_unresolved: int
+    apt_no_properties: int
+    inapt_no_properties: int
 
 
 class FailedVariationResult(TypedDict):
@@ -104,11 +124,20 @@ VariationResult = Union[OkVariationResult, FailedVariationResult]
 
 class VariationSpec(TypedDict):
     name: str
+    evaluator: NotRequired[str]   # "aptness" (default) | "cascade"
     scoring: NotRequired[str]
     threshold_percentile: NotRequired[float]
+    # M03 cascade-only fields — ignored when evaluator != 'cascade'.
+    concreteness_threshold: NotRequired[float]
+    ortony_scoring: NotRequired[str]
+    d_cap: NotRequired[float]
+    alpha: NotRequired[float]
+    composition: NotRequired[str]
 
 
 ALLOWED_VARIATION_KEYS = frozenset(VariationSpec.__annotations__.keys())
+ALLOWED_EVALUATORS = ("aptness", "cascade")
+ALLOWED_COMPOSITIONS = ("multiplicative", "additive")
 
 
 class SweepConfig(TypedDict):
@@ -247,6 +276,46 @@ def load_sweep_config(path: str) -> SweepConfig:
                     f"{sorted(evaluate_aptness.SCORING_FNS)}"
                 )
 
+        # M03: `evaluator` (when set) must be in the allow-list. A bare
+        # typo (`cascadr`) is a silent footgun otherwise — the variation
+        # would default to aptness with cascade fields ignored.
+        if "evaluator" in var:
+            ev = var["evaluator"]
+            if ev not in ALLOWED_EVALUATORS:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: unknown "
+                    f"evaluator {ev!r}; valid: {list(ALLOWED_EVALUATORS)}"
+                )
+
+        # M03 cascade hyperparameter type-checks. The cascade module
+        # itself validates these at runtime, but a sweep config typo
+        # (e.g. `concreteness_threshold: "1.0"` quoted as a string)
+        # should crash at load-time not after the first variation runs.
+        for numeric_key in ("concreteness_threshold", "d_cap", "alpha"):
+            if numeric_key in var:
+                val = var[numeric_key]
+                if isinstance(val, bool) or not isinstance(val, (int, float)):
+                    raise ValueError(
+                        f"sweep config {path}: variation {name!r}: "
+                        f"{numeric_key!r} must be a number, got {val!r} "
+                        f"({type(val).__name__})"
+                    )
+        if "ortony_scoring" in var:
+            os_value = var["ortony_scoring"]
+            if os_value not in evaluate_aptness.SCORING_FNS:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: unknown "
+                    f"ortony_scoring {os_value!r}; valid: "
+                    f"{sorted(evaluate_aptness.SCORING_FNS)}"
+                )
+        if "composition" in var:
+            comp = var["composition"]
+            if comp not in ALLOWED_COMPOSITIONS:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: unknown "
+                    f"composition {comp!r}; valid: {list(ALLOWED_COMPOSITIONS)}"
+                )
+
         # threshold_percentile must lie in [0, 100]. Out-of-range values
         # silently clamp to min/max sample inside `_percentile`, which is
         # a true silent fallback (no log, no signal). Reject at the schema
@@ -332,21 +401,28 @@ def _run_one_variation(
 ) -> VariationResult:
     """Run a single variation. Returns a tagged-union result.
 
+    Routes by the variation's ``evaluator`` field (default 'aptness'):
+      * 'aptness' — calls evaluate_aptness.evaluate as the M01/M02 path
+      * 'cascade' — calls evaluate_cascade.evaluate_cohort, surfaces the
+        cascade-specific attrition counters in the OK row
+
     On any exception (unknown scoring, DB error, malformed input) the
     failure is captured into a :class:`FailedVariationResult` with the
     exception type and message split into separate fields — the sweep
     continues.
     """
-    # `name` is validator-enforced (load_sweep_config requires every
-    # variation to declare a non-empty string name) — direct key access
-    # narrows from Optional[str] to str.
     name = variation["name"]
-    scoring = variation.get("scoring", evaluate_aptness.DEFAULT_SCORING)
+    evaluator = variation.get("evaluator", "aptness")
     threshold_percentile = float(variation.get("threshold_percentile", 95.0))
 
+    if evaluator == "cascade":
+        scoring = variation.get("ortony_scoring", "jaccard_salience")
+    else:
+        scoring = variation.get("scoring", evaluate_aptness.DEFAULT_SCORING)
+
     log.info(
-        "variation start: name=%s scoring=%s threshold_pct=%g",
-        name, scoring, threshold_percentile,
+        "variation start: name=%s evaluator=%s scoring=%s threshold_pct=%g",
+        name, evaluator, scoring, threshold_percentile,
     )
     started = time.perf_counter()
     try:
@@ -354,21 +430,44 @@ def _run_one_variation(
         # independent and avoids cross-variation transaction state.
         conn = sqlite3.connect(db_path)
         try:
-            result = evaluate_aptness.evaluate(
-                conn=conn,
-                pairs_file=pairs_file,
-                controls_file=controls_file,
-                threshold_percentile=threshold_percentile,
-                db_path=db_path,
-                scoring=scoring,
-            )
+            if evaluator == "cascade":
+                # Local import keeps evaluate_cascade out of the import
+                # graph for legacy aptness-only sweeps.
+                from evaluate_cascade import CascadeConfig, evaluate_cohort
+
+                cfg = CascadeConfig(
+                    concreteness_threshold=float(variation.get(
+                        "concreteness_threshold", 1.0,
+                    )),
+                    ortony_scoring=scoring,
+                    d_cap=float(variation.get("d_cap", 0.77)),
+                    alpha=float(variation.get("alpha", 0.5)),
+                    composition=variation.get("composition", "multiplicative"),
+                )
+                result = evaluate_cohort(
+                    conn=conn,
+                    pairs_file=pairs_file,
+                    controls_file=controls_file,
+                    config=cfg,
+                    threshold_percentile=threshold_percentile,
+                    db_path=db_path,
+                )
+            else:
+                result = evaluate_aptness.evaluate(
+                    conn=conn,
+                    pairs_file=pairs_file,
+                    controls_file=controls_file,
+                    threshold_percentile=threshold_percentile,
+                    db_path=db_path,
+                    scoring=scoring,
+                )
         finally:
             conn.close()
     except Exception as exc:  # noqa: BLE001 — per-variation isolation is required
         duration_ms = round((time.perf_counter() - started) * 1000, 2)
         log.warning(
-            "variation failed: name=%s scoring=%s error=%s",
-            name, scoring, exc, exc_info=True,
+            "variation failed: name=%s evaluator=%s scoring=%s error=%s",
+            name, evaluator, scoring, exc, exc_info=True,
         )
         failed: FailedVariationResult = {
             "status": "failed",
@@ -384,14 +483,15 @@ def _run_one_variation(
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
     agg = result["aggregate"]
     log.info(
-        "variation finish: name=%s scoring=%s separation=%.4f "
+        "variation finish: name=%s evaluator=%s scoring=%s separation=%.4f "
         "aptness=%.4f n_apt=%d n_inapt=%d duration_ms=%g",
-        name, scoring, result["separation_score"],
+        name, evaluator, scoring, result["separation_score"],
         result["aptness_rate"], agg["n_apt"], agg["n_inapt"], duration_ms,
     )
     ok: OkVariationResult = {
         "status": "ok",
         "name": name,
+        "evaluator": evaluator,
         "scoring": scoring,
         "threshold_percentile": threshold_percentile,
         "threshold": result["config"]["threshold"],
@@ -404,6 +504,22 @@ def _run_one_variation(
         "n_inapt": agg["n_inapt"],
         "duration_ms": duration_ms,
     }
+    if evaluator == "cascade":
+        # Surface the cascade hyperparameters + cohort attrition counters
+        # on the OK row so the sweep JSON is self-sufficient for the
+        # M03 ablation table.
+        ok["concreteness_threshold"] = result["config"]["concreteness_threshold"]
+        ok["ortony_scoring"] = result["config"]["ortony_scoring"]
+        ok["d_cap"] = result["config"]["d_cap"]
+        ok["alpha"] = result["config"]["alpha"]
+        ok["composition"] = result["config"]["composition"]
+        for attrition_key in (
+            "apt_gate_dropped", "inapt_gate_dropped",
+            "apt_missing_concreteness", "inapt_missing_concreteness",
+            "apt_unresolved", "inapt_unresolved",
+            "apt_no_properties", "inapt_no_properties",
+        ):
+            ok[attrition_key] = int(agg.get(attrition_key, 0))
     return ok
 
 
