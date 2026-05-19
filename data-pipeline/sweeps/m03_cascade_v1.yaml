@@ -1,0 +1,202 @@
+# M03 Stage-1 ablation sweep — runs against the pre-purge backup
+# (`lexicon_v2.db.pre-purge-20260517`) so the comparison against M02's
+# published plateau is apples-to-apples. See
+# `docs/roadmap/M03-cascade-gate-and-rank-roadmap.md` for the slice plan
+# and `docs/roadmap/M03-S01-preflight-findings.md` for the data-driven
+# parameter ranges below.
+#
+# Variation taxonomy (M03 roadmap, Tier 2 ablation):
+#   * m02_baseline_*       — pure pointwise scoring, no cascade. Reproduces
+#                            M02 published numbers as a sanity check.
+#   * cascade_gate_only_*  — gate enabled, no re-rank (alpha=0). Isolates
+#                            the gate's effect on separation_score.
+#   * cascade_rank_only_*  — no gate (threshold=-inf), re-rank enabled.
+#                            Isolates the re-rank's effect.
+#   * cascade_full_*       — gate + re-rank, the production-candidate.
+#   * cascade_sweep_*      — full cascade with hyperparameter variations.
+
+name: m03_cascade_v1
+db: data-pipeline/output/lexicon_v2.db.pre-purge-20260517
+pairs: data-pipeline/fixtures/metaphor_pairs_v2.json
+controls: data-pipeline/fixtures/munch_inapt.jsonl
+mrr_reference: data-pipeline/output/eval_baseline_v2.json
+
+variations:
+  # --- M02 baselines (legacy aptness evaluator, no cascade) ---------------
+  # These reproduce M02 published numbers verbatim — anchors the rest of
+  # the table against `sweep_m02_ortony_v3_post_haiku_rebuild.json`.
+  - name: m02_baseline_jaccard_salience
+    scoring: jaccard_salience
+    threshold_percentile: 95.0
+  - name: m02_baseline_jaccard_raw
+    scoring: jaccard_raw
+    threshold_percentile: 95.0
+  - name: m02_baseline_cosine_salience
+    scoring: cosine_salience
+    threshold_percentile: 95.0
+  - name: m02_baseline_random_uniform
+    scoring: random_uniform
+    threshold_percentile: 95.0
+
+  # --- Cascade no-gate sanity (must equal m02_baseline_jaccard_salience) --
+  # Cascade with threshold=-inf, alpha=0 IS pointwise jaccard_salience by
+  # construction. If this row doesn't match m02_baseline_jaccard_salience
+  # within rounding, something is wrong with the cascade composition.
+  - name: cascade_no_gate_no_rerank_sanity
+    evaluator: cascade
+    concreteness_threshold: -1000000.0   # -inf in YAML is fiddly; -1e6 plays the same role
+    alpha: 0.0
+    ortony_scoring: jaccard_salience
+    threshold_percentile: 95.0
+
+  # --- Gate-only ablation: vary the signed concreteness threshold --------
+  # Pre-flight diagnostic: apt p25 = +1.24, median = +2.03, p95 = +3.06.
+  # Sweep covers the discriminative slope; values ≥ 3 fall outside the
+  # apt mass and become useless.
+  - name: cascade_gate_only_t0.5
+    evaluator: cascade
+    concreteness_threshold: 0.5
+    alpha: 0.0
+    ortony_scoring: jaccard_salience
+    threshold_percentile: 95.0
+  - name: cascade_gate_only_t0.75
+    evaluator: cascade
+    concreteness_threshold: 0.75
+    alpha: 0.0
+    ortony_scoring: jaccard_salience
+    threshold_percentile: 95.0
+  - name: cascade_gate_only_t1.0
+    evaluator: cascade
+    concreteness_threshold: 1.0
+    alpha: 0.0
+    ortony_scoring: jaccard_salience
+    threshold_percentile: 95.0
+  - name: cascade_gate_only_t1.25
+    evaluator: cascade
+    concreteness_threshold: 1.25
+    alpha: 0.0
+    ortony_scoring: jaccard_salience
+    threshold_percentile: 95.0
+  - name: cascade_gate_only_t1.5
+    evaluator: cascade
+    concreteness_threshold: 1.5
+    alpha: 0.0
+    ortony_scoring: jaccard_salience
+    threshold_percentile: 95.0
+  - name: cascade_gate_only_t1.75
+    evaluator: cascade
+    concreteness_threshold: 1.75
+    alpha: 0.0
+    ortony_scoring: jaccard_salience
+    threshold_percentile: 95.0
+  - name: cascade_gate_only_t2.0
+    evaluator: cascade
+    concreteness_threshold: 2.0
+    alpha: 0.0
+    ortony_scoring: jaccard_salience
+    threshold_percentile: 95.0
+
+  # --- Re-rank-only ablation: gate off, vary alpha + d_cap --------------
+  # Pre-flight diagnostic: apt median 0.70, p75 0.77. Initial d_cap 0.77;
+  # sweep around. alpha 0 already covered by m02_baseline; here we exercise
+  # alpha > 0 with the gate disabled to isolate the re-rank contribution.
+  - name: cascade_rank_only_alpha0.25_dcap0.77
+    evaluator: cascade
+    concreteness_threshold: -1000000.0
+    alpha: 0.25
+    d_cap: 0.77
+    ortony_scoring: jaccard_salience
+    composition: multiplicative
+    threshold_percentile: 95.0
+  - name: cascade_rank_only_alpha0.5_dcap0.77
+    evaluator: cascade
+    concreteness_threshold: -1000000.0
+    alpha: 0.5
+    d_cap: 0.77
+    ortony_scoring: jaccard_salience
+    composition: multiplicative
+    threshold_percentile: 95.0
+  - name: cascade_rank_only_alpha1.0_dcap0.77
+    evaluator: cascade
+    concreteness_threshold: -1000000.0
+    alpha: 1.0
+    d_cap: 0.77
+    ortony_scoring: jaccard_salience
+    composition: multiplicative
+    threshold_percentile: 95.0
+
+  # --- Full cascade: gate=1.0 (default) + sweep alpha + composition -----
+  - name: cascade_full_default
+    evaluator: cascade
+    concreteness_threshold: 1.0
+    alpha: 0.5
+    d_cap: 0.77
+    ortony_scoring: jaccard_salience
+    composition: multiplicative
+    threshold_percentile: 95.0
+  - name: cascade_full_alpha0.25_mult
+    evaluator: cascade
+    concreteness_threshold: 1.0
+    alpha: 0.25
+    d_cap: 0.77
+    ortony_scoring: jaccard_salience
+    composition: multiplicative
+    threshold_percentile: 95.0
+  - name: cascade_full_alpha1.0_mult
+    evaluator: cascade
+    concreteness_threshold: 1.0
+    alpha: 1.0
+    d_cap: 0.77
+    ortony_scoring: jaccard_salience
+    composition: multiplicative
+    threshold_percentile: 95.0
+  - name: cascade_full_alpha0.5_additive
+    evaluator: cascade
+    concreteness_threshold: 1.0
+    alpha: 0.5
+    d_cap: 0.77
+    ortony_scoring: jaccard_salience
+    composition: additive
+    threshold_percentile: 95.0
+  - name: cascade_full_alpha1.0_additive
+    evaluator: cascade
+    concreteness_threshold: 1.0
+    alpha: 1.0
+    d_cap: 0.77
+    ortony_scoring: jaccard_salience
+    composition: additive
+    threshold_percentile: 95.0
+
+  # --- Full cascade: vary d_cap to map the re-rank reward shape ---------
+  - name: cascade_full_dcap0.5
+    evaluator: cascade
+    concreteness_threshold: 1.0
+    alpha: 0.5
+    d_cap: 0.5
+    ortony_scoring: jaccard_salience
+    composition: multiplicative
+    threshold_percentile: 95.0
+  - name: cascade_full_dcap0.65
+    evaluator: cascade
+    concreteness_threshold: 1.0
+    alpha: 0.5
+    d_cap: 0.65
+    ortony_scoring: jaccard_salience
+    composition: multiplicative
+    threshold_percentile: 95.0
+  - name: cascade_full_dcap0.9
+    evaluator: cascade
+    concreteness_threshold: 1.0
+    alpha: 0.5
+    d_cap: 0.9
+    ortony_scoring: jaccard_salience
+    composition: multiplicative
+    threshold_percentile: 95.0
+  - name: cascade_full_dcap1.0
+    evaluator: cascade
+    concreteness_threshold: 1.0
+    alpha: 0.5
+    d_cap: 1.0
+    ortony_scoring: jaccard_salience
+    composition: multiplicative
+    threshold_percentile: 95.0
