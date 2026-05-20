@@ -148,10 +148,22 @@ def _centroid(conn: sqlite3.Connection, synset_id: str) -> Optional[list[float]]
             "SELECT centroid FROM synset_centroids WHERE synset_id = ?",
             (synset_id,),
         ).fetchone()
-    except sqlite3.OperationalError:
-        # Likely "no such table: synset_centroids" on a fixture DB or
-        # pre-pipeline snapshot. Fail open.
-        return None
+    except sqlite3.OperationalError as exc:
+        # "no such table: synset_centroids" on fixture DBs / pre-pipeline
+        # snapshots is expected fail-open. Anything else (lock, corruption,
+        # IO) MUST surface — silently swallowing those would let the cascade
+        # produce systematically degraded scores without any signal.
+        if "no such table" in str(exc).lower():
+            log.debug(
+                "synset_centroids table absent (fixture DB?) — fail-open for %s",
+                synset_id,
+            )
+            return None
+        log.error(
+            "unexpected OperationalError reading centroid for %s: %s",
+            synset_id, exc,
+        )
+        raise
     if row is None or row[0] is None or len(row[0]) == 0:
         return None
     blob = row[0]

@@ -701,6 +701,27 @@ def test_evaluate_cohort_config_block_records_cascade_params(tmp_path):
     assert rc["threshold_percentile"] == 90.0
 
 
+def test_centroid_reraises_non_missing_table_operational_errors():
+    """Genuine OperationalError (corruption, lock) must escalate, not fail-open.
+
+    Standards-error-handling: silently swallowing a "database is locked"
+    or corruption error would let the cascade produce systematically
+    degraded scores with no signal. Only the "no such table" case (which
+    appears on fixture DBs / pre-pipeline snapshots) is allowed to
+    fail-open through return None.
+    """
+    import sqlite3
+    from evaluate_cascade import _centroid
+
+    class _LockedConn:
+        """Stand-in conn whose execute() raises 'database is locked'."""
+        def execute(self, *args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        _centroid(_LockedConn(), "S1")  # type: ignore[arg-type]
+
+
 def test_re_rank_handles_zero_norm_centroid_as_missing():
     """A degenerate all-zero centroid (cosine undefined) must be treated
     as a missing centroid (fail-open). The cascade should not produce
