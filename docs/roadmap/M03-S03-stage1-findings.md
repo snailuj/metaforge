@@ -158,3 +158,15 @@ Stage 2 runs the same sweep against the rebuilt DB once the haiku-sm enrichment 
 - Pre-flight diagnostics: `data-pipeline/output/m03_preflight_diagnostics.json`
 - Pre-flight findings: `docs/roadmap/M03-S01-preflight-findings.md`
 - Baseline DB (Stage 1): `data-pipeline/output/lexicon_v2.db.pre-purge-20260517` (kept for retention via `.keep-for-m03-baseline` sentinel)
+
+## Addendum 2026-05-20 — centroid pipeline regression discovered post-hoc
+
+While preparing the live DB for Stage 2 (via the post-rebuild centroid check), a **dropped-pipeline-step regression** surfaced: `08_compute_synset_centroids.py` was deleted in commit `3948dedf` (Feb 23, 2026) on the assumption it would be folded into `enrich_pipeline.py` — the fold-in never happened. The Go API has been silently relying on out-of-band manual runs of the deleted script to keep `synset_centroids` populated ever since, and every clean rebuild since has been leaving the table partially stale. The pre-purge DB used for Stage 1 inherited that partial state: 9,994 centroids against 12,545 enriched synsets.
+
+**Implication for the Stage 1 numbers above:** the 18-19% centroid coverage on cohort pairs reported in the cohort-shape preflight section understates the real story slightly — the coverage gap was a *bug*, not a *substrate limitation*. With the bug fixed (commit `0ef28dc4`), the pre-purge DB's centroid coverage could plausibly be lifted to ~80% by re-running the centroid build over its existing property data. We chose not to do that supplementary rerun on the basis that:
+
+1. The Stage-1 verdict (+0.1396 separation, Tier-1 criterion comfortably met) doesn't depend on additional re-rank coverage. The cascade *already* clears the criterion at 18% coverage.
+2. Stage 2 measures against the rebuilt DB which has both full enrichment *and* full centroids (34,784 centroids built post-fix). It answers the harder version of the same question.
+3. Attributing the Stage 1 → Stage 2 delta cleanly between (enrichment coverage) × (centroid coverage) would require the supplementary rerun, but that's methods-paper rigour we don't currently need.
+
+The fix is permanent: `build_synset_centroids` is now called at the end of `enrich_pipeline.run_pipeline`, and a regression-guard test (`test_build_synset_centroids.test_run_pipeline_includes_centroid_step`) asserts the step lives inside `run_pipeline` so a future refactor can't silently drop it again.
