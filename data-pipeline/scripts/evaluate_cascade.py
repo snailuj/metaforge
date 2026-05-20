@@ -167,6 +167,15 @@ def _centroid(conn: sqlite3.Connection, synset_id: str) -> Optional[list[float]]
     if row is None or row[0] is None or len(row[0]) == 0:
         return None
     blob = row[0]
+    if len(blob) % 4 != 0:
+        # Packed float32 BLOBs are always multiples of 4 bytes; anything
+        # else is malformed. Fail-open with a WARNING so operators can
+        # spot bad rows without taking the cascade offline.
+        log.warning(
+            "malformed centroid blob for %s: %d bytes (not multiple of 4)",
+            synset_id, len(blob),
+        )
+        return None
     n_floats = len(blob) // 4
     return list(struct.unpack(f"{n_floats}f", blob))
 

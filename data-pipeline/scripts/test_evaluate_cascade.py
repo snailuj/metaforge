@@ -701,6 +701,28 @@ def test_evaluate_cohort_config_block_records_cascade_params(tmp_path):
     assert rc["threshold_percentile"] == 90.0
 
 
+def test_centroid_returns_none_on_malformed_blob_length():
+    """A BLOB whose byte length isn't a multiple of 4 cannot be a packed
+    float32 vector — surface as None (fail-open) with a WARNING so
+    operators can spot bad rows without taking the cascade offline.
+    """
+    import sqlite3
+    from evaluate_cascade import _centroid
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        "CREATE TABLE synset_centroids ("
+        "synset_id TEXT PRIMARY KEY, centroid BLOB NOT NULL, "
+        "property_count INTEGER NOT NULL);"
+    )
+    conn.execute(
+        "INSERT INTO synset_centroids VALUES (?, ?, ?)",
+        ("S1", b"\x00\x01\x02", 1),  # 3 bytes, not multiple of 4
+    )
+    conn.commit()
+    assert _centroid(conn, "S1") is None
+
+
 def test_cosine_distance_returns_none_on_dim_mismatch():
     """Mismatched dims must NOT silently truncate via zip() — the resulting
     distance would mask a real upstream bug (mixed embedding dims).
