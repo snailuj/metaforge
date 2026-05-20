@@ -23,6 +23,11 @@ harness needs to surface ablation slices in one run: gate_passed,
 ortony_score, cosine_distance, re_rank_bonus, plus a typed status
 distinguishing gate_dropped from missing_concreteness from
 no_properties from unresolved.
+
+Gate-dropped pairs contribute 0.0 to the cohort mean; missing_concreteness
+/ no_properties / unresolved attrit out of the cohort entirely. This
+policy makes gate variations directly comparable in the ablation table —
+see ``_score_cascade_cohort`` (the "Scoring policy" comment block).
 """
 from __future__ import annotations
 
@@ -57,7 +62,9 @@ CascadeStatus = Literal[
     "gate_dropped",           # gate rejected the pair (signed delta < threshold)
     "missing_concreteness",   # one or both sides absent from synset_concreteness
     "no_properties",          # gate passed but no curated properties for scoring
-    "unresolved",             # synset_id not found (caller error or DB state issue)
+    "unresolved",             # produced only by the cohort orchestrator when
+                              # lemma resolution upstream fails; evaluate_cascade_pair
+                              # takes synset_ids and never emits this status directly.
 ]
 
 
@@ -315,7 +322,7 @@ def evaluate_cascade_pair(
         final_score = ortony_score
     elif config.composition == "multiplicative":
         final_score = ortony_score * (1.0 + config.alpha * re_rank_bonus)
-    else:  # "additive" — validated above
+    else:  # additive: composition validated at CascadeConfig.__post_init__
         final_score = ortony_score + config.alpha * re_rank_bonus
 
     return CascadeResult(
