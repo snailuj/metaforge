@@ -212,6 +212,29 @@ def test_returns_zero_when_no_enriched_synsets():
     assert count == 0
 
 
+def test_summary_logs_all_malformed_synsets(caplog):
+    """A synset whose every property embedding is malformed gets logged at WARNING."""
+    import logging, sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.executescript("""
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY, text TEXT NOT NULL, embedding BLOB
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL, property_id INTEGER NOT NULL,
+            PRIMARY KEY (synset_id, property_id)
+        );
+    """)
+    # malformed embedding (multiple of float32 byte size but wrong shape)
+    conn.execute("INSERT INTO property_vocabulary (property_id, text, embedding) VALUES (1, 'p1', ?)", (b"\x00\x00\x00\x00",))
+    conn.execute("INSERT INTO synset_properties (synset_id, property_id) VALUES ('S_BAD', 1)")
+    conn.commit()
+    with caplog.at_level(logging.WARNING, logger="build_synset_centroids"):
+        count = build_synset_centroids(conn)
+    assert count == 0
+    assert any("no usable embeddings" in r.message for r in caplog.records)
+
+
 def test_run_pipeline_includes_centroid_step():
     """Regression target: the centroid step lives inside the canonical
     run_pipeline orchestrator. Without this test, a future refactor

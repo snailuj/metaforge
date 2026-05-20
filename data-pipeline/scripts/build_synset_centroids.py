@@ -83,19 +83,27 @@ def build_synset_centroids(conn: sqlite3.Connection) -> int:
     current_synset: str | None = None
     embeddings: list[np.ndarray] = []
     rows_to_insert: list[tuple[str, bytes, int]] = []
+    synsets_seen: set[str] = set()
+    synsets_with_all_malformed: list[str] = []
 
     def _flush() -> None:
         nonlocal current_synset, embeddings
-        if current_synset is not None and embeddings:
-            centroid = np.mean(np.stack(embeddings), axis=0).astype(np.float32)
-            blob = struct.pack(f"{EMBEDDING_DIM}f", *centroid)
-            rows_to_insert.append((current_synset, blob, len(embeddings)))
+        if current_synset is not None:
+            if embeddings:
+                centroid = np.mean(np.stack(embeddings), axis=0).astype(np.float32)
+                blob = struct.pack(f"{EMBEDDING_DIM}f", *centroid)
+                rows_to_insert.append((current_synset, blob, len(embeddings)))
+            else:
+                # synset had properties but every embedding was malformed or NULL
+                synsets_with_all_malformed.append(current_synset)
         embeddings = []
 
     for synset_id, blob in cursor:
         if synset_id != current_synset:
             _flush()
             current_synset = synset_id
+        if synset_id is not None:
+            synsets_seen.add(synset_id)
         vec = np.frombuffer(blob, dtype=np.float32)
         if vec.shape != (EMBEDDING_DIM,):
             log.warning(
@@ -106,6 +114,17 @@ def build_synset_centroids(conn: sqlite3.Connection) -> int:
             continue
         embeddings.append(vec)
     _flush()
+
+    log.info(
+        "centroid build: %d synsets seen, %d to insert, %d skipped (all-malformed embeddings)",
+        len(synsets_seen), len(rows_to_insert), len(synsets_with_all_malformed),
+    )
+    if synsets_with_all_malformed:
+        log.warning(
+            "%d synsets had no usable embeddings (sample: %s)",
+            len(synsets_with_all_malformed),
+            synsets_with_all_malformed[:5],
+        )
 
     if not rows_to_insert:
         log.info("no centroids to insert — no enriched synsets with embeddings")
