@@ -79,6 +79,22 @@ class CascadeConfig:
     alpha: float = 0.5
     composition: Literal["multiplicative", "additive"] = "multiplicative"
 
+    def __post_init__(self) -> None:
+        if self.composition not in _VALID_COMPOSITIONS:
+            raise ValueError(
+                f"composition must be 'multiplicative' or 'additive', "
+                f"got {self.composition!r}"
+            )
+        if self.ortony_scoring not in SCORING_FNS:
+            raise ValueError(
+                f"ortony_scoring {self.ortony_scoring!r} not in SCORING_FNS; "
+                f"valid: {sorted(SCORING_FNS.keys())}"
+            )
+        if self.d_cap <= 0.0:
+            raise ValueError(f"d_cap must be > 0, got {self.d_cap}")
+        if self.alpha < 0.0:
+            raise ValueError(f"alpha must be >= 0, got {self.alpha}")
+
 
 @dataclass(frozen=True)
 class CascadeResult:

@@ -133,6 +133,30 @@ def test_cascade_config_defaults_match_preflight_findings():
     assert cfg.composition == "multiplicative"
 
 
+# --- CascadeConfig __post_init__ validation ---------------------------------
+
+def test_cascade_config_rejects_invalid_composition():
+    with pytest.raises(ValueError, match="composition must be"):
+        CascadeConfig(composition="bogus")
+
+
+def test_cascade_config_rejects_invalid_ortony_scoring():
+    with pytest.raises(ValueError, match="not in SCORING_FNS"):
+        CascadeConfig(ortony_scoring="bogus")
+
+
+def test_cascade_config_rejects_nonpositive_d_cap():
+    with pytest.raises(ValueError, match="d_cap must be > 0"):
+        CascadeConfig(d_cap=0.0)
+    with pytest.raises(ValueError, match="d_cap must be > 0"):
+        CascadeConfig(d_cap=-0.5)
+
+
+def test_cascade_config_rejects_negative_alpha():
+    with pytest.raises(ValueError, match="alpha must be >= 0"):
+        CascadeConfig(alpha=-0.1)
+
+
 # --- Concreteness gate behaviour ---------------------------------------------
 
 def test_gate_passes_when_vehicle_more_concrete_than_topic_above_threshold():
@@ -287,13 +311,10 @@ def test_post_gate_uses_configured_ortony_scoring_fn():
 
 def test_post_gate_unknown_ortony_scoring_raises_valueerror():
     """Fail fast on typos in sweep configs — same contract as
-    evaluate_aptness.evaluate, which raises with the registered list."""
-    conn = _build_fixture_db()
-    with pytest.raises(ValueError, match="Unknown"):
-        evaluate_cascade_pair(
-            conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE",
-            CascadeConfig(ortony_scoring="not_a_real_scoring_fn"),
-        )
+    evaluate_aptness.evaluate, which raises with the registered list.
+    Construction-time __post_init__ catches this before any DB work."""
+    with pytest.raises(ValueError, match="not in SCORING_FNS"):
+        CascadeConfig(ortony_scoring="not_a_real_scoring_fn")
 
 
 # --- Result-shape contract ---------------------------------------------------
@@ -524,13 +545,10 @@ def test_re_rank_alpha_zero_recovers_ortony_only():
 
 def test_re_rank_unknown_composition_raises_valueerror():
     """Same fail-fast contract as ortony_scoring — typo in config
-    crashes immediately rather than silently picking a default."""
-    conn = _build_fixture_db_with_centroids()
-    cfg = CascadeConfig(composition="not_a_real_mode")
+    crashes immediately rather than silently picking a default.
+    Construction-time __post_init__ catches this before any DB work."""
     with pytest.raises(ValueError, match="composition"):
-        evaluate_cascade_pair(
-            conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE", cfg,
-        )
+        CascadeConfig(composition="not_a_real_mode")
 
 
 def test_re_rank_skipped_when_gate_drops():
