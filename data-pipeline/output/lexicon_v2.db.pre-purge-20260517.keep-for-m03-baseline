@@ -1,0 +1,21 @@
+# DO NOT DELETE — M03 baseline DB
+
+Companion sentinel for `lexicon_v2.db.pre-purge-20260517`.
+
+This DB snapshot is the byte-state on which the M02 published plateau
+numbers were measured (`sweep_m02_ortony_v3_post_haiku_rebuild.json`,
+random_uniform = +0.0068, every pointwise formula within ±0.06).
+
+M03 — Cascade Gate-and-Rank's Stage-1 eval (`docs/roadmap/M03-cascade-
+gate-and-rank-roadmap.md`) runs against this snapshot to produce a
+clean algorithmic ablation against M02's published numbers. Without
+this DB, the M02 → M03 comparison entangles algorithm + prompt + model
++ coverage in a single delta.
+
+The `purge stale DB backups` backlog chore (PIPELINE.md) must honour
+any `.keep-for-<reason>` sentinel — this file is the M03 hold.
+
+Safe to delete: only after M03 ships and the Stage-1 findings doc
+(`M03-S03-stage1-findings.md`) is merged on main.
+
+Created: 2026-05-17

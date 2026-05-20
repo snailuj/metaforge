@@ -173,6 +173,154 @@ def _cosine_salience(
     return dot / (na * nb)
 
 
+def _ortony_vehicle_salience(
+    pa: Mapping[int, float], pb: Mapping[int, float],
+) -> float:
+    """Asymmetric vehicle-coverage scoring (Ortony 1979, normalised).
+
+    Formula:
+        f(pa, pb) = (Σ_{c ∈ pa ∩ pb} pb[c]) / (Σ_{c ∈ pb} pb[c])
+
+    Reads as "what fraction of the vehicle's salience mass is captured
+    by properties also present in the topic". Bounded [0, 1] because the
+    numerator is a subset-sum of the denominator.
+
+    Asymmetric by construction: swapping (pa, pb) normalises by a
+    different mass and so produces a different score whenever the
+    salience distributions differ. This is the M02 hypothesis: the
+    symmetric variants (jaccard_salience, jaccard_raw, cosine_salience)
+    treat overlap as overlap; Ortony's account of metaphor says the
+    vehicle contributes its high-salience properties to the topic,
+    regardless of how salient those properties are in the topic, and
+    that asymmetry should be reflected in the score.
+
+    Zero-vehicle-mass guard: if Σ pb[c] == 0 (empty vehicle or all-zero
+    saliences) the formula is undefined; return 0.0 by convention to
+    mirror the cosine_salience zero-norm handling and keep the registry
+    uniformly safe.
+    """
+    vehicle_mass = sum(pb.values())
+    if vehicle_mass <= 0.0:
+        return 0.0
+    shared = set(pa) & set(pb)
+    if not shared:
+        return 0.0
+    return sum(pb[c] for c in shared) / vehicle_mass
+
+
+def _ortony_imbalance(
+    pa: Mapping[int, float], pb: Mapping[int, float],
+) -> float:
+    """Imbalance-weighted asymmetric scoring (Ortony 1979, variant 2).
+
+    Formula:
+        f(pa, pb) = (Σ_{c ∈ pa ∩ pb} pb[c] × max(0, pb[c] − pa[c]))
+                   / (Σ_{c ∈ pb} pb[c]²)
+
+    Reads as "fraction of the vehicle's imbalance-weighted prominence
+    captured by properties on which the vehicle is more salient than
+    the topic". Bounded [0, 1] because each numerator term is at most
+    pb[c]² (when pa[c]=0 on a shared cluster) and the numerator only
+    sums over shared clusters whereas the denominator covers all
+    vehicle clusters.
+
+    Difference from :func:`_ortony_vehicle_salience`: equal-salience
+    properties contribute zero (max(0, pb − pa) = 0 when pb = pa).
+    This directly targets the MUNCH-bias mechanism — paraphrase pairs
+    that share equally-salient surface properties cannot move the
+    score in this formula, addressing the failure mode documented in
+    `data-pipeline/sweeps/M02-S02-sweep-findings.md`.
+
+    Asymmetric by construction: swapping (pa, pb) changes BOTH the
+    per-term subtraction direction (negative values clamp to zero) and
+    the normaliser, so the answer differs for any non-equal
+    distributions.
+
+    Zero-vehicle-mass guard: if Σ pb[c]² == 0 the formula is undefined
+    (empty vehicle or all-zero saliences); return 0.0 by convention to
+    mirror the cosine_salience and ortony_vehicle_salience guards.
+    """
+    squared_mass = sum(v * v for v in pb.values())
+    if squared_mass <= 0.0:
+        return 0.0
+    shared = set(pa) & set(pb)
+    if not shared:
+        return 0.0
+    numerator = sum(
+        pb[c] * max(0.0, pb[c] - pa[c]) for c in shared
+    )
+    return numerator / squared_mass
+
+
+def _ortony_log_ratio(
+    pa: Mapping[int, float], pb: Mapping[int, float],
+) -> float:
+    """Vehicle-mass-weighted sigmoid-of-log-ratio dominance (variant 3).
+
+    Formula:
+        f(pa, pb) = (Σ_{c ∈ pa ∩ pb} pb[c]² / (pa[c] + pb[c]))
+                   / (Σ_{c ∈ pb} pb[c])
+
+    Bounded analogue of the M02 roadmap's "log-ratio" candidate
+    (``Σ pb × log(pb/pa)``), which is unbounded above (pa → 0 sends
+    log to +∞) and unbounded below (pb < pa sends it negative) and so
+    breaks the [0, 1] registry contract. The substitution
+    ``log(pb/pa) → sigmoid(log(pb/pa)) = pb/(pa+pb)`` preserves the
+    "reward log-relative vehicle dominance" intuition while staying
+    bounded by construction.
+
+    Per-term reading: pb[c]² / (pa[c] + pb[c]) — vehicle salience
+    weighted by the vehicle's dominance fraction over the shared
+    cluster. Normalised by total vehicle salience mass.
+
+    Behavioural corners:
+      * ``pa[c] → 0`` on a shared cluster: term → pb[c]² / pb[c] = pb[c]
+        — collapses to the ortony_vehicle_salience contribution
+        (vehicle fully dominates).
+      * ``pa[c] = pb[c]``: term → pb[c]² / (2 pb[c]) = pb[c]/2 — softer
+        penalty than ortony_imbalance, which would zero the term.
+      * ``pa[c] ≫ pb[c]``: term → ~0 — topic dominates the shared
+        cluster, vehicle contributes little.
+
+    Zero-vehicle-mass guard: if Σ pb[c] == 0 (empty vehicle or all-zero
+    saliences) the formula is undefined; return 0.0 by convention,
+    mirroring the other ortony variants.
+    """
+    vehicle_mass = sum(pb.values())
+    if vehicle_mass <= 0.0:
+        return 0.0
+    shared = set(pa) & set(pb)
+    if not shared:
+        return 0.0
+    numerator = 0.0
+    for c in shared:
+        denom = pa[c] + pb[c]
+        if denom <= 0.0:
+            # pa[c] == pb[c] == 0 on a shared cluster — would be a strange
+            # data shape (curated salience values are normally > 0). Warn
+            # with enough context to find the offending row so a curation
+            # bug (NULL → 0 coalesce, accidental clamp) does not silently
+            # shrink the score; then continue so we never propagate 0/0 NaN.
+            # Include the full property profile (sorted cluster ids, capped
+            # at 10 to bound log-line size) — cluster id alone is not enough
+            # to identify which (topic_synset, vehicle_synset) pair triggered
+            # the warning across thousands of per-pair invocations. Also log
+            # the full profile size (pa_n / pb_n) alongside the truncated key
+            # list so an operator can distinguish a complete small profile
+            # from a truncated large one.
+            log.warning(
+                "ortony_log_ratio: skipping shared cluster %d with "
+                "non-positive salience (pa=%s, pb=%s); pa_n=%d, pa_keys=%s; "
+                "pb_n=%d, pb_keys=%s — likely curated-salience corruption",
+                c, pa[c], pb[c],
+                len(pa), sorted(pa.keys())[:10],
+                len(pb), sorted(pb.keys())[:10],
+            )
+            continue
+        numerator += (pb[c] * pb[c]) / denom
+    return numerator / vehicle_mass
+
+
 def _random_uniform(
     pa: Mapping[int, float], pb: Mapping[int, float],
 ) -> float:
@@ -220,6 +368,9 @@ SCORING_FNS: dict[str, ScoringFn] = {
     "jaccard_salience": _jaccard_salience,
     "jaccard_raw": _jaccard_raw,
     "cosine_salience": _cosine_salience,
+    "ortony_vehicle_salience": _ortony_vehicle_salience,
+    "ortony_imbalance": _ortony_imbalance,
+    "ortony_log_ratio": _ortony_log_ratio,
     "random_uniform": _random_uniform,
 }
 

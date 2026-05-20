@@ -16,6 +16,9 @@ from evaluate_aptness import (
     _cosine_salience,
     _jaccard_raw,
     _jaccard_salience,
+    _ortony_imbalance,
+    _ortony_log_ratio,
+    _ortony_vehicle_salience,
     _random_uniform,
     aggregate_metrics,
     classify_aptness,
@@ -510,6 +513,339 @@ def test_cosine_salience_zero_norm_returns_zero():
     """All-zero salience on either side → zero norm → score 0.0 (not NaN)."""
     assert _cosine_salience({1: 0.0, 2: 0.0}, {1: 1.0, 2: 1.0}) == 0.0
     assert _cosine_salience({}, {}) == 0.0
+
+
+# --- ortony_vehicle_salience (asymmetric) -----------------------------------
+
+# Formula contract: normalised vehicle-side coverage —
+#   f(pa, pb) = (Σ_{c ∈ pa ∩ pb} pb[c]) / (Σ_{c ∈ pb} pb[c])
+# Reads as "what fraction of the vehicle's salience mass is captured by
+# properties also present in the topic". Bounded [0, 1] by construction
+# (numerator is a subset-sum of the denominator). Asymmetric: swapping
+# (pa, pb) normalises by a different mass and so produces a different
+# score whenever salience distributions differ — that asymmetry is the
+# defining behavioural property versus the three symmetric variants.
+
+
+def test_ortony_vehicle_salience_registered_in_scoring_fns():
+    """M02-S01 contract: ortony_vehicle_salience exposed alongside the S03 set."""
+    assert "ortony_vehicle_salience" in SCORING_FNS
+    assert SCORING_FNS["ortony_vehicle_salience"] is _ortony_vehicle_salience
+
+
+def test_ortony_vehicle_salience_known_overlap():
+    """Crafted case verifies the normalised-coverage formula end-to-end."""
+    pa = {1: 0.9, 2: 0.6}
+    pb = {1: 0.85, 3: 0.7}
+    # shared = {1}: num = pb[1] = 0.85
+    # vehicle mass = pb[1]+pb[3] = 0.85+0.7 = 1.55
+    assert _ortony_vehicle_salience(pa, pb) == pytest.approx(0.85 / 1.55)
+
+
+def test_ortony_vehicle_salience_no_overlap_is_zero():
+    """Disjoint cluster_ids → empty intersection → numerator 0 → score 0."""
+    assert _ortony_vehicle_salience({1: 1.0, 2: 1.0}, {3: 1.0, 4: 1.0}) == 0.0
+
+
+def test_ortony_vehicle_salience_is_asymmetric():
+    """Swapping (pa, pb) must change the score when salience distributions
+    differ — this is the defining property of the formula vs the three
+    symmetric variants.
+
+    pa has high salience on cluster 1 (its shared cluster).
+    pb has cluster 1 as a small fraction of its total mass.
+    → score(pa,pb) is small (1 contributes only ~14% of pb's mass).
+    → score(pb,pa) is large (1 contributes ~90% of pa's mass).
+    """
+    pa = {1: 0.9, 2: 0.1}
+    pb = {1: 0.1, 3: 0.6}
+    forward = _ortony_vehicle_salience(pa, pb)
+    backward = _ortony_vehicle_salience(pb, pa)
+    assert forward != backward
+    # Sanity-check direction matches the docstring rationale above:
+    assert forward == pytest.approx(0.1 / 0.7)
+    assert backward == pytest.approx(0.9 / 1.0)
+
+
+def test_ortony_vehicle_salience_in_unit_interval():
+    """Score is bounded [0, 1] because the numerator is a subset-sum of
+    the denominator. Spot-check against an extreme: vehicle fully
+    contained in topic → score = 1.0."""
+    pa = {1: 0.9, 2: 0.6, 3: 0.4}
+    pb = {1: 0.5, 2: 0.5}
+    # shared = {1,2}: num = pb[1]+pb[2] = 1.0
+    # vehicle mass = 1.0 → score = 1.0
+    assert _ortony_vehicle_salience(pa, pb) == pytest.approx(1.0)
+
+
+def test_ortony_vehicle_salience_zero_vehicle_mass_returns_zero():
+    """All-zero salience on the vehicle side → denominator 0 → score 0.0
+    (not NaN, not ZeroDivisionError). Mirrors the cosine_salience
+    zero-norm guard so the registry stays uniformly safe."""
+    assert _ortony_vehicle_salience({1: 1.0}, {1: 0.0, 2: 0.0}) == 0.0
+    assert _ortony_vehicle_salience({}, {}) == 0.0
+
+
+# --- ortony_imbalance (asymmetric, equal-salience penalised) ----------------
+
+# Formula contract: imbalance-weighted vehicle dominance —
+#   f(pa, pb) = (Σ_{c ∈ pa ∩ pb} pb[c] × max(0, pb[c] − pa[c]))
+#              / (Σ_{c ∈ pb} pb[c]²)
+# Reads as "fraction of the vehicle's imbalance-weighted prominence captured
+# by properties on which the vehicle is more salient than the topic". Bounded
+# [0, 1]: per shared term ≤ pb[c]², numerator's shared-only sum ≤ Σ_{c ∈ pb}
+# pb[c]² which is the denominator. Asymmetric: swapping (pa, pb) changes
+# both the per-term subtraction direction AND the normaliser.
+#
+# Difference from ortony_vehicle_salience: equal-salience properties
+# contribute zero here (max(0, pb − pa) = 0 when pb = pa). This directly
+# targets the MUNCH-bias mechanism — paraphrase pairs that share equally-
+# salient surface properties cannot move the score in this formula.
+
+
+def test_ortony_imbalance_registered_in_scoring_fns():
+    """M02-S02 contract: ortony_imbalance exposed alongside the rest."""
+    assert "ortony_imbalance" in SCORING_FNS
+    assert SCORING_FNS["ortony_imbalance"] is _ortony_imbalance
+
+
+def test_ortony_imbalance_known_overlap():
+    """Crafted case — verifies the imbalance-weighted formula end-to-end."""
+    pa = {1: 0.3, 2: 0.0}
+    pb = {1: 0.9, 3: 0.5}
+    # shared = {1}: term = pb[1] × max(0, pb[1] − pa[1])
+    #                     = 0.9 × max(0, 0.9 − 0.3) = 0.9 × 0.6 = 0.54
+    # vehicle squared-mass = pb[1]² + pb[3]² = 0.81 + 0.25 = 1.06
+    # score = 0.54 / 1.06
+    assert _ortony_imbalance(pa, pb) == pytest.approx(0.54 / 1.06)
+
+
+def test_ortony_imbalance_equal_salience_contributes_zero():
+    """Property equally salient in topic and vehicle contributes zero —
+    that's the formula's whole point. If shared properties are *only*
+    equally salient, the score collapses to 0."""
+    pa = {1: 0.7, 2: 0.3}
+    pb = {1: 0.7, 2: 0.3}
+    # shared = {1, 2}; each term = pb × max(0, pb − pa) = pb × 0 = 0
+    assert _ortony_imbalance(pa, pb) == 0.0
+
+
+def test_ortony_imbalance_no_overlap_is_zero():
+    assert _ortony_imbalance({1: 1.0, 2: 1.0}, {3: 1.0, 4: 1.0}) == 0.0
+
+
+def test_ortony_imbalance_is_asymmetric():
+    """Swapping (pa, pb) changes both the subtraction direction and the
+    normaliser, so the score must differ for asymmetric inputs."""
+    pa = {1: 0.1, 2: 0.0}
+    pb = {1: 0.9, 2: 0.5}
+    forward = _ortony_imbalance(pa, pb)
+    backward = _ortony_imbalance(pb, pa)
+    assert forward != backward
+    # Forward: shared = {1, 2}
+    #   term1 = 0.9 × max(0, 0.9 − 0.1) = 0.9 × 0.8 = 0.72
+    #   term2 = 0.5 × max(0, 0.5 − 0.0) = 0.5 × 0.5 = 0.25
+    #   denom = 0.81 + 0.25 = 1.06
+    #   forward = 0.97 / 1.06
+    assert forward == pytest.approx(0.97 / 1.06)
+    # Backward: pa'={1:0.9, 2:0.5}, pb'={1:0.1, 2:0.0}
+    #   term1 = 0.1 × max(0, 0.1 − 0.9) = 0.1 × 0 = 0
+    #   term2 = 0.0 × max(0, 0.0 − 0.5) = 0.0 × 0 = 0
+    #   backward = 0 / (0.01 + 0.0) = 0.0
+    assert backward == 0.0
+
+
+def test_ortony_imbalance_topic_dominates_returns_zero():
+    """When the topic is uniformly MORE salient on every shared cluster,
+    every max(0, pb − pa) clamps to 0 → score is 0."""
+    pa = {1: 0.9, 2: 0.8}
+    pb = {1: 0.1, 2: 0.05}
+    # Every shared term clamps to 0
+    assert _ortony_imbalance(pa, pb) == 0.0
+
+
+def test_ortony_imbalance_in_unit_interval():
+    """Bounded [0, 1]: the maximum is achieved when every vehicle cluster
+    is shared, pa[c]=0 on every shared cluster — then numerator = Σ pb[c]²
+    = denominator → score = 1.0."""
+    pa = {1: 0.0, 2: 0.0}
+    pb = {1: 0.9, 2: 0.5}
+    # shared = {1, 2}, terms = pb² each, denom = Σ pb², ratio = 1.0
+    assert _ortony_imbalance(pa, pb) == pytest.approx(1.0)
+
+
+def test_ortony_imbalance_zero_vehicle_mass_returns_zero():
+    """All-zero vehicle saliences → squared-mass denominator is 0 → score
+    0.0 (not NaN). Mirrors the zero-norm guard on the sibling formulas."""
+    assert _ortony_imbalance({1: 1.0}, {1: 0.0, 2: 0.0}) == 0.0
+    assert _ortony_imbalance({}, {}) == 0.0
+
+
+# --- ortony_log_ratio (asymmetric, soft-dominance) --------------------------
+
+# Formula contract: vehicle-mass-weighted sigmoid-of-log-ratio dominance —
+#   f(pa, pb) = (Σ_{c ∈ pa ∩ pb} pb[c]² / (pa[c] + pb[c]))
+#              / (Σ_{c ∈ pb} pb[c])
+#
+# Why this shape rather than the literal Σ pb × log(pb/pa) from the
+# roadmap: the literal formula is unbounded above (pa[c] → 0 sends the
+# log to +∞) and unbounded below (pb[c] < pa[c] sends it negative), so
+# it breaks the registry's [0, 1] contract and would need ad-hoc epsilon
+# clamps. The sigmoid form sigmoid(log(pb/pa)) = pb/(pa+pb) is the
+# bounded analogue that preserves the "reward log-relative dominance"
+# intuition without the bound surgery.
+#
+# Per-term reading: pb[c] × pb[c]/(pa[c]+pb[c]) — vehicle salience
+# weighted by the vehicle's dominance fraction over the shared cluster.
+# Normalised by total vehicle mass to give a score in [0, 1].
+#
+# Edge correspondences:
+#   * pa[c] → 0: term → pb[c]² / pb[c] = pb[c]  → collapses to
+#     ortony_vehicle_salience on the shared cluster (max dominance).
+#   * pa[c] = pb[c]: term → pb[c]² / (2 pb[c]) = pb[c] / 2 — softer
+#     penalty than ortony_imbalance, which would zero the term entirely.
+#   * pa[c] ≫ pb[c]: term → ~0 — topic dominates, vehicle contributes
+#     little.
+
+
+def test_ortony_log_ratio_registered_in_scoring_fns():
+    """M02-S02 v3 contract: ortony_log_ratio exposed in the registry."""
+    assert "ortony_log_ratio" in SCORING_FNS
+    assert SCORING_FNS["ortony_log_ratio"] is _ortony_log_ratio
+
+
+def test_ortony_log_ratio_known_overlap():
+    """Crafted case — verifies the soft-dominance formula end-to-end."""
+    pa = {1: 0.3, 2: 0.0}
+    pb = {1: 0.9, 3: 0.5}
+    # shared = {1}: term = pb[1]² / (pa[1] + pb[1])
+    #                    = 0.81 / 1.2 = 0.675
+    # vehicle mass = 0.9 + 0.5 = 1.4
+    # score = 0.675 / 1.4
+    assert _ortony_log_ratio(pa, pb) == pytest.approx(0.675 / 1.4)
+
+
+def test_ortony_log_ratio_equal_salience_is_half_credit():
+    """Property equally salient on both sides contributes pb/2 — softer
+    than ortony_imbalance (which zeros equal-salience terms) but still
+    less than ortony_vehicle_salience (which would credit full pb)."""
+    pa = {1: 0.6, 2: 0.4}
+    pb = {1: 0.6, 2: 0.4}
+    # shared = {1, 2}; per-term = pb² / (2pb) = pb/2
+    # num = 0.6/2 + 0.4/2 = 0.5
+    # vehicle mass = 1.0
+    # score = 0.5 / 1.0 = 0.5
+    assert _ortony_log_ratio(pa, pb) == pytest.approx(0.5)
+
+
+def test_ortony_log_ratio_topic_dominates_is_small():
+    """When topic is uniformly MORE salient on shared clusters, score
+    is small but non-zero (soft penalty, not hard like ortony_imbalance)."""
+    pa = {1: 0.9, 2: 0.8}
+    pb = {1: 0.1, 2: 0.2}
+    # term1 = 0.01 / 1.0 = 0.01
+    # term2 = 0.04 / 1.0 = 0.04
+    # vehicle mass = 0.3
+    # score = 0.05 / 0.3
+    assert _ortony_log_ratio(pa, pb) == pytest.approx(0.05 / 0.3)
+    # And strictly smaller than the equal-salience reference (0.5)
+    assert _ortony_log_ratio(pa, pb) < 0.5
+
+
+def test_ortony_log_ratio_no_overlap_is_zero():
+    assert _ortony_log_ratio({1: 1.0, 2: 1.0}, {3: 1.0, 4: 1.0}) == 0.0
+
+
+def test_ortony_log_ratio_is_asymmetric():
+    """Swapping (pa, pb) changes the per-term numerator AND the
+    normaliser, so the result must differ."""
+    pa = {1: 0.1, 2: 0.5}
+    pb = {1: 0.9, 2: 0.3}
+    forward = _ortony_log_ratio(pa, pb)
+    backward = _ortony_log_ratio(pb, pa)
+    assert forward != backward
+
+
+def test_ortony_log_ratio_vehicle_only_dominance_collapses_to_coverage():
+    """When pa[c] = 0 on every shared cluster, ortony_log_ratio reduces
+    to ortony_vehicle_salience (each term becomes pb[c]² / pb[c] = pb[c],
+    same numerator over the same denominator)."""
+    pa = {1: 0.0, 2: 0.0}
+    pb = {1: 0.9, 2: 0.5}
+    # shared = {1, 2}, num = 0.9 + 0.5 = 1.4, denom = 1.4, score = 1.0
+    assert _ortony_log_ratio(pa, pb) == pytest.approx(1.0)
+    assert _ortony_log_ratio(pa, pb) == pytest.approx(
+        _ortony_vehicle_salience(pa, pb)
+    )
+
+
+def test_ortony_log_ratio_in_unit_interval():
+    """Bounded [0, 1] for arbitrary salience distributions in [0, 1]."""
+    # Random asymmetric distributions
+    pa = {1: 0.2, 2: 0.7, 3: 0.4}
+    pb = {1: 0.8, 2: 0.3, 4: 0.5}
+    score = _ortony_log_ratio(pa, pb)
+    assert 0.0 <= score <= 1.0
+
+
+def test_ortony_log_ratio_zero_vehicle_mass_returns_zero():
+    """All-zero vehicle saliences → zero norm → score 0.0 (not NaN).
+    Mirrors the zero-norm guard on the sibling formulas."""
+    assert _ortony_log_ratio({1: 1.0}, {1: 0.0, 2: 0.0}) == 0.0
+    assert _ortony_log_ratio({}, {}) == 0.0
+
+
+def test_ortony_log_ratio_warns_on_non_positive_shared_cluster(caplog):
+    """A shared cluster with zero salience on both sides must emit a WARNING.
+
+    The non-positive-salience guard exists to defend against curated-salience
+    corruption (NULL coalesced to 0, accidental clamp, etc.). Silently
+    skipping the cluster lets a data-quality regression shrink the score with
+    no signal — violates the "All Errors/Exceptions Handled" + observability
+    policies. The guard must log enough context (cluster_id + both saliences)
+    to find the offending row, then continue.
+    """
+    import logging as _logging
+
+    # cluster 1 — zero salience on both sides → triggers guard
+    # cluster 2 — normal salience on both sides → contributes to score
+    pa = {1: 0.0, 2: 0.5}
+    pb = {1: 0.0, 2: 0.8}
+
+    with caplog.at_level(_logging.WARNING, logger="evaluate_aptness"):
+        score = _ortony_log_ratio(pa, pb)
+
+    # Score is still computed correctly: cluster 1 skipped, cluster 2 contributes.
+    # vehicle_mass = 0.0 + 0.8 = 0.8
+    # cluster 2 term = pb[2]² / (pa[2] + pb[2]) = 0.64 / 1.3
+    expected = (0.8 * 0.8 / (0.5 + 0.8)) / 0.8
+    assert score == pytest.approx(expected)
+
+    warnings = [r for r in caplog.records if r.levelno == _logging.WARNING]
+    assert warnings, "expected at least one WARNING for the non-positive shared cluster"
+    messages = [w.getMessage() for w in warnings]
+    # Message must name the function + flag the non-positive condition + identify the cluster.
+    assert any(
+        "ortony_log_ratio" in m and "non-positive" in m and "1" in m
+        for m in messages
+    ), f"expected a warning naming the function, 'non-positive', and cluster 1; got: {messages}"
+    # Cluster id alone does not identify which (topic, vehicle) pair triggered
+    # the warning — _ortony_log_ratio is called per-pair across thousands of
+    # pairs. The warning must include the full property profile (sorted cluster
+    # ids on each side) so an operator can recognise the pair in retro.
+    assert any(
+        "pa_keys" in m and "pb_keys" in m for m in messages
+    ), f"expected pa_keys + pb_keys profile fingerprint in warning; got: {messages}"
+    assert any(
+        "[1, 2]" in m for m in messages
+    ), f"expected sorted property profile [1, 2] in warning; got: {messages}"
+    # The key list is capped at 10 entries to bound log-line size — an operator
+    # seeing 10 keys cannot tell whether that is the entire profile or a
+    # truncation of (say) 100 keys. The full profile size must accompany the
+    # truncated key list so truncation is unambiguous.
+    assert any(
+        "pa_n=2" in m and "pb_n=2" in m for m in messages
+    ), f"expected pa_n + pb_n profile size hint in warning; got: {messages}"
 
 
 # --- random_uniform null control --------------------------------------------

@@ -1,0 +1,149 @@
+# M02-S04-C — Threshold-percentile sensitivity sweep.
+#
+# Every M02 sweep so far has run at threshold_percentile=95. With ~232 apt
+# and ~317 inapt resolvable pairs, p95 lands on a thin slice of the inapt
+# tail and is unstable. C tests whether algorithm-vs-null separations
+# behave differently at other percentiles — if they do, a single-pct
+# verdict is fragile.
+#
+# Design: cross-product of all 7 currently-registered scoring fns × 5
+# threshold percentiles (50/75/90/95/99). 35 variations total.
+#
+# Run with:
+#   data-pipeline/.venv/bin/python data-pipeline/scripts/run_sweep.py \
+#     --config data-pipeline/sweeps/m02_s04_threshold_sensitivity.yaml \
+#     --output data-pipeline/output/sweep_m02_s04_threshold_sensitivity.json \
+#     --report data-pipeline/output/sweep_m02_s04_threshold_sensitivity.md
+#
+# Pre-flight: DO NOT run this until S04-A and S04-B findings are surfaced
+# and the cohort-attrition fixes (if any) are in place. Running on the
+# current biased cohort will just produce a 35-row table that confirms
+# the bias at every threshold pct, not lift signal.
+#
+# See `M02-S04-C-threshold-sensitivity-design.md` for the analytic plan.
+
+name: m02_s04_threshold_sensitivity
+db: data-pipeline/output/lexicon_v2.db
+pairs: data-pipeline/fixtures/metaphor_pairs_v2.json
+controls: data-pipeline/fixtures/munch_inapt.jsonl
+mrr_reference: data-pipeline/output/eval_baseline_v2.json
+
+variations:
+  # jaccard_salience across percentiles
+  - name: jaccard_salience_p50
+    scoring: jaccard_salience
+    threshold_percentile: 50
+  - name: jaccard_salience_p75
+    scoring: jaccard_salience
+    threshold_percentile: 75
+  - name: jaccard_salience_p90
+    scoring: jaccard_salience
+    threshold_percentile: 90
+  - name: jaccard_salience_p95
+    scoring: jaccard_salience
+    threshold_percentile: 95
+  - name: jaccard_salience_p99
+    scoring: jaccard_salience
+    threshold_percentile: 99
+
+  # jaccard_raw across percentiles
+  - name: jaccard_raw_p50
+    scoring: jaccard_raw
+    threshold_percentile: 50
+  - name: jaccard_raw_p75
+    scoring: jaccard_raw
+    threshold_percentile: 75
+  - name: jaccard_raw_p90
+    scoring: jaccard_raw
+    threshold_percentile: 90
+  - name: jaccard_raw_p95
+    scoring: jaccard_raw
+    threshold_percentile: 95
+  - name: jaccard_raw_p99
+    scoring: jaccard_raw
+    threshold_percentile: 99
+
+  # cosine_salience across percentiles
+  - name: cosine_salience_p50
+    scoring: cosine_salience
+    threshold_percentile: 50
+  - name: cosine_salience_p75
+    scoring: cosine_salience
+    threshold_percentile: 75
+  - name: cosine_salience_p90
+    scoring: cosine_salience
+    threshold_percentile: 90
+  - name: cosine_salience_p95
+    scoring: cosine_salience
+    threshold_percentile: 95
+  - name: cosine_salience_p99
+    scoring: cosine_salience
+    threshold_percentile: 99
+
+  # ortony_vehicle_salience (M02 variant 1) across percentiles
+  - name: ortony_vehicle_salience_p50
+    scoring: ortony_vehicle_salience
+    threshold_percentile: 50
+  - name: ortony_vehicle_salience_p75
+    scoring: ortony_vehicle_salience
+    threshold_percentile: 75
+  - name: ortony_vehicle_salience_p90
+    scoring: ortony_vehicle_salience
+    threshold_percentile: 90
+  - name: ortony_vehicle_salience_p95
+    scoring: ortony_vehicle_salience
+    threshold_percentile: 95
+  - name: ortony_vehicle_salience_p99
+    scoring: ortony_vehicle_salience
+    threshold_percentile: 99
+
+  # ortony_imbalance (M02 variant 2 — the v2 sweep winner) across percentiles
+  - name: ortony_imbalance_p50
+    scoring: ortony_imbalance
+    threshold_percentile: 50
+  - name: ortony_imbalance_p75
+    scoring: ortony_imbalance
+    threshold_percentile: 75
+  - name: ortony_imbalance_p90
+    scoring: ortony_imbalance
+    threshold_percentile: 90
+  - name: ortony_imbalance_p95
+    scoring: ortony_imbalance
+    threshold_percentile: 95
+  - name: ortony_imbalance_p99
+    scoring: ortony_imbalance
+    threshold_percentile: 99
+
+  # ortony_log_ratio (M02 variant 3) across percentiles
+  - name: ortony_log_ratio_p50
+    scoring: ortony_log_ratio
+    threshold_percentile: 50
+  - name: ortony_log_ratio_p75
+    scoring: ortony_log_ratio
+    threshold_percentile: 75
+  - name: ortony_log_ratio_p90
+    scoring: ortony_log_ratio
+    threshold_percentile: 90
+  - name: ortony_log_ratio_p95
+    scoring: ortony_log_ratio
+    threshold_percentile: 95
+  - name: ortony_log_ratio_p99
+    scoring: ortony_log_ratio
+    threshold_percentile: 99
+
+  # random_uniform (null reference) across percentiles
+  - name: random_uniform_p50
+    scoring: random_uniform
+    threshold_percentile: 50
+  - name: random_uniform_p75
+    scoring: random_uniform
+    threshold_percentile: 75
+  - name: random_uniform_p90
+    scoring: random_uniform
+    threshold_percentile: 90
+  - name: random_uniform_p95
+    scoring: random_uniform
+    threshold_percentile: 95
+  - name: random_uniform_p99
+    scoring: random_uniform
+    threshold_percentile: 99
