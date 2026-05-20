@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import math
 import sqlite3
 import struct
 import sys
@@ -181,14 +180,24 @@ def _centroid(conn: sqlite3.Connection, synset_id: str) -> list[float] | None:
     return list(struct.unpack(f"{n_floats}f", blob))
 
 
-def _cosine_distance(va: list[float], vb: list[float]) -> float:
-    """Cosine distance ∈ [0, 2]. 0 = identical direction, 2 = opposite."""
+def _cosine_distance(va: list[float], vb: list[float]) -> float | None:
+    """Cosine distance in [0, 2]; None on zero-norm or dim-mismatch.
+
+    Contract harmonised with evaluate_cascade._cosine_distance — both
+    sibling implementations return None for undefined cosine. NaN was the
+    previous return value here and produced divergent behaviour; a future
+    extract-to-shared-helper would expose the inconsistency.
+    """
+    if len(va) != len(vb):
+        return None
     dot = sum(a * b for a, b in zip(va, vb))
-    na = math.sqrt(sum(a * a for a in va))
-    nb = math.sqrt(sum(b * b for b in vb))
+    na = sum(a * a for a in va) ** 0.5
+    nb = sum(b * b for b in vb) ** 0.5
     if na == 0.0 or nb == 0.0:
-        return float("nan")
-    return 1.0 - (dot / (na * nb))
+        return None
+    cos_sim = dot / (na * nb)
+    cos_sim = max(-1.0, min(1.0, cos_sim))
+    return 1.0 - cos_sim
 
 
 def centroid_distance_diagnostic(
@@ -208,7 +217,7 @@ def centroid_distance_diagnostic(
         distances: list[float] = []
         skipped_missing = 0
         skipped_unresolved = 0
-        skipped_nan = 0
+        skipped_missing_cosine = 0
         for word_a, word_b, _row in iterator:
             sa = lookup_primary_synset(conn, word_a)
             sb = lookup_primary_synset(conn, word_b)
@@ -221,17 +230,17 @@ def centroid_distance_diagnostic(
                 skipped_missing += 1
                 continue
             d = _cosine_distance(va, vb)
-            if math.isnan(d):
-                skipped_nan += 1
+            if d is None:
+                skipped_missing_cosine += 1
                 continue
             distances.append(d)
         return {
             "cohort": cohort_label,
-            "n_total_pairs": skipped_unresolved + skipped_missing + skipped_nan + len(distances),
+            "n_total_pairs": skipped_unresolved + skipped_missing + skipped_missing_cosine + len(distances),
             "n_scored": len(distances),
             "skipped_unresolved": skipped_unresolved,
             "skipped_missing_centroid": skipped_missing,
-            "skipped_nan": skipped_nan,
+            "skipped_missing_cosine": skipped_missing_cosine,
             "distance": _summarise(distances),
         }
 
