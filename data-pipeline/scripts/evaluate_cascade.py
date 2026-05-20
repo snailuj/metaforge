@@ -249,19 +249,9 @@ def evaluate_cascade_pair(
     contract violations (e.g. an unknown ortony_scoring name, which
     matches the fail-fast contract evaluate_aptness.evaluate uses).
     """
-    # Validate ortony scoring fn up front so a sweep config typo crashes
-    # immediately rather than after every batch of cohort work.
-    if config.ortony_scoring not in SCORING_FNS:
-        known = ", ".join(sorted(SCORING_FNS))
-        raise ValueError(
-            f"Unknown ortony_scoring: {config.ortony_scoring!r}. "
-            f"Registered in SCORING_FNS: {known}"
-        )
-    if config.composition not in _VALID_COMPOSITIONS:
-        raise ValueError(
-            f"Unknown composition: {config.composition!r}. "
-            f"Valid: {', '.join(_VALID_COMPOSITIONS)}"
-        )
+    # Note: ortony_scoring + composition + d_cap + alpha are all validated
+    # at CascadeConfig.__post_init__ — a typo in a sweep config now crashes
+    # at construction time rather than after the first DB hop.
 
     # --- Stage 1: concreteness gate ------------------------------------------
     c_topic = _concreteness(conn, synset_id_topic)
