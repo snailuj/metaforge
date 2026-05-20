@@ -174,7 +174,13 @@ def _centroid(conn: sqlite3.Connection, synset_id: str) -> Optional[list[float]]
 def _cosine_distance(va: list[float], vb: list[float]) -> Optional[float]:
     """Cosine distance ∈ [0, 2]. Returns None if either vector has zero norm
     (cosine is undefined for the zero vector — treat as 'missing centroid').
+
+    Also returns None on dim-mismatch — zip() would silently truncate to the
+    shorter vector and produce a meaningless distance, masking a real
+    upstream bug (mixed embedding dims, partial migration, etc.).
     """
+    if len(va) != len(vb):
+        return None
     dot = sum(a * b for a, b in zip(va, vb))
     na = math.sqrt(sum(a * a for a in va))
     nb = math.sqrt(sum(b * b for b in vb))

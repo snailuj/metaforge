@@ -701,6 +701,15 @@ def test_evaluate_cohort_config_block_records_cascade_params(tmp_path):
     assert rc["threshold_percentile"] == 90.0
 
 
+def test_cosine_distance_returns_none_on_dim_mismatch():
+    """Mismatched dims must NOT silently truncate via zip() — the resulting
+    distance would mask a real upstream bug (mixed embedding dims).
+    """
+    from evaluate_cascade import _cosine_distance
+    assert _cosine_distance([1.0, 0.0, 0.0], [1.0, 0.0]) is None
+    assert _cosine_distance([1.0], [1.0, 1.0, 1.0]) is None
+
+
 def test_centroid_reraises_non_missing_table_operational_errors():
     """Genuine OperationalError (corruption, lock) must escalate, not fail-open.
 
