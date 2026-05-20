@@ -594,6 +594,30 @@ def _write_fixture_cohorts(tmp_path):
     return str(pairs_path), str(controls_path)
 
 
+def test_cohort_counters_track_rerank_application(tmp_path):
+    """Cohort counters must surface rerank_applied vs rerank_skipped so
+    operators can spot the 3948dedf-class silent fail-open regression.
+
+    Contract: rerank_applied + rerank_skipped == counters["scored"].
+    """
+    conn = _build_fixture_db_with_centroids()
+    pairs, controls = _write_fixture_cohorts(tmp_path)
+    result = evaluate_cohort(
+        conn, pairs_file=pairs, controls_file=controls,
+        config=CascadeConfig(), threshold_percentile=95.0,
+        db_path=":memory:",
+    )
+    agg = result["aggregate"]
+    # Schema contract: counters present at aggregate level.
+    assert "apt_rerank_applied" in agg
+    assert "apt_rerank_skipped" in agg
+    assert "inapt_rerank_applied" in agg
+    assert "inapt_rerank_skipped" in agg
+    # Conservation: applied + skipped == scored, per cohort.
+    assert agg["apt_rerank_applied"] + agg["apt_rerank_skipped"] == agg["apt_scored"]
+    assert agg["inapt_rerank_applied"] + agg["inapt_rerank_skipped"] == agg["inapt_scored"]
+
+
 def test_evaluate_cohort_returns_shape_matching_evaluate_aptness(tmp_path):
     """The cohort result must carry the same top-level keys as
     evaluate_aptness.evaluate so the sweep harness can consume both

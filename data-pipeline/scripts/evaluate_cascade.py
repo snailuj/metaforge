@@ -357,12 +357,24 @@ def _score_cascade_cohort(
     log.info("scoring cohort %s: %d pairs", cohort_label, len(pairs))
     scores: list[float] = []
     per_pair: list[dict] = []
-    counters = {
+    counters: dict[str, int] = {
         "unresolved": 0,
         "missing_concreteness": 0,
         "gate_dropped": 0,
         "no_properties": 0,
         "scored": 0,
+        # Re-rank attrition (subset of "scored") — track how many scored
+        # pairs actually got the cosine re-rank vs fell through fail-open.
+        # Without this split we can't tell whether the re-rank stage is
+        # genuinely contributing or being silently skipped en masse —
+        # which is the silent-fail class the 3948dedf regression hit.
+        # The result alone can't tell missing-centroid from zero-norm
+        # apart (both surface as re_rank_bonus is None), so collapse to a
+        # single skipped bucket — operators chasing low coverage can
+        # re-run with debug logging from _centroid/_cosine_distance for
+        # the finer split.
+        "rerank_applied": 0,
+        "rerank_skipped": 0,
     }
 
     for p in pairs:
@@ -415,9 +427,22 @@ def _score_cascade_cohort(
         # cannot deflate the mean.
         if result.status == "scored":
             scores.append(result.final_score)  # type: ignore[arg-type]
+            if result.re_rank_bonus is not None:
+                counters["rerank_applied"] += 1
+            else:
+                counters["rerank_skipped"] += 1
         elif result.status == "gate_dropped":
             scores.append(0.0)
 
+    if counters["scored"] > 0:
+        applied_rate = counters["rerank_applied"] / counters["scored"]
+        if applied_rate < 0.05:
+            log.warning(
+                "cohort %s: only %d/%d scored pairs got the re-rank "
+                "(%.1f%%) — check synset_centroids coverage",
+                cohort_label, counters["rerank_applied"],
+                counters["scored"], applied_rate * 100,
+            )
     log.info("cohort %s done: %s", cohort_label, counters)
     return {
         "cohort": cohort_label,
