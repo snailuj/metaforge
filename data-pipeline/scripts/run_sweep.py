@@ -333,6 +333,20 @@ def load_sweep_config(path: str) -> SweepConfig:
                         f"{numeric_key!r} must be a number, got {val!r} "
                         f"({type(val).__name__})"
                     )
+        # Range checks for cascade hyperparams: a negative alpha or a
+        # non-positive d_cap are mathematically meaningless and would
+        # corrupt the scoring composition silently. Mirror the rest of
+        # the validator: fail fast, name the variation, show the bad value.
+        if "alpha" in var and var["alpha"] < 0.0:
+            raise ValueError(
+                f"sweep config {path}: variation {name!r}: alpha must be "
+                f">= 0, got {var['alpha']}"
+            )
+        if "d_cap" in var and var["d_cap"] <= 0.0:
+            raise ValueError(
+                f"sweep config {path}: variation {name!r}: d_cap must be "
+                f"> 0, got {var['d_cap']}"
+            )
         if "ortony_scoring" in var:
             os_value = var["ortony_scoring"]
             if os_value not in evaluate_aptness.SCORING_FNS:

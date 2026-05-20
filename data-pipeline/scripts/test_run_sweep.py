@@ -1238,6 +1238,47 @@ def test_cascade_composition_must_be_in_allowlist(tmp_path):
         load_sweep_config(str(cfg_path))
 
 
+def test_load_sweep_config_rejects_negative_alpha(tmp_path):
+    """alpha < 0 is mathematically meaningless in the cascade scoring
+    composition — reject at the boundary so a sign-flip typo cannot
+    silently corrupt a sweep variation's separation score."""
+    pytest.importorskip("yaml")
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("""
+name: bad
+db: /dev/null
+pairs: /dev/null
+controls: /dev/null
+variations:
+  - name: oops
+    evaluator: cascade
+    alpha: -0.5
+    ortony_scoring: jaccard_salience
+""")
+    with pytest.raises(ValueError, match="alpha must be >= 0"):
+        load_sweep_config(str(cfg))
+
+
+def test_load_sweep_config_rejects_nonpositive_d_cap(tmp_path):
+    """d_cap == 0 collapses the cascade cap to a no-op and d_cap < 0 is
+    meaningless. Reject at the boundary symmetrically with alpha."""
+    pytest.importorskip("yaml")
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("""
+name: bad
+db: /dev/null
+pairs: /dev/null
+controls: /dev/null
+variations:
+  - name: oops
+    evaluator: cascade
+    d_cap: 0.0
+    ortony_scoring: jaccard_salience
+""")
+    with pytest.raises(ValueError, match=r"d_cap must be > 0"):
+        load_sweep_config(str(cfg))
+
+
 def test_load_sweep_config_rejects_scoring_under_cascade(tmp_path):
     """`evaluator: cascade` + `scoring: ...` is a silent footgun — the
     cascade path consumes `ortony_scoring` only, so the `scoring` key
