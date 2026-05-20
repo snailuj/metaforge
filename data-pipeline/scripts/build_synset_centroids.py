@@ -8,10 +8,11 @@ centroids from this table for its domain-distance re-rank stage.
 
 This module restores the pipeline step that was inadvertently dropped
 in commit 3948dedf ("Refactor: pipeline split + MRR evaluation
-framework"). The Go API requires `synset_centroids` to exist
-(`db.go:46` lists it as a required table); without this step in the
-pipeline, the table only gets populated by an out-of-band manual run
-that any clean rebuild then forgets.
+framework"). The Python-side cascade evaluator (M03) reads centroids
+from this table for its domain-distance re-rank stage; the planned Go
+API forge integration (M03-S05) will read them too. Without this step
+in the pipeline, the table only gets populated by an out-of-band manual
+run that any clean rebuild then forgets.
 
 `run_pipeline()` in `enrich_pipeline.py` calls `build_synset_centroids`
 after the snap/antonym steps so every fresh rebuild has up-to-date
