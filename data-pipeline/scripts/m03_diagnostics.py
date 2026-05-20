@@ -176,6 +176,10 @@ def _centroid(conn: sqlite3.Connection, synset_id: str) -> list[float] | None:
     if row is None or row[0] is None:
         return None
     blob = row[0]
+    if len(blob) % 4 != 0:
+        log.warning("malformed centroid blob for %s: %d bytes (not multiple of 4)",
+                    synset_id, len(blob))
+        return None
     n_floats = len(blob) // 4
     return list(struct.unpack(f"{n_floats}f", blob))
 
