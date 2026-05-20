@@ -61,7 +61,7 @@ CascadeStatus = Literal[
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class CascadeConfig:
     """Hyperparameters for the cascade evaluator.
 
@@ -80,7 +80,7 @@ class CascadeConfig:
     composition: Literal["multiplicative", "additive"] = "multiplicative"
 
 
-@dataclass
+@dataclass(frozen=True)
 class CascadeResult:
     """Output of one cascade evaluation.
 

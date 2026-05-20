@@ -417,12 +417,12 @@ def test_re_rank_bonus_saturates_at_d_cap():
 
 def test_re_rank_bonus_linearly_below_cap():
     """d=0.5, d_cap=1.0 → bonus = 0.5. Linear ramp up to cap."""
+    from dataclasses import replace
     conn = _build_fixture_db_with_centroids()
-    cfg = CascadeConfig(d_cap=1.0)
     # S_TOPIC_GRIEF (1.5) vs S_TOPIC_SIMILAR (2.0) — concreteness delta = 0.5
     # which is below default threshold 1.0; lower threshold so the gate
     # passes and we get to the re-rank stage.
-    cfg.concreteness_threshold = 0.0
+    cfg = replace(CascadeConfig(d_cap=1.0), concreteness_threshold=0.0)
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_GRIEF", "S_TOPIC_SIMILAR", cfg,
     )
