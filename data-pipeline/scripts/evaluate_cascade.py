@@ -488,6 +488,15 @@ def evaluate_cohort(
     apt_scores = apt["scores"]
     inapt_scores = inapt["scores"]
 
+    degenerate_cohort = len(apt_scores) == 0 or len(inapt_scores) == 0
+    if degenerate_cohort:
+        log.warning(
+            "degenerate cohort: apt_scored=%d, inapt_scored=%d — "
+            "aptness_rate and separation_score will be 0.0; "
+            "check attrition counters",
+            len(apt_scores), len(inapt_scores),
+        )
+
     threshold = _percentile(inapt_scores, threshold_percentile)
     classification = classify_aptness(apt_scores, inapt_scores, threshold)
 
@@ -500,6 +509,7 @@ def evaluate_cohort(
         "separation_score": round(mean_apt - mean_inapt, 6),
         "n_apt": len(apt_scores),
         "n_inapt": len(inapt_scores),
+        "degenerate_cohort": degenerate_cohort,
     }
     # Namespace the attrition counters by cohort so the aggregate-level
     # dict carries everything the sweep harness's ablation table needs

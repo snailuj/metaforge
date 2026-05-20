@@ -777,6 +777,34 @@ def test_centroid_reraises_non_missing_table_operational_errors():
         _centroid(_LockedConn(), "S1")  # type: ignore[arg-type]
 
 
+def test_evaluate_cohort_flags_degenerate_when_apt_cohort_empty(tmp_path):
+    """When every apt pair attrits out (unresolved lemmas) the cohort is
+    degenerate — separation_score is 0.0 not because the algorithm
+    failed but because there's no signal to compute on. The result dict
+    must surface that explicitly so downstream sweep tables don't read
+    a meaningless 0.0 as a real score.
+    """
+    import json as _json
+    conn = _build_fixture_db_with_centroids()
+    pairs_path = tmp_path / "apt_empty.json"
+    controls_path = tmp_path / "inapt.jsonl"
+    # All apt pairs use lemmas absent from the fixture DB → all unresolved.
+    pairs_path.write_text(_json.dumps([
+        {"source": "ghost", "target": "phantom", "tier": "strong", "domain": "x"},
+        {"source": "spook", "target": "spectre", "tier": "strong", "domain": "x"},
+    ]))
+    controls_path.write_text(
+        '{"target": "similar", "paraphrase": "alike", "label": "inapt"}\n'
+    )
+    result = evaluate_cohort(
+        conn, pairs_file=str(pairs_path), controls_file=str(controls_path),
+        config=CascadeConfig(), threshold_percentile=95.0,
+        db_path=":memory:",
+    )
+    assert result["aggregate"]["degenerate_cohort"] is True
+    assert result["aggregate"]["n_apt"] == 0
+
+
 def test_re_rank_handles_zero_norm_centroid_as_missing():
     """A degenerate all-zero centroid (cosine undefined) must be treated
     as a missing centroid (fail-open). The cascade should not produce
