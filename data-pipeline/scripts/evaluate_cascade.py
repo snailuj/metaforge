@@ -26,6 +26,7 @@ no_properties from unresolved.
 """
 from __future__ import annotations
 
+import logging
 import math
 import sqlite3
 import struct
@@ -45,6 +46,8 @@ from evaluate_aptness import (
     lookup_primary_synset,
 )
 from utils import get_git_commit
+
+log = logging.getLogger(__name__)
 
 _VALID_COMPOSITIONS = ("multiplicative", "additive")
 
@@ -308,6 +311,7 @@ def _score_cascade_cohort(
     most paraphrase substitutes (which lack the concrete-vehicle shape
     that defines a metaphor pair).
     """
+    log.info("scoring cohort %s: %d pairs", cohort_label, len(pairs))
     scores: list[float] = []
     per_pair: list[dict] = []
     counters = {
@@ -371,6 +375,7 @@ def _score_cascade_cohort(
         elif result.status == "gate_dropped":
             scores.append(0.0)
 
+    log.info("cohort %s done: %s", cohort_label, counters)
     return {
         "cohort": cohort_label,
         "scores": scores,
