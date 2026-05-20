@@ -13,7 +13,11 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Next
 
-- **M03 — Cascade Gate-and-Rank** — concreteness gate → Ortony rank → domain-distance re-rank. Restructures the pipeline from pointwise formula choice (M02 territory) to structural primitives. Wires in concreteness prediction (already available via `synset_concreteness`) and domain-distance re-rank.
+- **M03-S05 — Forge integration into Go API** *(cleared 2026-05-20 after Stage 2 passed at +0.1779 separation)* — wire the cascade scoring (gate=1.0 signed, α=1.0, additive, jaccard_salience) into `api/internal/forge` + `api/internal/handler`. Replace lemma-level cosine with `synset_centroids` cosine. Add `synset_concreteness` lookup for the gate. Keep legacy `CompositeScore` path behind a feature flag for rollout safety. Smoke-test against 5-10 known apt pairs via the live API. Cascade winner config saved to memory.
+  - Stage 2 findings: [`M03-S04-stage2-findings.md`](M03-S04-stage2-findings.md)
+  - Python reference: `data-pipeline/scripts/evaluate_cascade.py`
+
+- **M03 — Cascade Gate-and-Rank** *(Stages 1 + 2 complete 2026-05-20)* — concreteness gate → Ortony rank → domain-distance re-rank. Restructures the pipeline from pointwise formula choice (M02 territory) to structural primitives. Wires in concreteness prediction (already available via `synset_concreteness`) and domain-distance re-rank.
   - Why now: M02 — Asymmetric Ortony Scoring closed empirically negative on 2026-05-16. Every variant in the pointwise-property-overlap family (symmetric, asymmetric, null) landed within ±0.06 of zero separation on a balanced cohort. The pointwise approach is exhausted; structural primitives are the next available lever.
   - **Inherits from M02's retro work**:
     - Trustworthy eval harness on a balanced cohort (random_uniform = +0.0068 ≈ 0, apt 271 / inapt 978, 67% MUNCH retention vs 22% before)
