@@ -64,10 +64,18 @@ def build_synset_centroids(conn: sqlite3.Connection) -> int:
     fail-open.
 
     Idempotent: uses INSERT OR REPLACE so a re-run updates rows in place.
-    Stale centroids for synsets whose properties have since been deleted
-    are NOT pruned by this function — pair the call with a
-    ``DELETE FROM synset_centroids WHERE synset_id NOT IN (SELECT DISTINCT
-    synset_id FROM synset_properties)`` if you need that.
+    After the insert, centroids for synsets that no longer appear in
+    ``synset_properties`` are pruned so stale rows from a prior rebuild
+    cannot silently feed into the cascade.
+
+    Note on table asymmetry: this builder reads property embeddings from
+    ``property_vocabulary`` joined via ``synset_properties`` (pre-snap, raw
+    properties). The Ortony stage of the cascade reads cluster ids from
+    ``synset_properties_curated`` (post-snap, cluster-canonicalised). A synset
+    can in principle have one signal but not the other (e.g. raw properties
+    with all-NULL embeddings → no centroid but curated cluster ids present →
+    Ortony works). The cascade evaluator handles missing centroids fail-open
+    in this case.
     """
     ensure_table(conn)
 
