@@ -1238,6 +1238,49 @@ def test_cascade_composition_must_be_in_allowlist(tmp_path):
         load_sweep_config(str(cfg_path))
 
 
+def test_load_sweep_config_rejects_scoring_under_cascade(tmp_path):
+    """`evaluator: cascade` + `scoring: ...` is a silent footgun — the
+    cascade path consumes `ortony_scoring` only, so the `scoring` key
+    drops on the floor and the variation runs with whichever
+    `ortony_scoring` default the cascade module picks. Reject at the
+    config boundary to keep an operator from wasting sweep compute."""
+    pytest.importorskip("yaml")
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("""
+name: bad
+db: /dev/null
+pairs: /dev/null
+controls: /dev/null
+variations:
+  - name: oops
+    evaluator: cascade
+    scoring: cosine_salience
+    ortony_scoring: jaccard_salience
+""")
+    with pytest.raises(ValueError, match="'scoring' key is not valid for evaluator=cascade"):
+        load_sweep_config(str(cfg))
+
+
+def test_load_sweep_config_rejects_cascade_keys_under_aptness(tmp_path):
+    """Cascade-only keys (alpha, d_cap, etc.) under an aptness variation
+    are silent no-ops — the aptness evaluator never reads them. Reject
+    at the config boundary so a copy-paste error doesn't waste compute."""
+    pytest.importorskip("yaml")
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("""
+name: bad
+db: /dev/null
+pairs: /dev/null
+controls: /dev/null
+variations:
+  - name: oops
+    scoring: jaccard_salience
+    alpha: 0.5
+""")
+    with pytest.raises(ValueError, match="cascade-only keys"):
+        load_sweep_config(str(cfg))
+
+
 def test_aptness_evaluator_default_when_omitted(tmp_path):
     """If `evaluator` is omitted, the variation runs through the existing
     aptness path. Backwards-compat: M02-era sweep configs keep working

@@ -139,6 +139,16 @@ ALLOWED_VARIATION_KEYS = frozenset(VariationSpec.__annotations__.keys())
 ALLOWED_EVALUATORS = ("aptness", "cascade")
 ALLOWED_COMPOSITIONS = ("multiplicative", "additive")
 
+# Cross-key validation: cascade and aptness evaluators have disjoint
+# hyperparam sets. A variation that combines them (e.g. `evaluator: cascade`
+# + `scoring: ...`) silently drops the wrong-side key — the kind of bug
+# that wastes a sweep's compute before anyone notices.
+_CASCADE_ONLY_KEYS = frozenset({
+    "concreteness_threshold", "ortony_scoring",
+    "d_cap", "alpha", "composition",
+})
+_APTNESS_ONLY_KEYS = frozenset({"scoring"})
+
 
 class SweepConfig(TypedDict):
     db: str
@@ -285,6 +295,29 @@ def load_sweep_config(path: str) -> SweepConfig:
                 raise ValueError(
                     f"sweep config {path}: variation {name!r}: unknown "
                     f"evaluator {ev!r}; valid: {list(ALLOWED_EVALUATORS)}"
+                )
+
+        # Cross-key validation: evaluator and hyperparam keys must agree.
+        # Without this check, `evaluator: cascade` + `scoring: ...` silently
+        # drops `scoring` (cascade picks up `ortony_scoring` only); likewise
+        # cascade-only keys under the default aptness path are silent no-ops.
+        # Both cases waste compute on a misconfigured sweep.
+        evaluator_kind = var.get("evaluator", "aptness")
+        if evaluator_kind == "cascade":
+            if "scoring" in var:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: 'scoring' "
+                    f"key is not valid for evaluator=cascade — use "
+                    f"'ortony_scoring' instead. (The 'scoring' key was "
+                    f"being silently ignored.)"
+                )
+        elif evaluator_kind == "aptness":
+            misplaced = var.keys() & _CASCADE_ONLY_KEYS
+            if misplaced:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: cascade-only "
+                    f"keys {sorted(misplaced)} are not valid for "
+                    f"evaluator=aptness"
                 )
 
         # M03 cascade hyperparameter type-checks. The cascade module
