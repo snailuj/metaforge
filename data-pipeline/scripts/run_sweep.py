@@ -97,6 +97,20 @@ class OkVariationResult(TypedDict, total=False):
     inapt_unresolved: int
     apt_no_properties: int
     inapt_no_properties: int
+    # Cascade rerank diagnostics — present iff evaluate_cascade emits
+    # these counters; absent rows silently no-op via the threading guard
+    # in `_run_one_variation`.
+    apt_rerank_applied: int
+    inapt_rerank_applied: int
+    apt_rerank_skipped_missing_centroid: int
+    inapt_rerank_skipped_missing_centroid: int
+    apt_rerank_skipped_zero_norm: int
+    inapt_rerank_skipped_zero_norm: int
+    # Top-level cohort-degeneracy flag — set by evaluate_cascade when the
+    # cohort collapses to a single-class distribution that invalidates
+    # the separation_score. Forwarded verbatim so the ablation reader can
+    # filter degenerate variations without re-computing the predicate.
+    degenerate_cohort: bool
 
 
 class FailedVariationResult(TypedDict):
@@ -567,6 +581,24 @@ def _run_one_variation(
             "apt_no_properties", "inapt_no_properties",
         ):
             ok[attrition_key] = int(agg.get(attrition_key, 0))
+        # Cascade rerank diagnostics — only surface when evaluate_cascade
+        # actually emits them. Forward-compatible: a build that hasn't
+        # added these counters yet silently no-ops here, the OK row just
+        # omits the key (TypedDict total=False makes this safe).
+        for rerank_suffix in (
+            "rerank_applied",
+            "rerank_skipped_missing_centroid",
+            "rerank_skipped_zero_norm",
+        ):
+            for cohort_prefix in ("apt", "inapt"):
+                agg_key = f"{cohort_prefix}_{rerank_suffix}"
+                if agg_key in agg:
+                    ok[agg_key] = int(agg[agg_key])
+        # Top-level degenerate-cohort flag lives on the result dict, not
+        # inside `aggregate` — surface it verbatim when present so the
+        # ablation reader can filter out invalid separation scores.
+        if "degenerate_cohort" in result:
+            ok["degenerate_cohort"] = bool(result["degenerate_cohort"])
     return ok
 
 
