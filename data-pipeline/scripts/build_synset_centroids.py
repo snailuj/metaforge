@@ -137,6 +137,21 @@ def build_synset_centroids(conn: sqlite3.Connection) -> int:
     )
     conn.commit()
 
+    # Prune centroids for synsets that no longer have any properties (stale from
+    # prior rebuild). Without this, a synset whose properties get deleted between
+    # rebuilds keeps its stale centroid and the cascade silently uses it.
+    deleted = conn.execute(
+        """
+        DELETE FROM synset_centroids
+        WHERE synset_id NOT IN (
+            SELECT DISTINCT synset_id FROM synset_properties
+        )
+        """
+    ).rowcount
+    conn.commit()
+    if deleted > 0:
+        log.info("pruned %d stale centroids (no longer in synset_properties)", deleted)
+
     log.info("stored %d synset centroids", len(rows_to_insert))
     return len(rows_to_insert)
 

@@ -212,6 +212,24 @@ def test_returns_zero_when_no_enriched_synsets():
     assert count == 0
 
 
+def test_build_prunes_centroids_for_synsets_with_no_properties():
+    """A synset that previously had a centroid but whose properties are now gone
+    must have its centroid deleted on rebuild — stale data is worse than missing data."""
+    conn = _build_fixture({"S_KEEP": [[1.0]]})
+    build_synset_centroids(conn)
+    # inject a stale centroid for a synset that has no properties
+    import struct as _s
+    conn.execute(
+        "INSERT INTO synset_centroids (synset_id, centroid, property_count) VALUES (?, ?, ?)",
+        ("S_STALE", _s.pack(f"{EMBEDDING_DIM}f", *([0.0] * EMBEDDING_DIM)), 1),
+    )
+    conn.commit()
+    # rebuild — S_STALE should be pruned, S_KEEP should remain
+    build_synset_centroids(conn)
+    rows = {r[0] for r in conn.execute("SELECT synset_id FROM synset_centroids").fetchall()}
+    assert rows == {"S_KEEP"}
+
+
 def test_summary_logs_all_malformed_synsets(caplog):
     """A synset whose every property embedding is malformed gets logged at WARNING."""
     import logging, sqlite3
