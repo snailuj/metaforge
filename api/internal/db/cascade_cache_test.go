@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -45,23 +46,24 @@ func TestLoadCascadeCache_PopulatesBothTablesFromLiveDB(t *testing.T) {
 	}
 }
 
-func TestLoadCascadeCache_MissingTablesFailOpen(t *testing.T) {
-	// In-memory DB has neither table -> cache loads empty, no error.
-	// Fixture-DB safety net so handler tests against synthetic DBs don't
-	// have to provide every cascade table.
+func TestLoadCascadeCache_MissingTablesFailLoud(t *testing.T) {
+	// The production handler pre-flights that synset_concreteness +
+	// synset_centroids exist before calling LoadCascadeCache, so a
+	// missing table at load time means something raced or corrupted.
+	// Fail loud rather than silently producing an empty cache that
+	// would route every cascade pair to missing_concreteness.
 	database, err := openMemoryDB(t)
 	if err != nil {
 		t.Fatalf("openMemoryDB: %v", err)
 	}
 	defer database.Close()
 
-	cache, err := LoadCascadeCache(database)
-	if err != nil {
-		t.Fatalf("LoadCascadeCache on empty DB returned error: %v", err)
+	_, err = LoadCascadeCache(database)
+	if err == nil {
+		t.Fatal("expected error for missing cascade tables, got nil")
 	}
-	if len(cache.Concreteness) != 0 || len(cache.Centroids) != 0 {
-		t.Errorf("empty DB should produce empty caches, got %d / %d",
-			len(cache.Concreteness), len(cache.Centroids))
+	if !strings.Contains(err.Error(), "no such table") {
+		t.Errorf("expected 'no such table' in error, got: %v", err)
 	}
 }
 

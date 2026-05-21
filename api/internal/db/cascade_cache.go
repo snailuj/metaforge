@@ -11,7 +11,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/snailuj/metaforge/internal/blobconv"
 )
@@ -26,8 +25,11 @@ type CascadeCache struct {
 }
 
 // LoadCascadeCache reads both static cascade tables into memory in one
-// pass each. Missing tables fail open (empty maps, nil error) so fixture
-// DBs without the cascade pipeline can still construct a handler.
+// pass each. The production handler pre-flights that the cascade tables
+// exist before calling this; if the loader reaches an underlying table
+// and it is missing or unreadable, the error propagates so a race or
+// corruption surfaces loudly rather than silently producing an empty
+// cache that routes every cascade pair to missing_concreteness.
 func LoadCascadeCache(database *sql.DB) (*CascadeCache, error) {
 	cache := &CascadeCache{
 		Concreteness: make(map[string]float64, 80000),
@@ -51,9 +53,6 @@ func LoadCascadeCache(database *sql.DB) (*CascadeCache, error) {
 func loadConcreteness(database *sql.DB, dst map[string]float64) error {
 	rows, err := database.Query("SELECT synset_id, score FROM synset_concreteness")
 	if err != nil {
-		if strings.Contains(err.Error(), "no such table") {
-			return nil
-		}
 		return fmt.Errorf("load concreteness: %w", err)
 	}
 	defer rows.Close()
@@ -62,8 +61,10 @@ func loadConcreteness(database *sql.DB, dst map[string]float64) error {
 		var id string
 		var score float64
 		if err := rows.Scan(&id, &score); err != nil {
-			slog.Warn("scan concreteness row failed", "err", err)
-			continue
+			// Homogeneous result set — first scan failure means rows 2..N
+			// will fail for the same structural reason (schema drift,
+			// type mismatch). Escalate rather than log-and-continue.
+			return fmt.Errorf("scan concreteness row: %w", err)
 		}
 		dst[id] = score
 	}
@@ -76,34 +77,42 @@ func loadConcreteness(database *sql.DB, dst map[string]float64) error {
 func loadCentroids(database *sql.DB, dst map[string][]float32) error {
 	rows, err := database.Query("SELECT synset_id, centroid FROM synset_centroids")
 	if err != nil {
-		if strings.Contains(err.Error(), "no such table") {
-			return nil
-		}
 		return fmt.Errorf("load centroids: %w", err)
 	}
 	defer rows.Close()
 
+	var malformed int
 	for rows.Next() {
 		var id string
 		var blob []byte
 		if err := rows.Scan(&id, &blob); err != nil {
-			slog.Warn("scan centroid row failed", "err", err)
-			continue
+			// Same rationale as concreteness — first scan failure is
+			// structural, escalate.
+			return fmt.Errorf("scan centroid row: %w", err)
 		}
 		if len(blob) == 0 {
 			continue
 		}
 		vec := blobconv.BlobToFloats(blob)
 		if vec == nil {
-			// Dim mismatch — log and skip. The cache's job is to mirror what
-			// the DB has; a malformed row is a pipeline-side issue.
-			slog.Warn("centroid blob malformed, skipping", "synset", id, "bytes", len(blob))
+			// Malformed BLOB — not a missing row, a pipeline contract
+			// violation (wrong dimension, partial write, etc). Log at
+			// Error so operators see the signal; track a counter so the
+			// load summary can report aggregate damage.
+			slog.Error("centroid blob malformed", "synset", id, "bytes", len(blob))
+			malformed++
 			continue
 		}
 		dst[id] = vec
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate centroids: %w", err)
+	}
+	if malformed > 0 {
+		slog.Error("cascade centroid load completed with malformed rows",
+			"malformed_count", malformed,
+			"loaded_count", len(dst),
+		)
 	}
 	return nil
 }
