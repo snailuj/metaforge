@@ -228,6 +228,14 @@ def _cosine_distance(va: list[float], vb: list[float]) -> float | None:
     sibling implementations return None for undefined cosine. NaN was the
     previous return value here and produced divergent behaviour; a future
     extract-to-shared-helper would expose the inconsistency.
+
+    Numerical hardening: cos_sim is clamped to [-1, 1] before the
+    1 - cos_sim conversion to absorb fp-rounding errors at the ~1e-16
+    level. The cascade's sibling _cosine_distance is being harmonised
+    to clamp identically in evaluate_cascade (Round-2 fix). The
+    diagnostic's statistical summary (mean/stdev/percentiles) is more
+    rounding-sensitive than the cascade re-rank (which clips via d_cap
+    anyway), so the clamp was added here first.
     """
     if len(va) != len(vb):
         return None
