@@ -36,15 +36,21 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Queued
 
-- **M04 — Type-Aligned Structural Matching** — preserve property types during snap, type-diversity bonus in scoring. Lightweight approximation of SME isomorphic subgraph matching using data the pipeline already extracts.
+- **M04 — Cosine-Sim Candidate Generation** *(promoted 2026-05-21 during M03-S05 close, ahead of type-aligned scoring)* — add an ANN index over `synset_centroids` so the Forge can surface cross-domain candidates that share no curated cluster (anger→fire, idea→light, time→money). M03's cascade re-rank already discriminates these; M03-S05 smoke testing confirmed the Go endpoint can't currently expose them — they're filtered out by the cluster-overlap candidate CTE before scoring. M04 unions ANN-band candidates with the existing cluster-overlap set; cascade re-ranks across both. Same infrastructure feeds The Bridge's embedding-prefilter A*.
+  - Why before type-alignment: optimising the *scoring* of a candidate set that systematically excludes apt cross-domain pairs is peak diminishing returns. Broadening the set first delivers the eval-cohort lift; M05 type-alignment then sharpens that richer set.
+  - Detail doc: [`M04-cosine-candidate-gen-roadmap.md`](M04-cosine-candidate-gen-roadmap.md)
   - Depends on: M03
-- **M05 — Novelty Tracking** *(optional for MVP, valuable for Substack narrative)* — MuseScorer-style dynamic buckets, creative yield curve dashboard metric. Additive measurement layer.
+- **M05 — Type-Aligned Structural Matching** *(renumbered from M04 on 2026-05-21)* — preserve property types during snap, type-diversity bonus in scoring. Lightweight approximation of SME isomorphic subgraph matching using data the pipeline already extracts.
+  - Depends on: M03, M04 (richer candidate set makes type-alignment higher-leverage)
+- **M06 — Novelty Tracking** *(renumbered from M05 on 2026-05-21; optional for MVP, valuable for Substack narrative)* — MuseScorer-style dynamic buckets, creative yield curve dashboard metric. Additive measurement layer.
   - Depends on: M03
 - **The Bridge** *(new feature, surfaced during M02-S04 close on 2026-05-16)* — dual of the Forge: given source AND target, return the path through wordspace linking them. Graph search rather than ranking; different mechanism class than pointwise scoring. Two product values:
   - **Explanatory:** "anger → fire" returns the conceptual chain (e.g. `anger → heat → consuming → destruction → fire`), surfacing the metaphor's mechanism for users
   - **Inapt cohort generation:** weak/no-path queries can semi-supervisedly produce inapt examples, expanding the eval cohort beyond MUNCH
   - Algorithmic notes: branching factor ~78/hop, mitigated via salience-weighted edges, bidirectional BFS, embedding-prefilter A*, concreteness gradient, and a precomputed cluster-cluster adjacency matrix. 2-3 hops covers most apt metaphors.
-  - Cost: ~2 days to shippable demo. Independent of M03/M04/M05 — could slot in any time.
+  - Architectural framing *(added 2026-05-21)*: Forge and Bridge share the same language structure — concept-senses as nodes, semantic relations as edges, concreteness gradient, type-aware features. They differ at the *traversal* layer (1-hop frontier vs bidirectional A*), not the substrate. Extract the shared `metaphor` package (graph + cascade + candidate gens) before building the Bridge; both orchestrators then sit on top cleanly. See M04 roadmap doc for the structure-vs-orchestrator argument.
+  - Dependency on M04: M04's ANN index over `synset_centroids` IS the Bridge's embedding-prefilter A* layer. Building M04 first reduces the Bridge from "2 days from scratch" to ~1.5 days of orchestration on top of shared infrastructure.
+  - Cost: ~2 days to shippable demo if built before M04; ~1.5 days if built after.
 
 ## Backlog (no clear slot yet)
 
