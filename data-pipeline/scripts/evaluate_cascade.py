@@ -159,12 +159,58 @@ class CascadeResult:
                     "invalid CascadeResult: status=gate_dropped forbids cosine_distance "
                     "and re_rank_bonus"
                 )
-        elif self.status in ("missing_concreteness", "no_properties", "unresolved"):
+        elif self.status == "missing_concreteness":
             if self.final_score is not None or self.ortony_score is not None:
                 raise ValueError(
-                    f"invalid CascadeResult: status={self.status} requires "
-                    f"final_score=None and ortony_score=None"
+                    "invalid CascadeResult: status=missing_concreteness requires "
+                    "final_score=None and ortony_score=None"
                 )
+            if self.gate_passed:
+                raise ValueError(
+                    "invalid CascadeResult: status=missing_concreteness requires gate_passed=False"
+                )
+            if self.cosine_distance is not None or self.re_rank_bonus is not None:
+                raise ValueError(
+                    "invalid CascadeResult: status=missing_concreteness forbids "
+                    "cosine_distance and re_rank_bonus"
+                )
+        elif self.status == "no_properties":
+            if self.final_score is not None or self.ortony_score is not None:
+                raise ValueError(
+                    "invalid CascadeResult: status=no_properties requires "
+                    "final_score=None and ortony_score=None"
+                )
+            if not self.gate_passed:
+                raise ValueError(
+                    "invalid CascadeResult: status=no_properties requires gate_passed=True "
+                    "(no_properties means Ortony lookup found no shared properties, "
+                    "but the concreteness gate had already passed)"
+                )
+            if self.cosine_distance is not None or self.re_rank_bonus is not None:
+                raise ValueError(
+                    "invalid CascadeResult: status=no_properties forbids "
+                    "cosine_distance and re_rank_bonus"
+                )
+        elif self.status == "unresolved":
+            if self.final_score is not None or self.ortony_score is not None:
+                raise ValueError(
+                    "invalid CascadeResult: status=unresolved requires "
+                    "final_score=None and ortony_score=None"
+                )
+            if self.gate_passed:
+                raise ValueError(
+                    "invalid CascadeResult: status=unresolved requires gate_passed=False"
+                )
+            if self.cosine_distance is not None or self.re_rank_bonus is not None:
+                raise ValueError(
+                    "invalid CascadeResult: status=unresolved forbids "
+                    "cosine_distance and re_rank_bonus"
+                )
+        else:
+            raise ValueError(
+                f"unknown CascadeStatus: {self.status!r} — "
+                f"add a new __post_init__ branch when adding a status to CascadeStatus"
+            )
 
 
 # --- Concreteness lookup -----------------------------------------------------

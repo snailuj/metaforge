@@ -848,3 +848,39 @@ def test_cascade_result_rejects_missing_concreteness_with_final_score():
     with pytest.raises(ValueError, match="missing_concreteness requires"):
         CascadeResult(final_score=0.5, gate_passed=False, ortony_score=None,
                       cosine_distance=None, re_rank_bonus=None, status="missing_concreteness")
+
+
+def test_cascade_result_rejects_missing_concreteness_with_gate_passed_true():
+    with pytest.raises(ValueError, match="missing_concreteness requires gate_passed=False"):
+        CascadeResult(final_score=None, gate_passed=True, ortony_score=None,
+                      cosine_distance=None, re_rank_bonus=None, status="missing_concreteness")
+
+
+def test_cascade_result_rejects_missing_concreteness_with_cosine_distance():
+    with pytest.raises(ValueError, match="missing_concreteness forbids"):
+        CascadeResult(final_score=None, gate_passed=False, ortony_score=None,
+                      cosine_distance=0.5, re_rank_bonus=None, status="missing_concreteness")
+
+
+def test_cascade_result_rejects_no_properties_with_gate_passed_false():
+    with pytest.raises(ValueError, match="no_properties requires gate_passed=True"):
+        CascadeResult(final_score=None, gate_passed=False, ortony_score=None,
+                      cosine_distance=None, re_rank_bonus=None, status="no_properties")
+
+
+def test_cascade_result_rejects_no_properties_with_re_rank_bonus():
+    with pytest.raises(ValueError, match="no_properties forbids"):
+        CascadeResult(final_score=None, gate_passed=True, ortony_score=None,
+                      cosine_distance=None, re_rank_bonus=0.5, status="no_properties")
+
+
+def test_cascade_result_rejects_unresolved_with_gate_passed_true():
+    with pytest.raises(ValueError, match="unresolved requires gate_passed=False"):
+        CascadeResult(final_score=None, gate_passed=True, ortony_score=None,
+                      cosine_distance=None, re_rank_bonus=None, status="unresolved")
+
+
+def test_cascade_result_rejects_unresolved_with_cosine_distance():
+    with pytest.raises(ValueError, match="unresolved forbids"):
+        CascadeResult(final_score=None, gate_passed=False, ortony_score=None,
+                      cosine_distance=0.5, re_rank_bonus=None, status="unresolved")
