@@ -59,12 +59,30 @@ def _iter_apt(apt_pairs: list[dict]) -> Iterable[tuple[str, str, dict]]:
     metaphor "ANGER IS FIRE", row['source'] == 'anger' and
     row['target'] == 'fire'. Lakoff prediction #1 expects
     concreteness(target) > concreteness(source) on apt pairs.
+
+    Rows with empty/missing source or target are skipped with a DEBUG log
+    (visible at -v); a WARNING summary fires once the generator is
+    exhausted, so an incomplete fixture does not silently shrink the
+    cohort without a trail. Generators yield lazily — the summary log
+    only fires after the consumer iterates fully, which is the call
+    pattern used throughout this script.
     """
+    skipped = 0
+    yielded = 0
     for row in apt_pairs:
         s = (row.get("source") or "").strip()
         t = (row.get("target") or "").strip()
         if s and t:
+            yielded += 1
             yield s, t, row
+        else:
+            skipped += 1
+            log.debug("apt row dropped: source=%r target=%r", s, t)
+    if skipped > 0:
+        log.warning(
+            "apt input: dropped %d incomplete rows, yielded %d",
+            skipped, yielded,
+        )
 
 
 def _iter_inapt(inapt_controls: list[dict]) -> Iterable[tuple[str, str, dict]]:
@@ -73,12 +91,26 @@ def _iter_inapt(inapt_controls: list[dict]) -> Iterable[tuple[str, str, dict]]:
     munch_inapt.jsonl uses 'target' (the metaphor word in context) and
     'paraphrase' (the unrelated substitute). No inherent Lakoff
     directionality — the cohort exists as a discriminative reference.
+
+    Rows with empty/missing target or paraphrase are skipped with a
+    DEBUG log + WARNING summary (see _iter_apt for the rationale).
     """
+    skipped = 0
+    yielded = 0
     for row in inapt_controls:
         t = (row.get("target") or "").strip()
         p = (row.get("paraphrase") or "").strip()
         if t and p:
+            yielded += 1
             yield t, p, row
+        else:
+            skipped += 1
+            log.debug("inapt row dropped: target=%r paraphrase=%r", t, p)
+    if skipped > 0:
+        log.warning(
+            "inapt input: dropped %d incomplete rows, yielded %d",
+            skipped, yielded,
+        )
 
 
 # --- Concreteness diagnostics ------------------------------------------------
