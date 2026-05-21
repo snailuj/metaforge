@@ -884,3 +884,10 @@ def test_cascade_result_rejects_unresolved_with_cosine_distance():
     with pytest.raises(ValueError, match="unresolved forbids"):
         CascadeResult(final_score=None, gate_passed=False, ortony_score=None,
                       cosine_distance=0.5, re_rank_bonus=None, status="unresolved")
+
+
+def test_cascade_result_rejects_unknown_status():
+    with pytest.raises(ValueError, match="unknown CascadeStatus"):
+        # noinspection PyTypeChecker — intentionally bypassing Literal for the runtime check
+        CascadeResult(final_score=None, gate_passed=False, ortony_score=None,
+                      cosine_distance=None, re_rank_bonus=None, status="bogus")  # type: ignore[arg-type]
