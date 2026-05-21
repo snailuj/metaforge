@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/snailuj/metaforge/internal/forge"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -143,4 +147,93 @@ func TestForgeSuggest_CascadeEnabled_NoGatePassReturnsEmpty200(t *testing.T) {
 	// reach concreteness ~5.0). The assertion is that the response is a
 	// well-formed empty/short list, not a 404. We accept any len(Suggestions).
 	t.Logf("cat returned %d cascade-scored suggestions", len(resp.Suggestions))
+}
+
+func TestNewHandlerWithCascade_EmptyCascadeTables_FailsLoud(t *testing.T) {
+	// D12 row-count assertion: a fresh-build deploy with empty cascade
+	// tables would have passed the existence-only pre-flight and
+	// silently served empty 200s for every request. This test pins
+	// the post-fix behaviour: NewHandlerWithCascade must error if
+	// either cascade table is empty.
+
+	// Build a synthetic SQLite file with all required tables present
+	// but the cascade tables empty (rest populated minimally to pass
+	// the existence pre-flight).
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/empty_cascade.db"
+
+	database, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	// Create the schema fragments NewHandlerWithCascade requires.
+	schema := []string{
+		`CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT)`,
+		`CREATE TABLE lemmas (synset_id TEXT, lemma TEXT)`,
+		`CREATE TABLE synset_properties_curated (synset_id TEXT, cluster_id INTEGER, salience_sum REAL)`,
+		`CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, lemma TEXT NOT NULL)`,
+		`CREATE TABLE frequencies (lemma TEXT, count INTEGER)`,
+		`CREATE TABLE cluster_antonyms (cluster_id_a INTEGER, cluster_id_b INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER PRIMARY KEY, lemma TEXT)`,
+		`CREATE TABLE lemma_embeddings (lemma TEXT, embedding BLOB)`,
+		// Both cascade tables exist but are empty:
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+	}
+	for _, stmt := range schema {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("schema setup: %v", err)
+		}
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	_, err = NewHandlerWithCascade(dbPath, true)
+	if err == nil {
+		t.Fatal("expected error for empty cascade tables, got nil")
+	}
+	if !strings.Contains(err.Error(), "is empty") {
+		t.Errorf("expected 'is empty' in error, got: %v", err)
+	}
+}
+
+func TestSortByFinalScore_AllNilFinalScores_DoesNotPanicOrLoop(t *testing.T) {
+	// O7 round-2 fix: the (nil, nil) case in the comparator must
+	// return false explicitly so sort.Slice's strict-weak-ordering
+	// contract holds. Pre-fix the comparator was technically
+	// transitive but adjacent-symmetric only by chance through the
+	// early-return order. This test pins the explicit branch.
+	matches := []forge.Match{
+		{SynsetID: "a", Word: "a"},
+		{SynsetID: "b", Word: "b"},
+		{SynsetID: "c", Word: "c"},
+	}
+	// All FinalScore fields are nil zero-values. Sort must not panic
+	// and must terminate.
+	sortByFinalScore(matches)
+	if len(matches) != 3 {
+		t.Errorf("expected 3 matches preserved, got %d", len(matches))
+	}
+}
+
+func TestSortByFinalScore_MixedNilAndNonNil_SinksNilToBottom(t *testing.T) {
+	// The nil-FinalScore sort policy is "nil sinks to bottom".
+	// Verify with a 3-element mix.
+	a, b := 0.5, 0.2
+	matches := []forge.Match{
+		{SynsetID: "no-score", Word: "no-score"},          // FinalScore: nil
+		{SynsetID: "high", Word: "high", FinalScore: &a},
+		{SynsetID: "low", Word: "low", FinalScore: &b},
+	}
+	sortByFinalScore(matches)
+	if matches[0].SynsetID != "high" {
+		t.Errorf("expected 'high' first, got %q", matches[0].SynsetID)
+	}
+	if matches[1].SynsetID != "low" {
+		t.Errorf("expected 'low' second, got %q", matches[1].SynsetID)
+	}
+	if matches[2].SynsetID != "no-score" {
+		t.Errorf("expected 'no-score' last, got %q", matches[2].SynsetID)
+	}
 }
