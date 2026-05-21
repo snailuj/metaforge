@@ -107,10 +107,12 @@ class OkVariationResult(TypedDict, total=False):
     inapt_rerank_applied: int
     apt_rerank_skipped: int
     inapt_rerank_skipped: int
-    # Top-level cohort-degeneracy flag — set by evaluate_cascade when the
-    # cohort collapses to a single-class distribution that invalidates
-    # the separation_score. Forwarded verbatim so the ablation reader can
-    # filter degenerate variations without re-computing the predicate.
+    # Cohort-degeneracy flag — set by evaluate_cascade when the cohort
+    # collapses to a single-class distribution that invalidates the
+    # separation_score. The producer stores it inside ``result["aggregate"]``
+    # (not top-level result); the forwarder reads from `agg` so the
+    # ablation reader can filter degenerate variations without
+    # re-computing the predicate.
     degenerate_cohort: bool
 
 
@@ -594,11 +596,12 @@ def _run_one_variation(
                 agg_key = f"{cohort_prefix}_{rerank_suffix}"
                 if agg_key in agg:
                     ok[agg_key] = int(agg[agg_key])
-        # Top-level degenerate-cohort flag lives on the result dict, not
-        # inside `aggregate` — surface it verbatim when present so the
-        # ablation reader can filter out invalid separation scores.
-        if "degenerate_cohort" in result:
-            ok["degenerate_cohort"] = bool(result["degenerate_cohort"])
+        # Degenerate-cohort flag lives inside `result["aggregate"]`, not
+        # at the top level — read from `agg` (not `result`) or it never
+        # threads through. Surface it verbatim so the ablation reader can
+        # filter out invalid separation scores.
+        if "degenerate_cohort" in agg:
+            ok["degenerate_cohort"] = bool(agg["degenerate_cohort"])
     return ok
 
 

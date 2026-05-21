@@ -1378,6 +1378,59 @@ def test_ok_row_carries_rerank_counters(tmp_path):
     )
 
 
+def test_ok_row_carries_degenerate_cohort_when_apt_cohort_empty(tmp_path):
+    """Cross-module contract: cascade puts ``degenerate_cohort`` inside
+    ``result['aggregate']`` (NOT at top-level ``result``); the sweep OK
+    row must surface it.
+
+    Regression target: round-1 fix ``f6f9bf09`` read from ``result``
+    (top-level) instead of ``result['aggregate']`` — the key was never
+    found and the flag never threaded into the sweep JSON.
+
+    Fixture: an apt pair referencing words absent from the lemmas table
+    so the cascade attrits via the ``unresolved`` branch and the apt
+    cohort empties — ``len(apt_scores) == 0`` flips the degenerate flag.
+    """
+    db_path = tmp_path / "fixture.db"
+    _build_fixture_db_file(db_path)
+    # Apt pair words deliberately absent from the lemmas table — cascade
+    # routes them through the unresolved branch, which does NOT append
+    # to scores. Net: apt_scores is empty, degenerate_cohort = True.
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps([
+        {"source": "nonexistent_word_a", "target": "nonexistent_word_b",
+         "tier": "strong"},
+    ]))
+    controls_file = tmp_path / "controls.jsonl"
+    controls_file.write_text(
+        '{"target": "approach", "paraphrase": "coming", "label": "inapt"}\n'
+    )
+    cfg = {
+        "name": "degen_test",
+        "db": str(db_path),
+        "pairs": str(pairs_file),
+        "controls": str(controls_file),
+        "variations": [
+            {"name": "c", "evaluator": "cascade",
+             "concreteness_threshold": 1.0},
+        ],
+    }
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+
+    row = result["variations"][0]
+    assert row["status"] == "ok", row
+    # Sanity: apt cohort really did empty out via attrition.
+    assert row["n_apt"] == 0
+    # The contract: degenerate_cohort surfaced from result['aggregate'].
+    assert "degenerate_cohort" in row, (
+        "degenerate_cohort missing — forwarder is reading the wrong key "
+        "(top-level result instead of result['aggregate'])"
+    )
+    assert row["degenerate_cohort"] is True
+
+
 def test_aptness_evaluator_default_when_omitted(tmp_path):
     """If `evaluator` is omitted, the variation runs through the existing
     aptness path. Backwards-compat: M02-era sweep configs keep working
