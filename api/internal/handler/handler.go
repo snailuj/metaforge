@@ -223,7 +223,9 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 		// Lemma is enriched but no gate-pass — return empty 200.
 		resp := SuggestResponse{Source: word, Suggestions: []forge.Match{}}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			slog.Error("failed to encode empty cascade suggest response", "word", word, "err", err)
+		}
 		return
 	}
 
@@ -300,6 +302,9 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 }
 
 func sortByFinalScore(matches []forge.Match) {
+	// nil arms are defensive — the Scored-status filter in
+	// handleSuggestCascade guarantees both sides non-nil. Kept so a future
+	// caller that bypasses the filter doesn't crash.
 	sort.Slice(matches, func(i, j int) bool {
 		a, b := matches[i].FinalScore, matches[j].FinalScore
 		if a == nil {
