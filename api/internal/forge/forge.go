@@ -71,6 +71,15 @@ type Match struct {
 	SourcePOS        string   `json:"source_pos,omitempty"`
 	DomainDistance   float64  `json:"domain_distance,omitempty"`
 	CompositeScore   float64  `json:"composite_score,omitempty"`
+
+	// Cascade diagnostics (M03-S05). Pointers + omitempty so the legacy
+	// path produces an unchanged JSON shape on the wire.
+	FinalScore     *float64      `json:"final_score,omitempty"`
+	CascadeStatus  CascadeStatus `json:"cascade_status,omitempty"`
+	GatePassed     bool          `json:"gate_passed,omitempty"`
+	OrtonyScore    *float64      `json:"ortony_score,omitempty"`
+	CosineDistance *float64      `json:"cosine_distance,omitempty"`
+	ReRankBonus    *float64      `json:"re_rank_bonus,omitempty"`
 }
 
 // Alpha is the tuneable weight for the cross-domain distance bonus.
