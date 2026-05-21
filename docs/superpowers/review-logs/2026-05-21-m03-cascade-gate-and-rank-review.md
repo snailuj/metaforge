@@ -79,12 +79,11 @@ docs/roadmap/PIPELINE.md                           (+18/-2)
 - **proposed_followup:** Tooling consolidation milestone (queued in PIPELINE.md backlog).
 
 ### D7 — GROUP_CONCAT empty-token leak (SF8)
-- **status:** active
+- **status:** **resolved-not-applicable** (verified round 3)
 - **severity:** low
 - **raised by:** pr-review-toolkit:silent-failure-hunter, round 1
 - **scope_boundary:** Schema-constraint question — depends on whether `property_vocab_curated.lemma` is NOT NULL.
-- **why_out_of_scope:** Needs schema verification before deciding fix scope. The visible symptom (empty token in `shared_properties` array) would be a JSON shape issue, not a crash.
-- **proposed_followup:** Capture in the pipeline architectural review milestone alongside the SCHEMA.sql canonicality work.
+- **resolution:** Round 3 standards reviewer verified `property_vocab_curated.lemma TEXT NOT NULL` in the live DB schema. Empty-token leak is structurally impossible. No code change needed.
 
 ### D8 — Pre-existing legacy embedding-lookup silent degradation (F5)
 - **status:** active
@@ -103,12 +102,10 @@ docs/roadmap/PIPELINE.md                           (+18/-2)
 - **proposed_followup:** Folds into M04 work — the M04 ANN candidate gen will UNION with the cluster-overlap path; revisit the ordering criterion when both sources contribute.
 
 ### D10 — Cascade observability: per-request trace + timing instrumentation (ST1, SP6)
-- **status:** active
-- **severity:** low
+- **status:** **superseded-by-D20** (round 2 severity recalibration)
+- **severity:** important (recalibrated from low at round 2)
 - **raised by:** standards reviewer + superpowers, round 1
-- **scope_boundary:** Observability standard says timing-behind-feature-flag for complex routines; cascade qualifies. Today: no per-request control-flow trace, no cache-load timing, no scan-failure counter (though SF4 fix added the malformed-centroid counter).
-- **why_out_of_scope:** Standards-driven addition rather than a correctness fix; the cascade is correct without it. Worth a dedicated observability slice rather than bolted onto S05.
-- **proposed_followup:** Capture as a small observability slice when the team next touches the cascade path (likely M04 integration).
+- **resolution:** Severity recalibrated to important at round 2 close per standards reviewer's challenge — the project's Observability standard text unambiguously covers the cascade hot path. Tracking via D20.
 
 ### D11 — Parity test coverage of CTE correctness (SP7)
 - **status:** active
@@ -119,12 +116,10 @@ docs/roadmap/PIPELINE.md                           (+18/-2)
 - **proposed_followup:** Pipeline architectural review milestone.
 
 ### D12 — Empty cascade tables → confusing empty 200 (SP8)
-- **status:** active
-- **severity:** low
+- **status:** **superseded-by-fix** (round 2)
+- **severity:** important (escalated from low at round 2 by silent-failure-hunter challenge)
 - **raised by:** superpowers, round 1
-- **scope_boundary:** `NewHandlerWithCascade` validates tables exist but not that they have rows. Empty cascade tables produce zero-result responses.
-- **why_out_of_scope:** Today the deploy pipeline guarantees populated tables (74k+36k rows on prod DB). Reviewer's concern is a future fresh-build deploy.
-- **proposed_followup:** Add row-count assertion in `NewHandlerWithCascade` pre-flight; small change but separate concern from S05's scope.
+- **resolution:** Promoted to fix in round 2 (`78ffaa2e`). `NewHandlerWithCascade` now asserts non-zero row counts on `synset_concreteness` and `synset_centroids` when `useCascade=true`. Pinned by `TestNewHandlerWithCascade_EmptyCascadeTables_FailsLoud` in round 3 (`057fefa2`).
 
 ### D13 — sort.Slice not stable in sortByFinalScore (SP5)
 - **status:** active
@@ -327,6 +322,67 @@ Findings: ST4 fixed, ST5 → D20 severity bump documented in ledger.
 ## Round 2 — ux-designer (2026-05-21T11:45:00Z)
 
 **Status:** No-op — no UI-touching files changed between round 1 and round 2 (only Go API + review log).
+**Counts as:** adapter-CLEAN for halt purposes.
+
+---
+
+## Round 3 — pr-review-toolkit (2026-05-21T12:30:00Z)
+
+**Agents dispatched:** code-reviewer, silent-failure-hunter, type-design-analyzer
+
+### Items Found
+
+- [medium] **OF1: Zero-blob centroid silently skipped** (`cascade_cache.go:93-95`) — silent-failure-hunter found that the round-2 malformed-centroid Error+counter treatment didn't cover the adjacent zero-blob case. **Decision: fix.**
+- [low] **OF2: Row-count guard uses fmt.Sprintf for SQL** — defensive smell; hard-coded table names are safe today. **Decision: skip (defer to D6's tooling consolidation milestone).**
+- [low] **OF3: `strings.Contains "no such table"` brittle to driver upgrades** — pre-existing pattern. **Decision: skip.**
+- [medium] **OF4: Round-2 fixes shipped without regression tests** — converges with standards OWN-F-S1 critical. **Decision: fix (add tests for empty-table guard and sortByFinalScore transitivity).**
+- **Type-design-analyzer:** CLEAN (no new findings; round-2 fixes are type-design positives).
+- **pr-review-toolkit code-reviewer:** CLEAN (OWN_FINDINGS empty; all 20 deferrals concurred).
+- **Several deferral challenges:** D6 (vague followup), D7 (schema check still pending — superpowers verified `lemma NOT NULL` this round → D7 resolved-NA), D11 (tripwire raises cost), D13 (could have piggy-backed), D16 (legacy bug still ships today), Gap G (silently absorbed into D17/D18).
+
+### Critique Sections
+Persisted per-reviewer four-section responses in this round's raw output. Highlights:
+- silent-failure-hunter: 4 new findings (OF1-OF4), challenged D6/D7/D16/Gap G handling.
+- type-design-analyzer: CLEAN; concurred with all 20 deferrals.
+- pr-review-toolkit code-reviewer: CLEAN; concurred with all 20 deferrals.
+
+### Fixes Applied
+- **db cascade_cache.go (commit `eebfa749`)** — OF1 zero-blob centroid Error+counter, matching round-2 malformed-blob treatment. Inline comment broadened.
+- **handler_cascade_test.go (commit `057fefa2`)** — TDD gap closure: `TestNewHandlerWithCascade_EmptyCascadeTables_FailsLoud`, `TestSortByFinalScore_AllNilFinalScores_DoesNotPanicOrLoop`, `TestSortByFinalScore_MixedNilAndNonNil_SinksNilToBottom`. F-R2-2 CTE-duplicate tripwire deliberately untested per commit message (unreachable from live-DB tests).
+
+### Files Modified
+- `api/internal/db/cascade_cache.go`
+- `api/internal/handler/handler_cascade_test.go`
+
+### Test Results
+Full `go test ./...` — 6 packages PASS (db 13.0s, forge 2.0s, handler 42.6s, thesaurus 40.1s). 3 new tests in handler_cascade_test.go, all PASS.
+
+### Cumulative
+Total rounds: 3 | Items resolved: 15 (12 from rounds 1-2 + 3 from round 3) | Active deferrals: 17 (D7 resolved-NA, D10 superseded by D20, D12 superseded by fix) | Elapsed: ~120m
+
+---
+
+## Round 3 — superpowers (2026-05-21T12:30:00Z)
+
+CLEAN. No new findings. Three observations (OBS-1/2/3 — TDD gaps + comment length) below blocking threshold but informed round-3 fixes. Performed schema check during deferrals review: verified `property_vocab_curated.lemma TEXT NOT NULL` → D7 resolved-not-applicable.
+
+Deferral verdicts: 19 concur, 1 closed (D12). Two housekeeping recommendations: mark D7 resolved-NA (done), mark D10 superseded by D20 (done).
+
+## Round 3 — standards (2026-05-21T12:30:00Z)
+
+**Standards sources:** `~/.claude/CLAUDE.md`, `/home/agent/projects/metaforge/CLAUDE.md`
+
+### Standards Checked
+- TDD (Red/Green) — **VIOLATED → fixed in `057fefa2`**. Round-2 fixes shipped without tests; three regression tests added in round 3.
+- All other standards: clean or already-deferred (D20 observability).
+
+OWN-F-S2 (Close errors discarded in empty-table guard) and OWN-F-S3 (DRY nit on table list) — both pre-existing-class drift; skip.
+
+Deferral verdicts: 16 firm concur, 4 mild challenges (D7 now resolved, D11 cost increased due to tripwire, D13 could have piggy-backed, D16 legacy bug ships today). All housekeeping deltas applied to ledger.
+
+## Round 3 — ux-designer (2026-05-21T12:30:00Z)
+
+**Status:** No-op — no UI-touching files changed between round 2 and round 3.
 **Counts as:** adapter-CLEAN for halt purposes.
 
 ---
