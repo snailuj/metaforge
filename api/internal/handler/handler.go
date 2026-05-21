@@ -66,6 +66,26 @@ func NewHandlerWithCascade(dbPath string, useCascade bool) (*Handler, error) {
 		}
 	}
 
+	if useCascade {
+		// Existence-only check above leaves a silent-failure mode: a fresh
+		// deploy with empty cascade tables passes the loop, loads empty
+		// caches, and every request returns empty 200. Assert non-zero
+		// rows so we fail loud at startup instead. SQL injection-safe:
+		// table names are hard-coded, not user input.
+		for _, table := range []string{"synset_concreteness", "synset_centroids"} {
+			var rowCount int
+			err := database.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&rowCount)
+			if err != nil {
+				database.Close()
+				return nil, fmt.Errorf("counting rows in %q: %w", table, err)
+			}
+			if rowCount == 0 {
+				database.Close()
+				return nil, fmt.Errorf("cascade table %q is empty — cannot serve cascade traffic against an empty table", table)
+			}
+		}
+	}
+
 	database.SetMaxOpenConns(4)
 
 	h := &Handler{
@@ -245,6 +265,16 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
 		return
 	}
+	if len(propsByID) == 0 {
+		// Anomaly: candidates were gate-passed (so the cascade tables are
+		// populated for these synsets) but NONE of them have curated
+		// properties. Most likely synset_properties_curated was truncated
+		// post-startup or schema drifted. Surface as Error so operators
+		// can spot the silent attrition; continue serving (response will
+		// be empty due to the no_properties filter below).
+		slog.Error("cascade batch properties returned empty for all candidates",
+			"word", word, "candidate_count", len(candidates))
+	}
 
 	matches := make([]forge.Match, 0, len(candidates))
 	for _, c := range candidates {
@@ -257,11 +287,14 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 		if v, ok := h.cache.Concreteness[c.SynsetID]; ok {
 			vConc = &v
 		}
-		// Defence-in-depth: the gated CTE already filtered candidates whose
-		// concreteness rows exist on both sides; a missing entry here would
-		// indicate a race between cache load and the SQL query. Log it.
+		// Invariant tripwire: the gated CTE filters candidates via INNER JOIN
+		// on synset_concreteness for both sides, so a missing cache entry
+		// here means the cache and SQL view of the table diverged — most
+		// likely cache load skipped a row (SF4 malformed-blob class) or the
+		// DB was rewritten under us between cache load and the request.
+		// Error level so operators see the signal.
 		if tConc == nil || vConc == nil {
-			slog.Warn("cascade candidate concreteness missing from cache despite SQL filter",
+			slog.Error("cascade candidate concreteness missing from cache despite SQL filter",
 				"source", c.SourceSynsetID, "target", c.SynsetID)
 		}
 		topicCent := h.cache.Centroids[c.SourceSynsetID] // nil-safe: zero value is nil
@@ -320,6 +353,9 @@ func sortByFinalScore(matches []forge.Match) {
 	// caller that bypasses the filter doesn't crash.
 	sort.Slice(matches, func(i, j int) bool {
 		a, b := matches[i].FinalScore, matches[j].FinalScore
+		if a == nil && b == nil {
+			return false
+		}
 		if a == nil {
 			return false
 		}
