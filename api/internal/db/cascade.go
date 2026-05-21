@@ -110,10 +110,23 @@ func GetForgeCascadeCandidatesByLemma(
 			WHERE tgt.synset_id NOT IN (SELECT synset_id FROM source_synsets)
 			GROUP BY ss.synset_id, tgt.synset_id
 		),
+		shared_gated AS (
+			-- Concreteness gate pushed in here so the window function below
+			-- operates only on already-gated rows. Filtering after best_sense
+			-- defeats SQLite's predicate pushdown and turns this query
+			-- catastrophic (~200s vs ~1s on a typical lemma).
+			SELECT pss.source_id, pss.target_id, pss.salience_sum, pss.shared_props,
+			       sct.score AS topic_score, scv.score AS vehicle_score
+			FROM per_sense_shared pss
+			JOIN synset_concreteness sct ON sct.synset_id = pss.source_id
+			JOIN synset_concreteness scv ON scv.synset_id = pss.target_id
+			WHERE (scv.score - sct.score) >= ?
+		),
 		best_sense AS (
 			SELECT source_id, target_id, salience_sum, shared_props,
+			       topic_score, vehicle_score,
 			       ROW_NUMBER() OVER (PARTITION BY target_id ORDER BY salience_sum DESC) as rn
-			FROM per_sense_shared
+			FROM shared_gated
 		),
 		per_sense_contrast AS (
 			SELECT ss.synset_id as source_id,
@@ -140,17 +153,14 @@ func GetForgeCascadeCandidatesByLemma(
 		       bs.source_id,
 		       ss.definition as source_definition,
 		       ss.pos as source_pos,
-		       sct.score as topic_score,
-		       scv.score as vehicle_score
+		       bs.topic_score,
+		       bs.vehicle_score
 		FROM best_sense bs
 		JOIN synsets ts ON ts.synset_id = bs.target_id
 		JOIN synsets ss ON ss.synset_id = bs.source_id
 		JOIN lemmas l ON l.synset_id = bs.target_id
 		LEFT JOIN best_contrast bc ON bc.target_id = bs.target_id AND bc.rn = 1
-		JOIN synset_concreteness sct ON sct.synset_id = bs.source_id
-		JOIN synset_concreteness scv ON scv.synset_id = bs.target_id
 		WHERE bs.rn = 1
-		  AND (scv.score - sct.score) >= ?
 		ORDER BY bs.salience_sum + COALESCE(bc.contrast_count, 0) DESC
 		LIMIT ?
 	`, lemma, threshold, limit)
