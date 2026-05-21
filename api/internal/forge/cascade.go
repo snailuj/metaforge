@@ -81,3 +81,114 @@ func CascadeCosineDistance(a, b []float32) (float64, bool) {
 	}
 	return 1.0 - sim, true
 }
+
+// CascadeStatus routes a pair into one of four attrition / scored buckets,
+// mirroring the Python CascadeStatus literal type.
+type CascadeStatus string
+
+const (
+	CascadeStatusScored              CascadeStatus = "scored"
+	CascadeStatusGateDropped         CascadeStatus = "gate_dropped"
+	CascadeStatusMissingConcreteness CascadeStatus = "missing_concreteness"
+	CascadeStatusNoProperties        CascadeStatus = "no_properties"
+)
+
+// Composition picks the final-score combiner. Production winner: additive.
+type Composition string
+
+const (
+	CompositionAdditive       Composition = "additive"
+	CompositionMultiplicative Composition = "multiplicative"
+)
+
+// CascadeConfig pins the cascade hyperparameters. Use DefaultCascadeConfig
+// for the production-blessed winner config.
+type CascadeConfig struct {
+	ConcretenessThreshold float64
+	Alpha                 float64
+	DCap                  float64
+	Composition           Composition
+}
+
+// DefaultCascadeConfig returns the production-blessed winner config from
+// the M03 Stage-2 sweep (separation +0.1779).
+func DefaultCascadeConfig() CascadeConfig {
+	return CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Alpha:                 1.0,
+		DCap:                  0.77,
+		Composition:           CompositionAdditive,
+	}
+}
+
+// CascadeInputs bundles per-pair data for EvaluateCascadePair. Pointer
+// concreteness so callers express 'absent' as nil. Nil/empty maps and
+// nil centroids are valid 'absent' signals — the function routes them
+// into the right status without panicking.
+type CascadeInputs struct {
+	TopicConcreteness   *float64
+	VehicleConcreteness *float64
+	TopicProperties     map[int64]float64
+	VehicleProperties   map[int64]float64
+	TopicCentroid       []float32
+	VehicleCentroid     []float32
+}
+
+// CascadeResult mirrors the Python CascadeResult — pointer fields are nil
+// when the corresponding stage didn't run.
+type CascadeResult struct {
+	FinalScore     *float64
+	GatePassed     bool
+	OrtonyScore    *float64
+	CosineDistance *float64
+	ReRankBonus    *float64
+	Status         CascadeStatus
+}
+
+// EvaluateCascadePair runs the three-stage cascade. Never panics on
+// data-shape issues. The handler's SQL CTE may have pre-filtered gate
+// rejects; this function still re-checks so unit tests cover the gate
+// logic directly.
+func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
+	if in.TopicConcreteness == nil || in.VehicleConcreteness == nil {
+		return CascadeResult{Status: CascadeStatusMissingConcreteness}
+	}
+	signed := *in.VehicleConcreteness - *in.TopicConcreteness
+	if signed < cfg.ConcretenessThreshold {
+		zero := 0.0
+		return CascadeResult{FinalScore: &zero, Status: CascadeStatusGateDropped}
+	}
+
+	if len(in.TopicProperties) == 0 || len(in.VehicleProperties) == 0 {
+		return CascadeResult{GatePassed: true, Status: CascadeStatusNoProperties}
+	}
+	ortony := JaccardSalience(in.TopicProperties, in.VehicleProperties)
+
+	var cosDist, bonus *float64
+	if in.TopicCentroid != nil && in.VehicleCentroid != nil {
+		if d, ok := CascadeCosineDistance(in.TopicCentroid, in.VehicleCentroid); ok {
+			cosDist = &d
+			rb := ReRankBonus(d, cfg.DCap)
+			bonus = &rb
+		}
+	}
+
+	final := ortony
+	if bonus != nil {
+		switch cfg.Composition {
+		case CompositionAdditive:
+			final = ortony + cfg.Alpha*(*bonus)
+		case CompositionMultiplicative:
+			final = ortony * (1.0 + cfg.Alpha*(*bonus))
+		}
+	}
+
+	return CascadeResult{
+		FinalScore:     &final,
+		GatePassed:     true,
+		OrtonyScore:    &ortony,
+		CosineDistance: cosDist,
+		ReRankBonus:    bonus,
+		Status:         CascadeStatusScored,
+	}
+}

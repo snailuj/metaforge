@@ -98,3 +98,115 @@ func TestCascadeCosineDistance_ZeroNormReturnsNotOk(t *testing.T) {
 		t.Error("expected ok=false on zero norm")
 	}
 }
+
+func TestCascadeConfig_DefaultsMatchProductionWinner(t *testing.T) {
+	c := DefaultCascadeConfig()
+	if c.ConcretenessThreshold != 1.0 {
+		t.Errorf("threshold: want 1.0, got %v", c.ConcretenessThreshold)
+	}
+	if c.Alpha != 1.0 {
+		t.Errorf("alpha: want 1.0, got %v", c.Alpha)
+	}
+	if c.DCap != 0.77 {
+		t.Errorf("d_cap: want 0.77, got %v", c.DCap)
+	}
+	if c.Composition != CompositionAdditive {
+		t.Errorf("composition: want additive, got %v", c.Composition)
+	}
+}
+
+func TestEvaluateCascadePair_GateDroppedOnLowSignedDelta(t *testing.T) {
+	res := EvaluateCascadePair(CascadeInputs{
+		TopicConcreteness:   floatPtr(4.0),
+		VehicleConcreteness: floatPtr(4.5),
+	}, DefaultCascadeConfig())
+	if res.Status != CascadeStatusGateDropped {
+		t.Errorf("want gate_dropped, got %v", res.Status)
+	}
+	if res.FinalScore == nil || *res.FinalScore != 0.0 {
+		t.Errorf("gate_dropped final_score: want 0.0, got %v", res.FinalScore)
+	}
+}
+
+func TestEvaluateCascadePair_MissingConcreteness(t *testing.T) {
+	res := EvaluateCascadePair(CascadeInputs{
+		TopicConcreteness:   nil,
+		VehicleConcreteness: floatPtr(4.5),
+	}, DefaultCascadeConfig())
+	if res.Status != CascadeStatusMissingConcreteness {
+		t.Errorf("want missing_concreteness, got %v", res.Status)
+	}
+}
+
+func TestEvaluateCascadePair_NoPropertiesAfterGate(t *testing.T) {
+	res := EvaluateCascadePair(CascadeInputs{
+		TopicConcreteness:   floatPtr(2.0),
+		VehicleConcreteness: floatPtr(4.5),
+		TopicProperties:     map[int64]float64{},
+		VehicleProperties:   map[int64]float64{1: 0.5},
+	}, DefaultCascadeConfig())
+	if res.Status != CascadeStatusNoProperties {
+		t.Errorf("want no_properties, got %v", res.Status)
+	}
+	if !res.GatePassed {
+		t.Error("no_properties must have gate_passed=true")
+	}
+}
+
+func TestEvaluateCascadePair_ScoredAdditive_NoBonus(t *testing.T) {
+	// signed delta 2.5 → gate passes; jaccard=1; cos_dist=0 → bonus=0; final=1
+	res := EvaluateCascadePair(CascadeInputs{
+		TopicConcreteness:   floatPtr(2.0),
+		VehicleConcreteness: floatPtr(4.5),
+		TopicProperties:     map[int64]float64{1: 1.0, 2: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0, 2: 1.0},
+		TopicCentroid:       []float32{1, 0, 0},
+		VehicleCentroid:     []float32{1, 0, 0},
+	}, DefaultCascadeConfig())
+	if res.Status != CascadeStatusScored {
+		t.Fatalf("want scored, got %v", res.Status)
+	}
+	if res.FinalScore == nil || math.Abs(*res.FinalScore-1.0) > 1e-9 {
+		t.Errorf("final_score: want 1.0, got %v", res.FinalScore)
+	}
+}
+
+func TestEvaluateCascadePair_ScoredAdditive_WithBonus(t *testing.T) {
+	// jaccard=1; cos_dist=1 → bonus=clip(1/0.77)=1; additive: 1 + 1*1 = 2
+	res := EvaluateCascadePair(CascadeInputs{
+		TopicConcreteness:   floatPtr(2.0),
+		VehicleConcreteness: floatPtr(4.5),
+		TopicProperties:     map[int64]float64{1: 1.0, 2: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0, 2: 1.0},
+		TopicCentroid:       []float32{1, 0, 0},
+		VehicleCentroid:     []float32{0, 1, 0},
+	}, DefaultCascadeConfig())
+	if res.Status != CascadeStatusScored {
+		t.Fatalf("want scored, got %v", res.Status)
+	}
+	if res.FinalScore == nil || math.Abs(*res.FinalScore-2.0) > 1e-9 {
+		t.Errorf("final_score: want 2.0, got %v", res.FinalScore)
+	}
+}
+
+func TestEvaluateCascadePair_FailOpenOnMissingCentroid(t *testing.T) {
+	res := EvaluateCascadePair(CascadeInputs{
+		TopicConcreteness:   floatPtr(2.0),
+		VehicleConcreteness: floatPtr(4.5),
+		TopicProperties:     map[int64]float64{1: 1.0, 2: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0, 2: 1.0},
+		TopicCentroid:       nil,
+		VehicleCentroid:     nil,
+	}, DefaultCascadeConfig())
+	if res.Status != CascadeStatusScored {
+		t.Fatalf("want scored (fail-open), got %v", res.Status)
+	}
+	if res.FinalScore == nil || math.Abs(*res.FinalScore-1.0) > 1e-9 {
+		t.Errorf("final_score: want 1.0 (ortony only), got %v", res.FinalScore)
+	}
+	if res.CosineDistance != nil || res.ReRankBonus != nil {
+		t.Error("missing centroid must leave cosine_distance + re_rank_bonus nil")
+	}
+}
+
+func floatPtr(v float64) *float64 { return &v }
