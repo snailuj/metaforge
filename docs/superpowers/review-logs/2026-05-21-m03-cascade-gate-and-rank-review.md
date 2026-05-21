@@ -30,6 +30,194 @@ docs/roadmap/PIPELINE.md                           (+18/-2)
 
 ## Deferrals Ledger
 
-(empty at loop start)
+### D1 — Tagged-union refactor for CascadeResult (TD2)
+- **status:** active
+- **severity:** important (type-design)
+- **raised by:** pr-review-toolkit:type-design-analyzer, round 1
+- **scope_boundary:** API surface change — would refactor `CascadeResult` from a flat struct to a `(Status, *Scored)` tagged-union shape and ripple through every call site (handler, parity test, smoke crib).
+- **why_out_of_scope:** Architectural improvement, not a correctness bug. The 4-status invariant is currently enforced by `EvaluateCascadePair`'s construction (only 4 valid shapes ever produced) plus the test suite. The refactor is high-value but is a separate slice — captured for the architectural review milestone in PIPELINE.md.
+- **proposed_followup:** Land in the M03 retro / pipeline architectural review pass, alongside the M05 type-aligned scoring work which will add a fifth status route.
+
+### D2 — Constrained-type discipline for CascadeStatus + Composition (TD3, TD6)
+- **status:** active
+- **severity:** low
+- **raised by:** pr-review-toolkit:type-design-analyzer, round 1
+- **scope_boundary:** Wider language-discipline change — would add `Valid()` methods or constructors that prevent bad string literals from being assigned to typed-string aliases.
+- **why_out_of_scope:** `DefaultCascadeConfig()` is the only production constructor and tests use the typed constants; a typo is caught at compile time for any internal call site. The fix would be belt-and-braces against a future external caller that constructs configs by struct literal.
+- **proposed_followup:** Combine with D1 in the architectural review pass.
+
+### D3 — CascadeCache encapsulation (TD4)
+- **status:** active
+- **severity:** important
+- **raised by:** pr-review-toolkit:type-design-analyzer, round 1
+- **scope_boundary:** Cache shape change — would unexport `Concreteness`/`Centroids` maps and add accessor methods. Touches handler call sites in `handleSuggestCascade` plus the parity test.
+- **why_out_of_scope:** Today the cache is constructed once in `NewHandlerWithCascade` and only read thereafter — the read-only contract holds. The fix would prevent a *future* mutation bug. The existing doc-comment ("read-only by convention") is the current discipline.
+- **proposed_followup:** Land alongside D1/D2 when extracting the shared `metaphor` package for the Forge/Bridge unification (see M04 roadmap doc).
+
+### D4 — Match struct legacy/cascade split (TD5)
+- **status:** active
+- **severity:** low
+- **raised by:** pr-review-toolkit:type-design-analyzer, round 1
+- **scope_boundary:** JSON-wire-format change — would either split into `LegacyMatch`/`CascadeMatch` or change `GatePassed` to `*bool`.
+- **why_out_of_scope:** Today the legacy path never populates cascade fields and the cascade handler only ships `Scored` rows (others filtered out before encoding). The contract holds. Frontend consumes the existing single-Match shape.
+- **proposed_followup:** Combine with D1.
+
+### D5 — Nil-cache defence in handleSuggestCascade (SF6)
+- **status:** active
+- **severity:** low
+- **raised by:** pr-review-toolkit:silent-failure-hunter, round 1
+- **scope_boundary:** Defensive guard. Today `useCascade` and `cache != nil` are guaranteed to track together by `NewHandlerWithCascade`.
+- **why_out_of_scope:** Unreachable in current code. Reviewer's concern is "future refactor that splits the flag from the cache lifecycle". Defence-in-depth costs 3 lines but adds no signal until the hypothetical refactor lands.
+- **proposed_followup:** Add when the metaphor package extraction (D3) lands and the cache lifecycle moves.
+
+### D6 — Write-error inconsistency in HandleStrings / health (SF7)
+- **status:** active
+- **severity:** low
+- **raised by:** pr-review-toolkit:silent-failure-hunter, round 1
+- **scope_boundary:** Pre-existing (not introduced by S05). Same file as new cascade code; the inconsistency is the bug, not the silent write itself.
+- **why_out_of_scope:** Pre-existing, low-impact, and the cascade path's new encode-error logging is the right direction. Filing for the post-PR cleanup pass.
+- **proposed_followup:** Tooling consolidation milestone (queued in PIPELINE.md backlog).
+
+### D7 — GROUP_CONCAT empty-token leak (SF8)
+- **status:** active
+- **severity:** low
+- **raised by:** pr-review-toolkit:silent-failure-hunter, round 1
+- **scope_boundary:** Schema-constraint question — depends on whether `property_vocab_curated.lemma` is NOT NULL.
+- **why_out_of_scope:** Needs schema verification before deciding fix scope. The visible symptom (empty token in `shared_properties` array) would be a JSON shape issue, not a crash.
+- **proposed_followup:** Capture in the pipeline architectural review milestone alongside the SCHEMA.sql canonicality work.
+
+### D8 — Pre-existing legacy embedding-lookup silent degradation (F5)
+- **status:** active
+- **severity:** important
+- **raised by:** pr-review-toolkit:silent-failure-hunter, round 1
+- **scope_boundary:** Pre-existing in `handleSuggestLegacy`; the new `handleSuggestCascade` path correctly escalates via 500.
+- **why_out_of_scope:** S05 is about wiring cascade; touching legacy error-handling shape is a separate concern. The cascade path sets the higher bar; legacy can be tightened in a follow-up.
+- **proposed_followup:** Backlog: tighten legacy error escalation to match cascade path's contract, ideally when cascade goes default.
+
+### D9 — Cascade ordering by salience+contrast vs final_score (PR1.2, SP3, SP4)
+- **status:** active
+- **severity:** low
+- **raised by:** pr-review-toolkit:code-reviewer + superpowers, round 1
+- **scope_boundary:** Pre-rank dimension is divorced from final-rank dimension; candidates ranked 51st by salience+contrast that would top final_score are silently lost.
+- **why_out_of_scope:** M04 (cosine-sim candidate gen) is the strategic fix for the broader candidate-gen mismatch; this ordering quirk is a subset of that work. Until M04, operators can mitigate by raising limit (capped at 200).
+- **proposed_followup:** Folds into M04 work — the M04 ANN candidate gen will UNION with the cluster-overlap path; revisit the ordering criterion when both sources contribute.
+
+### D10 — Cascade observability: per-request trace + timing instrumentation (ST1, SP6)
+- **status:** active
+- **severity:** low
+- **raised by:** standards reviewer + superpowers, round 1
+- **scope_boundary:** Observability standard says timing-behind-feature-flag for complex routines; cascade qualifies. Today: no per-request control-flow trace, no cache-load timing, no scan-failure counter (though SF4 fix added the malformed-centroid counter).
+- **why_out_of_scope:** Standards-driven addition rather than a correctness fix; the cascade is correct without it. Worth a dedicated observability slice rather than bolted onto S05.
+- **proposed_followup:** Capture as a small observability slice when the team next touches the cascade path (likely M04 integration).
+
+### D11 — Parity test coverage of CTE correctness (SP7)
+- **status:** active
+- **severity:** low
+- **raised by:** superpowers, round 1
+- **scope_boundary:** The parity test bypasses `GetForgeCascadeCandidatesByLemma` deliberately. CTE shape is verified by `TestGetForgeCascadeCandidatesByLemma_LimitReturnsDistinctCandidates` (added round 1) and the AllPassConcretenessGate test; no pinned-fixture test asserts shared_props correctness or antonym attachment shape.
+- **why_out_of_scope:** The CTE returns whatever the underlying data shape produces; pinning a fixture requires a stable test DB, which conflicts with the live-DB convention. Defer until a test-fixture DB strategy is decided.
+- **proposed_followup:** Pipeline architectural review milestone.
+
+### D12 — Empty cascade tables → confusing empty 200 (SP8)
+- **status:** active
+- **severity:** low
+- **raised by:** superpowers, round 1
+- **scope_boundary:** `NewHandlerWithCascade` validates tables exist but not that they have rows. Empty cascade tables produce zero-result responses.
+- **why_out_of_scope:** Today the deploy pipeline guarantees populated tables (74k+36k rows on prod DB). Reviewer's concern is a future fresh-build deploy.
+- **proposed_followup:** Add row-count assertion in `NewHandlerWithCascade` pre-flight; small change but separate concern from S05's scope.
+
+### D13 — sort.Slice not stable in sortByFinalScore (SP5)
+- **status:** active
+- **severity:** low
+- **raised by:** superpowers, round 1
+- **scope_boundary:** UI flicker on tied scores; consequence-of-stability not correctness.
+- **why_out_of_scope:** Tied scores are rare in practice and the UI is in M03 backlog (not yet implemented). Worth fixing when the frontend lands.
+- **proposed_followup:** Frontend integration milestone — switch to `sort.SliceStable` with documented tiebreaker.
+
+### D14 — CascadeConfig.Validate() not ported from Python __post_init__ (PR1.3)
+- **status:** active
+- **severity:** low
+- **raised by:** pr-review-toolkit:code-reviewer, round 1
+- **scope_boundary:** Python `__post_init__` rejects negative alpha / non-positive d_cap / unknown composition; Go has no equivalent.
+- **why_out_of_scope:** Only `DefaultCascadeConfig()` is exercised in production; struct-literal config construction is internal-only and unit-tested.
+- **proposed_followup:** Combine with D1/D2 in architectural cleanup.
+
+### D15 — IN-clause batch chunking absent (SP2)
+- **status:** active
+- **severity:** low
+- **raised by:** superpowers, round 1
+- **scope_boundary:** `GetSynsetClusterPropertiesBatch` has no chunking; SQLite default `SQLITE_MAX_VARIABLE_NUMBER = 32766`. Today bounded at ~402 placeholders (limit=200).
+- **why_out_of_scope:** Future-proofing for M04's potentially larger candidate-pool. Today's bound is well under SQLite's limit.
+- **proposed_followup:** M04 work; chunk when the candidate set broadens beyond ~1k.
+
+---
+
+## Round 1 — pr-review-toolkit (2026-05-21T11:00:00Z)
+
+**Agents dispatched:** code-reviewer, silent-failure-hunter, type-design-analyzer
+
+### Items Found
+
+- [important] **LIMIT before dedup truncates cascade candidates 44-68%** (`api/internal/db/cascade.go:147-205`) — anger limit=50 returned 23 distinct synsets pre-fix.
+  - Decision: fix
+  - Rationale: visible regression in product behaviour; one-row-per-target subquery is the right shape.
+- [critical] **loadConcreteness/loadCentroids fail-open on "no such table"** (`api/internal/db/cascade_cache.go:51-74,76-109`) — masks production schema races.
+  - Decision: fix
+- [critical] **Re-check error silently swallows → 200 instead of 500** (`api/internal/db/cascade.go:212-225`)
+  - Decision: fix (duplicated by superpowers F1; consolidated)
+- [critical] **Malformed centroid swallowed at Warn** (`api/internal/db/cascade_cache.go:96-103`) — pipeline contract violation.
+  - Decision: fix (promote to Error + counter)
+- [important] **Per-row Scan errors continue silently** (`cascade.go:193-195`, `cascade_cache.go:64-69,88-92`)
+  - Decision: fix (first scan error escalates)
+- [high (type-design)] **CascadeInputs pointer contract violated by handler** (`handler.go:252-264`) — `&topicConc` always non-nil strips absence signal.
+  - Decision: fix (concreteness via cache, *float64 discipline mirrors parity test)
+- [important] **Tagged-union refactor for CascadeResult** — defer to D1.
+- [low...cosmetic] PR1.2, PR1.3, PR1.4, TD3-8, SF6-8, F5, SP2-10, ST1-3 — defer (D2-D15) or skip.
+
+### Critique Sections
+First round — `prior_reviewer: "N/A — first round"`, `fixes_reviewed: []`, `ledger_size: 0` for all 4 reviewers.
+
+### Fixes Applied
+- **db cache hardening (commit `0e0da567`)** — SF1 (drop fail-open), SF2-cache (escalate first scan error), SF4 (promote malformed centroid to Error + counter).
+- **db candidate + handler cascade (commit `a0476094`)** — PR1.1 (one-lemma-per-target subquery so LIMIT applies post-dedup), SF2-cascade (escalate first scan error), SF3 (re-check error propagates), TD1 (concreteness via cache, drop topic_score/vehicle_score from row).
+
+### Files Modified
+- `api/internal/db/cascade_cache.go`
+- `api/internal/db/cascade_cache_test.go`
+- `api/internal/db/cascade.go`
+- `api/internal/db/cascade_test.go`
+- `api/internal/handler/handler.go`
+
+### Test Results
+Full `go test ./...` — 6 packages PASS (blobconv cached, db 9.6s, embeddings cached, forge 0.96s, handler 41.2s, thesaurus 39.5s). New regression test `TestGetForgeCascadeCandidatesByLemma_LimitReturnsDistinctCandidates`: anger limit=50 → 50 distinct (was 23).
+
+### Cumulative
+Total rounds: 1 | Items resolved: 6 | Active deferrals: 15 | Superseded deferrals: 0 | Elapsed: ~30m
+
+---
+
+## Round 1 — superpowers (2026-05-21T11:00:00Z)
+
+10 findings, all but F1 (=SF3, fixed in batch B) deferred (D8-D15). See Deferrals Ledger above. Critique sections N/A for round 1.
+
+## Round 1 — standards (2026-05-21T11:00:00Z)
+
+**Standards sources:** `~/.claude/CLAUDE.md`, `/home/agent/projects/metaforge/CLAUDE.md`
+
+### Standards Checked
+- TDD (Red/Green) — atomic test+impl commits visible
+- Algorithms / OOM — bounded, gate-pushdown perf-fix recorded
+- All Errors/Exceptions Handled — 4 standards-driven fixes landed (SF1-4, SF3)
+- Idempotency — read-only handler N/A in spirit
+- Observability — partial; deferred to D10
+- Coding style (FP, DRY/YAGNI, interface, immutable, UK English, comments)
+- Project-local: Canary Releases (cascade flag), Pipeline (PIPELINE.md updated), Secrets
+
+Findings: ST1 deferred to D10. ST2 (borderline comment restatement) skipped. ST3 (CI live-DB dependency) noted-not-flagged.
+
+## Round 1 — ux-designer (2026-05-21T11:00:00Z)
+
+**Status:** No-op — diff contains no user-facing surface changes (all Go API + docs; UI work parked per PIPELINE.md).
+**Counts as:** adapter-CLEAN for halt purposes (no dispatch, no four-section gate validation required).
 
 ---
