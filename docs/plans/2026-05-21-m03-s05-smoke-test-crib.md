@@ -193,4 +193,53 @@ print(json.dumps(out, indent=2))
 
 ## Go parity confirmation
 
-_To be filled by Task 11 (live smoke test against the cascade-enabled API)._
+Confirmed 2026-05-21 by `TestCascadeParity_GoMatchesPythonGroundTruth` in
+`api/internal/forge/cascade_parity_test.go`.
+
+### Approach
+
+The test bypasses the Go `/forge/suggest` candidate-generation layer (the
+cluster-overlap CTE in `GetForgeCascadeCandidatesByLemma`) and calls
+`forge.EvaluateCascadePair` directly with inputs derived from the same
+DB the Python evaluator used: concreteness + centroids from
+`CascadeCache`, properties from `GetSynsetClusterPropertiesBatch`,
+primary synsets resolved by mirroring Python's `lookup_primary_synset`
+(curated-vocab least-polysemous first; lemmas fallback ordered by
+`synset_id`).
+
+This proves the Go scoring math faithfully ports the Python reference,
+which is the relevant correctness property for S05.
+
+### Why not end-to-end through `/forge/suggest`
+
+The Go endpoint can only surface candidates that share at least one
+curated cluster between source-primary-synset and vehicle-primary-synset
+(the `per_sense_shared` CTE in `cascade.go`). All 4 scored smoke pairs
+have `ortony_score = 0.0` — they share no curated clusters — and so
+never appear as candidates in the live endpoint. The cascade re-rank
+*would* discriminate them; the candidate generation doesn't surface
+them. Broadening the candidate set is the M04 — Cosine-Sim Candidate
+Generation milestone (see `docs/roadmap/M04-cosine-candidate-gen-roadmap.md`).
+
+### Results
+
+| topic | vehicle | python status | go status | numeric match |
+|-------|---------|---------------|-----------|---------------|
+| anger | fire | scored | scored | ±1e-6 |
+| idea | light | scored | scored | ±1e-6 |
+| time | money | scored | scored | ±1e-6 |
+| truth | hammer | scored | scored | ±1e-6 |
+| argument | war | gate_dropped | gate_dropped | (no numeric fields) |
+| life | journey | gate_dropped | gate_dropped | (no numeric fields) |
+| silence | velvet | no_properties | no_properties | (no numeric fields) |
+| cat | feline | gate_dropped | gate_dropped | (no numeric fields) |
+
+All 8 subtests pass; cumulative runtime ~0.7s (cache load + 8 evaluations).
+
+### Note on synset drift
+
+The test cross-checks the resolved synset_ids against the crib's pinned
+IDs. If the lemmas → primary-synset resolution ever drifts (e.g. via
+a DB rebuild that changes the ordering), the test will emit a clear
+"synset drift" error pointing at the affected lemma. The crib must be
+regenerated in that case, NOT silently updated.
