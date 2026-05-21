@@ -56,6 +56,11 @@ log = logging.getLogger(__name__)
 
 _VALID_COMPOSITIONS = ("multiplicative", "additive")
 
+# WARNING fires when the rerank-applied rate drops below this on a cohort —
+# calibrated for M03 V2 cohort sizes (apt ~271, inapt ~978). Sub-5% applied
+# rate signals a centroid-coverage regression (the 3948dedf-class bug).
+RERANK_COVERAGE_WARN_BELOW = 0.05
+
 
 CascadeStatus = Literal[
     "scored",                 # cascade ran end-to-end, final_score is populated
@@ -473,7 +478,7 @@ def _score_cascade_cohort(
 
     if counters["scored"] > 0:
         applied_rate = counters["rerank_applied"] / counters["scored"]
-        if applied_rate < 0.05:
+        if applied_rate < RERANK_COVERAGE_WARN_BELOW:
             log.warning(
                 "cohort %s: only %d/%d scored pairs got the re-rank "
                 "(%.1f%%) — check synset_centroids coverage",
