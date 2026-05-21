@@ -5,7 +5,6 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"strings"
 )
 
@@ -39,8 +38,7 @@ func GetSynsetClusterPropertiesBatch(database *sql.DB, synsetIDs []string) (map[
 		var cid int64
 		var sal float64
 		if err := rows.Scan(&id, &cid, &sal); err != nil {
-			slog.Warn("scan cluster prop batch row failed", "err", err)
-			continue
+			return nil, fmt.Errorf("scan cluster prop batch row: %w", err)
 		}
 		props, ok := out[id]
 		if !ok {
@@ -145,6 +143,15 @@ func GetForgeCascadeCandidatesByLemma(
 		)
 		SELECT bs.target_id,
 		       ts.pos, ts.definition,
+		       -- F-R2-3: would prefer polysemy-ASC ordering (least-polysemous
+		       -- lemma is the most central sense, matching Python's
+		       -- lookup_primary_synset and legacy GetSynsetIDForLemma). But
+		       -- the correlated subquery
+		       --   ORDER BY (SELECT COUNT(*) FROM lemmas l2 WHERE l2.lemma = lemmas.lemma) ASC
+		       -- ran ~16s vs ~1s baseline for 'anger' on the live DB
+		       -- (SQLite can't index a correlated COUNT over the same table).
+		       -- Keeping alphabetical until we materialise a polysemy column
+		       -- (e.g. lemmas.polysemy_count) at enrichment time.
 		       (SELECT lemma FROM lemmas WHERE synset_id = bs.target_id ORDER BY lemma LIMIT 1) as lemma,
 		       bs.salience_sum,
 		       COALESCE(bc.contrast_count, 0) as contrast_count,
@@ -187,11 +194,12 @@ func GetForgeCascadeCandidatesByLemma(
 		); err != nil {
 			return nil, fmt.Errorf("scan cascade candidate: %w", err)
 		}
-		// Deduplicate: belt-and-braces — the SELECT lemma subquery should
-		// already yield one row per target_id, but if the SQL is ever
-		// changed this guard prevents row-amplification regressions.
+		// SQL CTE returns one row per target_id by construction (the SELECT
+		// lemma subquery deduplicates within the JOIN). If we see a duplicate
+		// here, the CTE has regressed — fail loud rather than silently
+		// dropping the duplicate (F-R2-2: regression tripwire).
 		if seen[m.SynsetID] {
-			continue
+			return nil, fmt.Errorf("GetForgeCascadeCandidatesByLemma: SQL CTE produced duplicate target %s — CTE regression?", m.SynsetID)
 		}
 		seen[m.SynsetID] = true
 		if sharedProps != "" {
