@@ -113,6 +113,18 @@ def build_synset_centroids(conn: sqlite3.Connection) -> int:
             current_synset = synset_id
         if synset_id is not None:
             synsets_seen.add(synset_id)
+        # Length-divisibility guard BEFORE np.frombuffer: a BLOB whose byte length
+        # is not a multiple of 4 crashes inside numpy with a ValueError rather
+        # than surfacing as a per-row WARNING. Mirror of the sibling guards in
+        # evaluate_cascade._centroid (684319f4) and m03_diagnostics._centroid
+        # (736032fd) — the round-2 superpowers reviewer flagged this builder as
+        # the missed third sibling.
+        if len(blob) % 4 != 0:
+            log.warning(
+                "skipping property embedding for %s: malformed BLOB length %d (not multiple of 4)",
+                synset_id, len(blob),
+            )
+            continue
         vec = np.frombuffer(blob, dtype=np.float32)
         if vec.shape != (EMBEDDING_DIM,):
             log.warning(

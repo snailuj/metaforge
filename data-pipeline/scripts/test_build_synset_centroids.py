@@ -253,6 +253,32 @@ def test_summary_logs_all_malformed_synsets(caplog):
     assert any("no usable embeddings" in r.message for r in caplog.records)
 
 
+def test_build_skips_synset_with_truncated_embedding_blob(caplog):
+    """A malformed BLOB (length not multiple of 4) must be skipped with WARNING,
+    not crash inside np.frombuffer. Mirror of evaluate_cascade._centroid sibling
+    fix — round-2 superpowers reviewer flagged this builder as the missed sibling."""
+    import logging, sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.executescript("""
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY, text TEXT NOT NULL, embedding BLOB
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL, property_id INTEGER NOT NULL,
+            PRIMARY KEY (synset_id, property_id)
+        );
+    """)
+    # 5-byte BLOB — not divisible by 4
+    conn.execute("INSERT INTO property_vocabulary (property_id, text, embedding) VALUES (1, 'p1', ?)",
+                 (b"\x00\x01\x02\x03\x04",))
+    conn.execute("INSERT INTO synset_properties (synset_id, property_id) VALUES ('S_BAD', 1)")
+    conn.commit()
+    with caplog.at_level(logging.WARNING, logger="build_synset_centroids"):
+        count = build_synset_centroids(conn)
+    assert count == 0
+    assert any("malformed BLOB length" in r.message for r in caplog.records)
+
+
 def test_run_pipeline_includes_centroid_step():
     """Regression target: the centroid step lives inside the canonical
     run_pipeline orchestrator. Without this test, a future refactor
