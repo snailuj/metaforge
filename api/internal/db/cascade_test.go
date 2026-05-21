@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -81,7 +82,7 @@ func TestGetSynsetClusterPropertiesBatch_EmptyInputReturnsEmptyResult(t *testing
 	}
 }
 
-func TestGetForgeCascadeCandidatesByLemma_AllPassConcretenessgate(t *testing.T) {
+func TestGetForgeCascadeCandidatesByLemma_AllPassConcretenessGate(t *testing.T) {
 	database, err := Open(testDBPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -116,20 +117,36 @@ func TestGetForgeCascadeCandidatesByLemma_AllPassConcretenessgate(t *testing.T) 
 	}
 }
 
-func TestGetForgeCascadeCandidatesByLemma_LemmaWithNoGatePassReturnsEmpty(t *testing.T) {
+func TestGetForgeCascadeCandidatesByLemma_HighlyConcreteLemmaDoesNotError(t *testing.T) {
 	database, err := Open(testDBPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer database.Close()
 
-	// 'cat' is highly concrete (~4.9 on Brysbaert); the gate (vehicle − topic ≥ 1.0)
-	// has little room to pass since vehicles can't exceed ~5.0.
+	// 'cat' is highly concrete (~4.9 on Brysbaert). With threshold=1.0 and
+	// max concreteness ~5.0, very few vehicles can satisfy
+	// (vehicle - topic) >= 1.0. We don't assert zero candidates (the test
+	// DB might still surface a handful) — we just assert the function
+	// returns without error and doesn't fall into the ErrLemmaNotFound
+	// branch (cat IS enriched). Gate correctness is verified by the
+	// anger cross-check test against the cache.
 	candidates, err := GetForgeCascadeCandidatesByLemma(database, "cat", 1.0, 20)
 	if err != nil {
 		t.Fatalf("GetForgeCascadeCandidatesByLemma: %v", err)
 	}
-	if len(candidates) > 0 {
-		t.Logf("note: cat returned %d candidates — verify by hand", len(candidates))
+	t.Logf("cat returned %d gate-passed candidates", len(candidates))
+}
+
+func TestGetForgeCascadeCandidatesByLemma_UnknownLemmaReturnsErrLemmaNotFound(t *testing.T) {
+	database, err := Open(testDBPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer database.Close()
+
+	_, err = GetForgeCascadeCandidatesByLemma(database, "zzznotarealword", 1.0, 20)
+	if !errors.Is(err, ErrLemmaNotFound) {
+		t.Errorf("expected ErrLemmaNotFound for unknown lemma, got %v", err)
 	}
 }

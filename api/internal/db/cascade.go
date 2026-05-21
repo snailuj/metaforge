@@ -193,6 +193,7 @@ func GetForgeCascadeCandidatesByLemma(
 			slog.Warn("scan cascade candidate failed", "err", err)
 			continue
 		}
+		// Deduplicate: a synset with multiple lemmas produces multiple rows.
 		if seen[m.SynsetID] {
 			continue
 		}
@@ -216,7 +217,9 @@ func GetForgeCascadeCandidatesByLemma(
 			JOIN synset_properties_curated spc ON spc.synset_id = l.synset_id
 			WHERE l.lemma = ?
 		`, lemma).Scan(&lemmaHasProps)
-		if err == nil && lemmaHasProps == 0 {
+		if err != nil {
+			slog.Warn("cascade ErrLemmaNotFound re-check failed", "lemma", lemma, "err", err)
+		} else if lemmaHasProps == 0 {
 			return nil, fmt.Errorf("%w: %s", ErrLemmaNotFound, lemma)
 		}
 	}
