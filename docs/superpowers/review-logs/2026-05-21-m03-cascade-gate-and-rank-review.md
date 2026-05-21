@@ -386,3 +386,62 @@ Deferral verdicts: 16 firm concur, 4 mild challenges (D7 now resolved, D11 cost 
 **Counts as:** adapter-CLEAN for halt purposes.
 
 ---
+
+## Round 4 — pr-review-toolkit (2026-05-21T13:15:00Z)
+
+**Agents dispatched:** code-reviewer, silent-failure-hunter, type-design-analyzer
+
+### Items Found
+
+- **code-reviewer:** CLEAN. All 20 ledger entries concurred. No new findings.
+- **silent-failure-hunter:** NOT CLEAN — OF1-R4 (medium): the round-3 zero-blob fix shipped without a unit test (recursive TDD finding on a TDD-closure fix). OF2-R4 (low, advisory only): the new sortByFinalScore all-nil test asserts panic-absence rather than transitivity-per-se.
+- **type-design-analyzer:** CLEAN.
+
+### Decision
+- OF1-R4: **fix** (small in-memory SQLite test that pins both malformed-blob branches).
+- OF2-R4: **skip** (advisory only; the test's name and docstring already match its scope; strict transitivity is implicitly verified by the mixed-nil test).
+
+### Critique Sections
+- code-reviewer concurred with all 20 ledger entries; cleanup of D7/D10/D12 markers acknowledged.
+- silent-failure-hunter verified OF1 + OF4 fixes correct, found recursive TDD gap on OF1 fix.
+- type-design-analyzer confirmed the loader's postcondition uniformity (both malformed branches feed the same counter).
+
+### Fixes Applied
+- **db cascade_cache_test.go (commit `90653db3`)** — `TestLoadCascadeCache_MalformedAndZeroBlobCentroidsExcluded` exercises both malformed-blob branches (zero-byte + wrong-dim) via in-memory SQLite. Test execution log confirms both per-row Error logs + the aggregate summary fire as expected. Pins both round-1 malformed-blob fix AND round-3 zero-blob fix in one test.
+
+### Files Modified
+- `api/internal/db/cascade_cache_test.go`
+
+### Test Results
+Full `go test ./...` — 6 packages PASS (db 7.9s with new test; others cached green).
+
+### Cumulative
+Total rounds: 4 | Items resolved: 16 (15 from rounds 1-3 + 1 from round 4) | Active deferrals: 17 (unchanged from round 3 close — D7 resolved-NA, D10 superseded by D20, D12 superseded by fix) | Elapsed: ~150m
+
+---
+
+## Round 4 — superpowers (2026-05-21T13:15:00Z)
+
+CLEAN. Two cosmetic suggestions (comment cleanup on dim-mismatch branch, "keep in sync" marker on test schema fixture) — both below blocking threshold and not raised as findings.
+
+Deferral verdicts: 20 concur (3 closed, 17 active). No challenges.
+
+## Round 4 — standards (2026-05-21T13:15:00Z)
+
+**Standards sources:** `~/.claude/CLAUDE.md`, `/home/agent/projects/metaforge/CLAUDE.md`
+
+### Standards Checked
+All standards explicitly checked against the round-3 diff:
+- TDD: round-3 closed round-2 violation; zero-blob fix uses precedent (untested malformed-blob path) — defensible but recursive (subsequently fixed in round 4).
+- Algorithms / OOM, Frequent Commits, CI/CD, All Errors/Exceptions Handled (loader contract now uniform across both malformed branches), Idempotency, Observability (D20 active), Planning — all clean.
+- Coding Style (FP, DRY, interface, immutable, UK English, comments) — clean. Refactor merciless note: comment updates avoid documentation drift.
+- Canary, Pipeline, Captures, Secrets — clean.
+
+Standards reviewer was CLEAN on this round (no new findings). Acknowledged the zero-blob TDD trade-off as defensible per precedent, but the round-4 fix (`90653db3`) made the point moot.
+
+## Round 4 — ux-designer (2026-05-21T13:15:00Z)
+
+**Status:** No-op — no UI-touching files changed between round 3 and round 4.
+**Counts as:** adapter-CLEAN for halt purposes.
+
+---
