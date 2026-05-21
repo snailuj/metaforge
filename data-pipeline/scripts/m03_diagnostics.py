@@ -205,12 +205,14 @@ def _centroid(conn: sqlite3.Connection, synset_id: str) -> list[float] | None:
         "SELECT centroid FROM synset_centroids WHERE synset_id = ?",
         (synset_id,),
     ).fetchone()
-    if row is None or row[0] is None or len(row[0]) == 0:
-        # Harmonised with evaluate_cascade._centroid (evaluate_cascade.py:174):
-        # both siblings return None silently for empty BLOBs. The cascade's
-        # matching guard could log.debug on this path for parity, but the
-        # M03 diagnostic prefers a silent skip to match the cascade's
-        # production behaviour exactly.
+    if row is None or row[0] is None:
+        return None
+    if len(row[0]) == 0:
+        # Sibling evaluate_cascade._centroid behaves identically: both return None
+        # silently on empty BLOBs and log.debug for observability. Empty BLOBs are
+        # schema-impossible under the current NOT-NULL + struct.pack contract; the
+        # guard exists in case a future schema migration loosens that.
+        log.debug("empty centroid blob for %s — treating as missing", synset_id)
         return None
     blob = row[0]
     if len(blob) % 4 != 0:
