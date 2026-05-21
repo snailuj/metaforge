@@ -445,3 +445,181 @@ Total rounds: 3 | Items resolved this round: 5 | Cumulative resolved: 44 | Activ
 **Severity trend (this round only):** 2 important + 1 low fixed (D12 + Conv-A + Conv-B + exhaustiveness); 0 important + 2 low + 3 cosmetic deferred (D15, D16-bundle, D17). The loop is now resolving polish items rather than load-bearing defects. Round was non-clean (fixes applied) → next round begins. `last_reviewer_pre_fix_sha = 1ee6ff4b`; new HEAD = `a75a73e7`.
 
 ---
+
+## Round 4 — All adapters (2026-05-21T03:30:00Z)
+
+**Status:** CLEAN round — all five reviewer adapters returned adapter-CLEAN with substantive four-section critique. ux-designer remains no-op. **HALT FIRES.**
+
+### Adapter verdicts
+
+**pr-review-toolkit:code-reviewer** — CLEAN: true. Verified all 5 R3 fixes correct; no boundary defects or partial-coverage residue introduced by polish-tier work. All 14 active deferrals concurred.
+
+**pr-review-toolkit:silent-failure-hunter** — CLEAN: true. Read diff `1ee6ff4b..HEAD` end-to-end with own rule set; cross-file contract verified by grep — producer-emitted counter keys (`{unresolved, missing_concreteness, gate_dropped, no_properties, scored, rerank_applied, rerank_skipped}`) match consumer-read keys at `run_sweep.py:585-598`. **D15 deferral rationale refined**: the silent-default `int(agg.get(key, 0))` is now dead defence under the current literal-dict producer; the real exposure is *future* producer drift, not a current bug. The KeyError-on-missing-key fix is a 1-line change but conceptually pairs with D2's TypedDict refactor — defer co-resolution.
+
+**pr-review-toolkit:type-design-analyzer** — CLEAN: true. Verified `CascadeResult.__post_init__` covers 4 of 5 statuses exhaustively; the `scored` branch intentionally leaves the cosine_distance/re_rank_bonus pairing rule unenforced because the producer at lines 397-403 sets them in lockstep (structurally unreachable illegal state). Exhaustiveness fallback reachable via `# type: ignore` bypass (tested). **Recommendation: tag D2 + D8 + D15 as co-blocking trio** for the S05 type-design polish PR — three dict surfaces (`OkVariationResult`, per-pair dict, attrition forwarder) in the same code region all want TypedDict discipline together.
+
+**superpowers:code-reviewer** — CLEAN: true. Holistic verdict: loop has reached natural termination. R3 resolved only polish items (denominator nit, exhaustiveness, sibling log parity); R4 would either find adapter-CLEAN or surface items that legitimately belong in deferred follow-up PRs. Hostile-refactor robustness check: deleting any new `__post_init__` branch breaks at least one R3 test; replacing `apt_scored` with `n_apt` breaks the new gate-drop fixture test. Test suite is genuinely assertive. Statistical claims (Stage-2 separation +0.1779, etc.) still verifiable against sweep JSON.
+
+**standards (general-purpose)** — CLEAN: true. Full per-standard re-audit returns COMPLIANT on all 11 standards. D17 (review-process metadata in production comments) re-examined and concurred — round-N references are citation annotations, not violations of "comments explain intent" (the intent is still explained; round-N is provenance). All 14 active deferrals concurred.
+
+**ux-designer** — No-op. Diff contains no UI-touching files; adapter-CLEAN by virtue of nothing to review.
+
+### Round 4 Result
+
+- **Items found:** 0
+- **Fixes applied:** 0
+- **Round CLEAN:** YES (all adapters adapter-CLEAN AND no fixes applied this round)
+- **Halt condition:** SATISFIED
+
+### Files Modified
+
+(none — no fixes applied)
+
+### Test Results
+
+**737 passing, 0 failed** (unchanged from Round 3 HEAD).
+
+### Cumulative (final)
+
+Total rounds: 4 | Items resolved: 44 | Active deferrals: 14 | Superseded deferrals: 3 | Elapsed: ~135 min
+
+---
+
+## Out-of-Scope Deferral Report
+
+Ledger evolution: **17 recorded** · 3 superseded by downstream fix (D1, D4, D12) · 0 withdrawn · **14 still active**
+
+Active deferrals across 4 rounds: **14**
+Severity breakdown (active only): **2 important · 8 low · 4 cosmetic**
+
+### Deferral D2 — `OkVariationResult total=False` defeats narrowing
+- Round raised: R1 (type-design TD-6) • Reviewer: pr-review-toolkit:type-design-analyzer • Severity: **important**
+- File: `data-pipeline/scripts/run_sweep.py:60-99` (TypedDict definition)
+- Description: TypedDict is `total=False` to accommodate cascade-only fields, but the side effect is that every field becomes NotRequired including the always-set core fields (`aptness_rate`, `separation_score`, etc.). Static checkers cannot narrow `row["aptness_rate"]` from `float | None` to `float`.
+- Scope boundary: invasive TypedDict refactor — split into discriminated union (`OkAptnessResult | OkCascadeResult`)
+- Why out-of-scope: structurally cleaner long-term shape, but the runtime invariants are protected by `_run_one_variation`; refactor is best paired with the S05 forge integration where the consumer side gains real benefit from narrowing.
+- Challenge history: R2 challenged on grounds of OF-1 evidence; rationale updated post-OF-1-fix ("fix-A removes urgency"). R3 + R4 concurred with updated rationale.
+- Proposed follow-up: S05 forge integration / type-design polish PR
+- **Co-blocking with: D8, D15** (per R4 type-design-analyzer recommendation)
+
+### Deferral D3 — Per-pair detail rows don't record concreteness/delta
+- Round raised: R1 (silent-failure SF-6) • Reviewer: pr-review-toolkit:silent-failure-hunter • Severity: **low**
+- File: `data-pipeline/scripts/evaluate_cascade.py:349-361`
+- Description: Per-pair detail rows record `status, gate_passed, ortony_score, cosine_distance, re_rank_bonus, score` but NOT concreteness scores or signed delta. When a pair lands in `gate_dropped`, the per-pair row says only `status: "gate_dropped"`.
+- Scope boundary: per-pair JSON contract extension
+- Why out-of-scope: schema extension touches the per-pair JSON contract that an operator-side notebook would consume; lands alongside operator-tooling work
+- Proposed follow-up: Pipeline Tooling Consolidation backlog item
+
+### Deferral D5 — Defensive `row[0] is None` against schema NOT NULL
+- Round raised: R1 (type-design TD-12) • Severity: **cosmetic**
+- File: `data-pipeline/scripts/evaluate_cascade.py:136` (and similar sites)
+- Description: Schema declares `centroid BLOB NOT NULL` but Python guard still checks `row[0] is None`. Belt-and-braces.
+- Scope boundary: belt-and-braces cleanup
+- Why out-of-scope: low-yield change, would obscure the per-cell read pattern with no operator benefit
+- Proposed follow-up: type-design polish PR (with D2)
+
+### Deferral D6 — Sibling `_concreteness` divergent return types
+- Round raised: R1 (type-design TD-14) • Severity: **cosmetic**
+- File: `data-pipeline/scripts/evaluate_cascade.py:103-109` vs `m03_diagnostics.py:87-93`
+- Description: Two `_concreteness` functions, same table, different return shapes (`Optional[float]` vs `tuple[float|None, str|None]`).
+- Scope boundary: refactor to shared helper
+- Why out-of-scope: extraction belongs with type-design follow-up PR alongside D2, D8
+- Proposed follow-up: type-design polish PR
+
+### Deferral D7 — `_summarise` dict shape diverges for n=0/n=1/n>=2
+- Round raised: R1 (type-design TD-15) • Severity: **low**
+- File: `data-pipeline/scripts/m03_diagnostics.py:246-266`
+- Description: Same key takes different value types depending on `n`. Downstream consumers must branch on `n`.
+- Scope boundary: m03_diagnostics is one-shot pre-flight script (~400 lines, no tests, no callers)
+- Why out-of-scope: the script ran successfully and produced the JSON used by S01-findings; reshape has no consumer
+- Proposed follow-up: revisit if M04 re-runs the diagnostic
+
+### Deferral D8 — Per-pair dict uses untyped string keys (no TypedDict)
+- Round raised: R1 (superpowers SP-7) • Severity: **cosmetic**
+- File: `data-pipeline/scripts/evaluate_cascade.py:349-361`
+- Description: Per-pair rows assembled with literal string keys; no `CascadePairRow` TypedDict.
+- Scope boundary: cosmetic typing extension
+- Why out-of-scope: pairs with D2 / D6 in S05 type-design follow-up PR
+- **Co-blocking with: D2, D15**
+
+### Deferral D9 — Underscore-prefixed imports from evaluate_aptness
+- Round raised: R1 (superpowers SP-1) • Severity: **low**
+- File: `data-pipeline/scripts/evaluate_cascade.py:37-46` (and 6 other scripts)
+- Description: Six other scripts already import underscore-private helpers; M03 entrenches but doesn't introduce.
+- Scope boundary: pre-existing pattern across 6 scripts
+- Why out-of-scope: not introduced by M03; promotion is broader-scope refactor
+- Proposed follow-up: standalone "promote module API" PR
+
+### Deferral D10 — OOM batch-flush in `build_synset_centroids`
+- Round raised: R1 (standards STD-3) • Severity: **low**
+- File: `data-pipeline/scripts/build_synset_centroids.py:85-118`
+- Description: All centroid blobs accumulated into a list before single `executemany`; ~150-200MB peak at production scale.
+- Scope boundary: optimisation for current vocabulary; not load-bearing
+- Why out-of-scope: re-validated R2/R3/R4 — current peak is below process limits
+- Proposed follow-up: 20k-word enrichment milestone (when memory pressure increases)
+
+### Deferral D11 — TDD commit-history visibility
+- Round raised: R1 (superpowers SP-5) • Severity: **low**
+- File: git history of evaluate_cascade.py (and other M03 commits)
+- Description: Tests + code shipped in single `feat` commits; per-test red-then-green not visible from `git log`.
+- Scope boundary: process improvement
+- Why out-of-scope: cannot retroactively fix
+- Proposed follow-up: milestone retro / future-milestone discipline
+
+### Deferral D13 — `__post_init__` SCORING_FNS import-order coupling
+- Round raised: R2 (type-design TD-NEW-4) • Severity: **low**
+- File: `data-pipeline/scripts/evaluate_cascade.py:CascadeConfig.__post_init__`
+- Description: `__post_init__` references `SCORING_FNS` at construction; a future caller constructing at module-import time before evaluate_aptness imports would crash.
+- Scope boundary: documentation of construction-time coupling
+- Why out-of-scope: not load-bearing today; all current callers lazy
+- Proposed follow-up: document if a future caller emerges
+
+### Deferral D14 — `_CASCADE_ONLY_KEYS` field-set drift risk
+- Round raised: R2 (type-design TD-NEW-3) • Severity: **cosmetic**
+- File: `data-pipeline/scripts/run_sweep.py` (set definition) vs `evaluate_cascade.py` (CascadeConfig fields)
+- Description: Two sets must stay in lock-step; future cascade hyperparam additions could silently slip past validator.
+- Scope boundary: future-proofing
+- Why out-of-scope: field set is stable in M03
+- Proposed follow-up: revisit if M04 adds cascade hyperparams
+
+### Deferral D15 — `run_sweep` cohort-attrition forwarder silent-default
+- Round raised: R3 (silent-failure OF-A) • Severity: **low**
+- File: `data-pipeline/scripts/run_sweep.py:585-598`
+- Description: Forwarder uses `int(agg.get(key, 0))` for 8 attrition keys. R4 refined: silent-default is dead defence under current literal-dict producer; real exposure is future producer drift.
+- Scope boundary: structural fix pairs with D2 TypedDict refactor
+- Why out-of-scope: conservation-law test (R3 strengthening) pins 1 of 8 keys non-trivially; KeyError-on-missing pairs with discriminated union landing
+- Proposed follow-up: type-design polish PR (with D2, D8)
+- **Co-blocking with: D2, D8**
+
+### Deferral D16 — Test-polish bundle (5 sub-items)
+- Round raised: R3 (multi-reviewer) • Severity: **low**
+- Sub-items:
+  - Cosine clamp adversarial-input test
+  - RERANK_COVERAGE_WARN_BELOW noise on small fixture cohorts
+  - m03_diagnostics `_iter_*` summary log test
+  - Magic literals 271/978 in RERANK constant docstring
+  - gate_dropped 2nd-raise (cosine/re_rank_bonus) dedicated test
+- Scope boundary: test-quality polish across 5 minor coverage gaps
+- Why out-of-scope: collectively a half-day's work that doesn't change semantics
+- Proposed follow-up: dedicated test-polish PR
+
+### Deferral D17 — Review-process metadata in production comments
+- Round raised: R3 (standards STD-R3-2) • Severity: **cosmetic**
+- File: build_synset_centroids.py, enrich_pipeline.py, m03_diagnostics.py (various)
+- Description: Round-N references in production docstrings (e.g. "Round-1 documented this asymmetry; Round-2 clarified..."). Informative now but rot over time.
+- Scope boundary: stylistic convention adjustment
+- Why out-of-scope: round-N markers are citation annotations, not "comments explain intent" violations
+- Proposed follow-up: type-design polish PR
+
+### Patterns
+
+**Cluster by subsystem:** 8 of 14 deferrals (D2, D5, D6, D7, D8, D13, D14, D15) cluster in the type-design / TypedDict / dataclass-invariant space → form a natural S05 type-design polish PR. 1 in observability (D3 — per-pair JSON extension), pairs with Pipeline Tooling Consolidation. 1 each in: OOM optimisation (D10 — 20k-enrichment milestone), TDD process (D11 — retro), import-style (D9 — broader-scope refactor), test-polish (D16 — dedicated PR), and convention (D17 — type-design PR).
+
+**Severity skew:** Only 2 of 14 are `important` (D2 + D15, co-blocking); the rest are low/cosmetic. The loop legitimately resolved every defect that could ship and deferred only structural-cleanup or pre-existing-pattern items.
+
+**Co-blocking trio:** D2 + D8 + D15 should land together in the S05 type-design polish PR. The same root cause (TypedDict and friends not carrying producer/consumer contract through type system) manifests across all three.
+
+**No deferral bounced ≥2 times.** D1 + D4 + D12 were promoted-to-fix once each (in R2 + R2 + R3 respectively) and resolved cleanly. No oscillation.
+
+---
+
