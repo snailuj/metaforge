@@ -350,3 +350,98 @@ Total rounds: 2 | Items resolved: 14 (R2) / 39 cumulative | Active deferrals: 13
 **Severity trend (this round only):** 3 important + 7 low + 4 cosmetic fixed; 0 important + 2 low + 1 cosmetic deferred (D12-D14); 1 important (D4) superseded by fix. Notable: convergence on OF-1 across all 5 reviewers — the most important defect of the loop so far, introduced by R1's own fix-forward pattern. Round was non-clean (fixes applied) → next round begins. `last_reviewer_pre_fix_sha = 6676240c`; new HEAD = `4d8a6e64`.
 
 ---
+
+## Round 3 — All adapters (2026-05-21T02:45:00Z)
+
+**Agents dispatched in parallel:**
+- pr-review-toolkit:code-reviewer (2 items)
+- pr-review-toolkit:silent-failure-hunter (3 items)
+- pr-review-toolkit:type-design-analyzer (3 items)
+- superpowers:code-reviewer (6 items)
+- standards (general-purpose, 4 items)
+- ux-designer (no-op — adapter-CLEAN by virtue of no UI files in diff)
+
+### Cross-reviewer convergence (Round 3)
+
+**Convergent finding A — 3 reviewers (code-reviewer OWN-1, silent-failure OF-B, superpowers OF-R3-1):** `test_ok_row_carries_rerank_counters` asserts conservation law against `n_apt` instead of `apt_scored`. The current fixture has zero gate-dropped apt pairs so `n_apt == apt_scored` coincidentally — but the moment a fixture grows to include a gate-drop, the assertion fires false-positive. The sibling test `test_cascade_variation_carries_attrition_counters` uses the correct denominator. **DECISION: fix (R3 Subagent 2).**
+
+**Convergent finding B — 2 reviewers (type-design TD-R3-1/2, superpowers OF-R3-2):** `CascadeResult.__post_init__` (Round-2 fix `8b8d5d9c`) under-specifies invariants for the three None-result statuses. Documented invariants for `missing_concreteness` / `no_properties` / `unresolved` include specific `gate_passed` values AND `cosine_distance=None` + `re_rank_bonus=None` — none of these were enforced. **DECISION: fix (R3 Subagent 1).**
+
+### Items Found (deduplicated)
+
+**Important (2):**
+- Conv-A: denominator fix (covered above)
+- Conv-B: __post_init__ partial invariant coverage (covered above)
+
+**Low (5):**
+- TD-R3-3 — `__post_init__` no exhaustiveness fallback for unknown status. **DECISION: fix (R3 Subagent 1).**
+- D12 challenge (standards): cascade-side `_centroid` empty-blob path silent — institutionalised by misleading comment in m03_diagnostics docstring. **DECISION: promote D12 to fix in both siblings (R3 Subagents 1 + 3).**
+- OF-R3-5 / standards-STD-R3-1 — m03_diagnostics `_centroid` misleading comment after R2 5290b567. **DECISION: fix (R3 Subagent 3, combined with D12 promotion).**
+- silent-failure OF-A — `run_sweep` cohort-attrition forwarder uses `int(agg.get(key, 0))` silent-default for non-rerank attrition keys. **DECISION: defer (D15).** scope_boundary: mitigated by strengthened conservation-law test pinning specific attrition values for 5 of 8 keys. why_out_of_scope: the convergence-finding-A fix (Conv-A) makes the conservation law non-vacuous for the rerank pair; the parallel attrition keys would benefit from the same pinning but require new fixture variations per key. Defer to type-design follow-up alongside D2/D6/D8.
+- silent-failure OF-C — cosine clamp lands without dedicated unit test. **DECISION: defer (D16 — test-polish bundle).** Numerical hardening is exercised indirectly by all existing cosine tests; adversarial-input test is incremental polish.
+
+**Cosmetic (3):**
+- standards-STD-R3-2 — review-process metadata creeping into production comments (round-N references in docstrings). **DECISION: defer (D17).** scope_boundary: convention adjustment. why_out_of_scope: the metadata is informative for current contributors; tightening to drop round-N references is a stylistic call that pairs with the type-design follow-up PR.
+- OF-R3-3 / OF-R3-6 — RERANK_COVERAGE_WARN_BELOW fires noisily on small fixtures; magic literals (271/978) in docstring. **DECISION: defer (D16, bundled).**
+- STD-R3-3 — gate_dropped's 2nd raise (cosine/re_rank_bonus) lacks a dedicated test. **DECISION: defer (D16, bundled).** New invariant tests landing in this round cover gate_passed + cosine_distance + re_rank_bonus for the three None-result statuses; the symmetric coverage for gate_dropped's cosine_distance/re_rank_bonus is a small test addition pairing with the test-polish bundle.
+
+**Informational (1):**
+- code-reviewer OWN-2: CascadeResult `unresolved` invariant exists but cohort orchestrator constructs the unresolved per-pair row inline (dict literal) rather than via CascadeResult. Not a bug — defensive code that hardens future migration of the inline construction site to use CascadeResult.
+
+**Cosmetic-only (1):**
+- standards-STD-R3-4: FP-vs-OOP — `__post_init__` could be tabularised. **DECISION: skip.** Pragmatic carve-out applies; explicit form is more readable for per-status invariants.
+
+### Deferral evolution (R3)
+
+- **D12 (cascade _centroid empty-blob log) — SUPERSEDED by R3 5ec963e3 + cc6592f7.** Both siblings now `log.debug` on empty-blob path.
+- **D15 (new):** silent-failure OF-A — `run_sweep.py` attrition forwarder silent-default on missing keys. Severity: low. scope_boundary: mitigation already provided by conservation-law test pinning 5 of 8 attrition values. why_out_of_scope: pair with type-design follow-up where the TypedDict refactor (D2) would force the producer/consumer contract through the type system rather than runtime guards.
+- **D16 (new):** test-polish bundle — OF-C (cosine clamp adversarial test), OF-R3-3 (RERANK warn noise on small fixtures), OF-R3-4 (m03_diagnostics iter-summary test), OF-R3-6 (magic literals 271/978 in docstring), STD-R3-3 (gate_dropped 2nd-raise test). Severity: low. scope_boundary: test-quality polish across 5 minor coverage gaps. why_out_of_scope: collectively a half-day's work that doesn't change semantics; lands cleanly in a dedicated test-polish PR.
+- **D17 (new):** review-process metadata in production comments (STD-R3-2). Severity: cosmetic. scope_boundary: stylistic convention adjustment. why_out_of_scope: convention call; pairs with type-design follow-up PR.
+
+Net deferral count: 12 active − 1 superseded (D12) + 3 new = **14 active**. Superseded count: 3.
+
+### Critique Sections (compressed per reviewer)
+
+**code-reviewer** — CLEAN: false. Verified 12 of 14 R2 fixes correct. Headline catch: OWN-1 denominator nit. Verified OF-1/OF-2 fixes complete via grep symmetry check.
+
+**silent-failure-hunter** — CLEAN: false. 3 items: OF-A (sibling drift in attrition forwarder — same class as OF-1 but for non-rerank keys), OF-B (denominator), OF-C (clamp untested). Verified producer-consumer drift class genuinely closed for rerank pair. The cosine clamp on cascade-side is correct numerical hardening but lands without a test.
+
+**type-design-analyzer** — CLEAN: false. 3 items, all on `CascadeResult.__post_init__` incompleteness (TD-R3-1 gate_passed, TD-R3-2 cosine/re_rank_bonus pinning, TD-R3-3 exhaustiveness fallback). Verified 13 of 14 R2 commits clean by type-design lens; the headline fix (8b8d5d9c) lands the structure but under-specifies three of five status branches.
+
+**superpowers** — CLEAN: false. 6 items, mostly redundant with the other reviewers' findings (denominator, partial invariants, RERANK warn noise, untested iter-summary, misleading comment, magic literals in docstring). Verified statistical claims unchanged.
+
+**standards** — CLEAN: false. 4 items + per-standard re-audit. The 11-standard table came out MOSTLY COMPLIANT (3 standards) + COMPLIANT (8 standards). Headline challenge: D12 (cascade empty-blob log) — silent-skip should be log.debug for sibling parity. Plus STD-R3-2 (review-process metadata) + STD-R3-3 (test gap) + STD-R3-4 (FP refactor candidate).
+
+### Fixes Applied
+
+5 fix commits across 3 disjoint files. Pre-fix SHA: `1ee6ff4b`.
+
+**evaluate_cascade.py + tests (3 commits — Subagent 1):**
+- `368b7464` — extend CascadeResult __post_init__ for None-result statuses (gate_passed + cosine/re_rank_bonus pinning, 6 new tests)
+- `f8750548` — exhaustiveness fallback raises on unknown status (1 new test)
+- `5ec963e3` — _centroid log.debug on empty-blob fail-open (D12 cascade-side)
+
+**run_sweep.py tests (1 commit — Subagent 2):**
+- `a75a73e7` — conservation law uses apt_scored denominator + new reinforcing test with gate-dropped fixture
+
+**m03_diagnostics.py (1 commit — Subagent 3):**
+- `cc6592f7` — _centroid log.debug + correct misleading sibling comment (D12 diagnostics-side, OF-R3-5)
+
+### Files Modified
+
+- `data-pipeline/scripts/evaluate_cascade.py`
+- `data-pipeline/scripts/test_evaluate_cascade.py`
+- `data-pipeline/scripts/test_run_sweep.py`
+- `data-pipeline/scripts/m03_diagnostics.py`
+
+### Test Results
+
+**737 passing, 0 failed** (was 729 — +8 new tests: 6 new invariant tests + 1 exhaustiveness + 1 reinforcing gate-drop).
+
+### Cumulative
+
+Total rounds: 3 | Items resolved this round: 5 | Cumulative resolved: 44 | Active deferrals: 14 | Superseded deferrals: 3 | Elapsed: ~110 min
+
+**Severity trend (this round only):** 2 important + 1 low fixed (D12 + Conv-A + Conv-B + exhaustiveness); 0 important + 2 low + 3 cosmetic deferred (D15, D16-bundle, D17). The loop is now resolving polish items rather than load-bearing defects. Round was non-clean (fixes applied) → next round begins. `last_reviewer_pre_fix_sha = 1ee6ff4b`; new HEAD = `a75a73e7`.
+
+---
