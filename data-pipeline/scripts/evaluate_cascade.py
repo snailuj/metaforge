@@ -123,6 +123,46 @@ class CascadeResult:
     re_rank_bonus: Optional[float]     # populated in S02
     status: CascadeStatus
 
+    def __post_init__(self) -> None:
+        """Pin the per-status field-presence contract.
+
+        Per-status invariants (see module-level Scoring policy):
+          * scored:               final_score!=None, gate_passed=True, ortony_score!=None
+          * gate_dropped:         final_score==0.0,  gate_passed=False, ortony_score is None,
+                                  cosine_distance is None, re_rank_bonus is None
+          * missing_concreteness: final_score is None, gate_passed=False, ortony_score is None
+          * no_properties:        final_score is None, gate_passed=True,  ortony_score is None
+          * unresolved:           final_score is None, gate_passed=False, ortony_score is None
+                                  (produced only by the cohort orchestrator)
+        """
+        if self.status == "scored":
+            if self.final_score is None or not self.gate_passed or self.ortony_score is None:
+                raise ValueError(
+                    f"invalid CascadeResult: status=scored requires final_score, "
+                    f"gate_passed=True, and ortony_score (got "
+                    f"final_score={self.final_score}, gate_passed={self.gate_passed}, "
+                    f"ortony_score={self.ortony_score})"
+                )
+        elif self.status == "gate_dropped":
+            if self.final_score != 0.0 or self.gate_passed or self.ortony_score is not None:
+                raise ValueError(
+                    f"invalid CascadeResult: status=gate_dropped requires final_score=0.0, "
+                    f"gate_passed=False, ortony_score=None (got "
+                    f"final_score={self.final_score}, gate_passed={self.gate_passed}, "
+                    f"ortony_score={self.ortony_score})"
+                )
+            if self.cosine_distance is not None or self.re_rank_bonus is not None:
+                raise ValueError(
+                    "invalid CascadeResult: status=gate_dropped forbids cosine_distance "
+                    "and re_rank_bonus"
+                )
+        elif self.status in ("missing_concreteness", "no_properties", "unresolved"):
+            if self.final_score is not None or self.ortony_score is not None:
+                raise ValueError(
+                    f"invalid CascadeResult: status={self.status} requires "
+                    f"final_score=None and ortony_score=None"
+                )
+
 
 # --- Concreteness lookup -----------------------------------------------------
 

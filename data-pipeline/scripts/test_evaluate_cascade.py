@@ -828,3 +828,23 @@ def test_re_rank_handles_zero_norm_centroid_as_missing():
     assert result.cosine_distance is None
     assert result.re_rank_bonus is None
     assert result.final_score == result.ortony_score
+
+
+# --- CascadeResult __post_init__ invariants ----------------------------------
+
+def test_cascade_result_rejects_scored_without_ortony_score():
+    with pytest.raises(ValueError, match="scored requires"):
+        CascadeResult(final_score=0.5, gate_passed=True, ortony_score=None,
+                      cosine_distance=None, re_rank_bonus=None, status="scored")
+
+
+def test_cascade_result_rejects_gate_dropped_with_gate_passed_true():
+    with pytest.raises(ValueError, match="gate_dropped requires"):
+        CascadeResult(final_score=0.0, gate_passed=True, ortony_score=None,
+                      cosine_distance=None, re_rank_bonus=None, status="gate_dropped")
+
+
+def test_cascade_result_rejects_missing_concreteness_with_final_score():
+    with pytest.raises(ValueError, match="missing_concreteness requires"):
+        CascadeResult(final_score=0.5, gate_passed=False, ortony_score=None,
+                      cosine_distance=None, re_rank_bonus=None, status="missing_concreteness")
