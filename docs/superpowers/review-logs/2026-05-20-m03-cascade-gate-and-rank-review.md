@@ -187,3 +187,166 @@ Total rounds: 1 | Items resolved: 25 | Active deferrals: 11 | Superseded deferra
 **Severity trend (this round only):** 8 important + 7 low + 1 cosmetic fixed; 3 important + 5 low + 3 cosmetic deferred. No critical findings. Round was non-clean (fixes applied) → next round begins. `last_reviewer_pre_fix_sha = 374fda4b`; new HEAD = `0962e987`.
 
 ---
+
+## Round 2 — pr-review-toolkit (2026-05-21T01:30:00Z)
+
+**Agents dispatched:** code-reviewer (5 items), silent-failure-hunter (3 items), type-design-analyzer (5 items)
+
+### Cross-reviewer convergence — the biggest miss of Round 1
+
+**ALL FIVE** Round 2 reviewers independently caught the same fix-induced regression:
+
+**OF-1 (rerank counter producer/consumer drift):** Round-1 fix `2e2c3ed1` emits `rerank_skipped` (single collapsed bucket — per its own intent comment) but the paired `f6f9bf09` sweep-side forwarder iterates the suffixes `("rerank_skipped_missing_centroid", "rerank_skipped_zero_norm")` and the TypedDict declares those split fields. The `if agg_key in agg` guard silently swallowed the drift. Net effect: the SF-1 silent-failure fix landed cohort-side but DIED at the sweep boundary — exactly the silent-fail class it was meant to close. **DECISION: fix (R2 Subagent 2).**
+
+**OF-2 (degenerate_cohort wrong dict level):** SF-3's fix puts `degenerate_cohort` inside `result["aggregate"]` but the sweep-side reader looks at `result["degenerate_cohort"]` (top-level). Always False, always silently dropped. **DECISION: fix (R2 Subagent 2).**
+
+### Items Found (deduplicated)
+
+**Important:**
+- CR-OF-2 / SF-OF-2 `_centroid` empty-blob branch silently returns None without log — partial coverage of the SF-2/STD-4 work. **DECISION: defer** (the fix is now in m03_diagnostics; cascade's parallel-update arrives via Subagent 1's clamp-harmonisation commit chain — no separate empty-blob log added cascade-side this round. **status: deferred to round 3 if re-raised**).
+
+Actually: re-categorising — Subagent 1's R2 work did not add an empty-blob log to cascade `_centroid`. Tracking as D12 (new active deferral) for round 3.
+
+**Low:**
+- CR-OF-3 / SF-OF-3 enrich_pipeline.py `print()` mixed with build_synset_centroids' `log.info` — observability inconsistency. **DECISION: fix (R2 Subagent 3).**
+- CR-OF-4 / SF-OF-4 `_re_rank_bonus(d_cap<=0)` dead defense — Round-1 `__post_init__` now rejects construction with bad d_cap; the in-fn guard is dead code that silently degrades. **DECISION: fix (R2 Subagent 1).**
+- SP-OF-2 `build_synset_centroids` line 116 `np.frombuffer` crashes on bad-length blob — sibling missed by R1 sibling sweep (684319f4 + 736032fd hit two of three siblings). **DECISION: fix (R2 Subagent 3).**
+- SP-OF-3 m03_diagnostics `_centroid` missing empty-blob guard that cascade has — sibling drift created by R1's harmonisation pass. **DECISION: fix (R2 Subagent 4).**
+- SF-OF-2 m03_diagnostics `_iter_apt`/`_iter_inapt` silent row drops on incomplete fixtures. **DECISION: fix (R2 Subagent 4).**
+- TD-NEW-4 `__post_init__` SCORING_FNS import-order coupling — not a current bug, all callers lazy. **DECISION: defer.** scope_boundary: documentation of the construction-time coupling. why_out_of_scope: not load-bearing today, no current callers construct at import time. Track as D13.
+
+**Cosmetic:**
+- CR-OF-5 Docstring tense "S02 contract" drift — S02 has landed. **DECISION: fix (R2 Subagent 1).**
+- standards-OF-4 Magic 5% threshold → module constant. **DECISION: fix (R2 Subagent 1).**
+- 031246f1 cosine clamp asymmetry — m03_diagnostics has the fp-rounding clamp; cascade does not. **DECISION: fix (R2 Subagent 1 — adds clamp).**
+- silent-failure-OF "fail-open in this case" docstring conflates directions. **DECISION: fix (R2 Subagent 3).**
+- TD-NEW-3 `_CASCADE_ONLY_KEYS` ↔ `CascadeConfig` field-set drift risk. **DECISION: defer.** scope_boundary: refactor the set derivation. why_out_of_scope: cosmetic future-proofing; field set is stable in M03; revisit if M04 adds cascade hyperparams. Track as D14.
+
+### Deferral Challenges from Round 2
+
+**Type-design challenged D1 + D2:**
+- D1 (CascadeResult impossible combinations) — challenged. `frozen=True` doesn't fix the impossible-construction problem. **DECISION: promote to fix in R2** (Subagent 1 adds `__post_init__` cross-field assertion).
+- D2 (OkVariationResult discriminated union) — challenged on grounds that OF-1's drift is direct evidence the rationale is wrong. **DECISION: keep deferred for S05** (the OF-1 fix this round removes the most urgent symptom; the structural cleanup still belongs with S05's consumer-side type-narrowing needs). Updated rationale: "fix-A landing this round removes the urgency; the cleanup is still right but no longer load-bearing."
+
+**Type-design challenged D4 (apt_scored/inapt_scored omission):**
+- Silent-failure verified the recovery argument (`n_apt - apt_gate_dropped == apt_scored`) is mathematically correct, contra the standards reviewer's first-pass critique.
+- BUT Subagent 2's Round-2 work surfaced `apt_scored`/`inapt_scored` through the forwarder anyway (as the conservation-law denominator). **status: superseded-by-fix in R2 commit `4d8a6e64`.**
+
+**Standards re-validated D10:** Round-1 fixes added `synsets_seen: set[str]` (6MB) and `synsets_with_all_malformed: list[str]` (small) — neither moves the 150-200MB peak. D10 rationale holds. **status: concur.**
+
+**Other deferrals all concurred** (D3, D5, D6, D7, D8, D9, D11) — rationale unchanged.
+
+### Critique Sections (compressed per reviewer)
+
+**pr-review-toolkit:code-reviewer** — CLEAN: false. 5 items. Caught the OF-1 producer/consumer drift directly; also flagged the empty-blob silent return, print/log inconsistency, dead `_re_rank_bonus` defense, docstring tense drift.
+
+**pr-review-toolkit:silent-failure-hunter** — CLEAN: false. 3 items (OF-1 schema drift, m03_diagnostics `_iter_*` silent drops, `_re_rank_bonus` dead silent fallback). Verified 7-of-8 R1 fixes assertively correct; flagged the rerank-counter pair as the half-broken cross-module contract.
+
+**pr-review-toolkit:type-design-analyzer** — CLEAN: false. 5 items. Critically: OF-1 is "exactly the silent-fail class TD-6's deferral rationale claimed wouldn't happen". Verified R1's `frozen=True` + `__post_init__` are correct but identified the impossible-construction-time CascadeResult combinations still constructable (D1 promote-to-fix).
+
+## Round 2 — superpowers (2026-05-21T01:30:00Z)
+
+**Agent:** `superpowers:code-reviewer` — CLEAN: false. 3 items.
+
+Net-new findings:
+- SP-OF-2 `build_synset_centroids` line 116 — missed sibling in R1 BLOB-length sweep
+- SP-OF-3 m03_diagnostics `_centroid` empty-blob guard missing (created by R1's own harmonisation)
+- TD-NEW-3 _CASCADE_ONLY_KEYS / CascadeConfig drift risk (deferred D14)
+
+Test quality verdict on R1 work: 13 of 15 new R1 tests are assertive; 2 are smoke-shape (`test_cascade_variation_carries_attrition_counters` was the smoke-shape that hid OF-1). R2 Subagent 2 strengthens it.
+
+DEFERRAL_LEDGER_REVIEW: 11 of 11 concurred (D2 with caveat noting OF-1 evidence).
+
+## Round 2 — standards (2026-05-21T01:30:00Z)
+
+**Standards sources:** `~/.claude/CLAUDE.md` · `/home/agent/projects/metaforge/CLAUDE.md` · `/home/agent/projects/metaforge/data-pipeline/CLAUDE.md`
+
+**Agent:** `general-purpose` — CLEAN: false. 4 items + per-standard re-audit.
+
+### Items Found
+
+- STD-OF-1 (important) Rerank counter producer/consumer drift — Code-to-interface violation. Same as the convergence.
+- STD-OF-2 (important) degenerate_cohort wrong dict level — Code-to-interface violation. Same as convergence.
+- STD-OF-3 (low) Round-1 fix introduced new TypedDict fields with no producer or consumer test — TDD violation.
+- STD-OF-4 (cosmetic) Magic 5% threshold — Comments-explain-intent violation.
+
+### Per-standard re-audit
+
+| # | Standard | Verdict (post R1, pre R2-fixes) |
+|---|----------|--------------------------------|
+| 1 | TDD (Red/Green) | NON-COMPLIANT (R2 OF-1, OF-3) |
+| 2 | Algorithms / OOM | COMPLIANT (D10 re-validated) |
+| 3 | All Errors/Exceptions Handled | COMPLIANT |
+| 4 | Idempotency | COMPLIANT |
+| 5 | Observability | MOSTLY COMPLIANT (R2 OF-4 magic literal) |
+| 6 | FP over OOP | COMPLIANT |
+| 7 | Code to interface, not implementation | NON-COMPLIANT (OF-1, OF-2) |
+| 8 | Immutable state across boundary | COMPLIANT |
+| 9 | UK English | COMPLIANT |
+| 10 | Comments explain intent | MOSTLY COMPLIANT |
+| 11 | Secrets policy | COMPLIANT |
+
+## Round 2 — ux-designer (2026-05-21T01:30:00Z)
+
+**Status:** No-op — no UI files in diff. Counts as adapter-CLEAN for halt.
+
+## Round 2 — Deferrals (added this round)
+
+| ID | Source | Severity | scope_boundary | why_out_of_scope |
+|----|--------|----------|----------------|------------------|
+| D12 | R2 CR-OF-2 | low | `_centroid` empty-blob log harmonisation cascade-side | Subagent 1 added the clamp + tense fixes but not the empty-blob log; harmless silent path (returns None like NOT-NULL violation) but breaks sibling-symmetry. Defer to type-design follow-up PR. |
+| D13 | R2 TD-NEW-4 | low | __post_init__ SCORING_FNS import-order coupling | Not a current bug; all callers construct lazily. Document if a future caller constructs at import time. |
+| D14 | R2 TD-NEW-3 | cosmetic | _CASCADE_ONLY_KEYS field-set drift risk | Stable in M03; revisit if M04 adds cascade hyperparams. |
+
+**Deferral D4 (TD-7) status update:** R2 Subagent 2's commit `4d8a6e64` surfaced `apt_scored`/`inapt_scored` through the forwarder as the conservation-law denominator → **status: superseded-by-fix in `4d8a6e64`, superseded_in_round=2.**
+
+Total active deferrals: **13** (was 11 before R2; +3 new, −1 superseded).
+
+### Fixes Applied
+
+14 fix commits across 4 disjoint files. Pre-fix SHA: `6676240c`.
+
+**evaluate_cascade.py + tests (5 commits):**
+- `8b8d5d9c` — CascadeResult __post_init__ per-status invariant assertion (D1 promoted)
+- `57e7299e` — remove dead _re_rank_bonus d_cap<=0 guard (CR-OF-4 / SF-OF-4)
+- `67ba9090` — magic 5% → RERANK_COVERAGE_WARN_BELOW module constant (STD-OF-4)
+- `773d0cee` — docstring tense correction (CR-OF-5)
+- `33d9e733` — clamp cosine to [-1, 1] — harmonise with m03_diagnostics
+
+**run_sweep.py + tests (3 commits):**
+- `8c0d2306` — align rerank counter forwarding (OF-1) + remove dead TypedDict fields + new round-trip test
+- `9f43584c` — degenerate_cohort reads from result['aggregate'] (OF-2) + new test
+- `4d8a6e64` — strengthen rerank conservation-law test + surface apt_scored/inapt_scored (D4 superseded)
+
+**build_synset_centroids.py + enrich_pipeline.py + tests (3 commits):**
+- `24c8310a` — guard BLOB length divisibility before np.frombuffer (SP-OF-2 — missed sibling)
+- `1bcad30a` — print → log.info in enrich_pipeline (CR-OF-3 / SF-OF-3)
+- `9dab0cd2` — docstring direction conflation fix
+
+**m03_diagnostics.py (3 commits):**
+- `5290b567` — _centroid empty-blob guard (SP-OF-3 — sibling drift)
+- `4d7346c3` — _iter_apt/_iter_inapt count + log skipped rows (SF-OF-2)
+- `2b5292fd` — cosine clamp docstring + sibling harmonisation note
+
+### Files Modified
+
+- `data-pipeline/scripts/evaluate_cascade.py`
+- `data-pipeline/scripts/test_evaluate_cascade.py`
+- `data-pipeline/scripts/run_sweep.py`
+- `data-pipeline/scripts/test_run_sweep.py`
+- `data-pipeline/scripts/build_synset_centroids.py`
+- `data-pipeline/scripts/test_build_synset_centroids.py`
+- `data-pipeline/scripts/enrich_pipeline.py`
+- `data-pipeline/scripts/m03_diagnostics.py`
+
+### Test Results
+
+**729 passing, 0 failed** (was 723 — +6 new tests from round 2).
+
+### Cumulative
+
+Total rounds: 2 | Items resolved: 14 (R2) / 39 cumulative | Active deferrals: 13 | Superseded deferrals: 1 | Elapsed: ~75 min
+
+**Severity trend (this round only):** 3 important + 7 low + 4 cosmetic fixed; 0 important + 2 low + 1 cosmetic deferred (D12-D14); 1 important (D4) superseded by fix. Notable: convergence on OF-1 across all 5 reviewers — the most important defect of the loop so far, introduced by R1's own fix-forward pattern. Round was non-clean (fixes applied) → next round begins. `last_reviewer_pre_fix_sha = 6676240c`; new HEAD = `4d8a6e64`.
+
+---
