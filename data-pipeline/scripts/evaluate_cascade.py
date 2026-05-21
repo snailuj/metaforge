@@ -252,9 +252,9 @@ def _re_rank_bonus(d: float, d_cap: float) -> float:
     at 1.0; distances ≤ 0 yield 0. The triangular-around-intermediate
     shape from the initial roadmap draft was discarded after pre-flight
     showed the inapt MUNCH cohort doesn't sample the too-far arm at all.
+
+    Caller invariant (enforced by CascadeConfig.__post_init__): d_cap > 0.
     """
-    if d_cap <= 0.0:
-        return 0.0
     ratio = d / d_cap
     if ratio < 0.0:
         return 0.0
