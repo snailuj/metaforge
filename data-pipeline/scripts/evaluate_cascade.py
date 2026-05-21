@@ -2,7 +2,7 @@
 
 This is the architectural shift from M02's pointwise SCORING_FNS family
 to a composed cascade. S01 shipped the scaffolding + concreteness gate;
-S02 adds the domain-distance re-rank stage (monotonic-up-to-cap reward
+S02 added the domain-distance re-rank stage (monotonic-up-to-cap reward
 shape, fail-open on missing centroids).
 
 Pre-flight findings ([`M03-S01-preflight-findings.md`](docs/roadmap/...))
@@ -79,14 +79,12 @@ class CascadeConfig:
 
     Defaults align with the M03 pre-flight findings (apt-cohort signed
     concreteness delta median +2.03, so threshold=1.0 sits comfortably
-    on the discriminative slope). The S01 slice does not exercise the
-    re-rank stage; ``d_cap``/``alpha``/``composition`` are present in
-    the contract so callers can reach for them in S02 without a
-    signature change.
+    on the discriminative slope). ``d_cap``/``alpha``/``composition``
+    are consumed by the cascade re-rank stage (S02, now landed).
     """
     concreteness_threshold: float = 1.0
     ortony_scoring: str = "jaccard_salience"
-    # --- S02 fields (not yet exercised in S01) -------------------------------
+    # --- Re-rank stage fields (cascade S02) ---------------------------------
     d_cap: float = 0.77
     alpha: float = 0.5
     composition: Literal["multiplicative", "additive"] = "multiplicative"
@@ -124,8 +122,8 @@ class CascadeResult:
     final_score: Optional[float]
     gate_passed: bool
     ortony_score: Optional[float]
-    cosine_distance: Optional[float]   # populated in S02
-    re_rank_bonus: Optional[float]     # populated in S02
+    cosine_distance: Optional[float]   # populated by the re-rank stage
+    re_rank_bonus: Optional[float]     # populated by the re-rank stage
     status: CascadeStatus
 
     def __post_init__(self) -> None:
