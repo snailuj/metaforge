@@ -72,10 +72,18 @@ def build_synset_centroids(conn: sqlite3.Connection) -> int:
     ``property_vocabulary`` joined via ``synset_properties`` (pre-snap, raw
     properties). The Ortony stage of the cascade reads cluster ids from
     ``synset_properties_curated`` (post-snap, cluster-canonicalised). A synset
-    can in principle have one signal but not the other (e.g. raw properties
-    with all-NULL embeddings → no centroid but curated cluster ids present →
-    Ortony works). The cascade evaluator handles missing centroids fail-open
-    in this case.
+    can in principle have one signal but not the other, and the directional
+    fail-policy differs:
+
+      * raw properties with all-NULL embeddings → no centroid (fail-open on
+        the re-rank: final_score falls back to the Ortony score so the
+        cohort survives)
+      * curated cluster ids missing → ``no_properties`` status from the
+        Ortony stage (fail-closed: final_score is None, the cohort attrits)
+
+    Round-1 build_synset_centroids:8c14c5af documented this asymmetry;
+    Round-2 clarified the directional fail-policy (open one way, closed the
+    other) so callers don't conflate the two directions.
     """
     ensure_table(conn)
 
