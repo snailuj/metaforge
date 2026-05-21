@@ -248,15 +248,28 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 
 	matches := make([]forge.Match, 0, len(candidates))
 	for _, c := range candidates {
-		// Concreteness already on the row; centroids from the cache.
-		topicConc := c.TopicConcreteness
-		vehConc := c.VehicleConcreteness
+		// Concreteness from the in-memory cache — preserves the *float64
+		// absence-signal contract EvaluateCascadePair expects (TD1).
+		var tConc, vConc *float64
+		if v, ok := h.cache.Concreteness[c.SourceSynsetID]; ok {
+			tConc = &v
+		}
+		if v, ok := h.cache.Concreteness[c.SynsetID]; ok {
+			vConc = &v
+		}
+		// Defence-in-depth: the gated CTE already filtered candidates whose
+		// concreteness rows exist on both sides; a missing entry here would
+		// indicate a race between cache load and the SQL query. Log it.
+		if tConc == nil || vConc == nil {
+			slog.Warn("cascade candidate concreteness missing from cache despite SQL filter",
+				"source", c.SourceSynsetID, "target", c.SynsetID)
+		}
 		topicCent := h.cache.Centroids[c.SourceSynsetID] // nil-safe: zero value is nil
 		vehCent := h.cache.Centroids[c.SynsetID]
 
 		res := forge.EvaluateCascadePair(forge.CascadeInputs{
-			TopicConcreteness:   &topicConc,
-			VehicleConcreteness: &vehConc,
+			TopicConcreteness:   tConc,
+			VehicleConcreteness: vConc,
 			TopicProperties:     propsByID[c.SourceSynsetID],
 			VehicleProperties:   propsByID[c.SynsetID],
 			TopicCentroid:       topicCent,

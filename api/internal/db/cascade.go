@@ -56,22 +56,21 @@ func GetSynsetClusterPropertiesBatch(database *sql.DB, synsetIDs []string) (map[
 }
 
 // CascadeCandidate is one gate-passed candidate row, populated by
-// GetForgeCascadeCandidatesByLemma. Mirrors CuratedMatch but extends with
-// the topic / vehicle concreteness scores already known from the
-// CTE-side join (saves the handler from re-querying the cache for them).
+// GetForgeCascadeCandidatesByLemma. Mirrors CuratedMatch. Concreteness is
+// NOT carried on the row — the handler reads it from the in-memory
+// cascade cache so the *float64 absence-signal contract that
+// EvaluateCascadePair expects is preserved (TD1 fix).
 type CascadeCandidate struct {
-	SynsetID            string
-	Word                string
-	POS                 string
-	Definition          string
-	SalienceSum         float64
-	ContrastCount       int
-	SharedProps         []string
-	SourceSynsetID      string
-	SourceDefinition    string
-	SourcePOS           string
-	TopicConcreteness   float64
-	VehicleConcreteness float64
+	SynsetID         string
+	Word             string
+	POS              string
+	Definition       string
+	SalienceSum      float64
+	ContrastCount    int
+	SharedProps      []string
+	SourceSynsetID   string
+	SourceDefinition string
+	SourcePOS        string
 }
 
 // GetForgeCascadeCandidatesByLemma extends the curated-by-lemma CTE with a
@@ -146,19 +145,16 @@ func GetForgeCascadeCandidatesByLemma(
 		)
 		SELECT bs.target_id,
 		       ts.pos, ts.definition,
-		       l.lemma,
+		       (SELECT lemma FROM lemmas WHERE synset_id = bs.target_id ORDER BY lemma LIMIT 1) as lemma,
 		       bs.salience_sum,
 		       COALESCE(bc.contrast_count, 0) as contrast_count,
 		       bs.shared_props,
 		       bs.source_id,
 		       ss.definition as source_definition,
-		       ss.pos as source_pos,
-		       bs.topic_score,
-		       bs.vehicle_score
+		       ss.pos as source_pos
 		FROM best_sense bs
 		JOIN synsets ts ON ts.synset_id = bs.target_id
 		JOIN synsets ss ON ss.synset_id = bs.source_id
-		JOIN lemmas l ON l.synset_id = bs.target_id
 		LEFT JOIN best_contrast bc ON bc.target_id = bs.target_id AND bc.rn = 1
 		WHERE bs.rn = 1
 		ORDER BY bs.salience_sum + COALESCE(bc.contrast_count, 0) DESC
@@ -188,12 +184,12 @@ func GetForgeCascadeCandidatesByLemma(
 			&m.SynsetID, &m.POS, &m.Definition, &m.Word,
 			&m.SalienceSum, &m.ContrastCount, &sharedProps,
 			&m.SourceSynsetID, &m.SourceDefinition, &m.SourcePOS,
-			&m.TopicConcreteness, &m.VehicleConcreteness,
 		); err != nil {
-			slog.Warn("scan cascade candidate failed", "err", err)
-			continue
+			return nil, fmt.Errorf("scan cascade candidate: %w", err)
 		}
-		// Deduplicate: a synset with multiple lemmas produces multiple rows.
+		// Deduplicate: belt-and-braces — the SELECT lemma subquery should
+		// already yield one row per target_id, but if the SQL is ever
+		// changed this guard prevents row-amplification regressions.
 		if seen[m.SynsetID] {
 			continue
 		}
@@ -218,8 +214,9 @@ func GetForgeCascadeCandidatesByLemma(
 			WHERE l.lemma = ?
 		`, lemma).Scan(&lemmaHasProps)
 		if err != nil {
-			slog.Warn("cascade ErrLemmaNotFound re-check failed", "lemma", lemma, "err", err)
-		} else if lemmaHasProps == 0 {
+			return nil, fmt.Errorf("cascade ErrLemmaNotFound re-check for %q: %w", lemma, err)
+		}
+		if lemmaHasProps == 0 {
 			return nil, fmt.Errorf("%w: %s", ErrLemmaNotFound, lemma)
 		}
 	}

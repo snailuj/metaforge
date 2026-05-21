@@ -138,6 +138,34 @@ func TestGetForgeCascadeCandidatesByLemma_HighlyConcreteLemmaDoesNotError(t *tes
 	t.Logf("cat returned %d gate-passed candidates", len(candidates))
 }
 
+func TestGetForgeCascadeCandidatesByLemma_LimitReturnsDistinctCandidates(t *testing.T) {
+	// PR1.1 regression test: a broad-coverage lemma like 'anger' must
+	// produce close to `limit` distinct synsets, not be truncated to
+	// ~half by per-target lemma duplicates.
+	database, err := Open(testDBPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer database.Close()
+
+	candidates, err := GetForgeCascadeCandidatesByLemma(database, "anger", 1.0, 50)
+	if err != nil {
+		t.Fatalf("GetForgeCascadeCandidatesByLemma: %v", err)
+	}
+	t.Logf("anger limit=50 returned %d distinct candidates", len(candidates))
+	if len(candidates) < 40 {
+		t.Errorf("expected at least 40 distinct candidates for 'anger' limit=50, got %d "+
+			"(pre-fix baseline was 23 due to lemma row-amplification before LIMIT)", len(candidates))
+	}
+	seen := make(map[string]bool)
+	for _, c := range candidates {
+		if seen[c.SynsetID] {
+			t.Errorf("duplicate synset in candidates: %s", c.SynsetID)
+		}
+		seen[c.SynsetID] = true
+	}
+}
+
 func TestGetForgeCascadeCandidatesByLemma_UnknownLemmaReturnsErrLemmaNotFound(t *testing.T) {
 	database, err := Open(testDBPath)
 	if err != nil {
