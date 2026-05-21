@@ -1137,8 +1137,23 @@ def test_cascade_variation_runs_through_sweep(tmp_path):
 
 def test_cascade_variation_carries_attrition_counters(tmp_path):
     """Cascade rows must surface gate-drop / missing-concreteness /
-    no-properties / unresolved counters per cohort so the sweep JSON is
-    self-sufficient for the ablation table.
+    no-properties / unresolved / rerank counters per cohort so the sweep
+    JSON is self-sufficient for the ablation table.
+
+    Strengthened beyond presence + isinstance(int) to assert specific
+    counter values for the fixture cohort AND the rerank conservation
+    law (``rerank_applied + rerank_skipped == n_<cohort>``). Without
+    the conservation assertion a silent-fail class survives — a future
+    refactor that, say, forgets to increment ``rerank_skipped`` in the
+    fail-open branch would still trip presence checks while quietly
+    underreporting attrition. Pin the law, not just the shape.
+
+    Fixture cohort behaviour (anger→fire apt, approach/coming inapt;
+    concreteness_threshold=1.0, no synset_centroids table):
+      * apt cohort: 1 pair, passes gate (fire=4.5), scores 1, no
+        centroid table → rerank_skipped=1, rerank_applied=0.
+      * inapt cohort: 1 pair, fails gate (approach=2.5, coming=2.4),
+        gate_dropped=1, scores 0 → no rerank counters increment.
     """
     _, cfg = _base_config(tmp_path, [
         {
@@ -1158,6 +1173,37 @@ def test_cascade_variation_carries_attrition_counters(tmp_path):
               "apt_unresolved", "inapt_unresolved"):
         assert k in row, f"cascade row missing {k}"
         assert isinstance(row[k], int)
+    # Specific counter values for the fixture cohort — pins the cascade's
+    # gate/attrition behaviour on a known-shape input. apt fire (4.5)
+    # passes the 1.0 threshold; inapt approach (2.5) / coming (2.4) both
+    # fail asymmetrically and at least one drops.
+    assert row["apt_gate_dropped"] == 0, row
+    assert row["inapt_gate_dropped"] == 1, row
+    assert row["apt_missing_concreteness"] == 0
+    assert row["apt_unresolved"] == 0
+    # Conservation law per cohort: every pair the cascade scored
+    # end-to-end either got the re-rank applied or skipped it; pairs
+    # the gate dropped never reach the re-rank stage and don't appear
+    # in either counter. Net: ``rerank_applied + rerank_skipped ==
+    # <cohort>_scored`` (NOT ``n_<cohort>`` — n_apt counts both scored
+    # and gate_dropped because gate-dropped pairs append 0.0 to the
+    # cohort scores list). Regression target: the silent-fail class
+    # where a fail-open branch forgets to increment rerank_skipped.
+    for cohort in ("apt", "inapt"):
+        applied = row[f"{cohort}_rerank_applied"]
+        skipped = row[f"{cohort}_rerank_skipped"]
+        scored = row[f"{cohort}_scored"]
+        assert applied + skipped == scored, (
+            f"{cohort} rerank conservation broken: applied={applied} "
+            f"+ skipped={skipped} != {cohort}_scored={scored}"
+        )
+    # Fixture-specific rerank values: synset_centroids table is absent,
+    # so every scored pair falls through to rerank_skipped. apt has 1
+    # scored pair → apt_rerank_skipped=1; inapt was gate-dropped → 0.
+    assert row["apt_rerank_applied"] == 0
+    assert row["apt_rerank_skipped"] == 1
+    assert row["inapt_rerank_applied"] == 0
+    assert row["inapt_rerank_skipped"] == 0
 
 
 def test_cascade_and_aptness_variations_coexist(tmp_path):

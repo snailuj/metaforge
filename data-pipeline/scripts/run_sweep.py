@@ -97,6 +97,11 @@ class OkVariationResult(TypedDict, total=False):
     inapt_unresolved: int
     apt_no_properties: int
     inapt_no_properties: int
+    # Sister to the rerank counters: count of pairs that passed the gate
+    # and scored end-to-end. Needed for the rerank conservation law
+    # (rerank_applied + rerank_skipped == scored) at the sweep boundary.
+    apt_scored: int
+    inapt_scored: int
     # Cascade rerank diagnostics — present iff evaluate_cascade emits
     # these counters; absent rows silently no-op via the threading guard
     # in `_run_one_variation`. The producer collapses missing-centroid +
@@ -582,6 +587,13 @@ def _run_one_variation(
             "apt_missing_concreteness", "inapt_missing_concreteness",
             "apt_unresolved", "inapt_unresolved",
             "apt_no_properties", "inapt_no_properties",
+            # ``<cohort>_scored`` is the cohort's "passed gate + scored
+            # end-to-end" count. Sister counter to the rerank pair so the
+            # conservation law (rerank_applied + rerank_skipped == scored)
+            # can be evaluated from the sweep JSON without re-running
+            # cascade — pinning that law catches the silent-fail class
+            # where a fail-open branch forgets to increment one bucket.
+            "apt_scored", "inapt_scored",
         ):
             ok[attrition_key] = int(agg.get(attrition_key, 0))
         # Cascade rerank diagnostics — only surface when evaluate_cascade
