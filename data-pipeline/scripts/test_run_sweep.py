@@ -1383,7 +1383,13 @@ def test_ok_row_carries_rerank_counters(tmp_path):
 
     Conservation-law assertion: every scored pair either gets the
     re-rank or skips it, so for each cohort
-    ``rerank_applied + rerank_skipped == n_<cohort>``.
+    ``rerank_applied + rerank_skipped == <cohort>_scored``. NOT
+    ``n_<cohort>`` — gate-dropped pairs contribute to ``n_<cohort>``
+    with score=0.0 but never reach the re-rank stage, so they don't
+    increment either rerank counter. See the sibling test
+    ``test_ok_row_rerank_conservation_holds_when_apt_pair_gate_drops``
+    which pins the distinction on a fixture where the apt pair fails
+    the concreteness gate.
     """
     _, cfg = _base_config(tmp_path, [
         {
@@ -1411,16 +1417,82 @@ def test_ok_row_carries_rerank_counters(tmp_path):
               "inapt_rerank_skipped_missing_centroid",
               "inapt_rerank_skipped_zero_norm"):
         assert k not in row, f"phantom split-bucket key {k} resurfaced"
-    # Conservation law per cohort: every scored pair either had the
-    # re-rank applied or skipped it. n_apt and n_inapt are the cohort
-    # ``scored`` counts (the only counters appended to the score lists
-    # alongside ``gate_dropped`` zeros, but gate-dropped pairs are not
-    # included in the rerank counters — they never reach the re-rank
-    # stage). Use the apt cohort which the fixture pushes through to
-    # ``scored``.
-    assert row["apt_rerank_applied"] + row["apt_rerank_skipped"] == row["n_apt"], (
+    # Conservation law per cohort: every pair the cascade scored
+    # end-to-end either got the re-rank applied or skipped it. Pairs
+    # the gate dropped append 0.0 to the cohort scores list (so they
+    # count toward ``n_<cohort>``) but never reach the re-rank stage,
+    # so they do NOT increment either rerank counter. Net: the right
+    # denominator is ``<cohort>_scored``, not ``n_<cohort>``. This
+    # fixture happens to have zero gate-dropped apt pairs (apt delta
+    # 2.5 ≥ threshold 1.0), so the two denominators coincide here —
+    # the sibling test ``test_ok_row_rerank_conservation_holds_when_apt_pair_gate_drops``
+    # pins the distinction on a fixture where they diverge.
+    assert (
+        row["apt_rerank_applied"] + row["apt_rerank_skipped"]
+        == row["apt_scored"]
+    ), (
         f"apt rerank conservation broken: applied={row['apt_rerank_applied']} "
-        f"+ skipped={row['apt_rerank_skipped']} != n_apt={row['n_apt']}"
+        f"+ skipped={row['apt_rerank_skipped']} != apt_scored={row['apt_scored']}"
+    )
+
+
+def test_ok_row_rerank_conservation_holds_when_apt_pair_gate_drops(tmp_path):
+    """Pin the rerank conservation law on a fixture where the apt pair
+    actually fails the concreteness gate. ``n_apt`` counts the gate-
+    dropped pair (gate-drop appends score=0.0 to the cohort scores
+    list), but rerank counters do NOT — gate-dropped pairs never reach
+    the re-rank stage. So the correct denominator is ``apt_scored``,
+    NOT ``n_apt``.
+
+    Regression target: R2 commit 8c0d2306 added
+    ``test_ok_row_carries_rerank_counters`` with the n_apt denominator.
+    That test passes only by fixture coincidence (the default fixture
+    has zero gate-dropped apt pairs, so apt_scored == n_apt). R3 caught
+    the drift; this test would have failed under the n_apt assertion,
+    so it pins the distinction explicitly.
+
+    Fixture: bump ``concreteness_threshold`` to 3.0 so the apt pair
+    (anger=2.0 → fire=4.5, delta=2.5) fails the gate. n_apt becomes
+    1 (gate-drop appends 0.0), apt_scored becomes 0, apt_gate_dropped
+    becomes 1 — and the apt rerank counters must both be 0.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {
+            "name": "cascade_apt_gate_drops",
+            "evaluator": "cascade",
+            # 3.0 > apt delta of 2.5 → apt pair fails the gate.
+            "concreteness_threshold": 3.0,
+        },
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+
+    row = result["variations"][0]
+    assert row["status"] == "ok", row
+    # Sanity: the apt pair really did gate-drop on this fixture.
+    assert row["apt_gate_dropped"] >= 1, (
+        f"fixture precondition broken — expected ≥1 apt gate-drop, "
+        f"got {row['apt_gate_dropped']} (row: {row})"
+    )
+    # The load-bearing assertion: applied + skipped == apt_scored.
+    # Under the bogus n_apt denominator this would fail because
+    # n_apt > apt_scored (n_apt counts gate-dropped pairs, scored does
+    # not increment for them).
+    assert (
+        row["apt_rerank_applied"] + row["apt_rerank_skipped"]
+        == row["apt_scored"]
+    ), (
+        f"apt rerank conservation broken: applied={row['apt_rerank_applied']} "
+        f"+ skipped={row['apt_rerank_skipped']} != apt_scored={row['apt_scored']} "
+        f"(n_apt={row['n_apt']}, gate_dropped={row['apt_gate_dropped']})"
+    )
+    # And explicitly: n_apt == apt_scored + apt_gate_dropped — the
+    # other half of the cohort accounting that justifies why the
+    # rerank denominator must be apt_scored, not n_apt.
+    assert row["n_apt"] == row["apt_scored"] + row["apt_gate_dropped"], (
+        f"cohort accounting broken: n_apt={row['n_apt']} != "
+        f"apt_scored={row['apt_scored']} + apt_gate_dropped={row['apt_gate_dropped']}"
     )
 
 
