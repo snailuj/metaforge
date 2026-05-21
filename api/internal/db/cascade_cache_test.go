@@ -67,6 +67,47 @@ func TestLoadCascadeCache_MissingTablesFailLoud(t *testing.T) {
 	}
 }
 
+func TestLoadCascadeCache_MalformedAndZeroBlobCentroidsExcluded(t *testing.T) {
+	// OF1 round-3 fix + OF1-R4 round-4 TDD closure: a zero-byte or
+	// wrong-dimension centroid BLOB is a pipeline contract violation.
+	// The loader logs Error + increments a counter + excludes the
+	// synset from the cache so downstream cascade scoring fails open
+	// through 'no centroid' rather than scoring on garbage.
+	//
+	// Live-DB tests can't easily exercise this path; in-memory SQLite
+	// with hand-inserted bad rows is the right shape.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		// One zero-byte BLOB row.
+		`INSERT INTO synset_centroids VALUES ('zero-blob-synset', X'', 0)`,
+		// One wrong-dimension BLOB row (4 bytes instead of 1200).
+		`INSERT INTO synset_centroids VALUES ('wrong-dim-synset', X'01020304', 1)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	cache, err := LoadCascadeCache(database)
+	if err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+	if _, ok := cache.Centroids["zero-blob-synset"]; ok {
+		t.Error("zero-blob row must be excluded from cache (OF1 round-3 fix)")
+	}
+	if _, ok := cache.Centroids["wrong-dim-synset"]; ok {
+		t.Error("wrong-dimension row must be excluded from cache (round-1 malformed-blob fix)")
+	}
+}
+
 func openMemoryDB(t *testing.T) (*sql.DB, error) {
 	t.Helper()
 	return sql.Open("sqlite3", ":memory:")
