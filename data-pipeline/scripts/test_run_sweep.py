@@ -1322,6 +1322,62 @@ variations:
         load_sweep_config(str(cfg))
 
 
+def test_ok_row_carries_rerank_counters(tmp_path):
+    """Cross-module contract: cascade emits ``rerank_applied`` +
+    ``rerank_skipped`` (collapsed single-bucket — see the in-code comment
+    at ``_score_cascade_cohort``); the sweep OK row must surface both as
+    ``apt_``/``inapt_`` prefixed fields.
+
+    Regression target: round-1 fix ``f6f9bf09`` declared
+    ``rerank_skipped_missing_centroid`` + ``rerank_skipped_zero_norm``
+    on the sweep side, but the producer only ever emits the collapsed
+    ``rerank_skipped`` bucket — so the forwarder's ``if agg_key in agg``
+    guard was always False and the counters silently dropped at the
+    sweep boundary.
+
+    Conservation-law assertion: every scored pair either gets the
+    re-rank or skips it, so for each cohort
+    ``rerank_applied + rerank_skipped == n_<cohort>``.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {
+            "name": "cascade_rerank",
+            "evaluator": "cascade",
+            "concreteness_threshold": 1.0,
+        },
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+
+    row = result["variations"][0]
+    assert row["status"] == "ok", row
+    # Both rerank counters must be present (NOT the split-bucket variants
+    # the f6f9bf09 fix mistakenly declared).
+    for k in ("apt_rerank_applied", "apt_rerank_skipped",
+              "inapt_rerank_applied", "inapt_rerank_skipped"):
+        assert k in row, f"OK row missing {k} (silent forwarder drop?)"
+        assert isinstance(row[k], int)
+    # The split-bucket fields the buggy fix invented must NOT appear —
+    # if they do, someone re-introduced the producer/consumer drift.
+    for k in ("apt_rerank_skipped_missing_centroid",
+              "apt_rerank_skipped_zero_norm",
+              "inapt_rerank_skipped_missing_centroid",
+              "inapt_rerank_skipped_zero_norm"):
+        assert k not in row, f"phantom split-bucket key {k} resurfaced"
+    # Conservation law per cohort: every scored pair either had the
+    # re-rank applied or skipped it. n_apt and n_inapt are the cohort
+    # ``scored`` counts (the only counters appended to the score lists
+    # alongside ``gate_dropped`` zeros, but gate-dropped pairs are not
+    # included in the rerank counters — they never reach the re-rank
+    # stage). Use the apt cohort which the fixture pushes through to
+    # ``scored``.
+    assert row["apt_rerank_applied"] + row["apt_rerank_skipped"] == row["n_apt"], (
+        f"apt rerank conservation broken: applied={row['apt_rerank_applied']} "
+        f"+ skipped={row['apt_rerank_skipped']} != n_apt={row['n_apt']}"
+    )
+
+
 def test_aptness_evaluator_default_when_omitted(tmp_path):
     """If `evaluator` is omitted, the variation runs through the existing
     aptness path. Backwards-compat: M02-era sweep configs keep working

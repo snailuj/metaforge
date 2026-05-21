@@ -99,13 +99,14 @@ class OkVariationResult(TypedDict, total=False):
     inapt_no_properties: int
     # Cascade rerank diagnostics — present iff evaluate_cascade emits
     # these counters; absent rows silently no-op via the threading guard
-    # in `_run_one_variation`.
+    # in `_run_one_variation`. The producer collapses missing-centroid +
+    # zero-norm into a single ``rerank_skipped`` bucket (see the in-code
+    # comment at _score_cascade_cohort for the rationale); the sweep
+    # surface mirrors that shape verbatim so the contract holds end-to-end.
     apt_rerank_applied: int
     inapt_rerank_applied: int
-    apt_rerank_skipped_missing_centroid: int
-    inapt_rerank_skipped_missing_centroid: int
-    apt_rerank_skipped_zero_norm: int
-    inapt_rerank_skipped_zero_norm: int
+    apt_rerank_skipped: int
+    inapt_rerank_skipped: int
     # Top-level cohort-degeneracy flag — set by evaluate_cascade when the
     # cohort collapses to a single-class distribution that invalidates
     # the separation_score. Forwarded verbatim so the ablation reader can
@@ -584,12 +585,11 @@ def _run_one_variation(
         # Cascade rerank diagnostics — only surface when evaluate_cascade
         # actually emits them. Forward-compatible: a build that hasn't
         # added these counters yet silently no-ops here, the OK row just
-        # omits the key (TypedDict total=False makes this safe).
-        for rerank_suffix in (
-            "rerank_applied",
-            "rerank_skipped_missing_centroid",
-            "rerank_skipped_zero_norm",
-        ):
+        # omits the key (TypedDict total=False makes this safe). The
+        # producer collapses missing-centroid + zero-norm into a single
+        # ``rerank_skipped`` bucket — these suffixes must match the
+        # producer's keys verbatim or the counters silently drop.
+        for rerank_suffix in ("rerank_applied", "rerank_skipped"):
             for cohort_prefix in ("apt", "inapt"):
                 agg_key = f"{cohort_prefix}_{rerank_suffix}"
                 if agg_key in agg:
