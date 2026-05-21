@@ -260,7 +260,10 @@ def _centroid(conn: sqlite3.Connection, synset_id: str) -> Optional[list[float]]
             synset_id, exc,
         )
         raise
-    if row is None or row[0] is None or len(row[0]) == 0:
+    if row is None or row[0] is None:
+        return None
+    if len(row[0]) == 0:
+        log.debug("empty centroid blob for %s — treating as missing", synset_id)
         return None
     blob = row[0]
     if len(blob) % 4 != 0:
