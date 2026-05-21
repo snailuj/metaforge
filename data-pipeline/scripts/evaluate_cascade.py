@@ -245,7 +245,9 @@ def _cosine_distance(va: list[float], vb: list[float]) -> Optional[float]:
     nb = math.sqrt(sum(b * b for b in vb))
     if na == 0.0 or nb == 0.0:
         return None
-    return 1.0 - (dot / (na * nb))
+    cos_sim = dot / (na * nb)
+    cos_sim = max(-1.0, min(1.0, cos_sim))  # clamp for fp rounding errors
+    return 1.0 - cos_sim
 
 
 def _re_rank_bonus(d: float, d_cap: float) -> float:
