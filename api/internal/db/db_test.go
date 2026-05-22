@@ -128,11 +128,15 @@ func TestGetForgeMatchesCuratedByLemma_LimitReturnsDistinctCandidates(t *testing
 	}
 }
 
-func TestGetLemmaEmbeddingsBatch_RealDBErrorEscalates(t *testing.T) {
-	// SF1 / D8 chain pin: GetLemmaEmbeddingsBatch must escalate real DB
-	// faults (here: a wrong-column-shape table) rather than swallowing
-	// per-row scan failures with slog.Warn+continue. handleSuggestLegacy
-	// relies on this contract to route to 500 on the candidate-batch path.
+func TestGetLemmaEmbeddingsBatch_QueryFaultEscalates(t *testing.T) {
+	// Pins the pre-existing Query-fault escalation path: wrong-column-shape
+	// table makes db.Query return "no such column: embedding" before the
+	// rows loop is reached. Not a regression test for the SF1 per-row
+	// Scan-escalation branch (that branch is hard to reach without a
+	// custom sql/driver stub since SQLite's rows.Scan on (TEXT, BLOB)
+	// rarely fails) — see TestGetLemmaEmbeddingsBatch_MalformedBlobEscalates
+	// below which pins the SF2 malformed-tally branch that DOES exercise
+	// the post-loop escalation introduced by round 1.
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -148,6 +152,36 @@ func TestGetLemmaEmbeddingsBatch_RealDBErrorEscalates(t *testing.T) {
 	_, err = GetLemmaEmbeddingsBatch(db, []string{"anger", "fire"})
 	if err == nil {
 		t.Fatal("expected error on wrong-column-shape lemma_embeddings, got nil")
+	}
+}
+
+func TestGetLemmaEmbeddingsBatch_MalformedBlobEscalates(t *testing.T) {
+	// SF2-batch pin: the post-loop `if malformed > 0` escalation added in
+	// round 1 must surface as a non-nil error and discard the partial
+	// result map. handleSuggestLegacy relies on this to route to 500 on
+	// the candidate-batch path when a pipeline-contract violation makes
+	// it through enrichment.
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE lemma_embeddings (lemma TEXT PRIMARY KEY, embedding BLOB);`); err != nil {
+		t.Fatal(err)
+	}
+	// 4-byte blob — clearly not EmbeddingDim*4 floats. Scan succeeds,
+	// BlobToFloats returns nil, the malformed tally increments, post-loop
+	// escalation fires.
+	if _, err := db.Exec(`INSERT INTO lemma_embeddings VALUES ('anger', x'01020304')`); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := GetLemmaEmbeddingsBatch(db, []string{"anger"})
+	if err == nil {
+		t.Fatalf("expected error on malformed embedding blob, got nil result=%v", result)
+	}
+	if result != nil {
+		t.Errorf("expected nil map alongside error (partial result discarded), got %v", result)
 	}
 }
 

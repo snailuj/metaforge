@@ -400,8 +400,10 @@ func GetLemmaEmbedding(db *sql.DB, lemma string) ([]float32, error) {
 	vec := blobconv.BlobToFloats(blob)
 	if vec == nil {
 		// Malformed BLOB (wrong dimension or zero bytes) — pipeline
-		// contract violation, parallel to the loader-side check in
-		// cascade_cache.go. Escalate instead of returning silent nil.
+		// contract violation. Per-request lookup escalates immediately
+		// so handlers can 500; this is asymmetric with the loader-side
+		// path in cascade_cache.go which log+continue+aggregate to keep
+		// startup tolerant of partial damage.
 		return nil, fmt.Errorf("GetLemmaEmbedding: malformed embedding blob for %s (bytes=%d)", lemma, len(blob))
 	}
 	return vec, nil
@@ -410,8 +412,16 @@ func GetLemmaEmbedding(db *sql.DB, lemma string) ([]float32, error) {
 // GetLemmaEmbeddingsBatch retrieves FastText embeddings for multiple lemmas.
 // Returns a map of lemma -> embedding. Missing lemmas are simply absent from the map.
 // Returns (nil, nil) gracefully if the lemma_embeddings table doesn't exist.
+//
 // Real DB faults and pipeline-contract violations (scan failure, malformed BLOB)
-// escalate via error so callers can route to 500.
+// escalate via error so callers can route to 500. On any error path the
+// partial result accumulated mid-loop is discarded — callers receive
+// (nil, err), never (partialMap, err). This is strict-fail by design: a
+// single malformed BLOB makes the batch unusable for ranking until the
+// pipeline is rebuilt, so silently degrading would mask the contract
+// violation. Contrast with loadCentroids in cascade_cache.go which
+// retains the partial map at startup; the request-time policy is
+// stricter than the startup-time policy.
 func GetLemmaEmbeddingsBatch(db *sql.DB, lemmas []string) (map[string][]float32, error) {
 	if len(lemmas) == 0 {
 		return nil, nil
@@ -449,11 +459,14 @@ func GetLemmaEmbeddingsBatch(db *sql.DB, lemmas []string) (map[string][]float32,
 		}
 		vec := blobconv.BlobToFloats(blob)
 		if vec == nil {
-			// Malformed BLOB — pipeline-contract violation. Log at Error
-			// (matching loadCentroids in cascade_cache.go) and tally so
-			// the caller can decide whether to escalate when the count
-			// is non-zero. Don't drop the whole batch for one bad row.
-			slog.Error("malformed lemma embedding blob", "lemma", lemma, "bytes", len(blob))
+			// Malformed BLOB — pipeline-contract violation. Log Error
+			// on the FIRST occurrence (with the lemma for triage), then
+			// tally silently so a fully-corrupted table doesn't flood
+			// alerts. Aggregate count is surfaced in the post-loop
+			// error so operators see total damage.
+			if malformed == 0 {
+				slog.Error("malformed lemma embedding blob (first occurrence)", "lemma", lemma, "bytes", len(blob))
+			}
 			malformed++
 			continue
 		}
