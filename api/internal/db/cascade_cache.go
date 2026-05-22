@@ -114,12 +114,11 @@ func loadCentroids(database *sql.DB, dst map[string][]float32) error {
 		}
 		vec := blobconv.BlobToFloats(blob)
 		if vec == nil {
-			// Malformed BLOB (zero-byte or wrong dimension) — not a
-			// missing row, a pipeline contract violation (partial write,
-			// dimension drift, etc). Log at Error so operators see the
-			// signal; track a counter so the load summary can report
-			// aggregate damage. The zero-byte case is handled in the
-			// branch above so this path covers dim-mismatch only.
+			// Wrong-dimension BLOB — pipeline contract violation
+			// (partial write, dimension drift). Zero-byte is already
+			// short-circuited above; this branch covers dim-mismatch
+			// only. Log at Error so operators see the signal and
+			// tally a counter for the aggregate load summary below.
 			slog.Error("centroid blob malformed", "synset", id, "bytes", len(blob))
 			malformed++
 			continue
