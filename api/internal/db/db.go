@@ -260,7 +260,12 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 		SELECT bs.target_id,
 		       ts.pos,
 		       ts.definition,
-		       l.lemma,
+		       -- D16: pick one lemma per target via a correlated subquery so
+		       -- LIMIT applies to distinct synsets, not lemma-amplified rows.
+		       -- Mirrors the PR1.1 fix on the cascade path; alphabetical-first
+		       -- chosen for the same perf reasons documented in cascade.go
+		       -- (polysemy-ASC ordering costs ~16× on broad-coverage lemmas).
+		       (SELECT lemma FROM lemmas WHERE synset_id = bs.target_id ORDER BY lemma LIMIT 1) as lemma,
 		       bs.salience_sum,
 		       COALESCE(bc.contrast_count, 0) as contrast_count,
 		       bs.shared_props,
@@ -270,7 +275,6 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 		FROM best_sense bs
 		JOIN synsets ts ON ts.synset_id = bs.target_id
 		JOIN synsets ss ON ss.synset_id = bs.source_id
-		JOIN lemmas l ON l.synset_id = bs.target_id
 		LEFT JOIN best_contrast bc ON bc.target_id = bs.target_id AND bc.rn = 1
 		WHERE bs.rn = 1
 		ORDER BY bs.salience_sum + COALESCE(bc.contrast_count, 0) DESC
@@ -294,13 +298,15 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 			&m.SalienceSum, &m.ContrastCount, &sharedProps,
 			&m.SourceSynsetID, &m.SourceDefinition, &m.SourcePOS,
 		); err != nil {
-			slog.Warn("scan curated-by-lemma match failed", "err", err)
-			continue
+			return nil, fmt.Errorf("scan curated-by-lemma match: %w", err)
 		}
 
-		// Deduplicate: a synset with multiple lemmas produces multiple rows
+		// Post-D16: SQL CTE returns one row per target by construction (the
+		// SELECT lemma subquery picks one lemma per target). A duplicate
+		// here means the CTE has regressed — fail loud rather than silently
+		// dropping. Mirrors the cascade-side F-R2-2 tripwire.
 		if seen[m.SynsetID] {
-			continue
+			return nil, fmt.Errorf("GetForgeMatchesCuratedByLemma: SQL CTE produced duplicate target %s — CTE regression?", m.SynsetID)
 		}
 		seen[m.SynsetID] = true
 

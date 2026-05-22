@@ -93,6 +93,38 @@ func TestGetForgeMatchesCuratedByLemma_ReturnsErrLemmaNotFound(t *testing.T) {
 	}
 }
 
+func TestGetForgeMatchesCuratedByLemma_LimitReturnsDistinctCandidates(t *testing.T) {
+	// D16 regression test: mirrors the cascade-side PR1.1 fix. The legacy
+	// `JOIN lemmas l ON l.synset_id = bs.target_id` row-amplifies before
+	// `LIMIT`, so a broad-coverage lemma like 'anger' was truncated to
+	// roughly half the requested limit by per-target lemma duplicates.
+	// Asserts the post-fix shape: distinct synsets and a non-truncated
+	// candidate count.
+	db, err := Open(testDBPathV2)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	matches, err := GetForgeMatchesCuratedByLemma(db, "anger", 50)
+	if err != nil {
+		t.Fatalf("GetForgeMatchesCuratedByLemma: %v", err)
+	}
+	t.Logf("anger limit=50 returned %d distinct candidates", len(matches))
+	if len(matches) < 40 {
+		t.Errorf("expected at least 40 distinct candidates for 'anger' limit=50, got %d "+
+			"(pre-fix legacy path truncated to ~half due to lemma row-amplification before LIMIT)",
+			len(matches))
+	}
+	seen := make(map[string]bool)
+	for _, m := range matches {
+		if seen[m.SynsetID] {
+			t.Errorf("duplicate synset in legacy matches: %s", m.SynsetID)
+		}
+		seen[m.SynsetID] = true
+	}
+}
+
 func TestGetSynsetIDForLemma(t *testing.T) {
 	db, err := Open(testDBPathV2)
 	if err != nil {
