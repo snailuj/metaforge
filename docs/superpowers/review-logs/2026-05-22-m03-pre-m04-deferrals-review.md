@@ -26,13 +26,13 @@ Files touched (backend + docs only, no UI):
 
 ## Deferrals Ledger
 
-### R1-D1 — Variadic-on-disabled-path allocation in observe.Start (TD1 / SP4 / ST3)
+### R1-D1 — Disabled-path per-call allocation in observe.Start (TD1 / SP4 / ST3; R3-OWN-3 addendum)
 - **status:** active
 - **severity:** low (perf)
-- **raised by:** pr-review-toolkit:type-design-analyzer, superpowers:code-reviewer, standards reviewer (round 1)
+- **raised by:** pr-review-toolkit:type-design-analyzer, superpowers:code-reviewer, standards reviewer (round 1); rationale extended round 3 (R3-OWN-3)
 - **scope_boundary:** API-shape change. The clean fix is a two-method API (`Stop()` + `StopWith(extra ...any)`) so callers opt into variadic boxing only on the enabled path; alternatively a typed Timer struct injected through the handler graph.
-- **why_out_of_scope:** Per-request impact is bounded at ~6 variadic slice allocations on a path that already pays for slog and json encoding overhead. The architectural fix lands cleanly with the metaphor-package extraction (anchored in PIPELINE.md against D1/D2/D3/D4/D5/D14) where the observe surface can be redesigned alongside CascadeCache encapsulation. Fixing it pre-M04 would either ship a brittle one-package-level-noop trick or thrash the call sites twice.
-- **proposed_followup:** Land with the `metaphor` package extraction milestone (between M04 and Bridge per PIPELINE.md). Redesign the observe surface to a typed Timer that callers can construct per-request, removing both the global flag and the variadic-allocation concern.
+- **why_out_of_scope:** Per-request cost on the disabled path is bounded at ~6 closure literals + ~6 variadic slices (round 2's timer.go doc explicitly enumerated both costs) on a path that already pays for slog and json encoding overhead. The architectural fix lands cleanly with the metaphor-package extraction (anchored in PIPELINE.md against D1/D2/D3/D4/D5/D14) where the observe surface can be redesigned alongside CascadeCache encapsulation. Fixing it pre-M04 would either ship a brittle one-package-level-noop trick or thrash the call sites twice.
+- **proposed_followup:** Land with the `metaphor` package extraction milestone (between M04 and Bridge per PIPELINE.md). Redesign the observe surface to a typed Timer that callers can construct per-request, removing both the global flag and the variadic + closure allocation concerns.
 
 ### R1-D2 — Test bypasses NewHandlerWithCascade via direct &Handler{} construction (TD2)
 - **status:** active
@@ -259,4 +259,79 @@ Cumulative: round 1 fixed 8, round 2 fixed 6; 8 active deferrals (1 new pre-exis
 Trend: severities decreasing (round 1 had 2 important, round 2 has 1 important on test coverage rather than code-fault). Two adapters (superpowers + standards) returned CLEAN this round — the loop is converging.
 
 Stop nudge: not yet — pr-review-toolkit's three sub-agents all found new items, so the round-1 fixes triggered real (if low-severity) follow-on concerns. One more round to confirm convergence on the four-section critique pass.
+
+
+## Round 3 — pr-review-toolkit (2026-05-22T23:30:00Z)
+
+**Agents dispatched:** code-reviewer, silent-failure-hunter, type-design-analyzer (in parallel)
+
+### Items Found
+
+- **code-reviewer:** CLEAN — zero own findings; concurred with all 8 active deferrals (R1-D1..R1-D7, R2-D1). Categories: TDD trail, error escalation, NO-OP contract, encode-timer symmetry/ordering, malformed-blob handling, godoc accuracy.
+- **silent-failure-hunter:** 3 findings (CLEAN: false):
+  - [low] **R3-S1** — empty-branch `cascade_response_encode` timer added in e793e168 has no test pinning it; existing TimingEnabled test only exercises scored path ('anger'). **Decision: fix.**
+  - [low] **R3-S2** — malformed-blob log throttle (first occurrence only) loses lemma identifiers for rows 2..N on partial corruption. **Decision: fix — widen cap to `malformedLogCap = 10` with occurrence index in the log.**
+  - [low] **R3-S3** — `cascade_request_total` records `outcome="scored"` / `"empty_no_gate_pass"` even when `json.NewEncoder.Encode` fails (client disconnect, write error). Pre-existing pattern, but R2 work touched the site. **Decision: fix — branch outcome enum to `scored_encode_error` / `empty_encode_error` when encodeErr != nil.**
+- **type-design-analyzer:** CLEAN — zero own findings; concurred with all 8 active deferrals.
+- **superpowers:** 3 findings (CLEAN: false):
+  - [cosmetic] **R3-OWN-1** — duplicate of R3-S1 (TDD gap on empty-branch encode timer). **Decision: fix via the R3-S1 test addition.**
+  - [cosmetic] **R3-OWN-2** — e793e168 commit message under-states the `stopTotal` ordering normalisation on the empty branch (was before encode block, now after). **Decision: skip — informational; can't retroactively edit commit messages without force-push.**
+  - [low informational] **R3-OWN-3** — R1-D1's rationale "~6 variadic slice allocations" is now stale after round 2's timer.go doc enumerated both closure-literal escape AND variadic-slice costs. **Decision: fix — update R1-D1 wording.**
+- **standards:** CLEAN — zero own findings; concurred with all 8 active deferrals. All 7 standards walked individually against the round-2 fix diff.
+- **ux-designer:** No-op — still no UI files in scope. Counts as adapter-CLEAN for halt purposes.
+
+### Critique Sections
+- **code-reviewer:** categories include test discipline, encode-timer placement, godoc accuracy, throttle correctness. Per-fix evidence cites `go test -run TestGetLemmaEmbeddingsBatch -v` output and code-reading of both encode call sites. `DEFERRAL_LEDGER_REVIEW:` 8/8 concur with per-entry engagement (verified e793e168 didn't change R1-D1 anchor; verified handler_legacy_embedding_error_test.go unchanged for R1-D2; etc.).
+- **silent-failure-hunter:** categories include scan-error escalation, log-flood throttle, encode-error outcome attribution, TDD coverage of new instrumentation. `DEFERRAL_LEDGER_REVIEW:` 8/8 concur — mild challenge note on R2-D1 that a `slog.Debug` could land sooner without M04 dependency, but deferring is defensible.
+- **type-design-analyzer:** categories include error-contract shape, asymmetric-policy documentation, NO-OP-contract honesty, encode-timer symmetry, godoc-vs-comment discipline. `DEFERRAL_LEDGER_REVIEW:` 8/8 concur with explicit verification that round-2 fixes didn't pull territory into scope.
+- **superpowers:** categories include TDD discipline symmetry, semantic-change documentation in commit messages, deferral-rationale freshness. `DEFERRAL_LEDGER_REVIEW:` 8/8 concur with explicit note on R1-D1 cost-envelope drift (raised as R3-OWN-3).
+- **standards:** Standards-checked all 7 individually per file (TDD, Algorithms, Frequent Commits, All Errors, Idempotency, Observability, Coding Style); cross-checked `GetLemmaForSynset` line 495 still returns bare err (R1-D5 still accurate); `_QueryFaultEscalates` rename comment + `_MalformedBlobEscalates` test both walked. `DEFERRAL_LEDGER_REVIEW:` 8/8 concur.
+
+### Fixes Applied
+- **218fad1d** — R3-S1 + R3-S2 + R3-S3. Branch `outcome` on encode error in both cascade response paths; widen malformed-blob log cap to 10 with occurrence index; add `TestCascadeRequest_TimingEnabled_EmptyNoGatePass_EmitsEncodeStage` using 'cat' fixture.
+- **R3-OWN-3 ledger update** — R1-D1 rationale extended to mention closure-literal cost alongside variadic-slice cost (applied inline in this commit's review-log update).
+- **R3-OWN-2 skipped** — informational only; commit message cannot be retroactively edited without force-push.
+
+### Files Modified
+- `api/internal/db/db.go`
+- `api/internal/handler/handler.go`
+- `api/internal/handler/handler_cascade_test.go`
+- `docs/superpowers/review-logs/2026-05-22-m03-pre-m04-deferrals-review.md`
+
+### Test Results
+Full Go suite green: 7 packages PASS. New `TestCascadeRequest_TimingEnabled_EmptyNoGatePass_EmitsEncodeStage` passes against 'cat' fixture.
+
+### Cumulative Status
+Total rounds: 3 | Items resolved: 17 (R1: 8, R2: 6, R3: 3) | Active deferrals: 8 (R1-D1..R1-D7 + R2-D1, with R1-D1 rationale extended) | Superseded/closed deferrals: 0 | Elapsed: ~110m
+
+`last_reviewer_pre_fix_sha = fcb11b85`
+
+## Round 3 — superpowers (2026-05-22T23:30:00Z)
+
+3 own findings (R3-OWN-1, R3-OWN-2, R3-OWN-3) — R3-OWN-1 fixed via R3-S1 test; R3-OWN-2 skipped (informational); R3-OWN-3 fixed via ledger rationale update. `DEFERRAL_LEDGER_REVIEW:` 8/8 concur. Returned `CLEAN: false`.
+
+## Round 3 — standards (2026-05-22T23:30:00Z)
+
+**Standards sources:** `/home/agent/.claude/CLAUDE.md` · `/home/agent/projects/metaforge/CLAUDE.md`
+
+**CLEAN: true.** Walked all 7 standards individually against round-2 fix diff; no new drift. `fixes_reviewed:` all 3 round-2 commits per-standard; all `correct: yes`. `DEFERRAL_LEDGER_REVIEW:` 8/8 concur.
+
+## Round 3 — ux-designer (2026-05-22T23:30:00Z)
+
+**No-op** — no UI files in scope (round-2 + round-3 fixes touched only Go backend + docs). Counts as adapter-CLEAN.
+
+---
+
+### Round 3 — Severity Assessment & Stop Nudge
+
+Items fixed this round (by severity):
+- 3 low (R3-S1/R3-OWN-1, R3-S2, R3-S3)
+- 1 low informational (R3-OWN-3 — ledger rationale)
+- 0 important / critical / cosmetic
+
+Cumulative: round 1 fixed 8, round 2 fixed 6, round 3 fixed 4; 8 active deferrals (1 new R2-D1, rest from round 1).
+
+Trend: severities decreasing (round 1: 2 important; round 2: 1 important; round 3: 0 important). 3 of 5 adapters CLEAN this round.
+
+**Stop nudge: APPROACHING.** Last 2 rounds all low/cosmetic. One more round expected to confirm convergence on the four-section critique pass.
 
