@@ -45,6 +45,11 @@ FIXTURE_SCHEMA = """
         salience_sum REAL NOT NULL DEFAULT 1.0,
         PRIMARY KEY (synset_id, cluster_id)
     );
+    CREATE TABLE synset_concreteness (
+        synset_id TEXT PRIMARY KEY,
+        score     REAL NOT NULL,
+        source    TEXT NOT NULL
+    );
 """
 
 FIXTURE_DATA = """
@@ -63,6 +68,11 @@ FIXTURE_DATA = """
         ('S002', 2, 3, 'exact', 1.0, 0.7),
         ('S003', 3, 4, 'exact', 1.0, 0.5),
         ('S004', 4, 5, 'exact', 1.0, 0.5);
+    INSERT INTO synset_concreteness (synset_id, score, source) VALUES
+        ('S001', 2.0, 'brysbaert'),   -- anger    (abstract topic)
+        ('S002', 4.5, 'brysbaert'),   -- fire     (concrete vehicle)
+        ('S003', 2.5, 'brysbaert'),   -- approach (abstract)
+        ('S004', 2.4, 'brysbaert');   -- coming   (abstract)
 """
 
 
@@ -1090,3 +1100,466 @@ def test_main_logs_warning_when_some_variations_fail(tmp_path, caplog, monkeypat
         if r.levelno == logging.WARNING and "sweep finish" in r.getMessage()
     ]
     assert finish_warnings, "expected a WARNING 'sweep finish' record on partial failure"
+
+
+# --- M03 cascade evaluator integration --------------------------------------
+
+def test_cascade_variation_runs_through_sweep(tmp_path):
+    """A variation with `evaluator: cascade` must dispatch through the
+    cascade module and produce a row carrying the standard fields the
+    aptness evaluator returns (separation_score, aptness_rate, etc.).
+    """
+    _, cfg = _base_config(tmp_path, [
+        {
+            "name": "cascade_default",
+            "evaluator": "cascade",
+            "concreteness_threshold": 1.0,
+            "ortony_scoring": "jaccard_salience",
+            "d_cap": 0.77,
+            "alpha": 0.5,
+            "composition": "multiplicative",
+        },
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+
+    assert len(result["variations"]) == 1
+    row = result["variations"][0]
+    assert row["status"] == "ok", row
+    assert row["name"] == "cascade_default"
+    # Shape parity with aptness rows
+    for k in ("separation_score", "aptness_rate", "mean_apt_score",
+              "mean_inapt_score", "n_apt", "n_inapt", "threshold"):
+        assert k in row, f"cascade row missing {k}"
+
+
+def test_cascade_variation_carries_attrition_counters(tmp_path):
+    """Cascade rows must surface gate-drop / missing-concreteness /
+    no-properties / unresolved / rerank counters per cohort so the sweep
+    JSON is self-sufficient for the ablation table.
+
+    Strengthened beyond presence + isinstance(int) to assert specific
+    counter values for the fixture cohort AND the rerank conservation
+    law (``rerank_applied + rerank_skipped == n_<cohort>``). Without
+    the conservation assertion a silent-fail class survives — a future
+    refactor that, say, forgets to increment ``rerank_skipped`` in the
+    fail-open branch would still trip presence checks while quietly
+    underreporting attrition. Pin the law, not just the shape.
+
+    Fixture cohort behaviour (anger→fire apt, approach/coming inapt;
+    concreteness_threshold=1.0, no synset_centroids table):
+      * apt cohort: 1 pair, passes gate (fire=4.5), scores 1, no
+        centroid table → rerank_skipped=1, rerank_applied=0.
+      * inapt cohort: 1 pair, fails gate (approach=2.5, coming=2.4),
+        gate_dropped=1, scores 0 → no rerank counters increment.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {
+            "name": "cascade_default",
+            "evaluator": "cascade",
+            "concreteness_threshold": 1.0,
+        },
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    row = result["variations"][0]
+    assert row["status"] == "ok", row
+    # Attrition counters present and integer-typed.
+    for k in ("apt_gate_dropped", "inapt_gate_dropped",
+              "apt_missing_concreteness", "inapt_missing_concreteness",
+              "apt_unresolved", "inapt_unresolved"):
+        assert k in row, f"cascade row missing {k}"
+        assert isinstance(row[k], int)
+    # Specific counter values for the fixture cohort — pins the cascade's
+    # gate/attrition behaviour on a known-shape input. apt fire (4.5)
+    # passes the 1.0 threshold; inapt approach (2.5) / coming (2.4) both
+    # fail asymmetrically and at least one drops.
+    assert row["apt_gate_dropped"] == 0, row
+    assert row["inapt_gate_dropped"] == 1, row
+    assert row["apt_missing_concreteness"] == 0
+    assert row["apt_unresolved"] == 0
+    # Conservation law per cohort: every pair the cascade scored
+    # end-to-end either got the re-rank applied or skipped it; pairs
+    # the gate dropped never reach the re-rank stage and don't appear
+    # in either counter. Net: ``rerank_applied + rerank_skipped ==
+    # <cohort>_scored`` (NOT ``n_<cohort>`` — n_apt counts both scored
+    # and gate_dropped because gate-dropped pairs append 0.0 to the
+    # cohort scores list). Regression target: the silent-fail class
+    # where a fail-open branch forgets to increment rerank_skipped.
+    for cohort in ("apt", "inapt"):
+        applied = row[f"{cohort}_rerank_applied"]
+        skipped = row[f"{cohort}_rerank_skipped"]
+        scored = row[f"{cohort}_scored"]
+        assert applied + skipped == scored, (
+            f"{cohort} rerank conservation broken: applied={applied} "
+            f"+ skipped={skipped} != {cohort}_scored={scored}"
+        )
+    # Fixture-specific rerank values: synset_centroids table is absent,
+    # so every scored pair falls through to rerank_skipped. apt has 1
+    # scored pair → apt_rerank_skipped=1; inapt was gate-dropped → 0.
+    assert row["apt_rerank_applied"] == 0
+    assert row["apt_rerank_skipped"] == 1
+    assert row["inapt_rerank_applied"] == 0
+    assert row["inapt_rerank_skipped"] == 0
+
+
+def test_cascade_and_aptness_variations_coexist(tmp_path):
+    """One sweep config can mix `evaluator: cascade` and the default
+    aptness evaluator — required for the Stage-1 ablation table where
+    no-gate cascade variations reproduce M02 baselines alongside the
+    full cascade variants.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {"name": "m02_jaccard", "scoring": "jaccard_salience"},
+        {
+            "name": "m03_cascade",
+            "evaluator": "cascade",
+            "concreteness_threshold": 1.0,
+            "alpha": 0.5,
+        },
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    statuses = {v["name"]: v["status"] for v in result["variations"]}
+    assert statuses == {"m02_jaccard": "ok", "m03_cascade": "ok"}
+
+
+def test_cascade_unknown_ortony_scoring_fails_variation_not_sweep(tmp_path):
+    """A bad ortony_scoring name should fail just that variation —
+    matches the existing isolation contract for aptness scoring typos.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {"name": "good", "evaluator": "cascade",
+         "concreteness_threshold": 1.0, "ortony_scoring": "jaccard_salience"},
+        {"name": "bad",  "evaluator": "cascade",
+         "concreteness_threshold": 1.0, "ortony_scoring": "nonexistent"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    statuses = {v["name"]: v["status"] for v in result["variations"]}
+    assert statuses == {"good": "ok", "bad": "failed"}
+
+
+def test_cascade_evaluator_rejects_unknown_value_at_config_boundary(tmp_path):
+    """`evaluator: not_a_real_evaluator` must fail at config-load, not
+    at runtime — matches the strict-allow-list pattern for `scoring`.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {"name": "v1", "evaluator": "bogus_evaluator"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    with pytest.raises(ValueError, match="evaluator"):
+        load_sweep_config(str(cfg_path))
+
+
+def test_cascade_concreteness_threshold_must_be_numeric(tmp_path):
+    """Type-check at the config boundary — a string concreteness_threshold
+    silently coerces to a comparison error mid-sweep, which is a footgun.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {"name": "v1", "evaluator": "cascade",
+         "concreteness_threshold": "not_a_number"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    with pytest.raises(ValueError, match="concreteness_threshold"):
+        load_sweep_config(str(cfg_path))
+
+
+def test_cascade_composition_must_be_in_allowlist(tmp_path):
+    """Composition typo (`mult` vs `multiplicative`) caught at config
+    boundary, not at evaluation time."""
+    _, cfg = _base_config(tmp_path, [
+        {"name": "v1", "evaluator": "cascade", "composition": "mult"},
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    with pytest.raises(ValueError, match="composition"):
+        load_sweep_config(str(cfg_path))
+
+
+def test_load_sweep_config_rejects_negative_alpha(tmp_path):
+    """alpha < 0 is mathematically meaningless in the cascade scoring
+    composition — reject at the boundary so a sign-flip typo cannot
+    silently corrupt a sweep variation's separation score."""
+    pytest.importorskip("yaml")
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("""
+name: bad
+db: /dev/null
+pairs: /dev/null
+controls: /dev/null
+variations:
+  - name: oops
+    evaluator: cascade
+    alpha: -0.5
+    ortony_scoring: jaccard_salience
+""")
+    with pytest.raises(ValueError, match="alpha must be >= 0"):
+        load_sweep_config(str(cfg))
+
+
+def test_load_sweep_config_rejects_nonpositive_d_cap(tmp_path):
+    """d_cap == 0 collapses the cascade cap to a no-op and d_cap < 0 is
+    meaningless. Reject at the boundary symmetrically with alpha."""
+    pytest.importorskip("yaml")
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("""
+name: bad
+db: /dev/null
+pairs: /dev/null
+controls: /dev/null
+variations:
+  - name: oops
+    evaluator: cascade
+    d_cap: 0.0
+    ortony_scoring: jaccard_salience
+""")
+    with pytest.raises(ValueError, match=r"d_cap must be > 0"):
+        load_sweep_config(str(cfg))
+
+
+def test_load_sweep_config_rejects_scoring_under_cascade(tmp_path):
+    """`evaluator: cascade` + `scoring: ...` is a silent footgun — the
+    cascade path consumes `ortony_scoring` only, so the `scoring` key
+    drops on the floor and the variation runs with whichever
+    `ortony_scoring` default the cascade module picks. Reject at the
+    config boundary to keep an operator from wasting sweep compute."""
+    pytest.importorskip("yaml")
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("""
+name: bad
+db: /dev/null
+pairs: /dev/null
+controls: /dev/null
+variations:
+  - name: oops
+    evaluator: cascade
+    scoring: cosine_salience
+    ortony_scoring: jaccard_salience
+""")
+    with pytest.raises(ValueError, match="'scoring' key is not valid for evaluator=cascade"):
+        load_sweep_config(str(cfg))
+
+
+def test_load_sweep_config_rejects_cascade_keys_under_aptness(tmp_path):
+    """Cascade-only keys (alpha, d_cap, etc.) under an aptness variation
+    are silent no-ops — the aptness evaluator never reads them. Reject
+    at the config boundary so a copy-paste error doesn't waste compute."""
+    pytest.importorskip("yaml")
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("""
+name: bad
+db: /dev/null
+pairs: /dev/null
+controls: /dev/null
+variations:
+  - name: oops
+    scoring: jaccard_salience
+    alpha: 0.5
+""")
+    with pytest.raises(ValueError, match="cascade-only keys"):
+        load_sweep_config(str(cfg))
+
+
+def test_ok_row_carries_rerank_counters(tmp_path):
+    """Cross-module contract: cascade emits ``rerank_applied`` +
+    ``rerank_skipped`` (collapsed single-bucket — see the in-code comment
+    at ``_score_cascade_cohort``); the sweep OK row must surface both as
+    ``apt_``/``inapt_`` prefixed fields.
+
+    Regression target: round-1 fix ``f6f9bf09`` declared
+    ``rerank_skipped_missing_centroid`` + ``rerank_skipped_zero_norm``
+    on the sweep side, but the producer only ever emits the collapsed
+    ``rerank_skipped`` bucket — so the forwarder's ``if agg_key in agg``
+    guard was always False and the counters silently dropped at the
+    sweep boundary.
+
+    Conservation-law assertion: every scored pair either gets the
+    re-rank or skips it, so for each cohort
+    ``rerank_applied + rerank_skipped == <cohort>_scored``. NOT
+    ``n_<cohort>`` — gate-dropped pairs contribute to ``n_<cohort>``
+    with score=0.0 but never reach the re-rank stage, so they don't
+    increment either rerank counter. See the sibling test
+    ``test_ok_row_rerank_conservation_holds_when_apt_pair_gate_drops``
+    which pins the distinction on a fixture where the apt pair fails
+    the concreteness gate.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {
+            "name": "cascade_rerank",
+            "evaluator": "cascade",
+            "concreteness_threshold": 1.0,
+        },
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+
+    row = result["variations"][0]
+    assert row["status"] == "ok", row
+    # Both rerank counters must be present (NOT the split-bucket variants
+    # the f6f9bf09 fix mistakenly declared).
+    for k in ("apt_rerank_applied", "apt_rerank_skipped",
+              "inapt_rerank_applied", "inapt_rerank_skipped"):
+        assert k in row, f"OK row missing {k} (silent forwarder drop?)"
+        assert isinstance(row[k], int)
+    # The split-bucket fields the buggy fix invented must NOT appear —
+    # if they do, someone re-introduced the producer/consumer drift.
+    for k in ("apt_rerank_skipped_missing_centroid",
+              "apt_rerank_skipped_zero_norm",
+              "inapt_rerank_skipped_missing_centroid",
+              "inapt_rerank_skipped_zero_norm"):
+        assert k not in row, f"phantom split-bucket key {k} resurfaced"
+    # Conservation law per cohort: every pair the cascade scored
+    # end-to-end either got the re-rank applied or skipped it. Pairs
+    # the gate dropped append 0.0 to the cohort scores list (so they
+    # count toward ``n_<cohort>``) but never reach the re-rank stage,
+    # so they do NOT increment either rerank counter. Net: the right
+    # denominator is ``<cohort>_scored``, not ``n_<cohort>``. This
+    # fixture happens to have zero gate-dropped apt pairs (apt delta
+    # 2.5 ≥ threshold 1.0), so the two denominators coincide here —
+    # the sibling test ``test_ok_row_rerank_conservation_holds_when_apt_pair_gate_drops``
+    # pins the distinction on a fixture where they diverge.
+    assert (
+        row["apt_rerank_applied"] + row["apt_rerank_skipped"]
+        == row["apt_scored"]
+    ), (
+        f"apt rerank conservation broken: applied={row['apt_rerank_applied']} "
+        f"+ skipped={row['apt_rerank_skipped']} != apt_scored={row['apt_scored']}"
+    )
+
+
+def test_ok_row_rerank_conservation_holds_when_apt_pair_gate_drops(tmp_path):
+    """Pin the rerank conservation law on a fixture where the apt pair
+    actually fails the concreteness gate. ``n_apt`` counts the gate-
+    dropped pair (gate-drop appends score=0.0 to the cohort scores
+    list), but rerank counters do NOT — gate-dropped pairs never reach
+    the re-rank stage. So the correct denominator is ``apt_scored``,
+    NOT ``n_apt``.
+
+    Regression target: R2 commit 8c0d2306 added
+    ``test_ok_row_carries_rerank_counters`` with the n_apt denominator.
+    That test passes only by fixture coincidence (the default fixture
+    has zero gate-dropped apt pairs, so apt_scored == n_apt). R3 caught
+    the drift; this test would have failed under the n_apt assertion,
+    so it pins the distinction explicitly.
+
+    Fixture: bump ``concreteness_threshold`` to 3.0 so the apt pair
+    (anger=2.0 → fire=4.5, delta=2.5) fails the gate. n_apt becomes
+    1 (gate-drop appends 0.0), apt_scored becomes 0, apt_gate_dropped
+    becomes 1 — and the apt rerank counters must both be 0.
+    """
+    _, cfg = _base_config(tmp_path, [
+        {
+            "name": "cascade_apt_gate_drops",
+            "evaluator": "cascade",
+            # 3.0 > apt delta of 2.5 → apt pair fails the gate.
+            "concreteness_threshold": 3.0,
+        },
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+
+    row = result["variations"][0]
+    assert row["status"] == "ok", row
+    # Sanity: the apt pair really did gate-drop on this fixture.
+    assert row["apt_gate_dropped"] >= 1, (
+        f"fixture precondition broken — expected ≥1 apt gate-drop, "
+        f"got {row['apt_gate_dropped']} (row: {row})"
+    )
+    # The load-bearing assertion: applied + skipped == apt_scored.
+    # Under the bogus n_apt denominator this would fail because
+    # n_apt > apt_scored (n_apt counts gate-dropped pairs, scored does
+    # not increment for them).
+    assert (
+        row["apt_rerank_applied"] + row["apt_rerank_skipped"]
+        == row["apt_scored"]
+    ), (
+        f"apt rerank conservation broken: applied={row['apt_rerank_applied']} "
+        f"+ skipped={row['apt_rerank_skipped']} != apt_scored={row['apt_scored']} "
+        f"(n_apt={row['n_apt']}, gate_dropped={row['apt_gate_dropped']})"
+    )
+    # And explicitly: n_apt == apt_scored + apt_gate_dropped — the
+    # other half of the cohort accounting that justifies why the
+    # rerank denominator must be apt_scored, not n_apt.
+    assert row["n_apt"] == row["apt_scored"] + row["apt_gate_dropped"], (
+        f"cohort accounting broken: n_apt={row['n_apt']} != "
+        f"apt_scored={row['apt_scored']} + apt_gate_dropped={row['apt_gate_dropped']}"
+    )
+
+
+def test_ok_row_carries_degenerate_cohort_when_apt_cohort_empty(tmp_path):
+    """Cross-module contract: cascade puts ``degenerate_cohort`` inside
+    ``result['aggregate']`` (NOT at top-level ``result``); the sweep OK
+    row must surface it.
+
+    Regression target: round-1 fix ``f6f9bf09`` read from ``result``
+    (top-level) instead of ``result['aggregate']`` — the key was never
+    found and the flag never threaded into the sweep JSON.
+
+    Fixture: an apt pair referencing words absent from the lemmas table
+    so the cascade attrits via the ``unresolved`` branch and the apt
+    cohort empties — ``len(apt_scores) == 0`` flips the degenerate flag.
+    """
+    db_path = tmp_path / "fixture.db"
+    _build_fixture_db_file(db_path)
+    # Apt pair words deliberately absent from the lemmas table — cascade
+    # routes them through the unresolved branch, which does NOT append
+    # to scores. Net: apt_scores is empty, degenerate_cohort = True.
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps([
+        {"source": "nonexistent_word_a", "target": "nonexistent_word_b",
+         "tier": "strong"},
+    ]))
+    controls_file = tmp_path / "controls.jsonl"
+    controls_file.write_text(
+        '{"target": "approach", "paraphrase": "coming", "label": "inapt"}\n'
+    )
+    cfg = {
+        "name": "degen_test",
+        "db": str(db_path),
+        "pairs": str(pairs_file),
+        "controls": str(controls_file),
+        "variations": [
+            {"name": "c", "evaluator": "cascade",
+             "concreteness_threshold": 1.0},
+        ],
+    }
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+
+    row = result["variations"][0]
+    assert row["status"] == "ok", row
+    # Sanity: apt cohort really did empty out via attrition.
+    assert row["n_apt"] == 0
+    # The contract: degenerate_cohort surfaced from result['aggregate'].
+    assert "degenerate_cohort" in row, (
+        "degenerate_cohort missing — forwarder is reading the wrong key "
+        "(top-level result instead of result['aggregate'])"
+    )
+    assert row["degenerate_cohort"] is True
+
+
+def test_aptness_evaluator_default_when_omitted(tmp_path):
+    """If `evaluator` is omitted, the variation runs through the existing
+    aptness path. Backwards-compat: M02-era sweep configs keep working
+    unchanged."""
+    _, cfg = _base_config(tmp_path, [
+        {"name": "legacy", "scoring": "jaccard_salience"},  # no evaluator key
+    ])
+    cfg_path = tmp_path / "sweep.json"
+    cfg_path.write_text(json.dumps(cfg))
+    result = run_sweep_fn(cfg, config_path=str(cfg_path))
+    row = result["variations"][0]
+    assert row["status"] == "ok"
+    # Aptness rows DON'T carry cascade-specific attrition counters.
+    assert "apt_gate_dropped" not in row

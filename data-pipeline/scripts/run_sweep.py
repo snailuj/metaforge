@@ -57,15 +57,21 @@ log = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
 
 
-class OkVariationResult(TypedDict):
+class OkVariationResult(TypedDict, total=False):
     """Successful variation row. ``status`` is the discriminator.
 
     ``false_positive_rate`` is preserved alongside ``aptness_rate`` because
     consumers (sweep-report tooling) compare them as a pair when judging
     a variation; dropping it would silently regress those reports.
+
+    The M03 cascade evaluator surfaces additional attrition counters
+    (``apt_gate_dropped`` etc.) as optional fields. ``total=False`` makes
+    them ``NotRequired`` at the TypedDict layer while keeping the core
+    fields as runtime invariants enforced by `_run_one_variation`.
     """
     status: Literal["ok"]
     name: str
+    evaluator: str
     scoring: str
     threshold_percentile: float
     threshold: float
@@ -77,6 +83,42 @@ class OkVariationResult(TypedDict):
     n_apt: int
     n_inapt: int
     duration_ms: float
+    # M03 cascade-only fields (NotRequired in practice — present iff evaluator == 'cascade')
+    concreteness_threshold: float
+    ortony_scoring: str
+    d_cap: float
+    alpha: float
+    composition: str
+    apt_gate_dropped: int
+    inapt_gate_dropped: int
+    apt_missing_concreteness: int
+    inapt_missing_concreteness: int
+    apt_unresolved: int
+    inapt_unresolved: int
+    apt_no_properties: int
+    inapt_no_properties: int
+    # Sister to the rerank counters: count of pairs that passed the gate
+    # and scored end-to-end. Needed for the rerank conservation law
+    # (rerank_applied + rerank_skipped == scored) at the sweep boundary.
+    apt_scored: int
+    inapt_scored: int
+    # Cascade rerank diagnostics — present iff evaluate_cascade emits
+    # these counters; absent rows silently no-op via the threading guard
+    # in `_run_one_variation`. The producer collapses missing-centroid +
+    # zero-norm into a single ``rerank_skipped`` bucket (see the in-code
+    # comment at _score_cascade_cohort for the rationale); the sweep
+    # surface mirrors that shape verbatim so the contract holds end-to-end.
+    apt_rerank_applied: int
+    inapt_rerank_applied: int
+    apt_rerank_skipped: int
+    inapt_rerank_skipped: int
+    # Cohort-degeneracy flag — set by evaluate_cascade when the cohort
+    # collapses to a single-class distribution that invalidates the
+    # separation_score. The producer stores it inside ``result["aggregate"]``
+    # (not top-level result); the forwarder reads from `agg` so the
+    # ablation reader can filter degenerate variations without
+    # re-computing the predicate.
+    degenerate_cohort: bool
 
 
 class FailedVariationResult(TypedDict):
@@ -104,11 +146,30 @@ VariationResult = Union[OkVariationResult, FailedVariationResult]
 
 class VariationSpec(TypedDict):
     name: str
+    evaluator: NotRequired[str]   # "aptness" (default) | "cascade"
     scoring: NotRequired[str]
     threshold_percentile: NotRequired[float]
+    # M03 cascade-only fields — ignored when evaluator != 'cascade'.
+    concreteness_threshold: NotRequired[float]
+    ortony_scoring: NotRequired[str]
+    d_cap: NotRequired[float]
+    alpha: NotRequired[float]
+    composition: NotRequired[str]
 
 
 ALLOWED_VARIATION_KEYS = frozenset(VariationSpec.__annotations__.keys())
+ALLOWED_EVALUATORS = ("aptness", "cascade")
+ALLOWED_COMPOSITIONS = ("multiplicative", "additive")
+
+# Cross-key validation: cascade and aptness evaluators have disjoint
+# hyperparam sets. A variation that combines them (e.g. `evaluator: cascade`
+# + `scoring: ...`) silently drops the wrong-side key — the kind of bug
+# that wastes a sweep's compute before anyone notices.
+_CASCADE_ONLY_KEYS = frozenset({
+    "concreteness_threshold", "ortony_scoring",
+    "d_cap", "alpha", "composition",
+})
+_APTNESS_ONLY_KEYS = frozenset({"scoring"})
 
 
 class SweepConfig(TypedDict):
@@ -247,6 +308,83 @@ def load_sweep_config(path: str) -> SweepConfig:
                     f"{sorted(evaluate_aptness.SCORING_FNS)}"
                 )
 
+        # M03: `evaluator` (when set) must be in the allow-list. A bare
+        # typo (`cascadr`) is a silent footgun otherwise — the variation
+        # would default to aptness with cascade fields ignored.
+        if "evaluator" in var:
+            ev = var["evaluator"]
+            if ev not in ALLOWED_EVALUATORS:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: unknown "
+                    f"evaluator {ev!r}; valid: {list(ALLOWED_EVALUATORS)}"
+                )
+
+        # Cross-key validation: evaluator and hyperparam keys must agree.
+        # Without this check, `evaluator: cascade` + `scoring: ...` silently
+        # drops `scoring` (cascade picks up `ortony_scoring` only); likewise
+        # cascade-only keys under the default aptness path are silent no-ops.
+        # Both cases waste compute on a misconfigured sweep.
+        evaluator_kind = var.get("evaluator", "aptness")
+        if evaluator_kind == "cascade":
+            if "scoring" in var:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: 'scoring' "
+                    f"key is not valid for evaluator=cascade — use "
+                    f"'ortony_scoring' instead. (The 'scoring' key was "
+                    f"being silently ignored.)"
+                )
+        elif evaluator_kind == "aptness":
+            misplaced = var.keys() & _CASCADE_ONLY_KEYS
+            if misplaced:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: cascade-only "
+                    f"keys {sorted(misplaced)} are not valid for "
+                    f"evaluator=aptness"
+                )
+
+        # M03 cascade hyperparameter type-checks. The cascade module
+        # itself validates these at runtime, but a sweep config typo
+        # (e.g. `concreteness_threshold: "1.0"` quoted as a string)
+        # should crash at load-time not after the first variation runs.
+        for numeric_key in ("concreteness_threshold", "d_cap", "alpha"):
+            if numeric_key in var:
+                val = var[numeric_key]
+                if isinstance(val, bool) or not isinstance(val, (int, float)):
+                    raise ValueError(
+                        f"sweep config {path}: variation {name!r}: "
+                        f"{numeric_key!r} must be a number, got {val!r} "
+                        f"({type(val).__name__})"
+                    )
+        # Range checks for cascade hyperparams: a negative alpha or a
+        # non-positive d_cap are mathematically meaningless and would
+        # corrupt the scoring composition silently. Mirror the rest of
+        # the validator: fail fast, name the variation, show the bad value.
+        if "alpha" in var and var["alpha"] < 0.0:
+            raise ValueError(
+                f"sweep config {path}: variation {name!r}: alpha must be "
+                f">= 0, got {var['alpha']}"
+            )
+        if "d_cap" in var and var["d_cap"] <= 0.0:
+            raise ValueError(
+                f"sweep config {path}: variation {name!r}: d_cap must be "
+                f"> 0, got {var['d_cap']}"
+            )
+        if "ortony_scoring" in var:
+            os_value = var["ortony_scoring"]
+            if os_value not in evaluate_aptness.SCORING_FNS:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: unknown "
+                    f"ortony_scoring {os_value!r}; valid: "
+                    f"{sorted(evaluate_aptness.SCORING_FNS)}"
+                )
+        if "composition" in var:
+            comp = var["composition"]
+            if comp not in ALLOWED_COMPOSITIONS:
+                raise ValueError(
+                    f"sweep config {path}: variation {name!r}: unknown "
+                    f"composition {comp!r}; valid: {list(ALLOWED_COMPOSITIONS)}"
+                )
+
         # threshold_percentile must lie in [0, 100]. Out-of-range values
         # silently clamp to min/max sample inside `_percentile`, which is
         # a true silent fallback (no log, no signal). Reject at the schema
@@ -332,21 +470,28 @@ def _run_one_variation(
 ) -> VariationResult:
     """Run a single variation. Returns a tagged-union result.
 
+    Routes by the variation's ``evaluator`` field (default 'aptness'):
+      * 'aptness' — calls evaluate_aptness.evaluate as the M01/M02 path
+      * 'cascade' — calls evaluate_cascade.evaluate_cohort, surfaces the
+        cascade-specific attrition counters in the OK row
+
     On any exception (unknown scoring, DB error, malformed input) the
     failure is captured into a :class:`FailedVariationResult` with the
     exception type and message split into separate fields — the sweep
     continues.
     """
-    # `name` is validator-enforced (load_sweep_config requires every
-    # variation to declare a non-empty string name) — direct key access
-    # narrows from Optional[str] to str.
     name = variation["name"]
-    scoring = variation.get("scoring", evaluate_aptness.DEFAULT_SCORING)
+    evaluator = variation.get("evaluator", "aptness")
     threshold_percentile = float(variation.get("threshold_percentile", 95.0))
 
+    if evaluator == "cascade":
+        scoring = variation.get("ortony_scoring", "jaccard_salience")
+    else:
+        scoring = variation.get("scoring", evaluate_aptness.DEFAULT_SCORING)
+
     log.info(
-        "variation start: name=%s scoring=%s threshold_pct=%g",
-        name, scoring, threshold_percentile,
+        "variation start: name=%s evaluator=%s scoring=%s threshold_pct=%g",
+        name, evaluator, scoring, threshold_percentile,
     )
     started = time.perf_counter()
     try:
@@ -354,21 +499,44 @@ def _run_one_variation(
         # independent and avoids cross-variation transaction state.
         conn = sqlite3.connect(db_path)
         try:
-            result = evaluate_aptness.evaluate(
-                conn=conn,
-                pairs_file=pairs_file,
-                controls_file=controls_file,
-                threshold_percentile=threshold_percentile,
-                db_path=db_path,
-                scoring=scoring,
-            )
+            if evaluator == "cascade":
+                # Local import keeps evaluate_cascade out of the import
+                # graph for legacy aptness-only sweeps.
+                from evaluate_cascade import CascadeConfig, evaluate_cohort
+
+                cfg = CascadeConfig(
+                    concreteness_threshold=float(variation.get(
+                        "concreteness_threshold", 1.0,
+                    )),
+                    ortony_scoring=scoring,
+                    d_cap=float(variation.get("d_cap", 0.77)),
+                    alpha=float(variation.get("alpha", 0.5)),
+                    composition=variation.get("composition", "multiplicative"),
+                )
+                result = evaluate_cohort(
+                    conn=conn,
+                    pairs_file=pairs_file,
+                    controls_file=controls_file,
+                    config=cfg,
+                    threshold_percentile=threshold_percentile,
+                    db_path=db_path,
+                )
+            else:
+                result = evaluate_aptness.evaluate(
+                    conn=conn,
+                    pairs_file=pairs_file,
+                    controls_file=controls_file,
+                    threshold_percentile=threshold_percentile,
+                    db_path=db_path,
+                    scoring=scoring,
+                )
         finally:
             conn.close()
     except Exception as exc:  # noqa: BLE001 — per-variation isolation is required
         duration_ms = round((time.perf_counter() - started) * 1000, 2)
         log.warning(
-            "variation failed: name=%s scoring=%s error=%s",
-            name, scoring, exc, exc_info=True,
+            "variation failed: name=%s evaluator=%s scoring=%s error=%s",
+            name, evaluator, scoring, exc, exc_info=True,
         )
         failed: FailedVariationResult = {
             "status": "failed",
@@ -384,14 +552,15 @@ def _run_one_variation(
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
     agg = result["aggregate"]
     log.info(
-        "variation finish: name=%s scoring=%s separation=%.4f "
+        "variation finish: name=%s evaluator=%s scoring=%s separation=%.4f "
         "aptness=%.4f n_apt=%d n_inapt=%d duration_ms=%g",
-        name, scoring, result["separation_score"],
+        name, evaluator, scoring, result["separation_score"],
         result["aptness_rate"], agg["n_apt"], agg["n_inapt"], duration_ms,
     )
     ok: OkVariationResult = {
         "status": "ok",
         "name": name,
+        "evaluator": evaluator,
         "scoring": scoring,
         "threshold_percentile": threshold_percentile,
         "threshold": result["config"]["threshold"],
@@ -404,6 +573,47 @@ def _run_one_variation(
         "n_inapt": agg["n_inapt"],
         "duration_ms": duration_ms,
     }
+    if evaluator == "cascade":
+        # Surface the cascade hyperparameters + cohort attrition counters
+        # on the OK row so the sweep JSON is self-sufficient for the
+        # M03 ablation table.
+        ok["concreteness_threshold"] = result["config"]["concreteness_threshold"]
+        ok["ortony_scoring"] = result["config"]["ortony_scoring"]
+        ok["d_cap"] = result["config"]["d_cap"]
+        ok["alpha"] = result["config"]["alpha"]
+        ok["composition"] = result["config"]["composition"]
+        for attrition_key in (
+            "apt_gate_dropped", "inapt_gate_dropped",
+            "apt_missing_concreteness", "inapt_missing_concreteness",
+            "apt_unresolved", "inapt_unresolved",
+            "apt_no_properties", "inapt_no_properties",
+            # ``<cohort>_scored`` is the cohort's "passed gate + scored
+            # end-to-end" count. Sister counter to the rerank pair so the
+            # conservation law (rerank_applied + rerank_skipped == scored)
+            # can be evaluated from the sweep JSON without re-running
+            # cascade — pinning that law catches the silent-fail class
+            # where a fail-open branch forgets to increment one bucket.
+            "apt_scored", "inapt_scored",
+        ):
+            ok[attrition_key] = int(agg.get(attrition_key, 0))
+        # Cascade rerank diagnostics — only surface when evaluate_cascade
+        # actually emits them. Forward-compatible: a build that hasn't
+        # added these counters yet silently no-ops here, the OK row just
+        # omits the key (TypedDict total=False makes this safe). The
+        # producer collapses missing-centroid + zero-norm into a single
+        # ``rerank_skipped`` bucket — these suffixes must match the
+        # producer's keys verbatim or the counters silently drop.
+        for rerank_suffix in ("rerank_applied", "rerank_skipped"):
+            for cohort_prefix in ("apt", "inapt"):
+                agg_key = f"{cohort_prefix}_{rerank_suffix}"
+                if agg_key in agg:
+                    ok[agg_key] = int(agg[agg_key])
+        # Degenerate-cohort flag lives inside `result["aggregate"]`, not
+        # at the top level — read from `agg` (not `result`) or it never
+        # threads through. Surface it verbatim so the ablation reader can
+        # filter out invalid separation scores.
+        if "degenerate_cohort" in agg:
+            ok["degenerate_cohort"] = bool(agg["degenerate_cohort"])
     return ok
 
 

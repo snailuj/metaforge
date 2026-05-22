@@ -43,14 +43,16 @@ If both predictions hold, the cascade should lift `separation_score` from ≈0 (
 
 ### Stage 1 — Concreteness gate
 
-For each candidate pair `(A, B)`, look up `synset_concreteness.score` for each synset (1–5 Brysbaert scale; FastText-regression-imputed scores carry `source='fasttext_regression'`). Define the gate:
+For each candidate pair `(topic, vehicle)`, look up `synset_concreteness.score` for each synset (1–5 Brysbaert scale; FastText-regression-imputed scores carry `source='fasttext_regression'`). Define the gate:
 
 ```
-abs(score_A - score_B) >= concreteness_threshold  → pass through to stage 2
-abs(score_A - score_B) <  concreteness_threshold  → drop (score = 0)
+score_vehicle - score_topic >= concreteness_threshold  → pass through to stage 2
+score_vehicle - score_topic <  concreteness_threshold  → drop (score = 0)
 ```
 
-The threshold is a hyperparameter to sweep. Initial range to test: **0.5–1.5** Brysbaert points. A threshold of 0.0 reduces to "no gate" (the M02 baseline). A threshold of ≥3.0 keeps only sharply-asymmetric pairs.
+The gate is **signed**, not absolute. The pre-flight diagnostic ([`M03-S01-preflight-findings.md`](M03-S01-preflight-findings.md)) showed apt-cohort signed delta has mean +1.81 (median +2.03) on the M02 baseline DB while inapt sits at +0.08 (median 0.00). The directionality *is* the signal — Lakoff's concrete-vehicle-to-abstract-topic asymmetry — and an absolute-value gate would throw it away. **Pair-ordering convention:** the fixture's first lemma is the topic, the second is the vehicle (`metaphor_pairs_v2.json` uses `source`/`target` field names where `source` = topic and `target` = vehicle; this matches the M02 evaluator's existing call shape).
+
+Sweep range: **0.5 → 0.75 → 1.0 → 1.25 → 1.5 → 1.75 → 2.0** Brysbaert points, plus a `threshold=−∞` no-gate control. Threshold ≤ 0 reduces to "no gate" (the M02 baseline). Threshold ≥ 3.0 keeps only sharply-asymmetric pairs and falls outside the apt-cohort p95 of +3.06 — sweep ceiling guidance from the diagnostic.
 
 Pairs missing concreteness on either side fail closed (no score). The M02 retro's cohort-shape diagnostic must run on whatever cohort survives the gate — gate-induced cohort skew is the first thing to verify.
 
@@ -66,17 +68,18 @@ For each pair surviving the gate, compute the cosine distance between the synset
 d(A, B) = 1 - cosine(synset_centroids[A], synset_centroids[B])  ∈ [0, 2]
 ```
 
-Apply a triangular reward window centred on an intermediate distance:
+Apply a **monotonic-up-to-cap** reward (revised from the original triangular-window plan after pre-flight findings showed the inapt MUNCH cohort doesn't sample the "too far is nonsensical" arm at all — apt pairs are far at median 0.70, inapt paraphrase pairs cluster close at median 0.24, so the gradient that discriminates is simply *more distance = better, up to a cap*):
 
 ```
-re_rank_bonus(d) = max(0, 1 - |d - d_target| / d_window)
+re_rank_bonus(d) = clip(d / d_cap, 0.0, 1.0)
 final_score = ortony_score * (1 + alpha * re_rank_bonus(d))
 ```
 
 Hyperparameters to sweep:
-- `d_target` — the centre of the "ideal" cross-domain distance. Initial guess: median apt-pair distance from the M02 balanced cohort. Compute first, sweep around it.
-- `d_window` — width of the reward window.
-- `alpha` — re-rank strength (0.0 reduces to no re-rank; 1.0 doubles the score at peak distance).
+- `d_cap` — saturation point above which extra distance no longer helps. Initial value **0.77** (apt p75 from the pre-flight diagnostic). Sweep around it: 0.5 / 0.65 / 0.77 / 0.9 / 1.0.
+- `alpha` — re-rank strength (0.0 reduces to no re-rank; 1.0 doubles the score at peak distance). Sweep 0.0 / 0.25 / 0.5 / 1.0.
+
+**Missing-centroid handling: fail-open.** If either side lacks a centroid (sparse coverage — only 18-19% of pre-purge cohort pairs have both centroids), set `re_rank_bonus = 0` and let the Ortony score stand alone. Penalising lack of data would conflate algorithmic effect with coverage effect, and the Stage-2 rebuild lifts coverage substantially without any algorithmic change. The triangular-window-around-intermediate-target shape is preserved as an option for any future M03 work that adopts a synthetic-matched-inapt cohort (S04-E from the M02-S04 retro's deferred queue).
 
 ### Composition contract
 
@@ -128,8 +131,8 @@ Both stages publish:
 - **Tier 1 (composed harness):** `separation_score` on the full cascade ≥ 0.05 (absolute) above the M02 plateau ceiling of +0.06. Operationally: `cascade_separation - random_uniform_separation ≥ 0.05`.
 - **Tier 2 (ablation cleanliness):** running each stage independently (pipeline-only, +gate, +rank, +re-rank) shows monotonic lift OR identifies which stage carries the signal. A cascade where the lift is entirely in one stage is a publishable narrative on its own.
 - **Tier 3 (Lakoff predictions, harness-independent):**
-  1. Apt MUNCH pairs show target-more-concrete-than-source asymmetry under Brysbaert ground truth (signed concreteness delta > 0 with p < 0.05).
-  2. Apt pairs cluster at intermediate centroid distance — a Kolmogorov-Smirnov test against the inapt-pair distance distribution rejects the null at p < 0.05.
+  1. Apt pairs show target-more-concrete-than-source asymmetry under Brysbaert / FastText-imputed concreteness (signed concreteness delta > 0 with p < 0.05). **Already confirmed pre-S01** — apt mean +1.81, t ≈ 35.7, p effectively 0 ([preflight findings](M03-S01-preflight-findings.md)).
+  2. Apt pairs occupy higher cross-domain centroid distance than inapt paraphrase pairs (one-sided Mann-Whitney U or KS test, p < 0.05). **Re-framed from the original "cluster at intermediate distance"** — the inapt MUNCH cohort doesn't sample the too-far arm, so the testable direction on this cohort is "apt > inapt", not "apt at intermediate". Apt median 0.70 vs inapt median 0.24 in the pre-flight; formal test pending S03.
 
 ### Stage 2 (production — required to ship)
 
@@ -144,9 +147,9 @@ Both stages publish:
 ## Open questions
 
 - **Where does the cascade evaluator live?** Options: (a) extend `evaluate_aptness.py` with a parallel evaluator that the existing CLI routes to via a flag; (b) new `evaluate_cascade.py` that imports `evaluate_aptness`'s primitives; (c) widen `ScoringFn` contract so the cascade fits into `SCORING_FNS` as a single callable. **Leaning toward (a)** — keeps the eval surface unified, avoids two CLIs, and the contract widening is anyway the M04/M05 substrate.
-- **Concreteness threshold sweep range.** Initial 0.5–1.5 Brysbaert points is a guess from inspecting a handful of apt pairs. Refine by computing the apt-pair concreteness-delta distribution on the M02 balanced cohort *before* designing the sweep.
-- **What `d_target` initialises to.** Same answer: compute the apt-pair centroid-distance distribution first, centre the initial sweep on its median.
-- **Should the gate use Brysbaert-only scores, or include the FastText-regression imputed scores?** Brysbaert-only halves the cohort coverage (52k / 73k synsets). FastText-imputed scores extend coverage but may carry model error correlated with the property substrate (the same FastText vectors built the centroids). **Pre-flight investigation needed:** sample 100 imputed scores, manually rate, measure imputation accuracy. Hold the decision until then.
+- ~~**Concreteness threshold sweep range.**~~ **Resolved 2026-05-18 via pre-flight diagnostic** — sweep 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 1.75 / 2.0 plus no-gate control. Apt-cohort p25 is +1.24 and p95 is +3.06, so the sweep covers the meaningful operating range.
+- ~~**What `d_target` initialises to.**~~ **Resolved 2026-05-18 via pre-flight diagnostic** — `d_target` removed; reward shape changed to monotonic-up-to-cap with `d_cap` initial value 0.77 (apt p75). Sweep range 0.5 / 0.65 / 0.77 / 0.9 / 1.0.
+- ~~**Should the gate use Brysbaert-only scores, or include the FastText-regression imputed scores?**~~ **Resolved 2026-05-18 via pre-flight diagnostic** — Brysbaert-only and all-sources distributions are statistically indistinguishable on the apt/inapt cohort (apt mean +1.83 vs +1.81; inapt mean +0.07 vs +0.08). Use the full `synset_concreteness` table. See [`M03-S01-preflight-findings.md`](M03-S01-preflight-findings.md).
 - **Does the cascade compose multiplicatively or additively?** The Stage-3 formula above is multiplicative-on-Ortony. Additive (`final = ortony + alpha * bonus`) is a credible alternative. Both should appear in the Stage-1 sweep.
 
 ## Non-goals for M03
@@ -169,12 +172,12 @@ Each slice is its own commit set. Slices ≥ S03 are findings-doc-bearing — ke
 
 ## Pre-flight checklist before starting S01
 
-- [ ] **Pre-purge backup tagged for retention.** Create `lexicon_v2.db.pre-purge-20260517.keep-for-m03-baseline` next to the DB so the backlog cleanup script (when written) skips it.
-- [ ] **M02 retro merged to main.** M03's eval-harness assumptions inherit from the retro's cohort-shape diagnostics and sensorimotor prompt — don't fork off until those are first-class on main.
-- [ ] **Concreteness-delta + centroid-distance distributions characterised.** Run two one-shot diagnostic scripts on the M02 balanced cohort. These set the initial sweep ranges so we're not guessing.
-- [ ] **FastText-imputed concreteness accuracy spot-checked.** 100-sample manual rating; if accuracy is poor, M03 starts with the Brysbaert-only-gate variant first and adds FastText-imputed as a later sweep.
+- [x] **Pre-purge backup tagged for retention.** Sentinel `lexicon_v2.db.pre-purge-20260517.keep-for-m03-baseline` committed alongside the snapshot.
+- [ ] **M02 retro merged to main.** M03's eval-harness assumptions inherit from the retro's cohort-shape diagnostics and sensorimotor prompt — don't fork off until those are first-class on main. *(Deferred — branched `m03/cascade-gate-and-rank` from current `m02/asymmetric-ortony-scoring` HEAD; will rebase onto main once the M02 integration PR lands.)*
+- [x] **Concreteness-delta + centroid-distance distributions characterised.** [`M03-S01-preflight-findings.md`](M03-S01-preflight-findings.md) + raw JSON at `data-pipeline/output/m03_preflight_diagnostics.json`. Sweep ranges set in the Background section above.
+- [x] **FastText-imputed concreteness accuracy spot-checked.** Brysbaert-only vs all-sources distributions statistically indistinguishable on the cohort — imputation is reliable enough; the gate uses the full `synset_concreteness` table. *(Done as a side-channel of the concreteness-delta diagnostic — both variants ran, side by side.)*
 - [ ] **Read M01 S03 sensitivity findings.** The `±0.02` noise band on this cohort is the floor below which differences are noise; M03's success criteria reference numbers above that floor.
-- [ ] **Confirm `synset_centroids` coverage.** Spot-check: every synset that appears in apt or inapt pairs has a centroid. If coverage is partial, design the missing-centroid fail-closed behaviour up front.
+- [x] **Centroid coverage characterised.** 18-19% of cohort pairs have centroids on both sides (49 / 274 apt, 272 / 1447 inapt). The cascade fails open on missing centroids — `re_rank_bonus = 0`, the Ortony score still stands. Stage 2 (post-curated-rebuild) lifts coverage substantially. See [`M03-S01-preflight-findings.md`](M03-S01-preflight-findings.md).
 
 ## Strategic note — what M03's failure mode looks like
 

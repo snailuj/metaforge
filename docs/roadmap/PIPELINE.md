@@ -13,7 +13,12 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Next
 
-- **M03 — Cascade Gate-and-Rank** — concreteness gate → Ortony rank → domain-distance re-rank. Restructures the pipeline from pointwise formula choice (M02 territory) to structural primitives. Wires in concreteness prediction (already available via `synset_concreteness`) and domain-distance re-rank.
+- **M04 — Cosine-Sim Candidate Generation** *(promoted to Next 2026-05-21 on M03-S05 close)* — add an ANN index over `synset_centroids` so the Forge can surface cross-domain candidates that share no curated cluster (anger→fire, idea→light, time→money). M03's cascade re-rank already discriminates these; M03-S05 smoke testing confirmed the Go endpoint can't currently expose them — they're filtered out by the cluster-overlap candidate CTE before scoring. M04 unions ANN-band candidates with the existing cluster-overlap set; cascade re-ranks across both. Same infrastructure feeds The Bridge's embedding-prefilter A*.
+  - Why before type-alignment: optimising the *scoring* of a candidate set that systematically excludes apt cross-domain pairs is peak diminishing returns. Broadening the set first delivers the eval-cohort lift; M05 type-alignment then sharpens that richer set.
+  - Detail doc: [`M04-cosine-candidate-gen-roadmap.md`](M04-cosine-candidate-gen-roadmap.md)
+  - Depends on: M03 (done)
+
+- **M03 — Cascade Gate-and-Rank** *(Stages 1 + 2 complete 2026-05-20)* — concreteness gate → Ortony rank → domain-distance re-rank. Restructures the pipeline from pointwise formula choice (M02 territory) to structural primitives. Wires in concreteness prediction (already available via `synset_concreteness`) and domain-distance re-rank.
   - Why now: M02 — Asymmetric Ortony Scoring closed empirically negative on 2026-05-16. Every variant in the pointwise-property-overlap family (symmetric, asymmetric, null) landed within ±0.06 of zero separation on a balanced cohort. The pointwise approach is exhausted; structural primitives are the next available lever.
   - **Inherits from M02's retro work**:
     - Trustworthy eval harness on a balanced cohort (random_uniform = +0.0068 ≈ 0, apt 271 / inapt 978, 67% MUNCH retention vs 22% before)
@@ -32,15 +37,17 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Queued
 
-- **M04 — Type-Aligned Structural Matching** — preserve property types during snap, type-diversity bonus in scoring. Lightweight approximation of SME isomorphic subgraph matching using data the pipeline already extracts.
-  - Depends on: M03
-- **M05 — Novelty Tracking** *(optional for MVP, valuable for Substack narrative)* — MuseScorer-style dynamic buckets, creative yield curve dashboard metric. Additive measurement layer.
+- **M05 — Type-Aligned Structural Matching** *(renumbered from M04 on 2026-05-21)* — preserve property types during snap, type-diversity bonus in scoring. Lightweight approximation of SME isomorphic subgraph matching using data the pipeline already extracts.
+  - Depends on: M03, M04 (richer candidate set makes type-alignment higher-leverage)
+- **M06 — Novelty Tracking** *(renumbered from M05 on 2026-05-21; optional for MVP, valuable for Substack narrative)* — MuseScorer-style dynamic buckets, creative yield curve dashboard metric. Additive measurement layer.
   - Depends on: M03
 - **The Bridge** *(new feature, surfaced during M02-S04 close on 2026-05-16)* — dual of the Forge: given source AND target, return the path through wordspace linking them. Graph search rather than ranking; different mechanism class than pointwise scoring. Two product values:
   - **Explanatory:** "anger → fire" returns the conceptual chain (e.g. `anger → heat → consuming → destruction → fire`), surfacing the metaphor's mechanism for users
   - **Inapt cohort generation:** weak/no-path queries can semi-supervisedly produce inapt examples, expanding the eval cohort beyond MUNCH
   - Algorithmic notes: branching factor ~78/hop, mitigated via salience-weighted edges, bidirectional BFS, embedding-prefilter A*, concreteness gradient, and a precomputed cluster-cluster adjacency matrix. 2-3 hops covers most apt metaphors.
-  - Cost: ~2 days to shippable demo. Independent of M03/M04/M05 — could slot in any time.
+  - Architectural framing *(added 2026-05-21)*: Forge and Bridge share the same language structure — concept-senses as nodes, semantic relations as edges, concreteness gradient, type-aware features. They differ at the *traversal* layer (1-hop frontier vs bidirectional A*), not the substrate. Extract the shared `metaphor` package (graph + cascade + candidate gens) before building the Bridge; both orchestrators then sit on top cleanly. See M04 roadmap doc for the structure-vs-orchestrator argument.
+  - Dependency on M04: M04's ANN index over `synset_centroids` IS the Bridge's embedding-prefilter A* layer. Building M04 first reduces the Bridge from "2 days from scratch" to ~1.5 days of orchestration on top of shared infrastructure.
+  - Cost: ~2 days to shippable demo if built before M04; ~1.5 days if built after.
 
 ## Backlog (no clear slot yet)
 
@@ -77,6 +84,7 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Done (newest first)
 
+- **M03-S05 — Forge integration into Go API** *(landed 2026-05-21, branch `m03/cascade-gate-and-rank`)* — cascade scoring wired into `api/internal/forge` + `api/internal/handler` behind `--cascade` flag / `METAFORGE_FORGE_CASCADE=1` env var. Per-request hot path: 2 DB queries + N in-memory map lookups via `CascadeCache` (~50 MB at startup, eliminates ~4× per-candidate DB hops). SQL gate-pushdown via `shared_gated` CTE keeps query under 2 s on broad-coverage lemmas (vs 200 s without the CTE refactor). Scoring-math parity with Python verified to ±1e-6 by `cascade_parity_test.go` against the 4 scored crib pairs (anger→fire, idea→light, time→money, truth→hammer). Crib: [`2026-05-21-m03-s05-smoke-test-crib.md`](../plans/2026-05-21-m03-s05-smoke-test-crib.md); plan: [`2026-05-21-m03-s05-forge-integration.md`](../plans/2026-05-21-m03-s05-forge-integration.md). Surfaced finding: classical cross-domain metaphor pairs share no curated cluster between primary synsets, so the Go endpoint can't surface them today — broadening the candidate set via ANN over `synset_centroids` is the **M04 — Cosine-Sim Candidate Generation** milestone.
 - **M02 — Asymmetric Ortony Scoring** *(closed empirically negative 2026-05-16)* — built three asymmetric scoring variants (`ortony_vehicle_salience`, `ortony_imbalance`, `ortony_log_ratio`) and exercised them via the M01 eval harness. The S04 retro identified a cohort-shape mismatch confound that was producing artifactual signal on the original sweeps. After the Haiku+sensorimotor rebuild balanced the cohort, **no scoring formula in the pointwise-property-overlap family beats the random_uniform null reference**. M02's algorithmic premise is empirically refuted. What M02 *did* deliver: a trustworthy eval harness on a balanced cohort, the `physical → sensorimotor` prompt rename (5.4 vs 0.8 sensorimotor props per synset), Haiku adopted as production enrichment model, and a cohort-shape diagnostic methodology (S04-A/B) that is now standard eval-harness toolkit. Detail: [`M02-S04-CLOSING-findings.md`](../../data-pipeline/sweeps/M02-S04-CLOSING-findings.md), [`M02-ortony-scoring-roadmap.md`](M02-ortony-scoring-roadmap.md).
 - **Code-review-loop on M01 + snap memory-opt refactor** *(PR [#17](https://github.com/snailuj/metaforge/pull/17) — merged 2026-05-12)* — Holistic 4-round oscillating review (pr-review-toolkit ×3, superpowers, standards). 29 fix commits, 23 new tests (suite 512 → 535), 16 active deferrals captured. Round 4 CLEAN halt. Detail: `docs/superpowers/review-logs/2026-05-08-review-m01-and-snap-memopt-review.md`.
 - **M01 — Automated Eval Harness** *(merged 2026-05-03)* — discriminative aptness evaluator, parameter sweep harness, MUNCH preprocessor, scoring-fn registry, baseline + sensitivity sweep configs, `SENSITIVITY-V2-FINDINGS.md`. S01 V2 Foundation + Aptness Evaluator, S02 Parameter Sweep Harness, S03 Baseline and Sensitivity Validation all delivered. ([roadmap](M01-eval-harness-roadmap.md), [context](M01-eval-harness-context.md))

@@ -378,6 +378,24 @@ def run_pipeline(
         antonym_pairs = build_antonym_table(conn)
         print("  Building cluster antonym pairs...")
         cluster_antonym_pairs = build_cluster_antonym_table(conn)
+        # Centroid build was dropped from the pipeline in commit 3948dedf
+        # (pipeline refactor) and the Go API quietly relied on an
+        # out-of-band run to keep `synset_centroids` populated. M03's
+        # cascade evaluator also reads centroids, so any drift here
+        # silently shrinks the re-rank stage's reach. Restored as a
+        # standard step; idempotent INSERT OR REPLACE so re-runs are
+        # safe. See test_build_synset_centroids.test_run_pipeline_
+        # includes_centroid_step for the regression guard.
+        # Observability note: the rest of run_pipeline emits step-progress
+        # via bare print() for terminal UX. The centroid step uses log.info
+        # so it harmonises with build_synset_centroids' own logging (which
+        # already routes through the `build_synset_centroids` logger for
+        # the per-synset warnings + final summary). Converting the entire
+        # orchestrator to log.* is queued separately — see round-2
+        # code-reviewer-OF-3 / silent-failure-OF-3.
+        log.info("  Building synset centroids...")
+        from build_synset_centroids import build_synset_centroids
+        centroid_count = build_synset_centroids(conn)
     finally:
         conn.close()
 
@@ -392,6 +410,7 @@ def run_pipeline(
         "snapped_properties": sum(snap_stats.values()) - snap_stats.get("dropped", 0),
         "antonym_pairs": antonym_pairs,
         "cluster_antonym_pairs": cluster_antonym_pairs,
+        "synset_centroids": centroid_count,
     }
     print(f"=== Pipeline complete: {stats} ===")
     return stats
