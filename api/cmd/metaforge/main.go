@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/snailuj/metaforge/internal/handler"
+	"github.com/snailuj/metaforge/internal/observe"
 )
 
 func main() {
@@ -22,7 +23,11 @@ func main() {
 	port := flag.String("port", "8080", "Server port")
 	cascade := flag.Bool("cascade", os.Getenv("METAFORGE_FORGE_CASCADE") == "1",
 		"Use M03 cascade scorer on /forge/suggest (default: legacy CompositeScore)")
+	cascadeTiming := flag.Bool("cascade-timing", os.Getenv("METAFORGE_CASCADE_TIMING") == "1",
+		"Emit cascade hot-path timing records (must remain off in production)")
 	flag.Parse()
+
+	observe.Init(*cascadeTiming)
 
 	h, err := handler.NewHandlerWithCascade(*dbPath, *cascade)
 	if err != nil {
@@ -46,7 +51,7 @@ func main() {
 	})
 
 	addr := fmt.Sprintf("127.0.0.1:%s", *port)
-	slog.Info("Metaforge API starting", "addr", addr, "db", *dbPath, "strings", *stringsDir, "cors", *corsOrigin, "cascade", *cascade)
+	slog.Info("Metaforge API starting", "addr", addr, "db", *dbPath, "strings", *stringsDir, "cors", *corsOrigin, "cascade", *cascade, "cascade_timing", *cascadeTiming)
 
 	srv := &http.Server{
 		Addr:         addr,

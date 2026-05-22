@@ -17,6 +17,7 @@ import (
 	"github.com/snailuj/metaforge/internal/db"
 	"github.com/snailuj/metaforge/internal/embeddings"
 	"github.com/snailuj/metaforge/internal/forge"
+	"github.com/snailuj/metaforge/internal/observe"
 	"github.com/snailuj/metaforge/internal/thesaurus"
 )
 
@@ -162,10 +163,17 @@ func (h *Handler) handleSuggestLegacy(w http.ResponseWriter, word string, limit 
 		return
 	}
 
-	// Fetch source lemma embedding for cross-domain distance
+	// D8: lemma-embedding lookups return (nil, nil) for benign cases
+	// ("no embedding row", "table missing") and (nil, err) only for real
+	// DB faults (schema corruption, I/O failures, etc). A real error here
+	// produces silently-degraded composite scores (domainDist = 0 for
+	// every candidate) without any signal to the caller, so escalate to
+	// 500 to match the cascade-path discipline.
 	sourceEmb, err := db.GetLemmaEmbedding(h.database, word)
 	if err != nil {
-		slog.Warn("source embedding lookup failed", "word", word, "err", err)
+		slog.Error("source embedding lookup failed", "word", word, "err", err)
+		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		return
 	}
 
 	// Batch-fetch candidate embeddings
@@ -175,7 +183,9 @@ func (h *Handler) handleSuggestLegacy(w http.ResponseWriter, word string, limit 
 	}
 	candidateEmbs, err := db.GetLemmaEmbeddingsBatch(h.database, candidateWords)
 	if err != nil {
-		slog.Warn("candidate embeddings batch lookup failed", "word", word, "err", err)
+		slog.Error("candidate embeddings batch lookup failed", "word", word, "err", err)
+		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		return
 	}
 
 	var matches []forge.Match
@@ -227,25 +237,39 @@ func (h *Handler) handleSuggestLegacy(w http.ResponseWriter, word string, limit 
 // in-memory map lookups + per-pair pure-function scoring. Source-side
 // data is memoised implicitly via the batch properties map.
 func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit int) {
+	stopTotal := observe.Start("cascade_request_total")
+	slog.Debug("cascade request begin", "word", word, "limit", limit)
+
+	stopCand := observe.Start("cascade_candidates_query")
 	candidates, err := db.GetForgeCascadeCandidatesByLemma(
 		h.database, word, h.cascadeConf.ConcretenessThreshold, limit,
 	)
+	stopCand("word", word, "count", len(candidates))
 	if errors.Is(err, db.ErrLemmaNotFound) {
+		stopTotal("word", word, "outcome", "lemma_not_found")
 		http.Error(w, `{"error": "word not found or has no curated properties"}`, http.StatusNotFound)
 		return
 	}
 	if err != nil {
+		stopTotal("word", word, "outcome", "candidates_error")
 		slog.Error("cascade candidate fetch failed", "word", word, "err", err)
 		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
 		return
 	}
+	slog.Debug("cascade candidates fetched", "word", word, "count", len(candidates))
 	if len(candidates) == 0 {
 		// Lemma is enriched but no gate-pass — return empty 200.
 		resp := SuggestResponse{Source: word, Suggestions: []forge.Match{}}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			slog.Error("failed to encode empty cascade suggest response", "word", word, "err", err)
+		stopEncode := observe.Start("cascade_response_encode")
+		encodeErr := json.NewEncoder(w).Encode(resp)
+		stopEncode("word", word, "suggestion_count", 0)
+		outcome := "empty_no_gate_pass"
+		if encodeErr != nil {
+			slog.Error("failed to encode empty cascade suggest response", "word", word, "err", encodeErr)
+			outcome = "empty_encode_error"
 		}
+		stopTotal("word", word, "outcome", outcome)
 		return
 	}
 
@@ -259,8 +283,11 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 	for id := range idSet {
 		ids = append(ids, id)
 	}
+	stopProps := observe.Start("cascade_batch_props_query")
 	propsByID, err := db.GetSynsetClusterPropertiesBatch(h.database, ids)
+	stopProps("word", word, "synset_ids", len(ids), "rows", len(propsByID))
 	if err != nil {
+		stopTotal("word", word, "outcome", "batch_props_error")
 		slog.Error("cascade batch properties fetch failed", "word", word, "err", err)
 		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
 		return
@@ -276,6 +303,8 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 			"word", word, "candidate_count", len(candidates))
 	}
 
+	stopScore := observe.Start("cascade_scoring_loop")
+	var droppedNonScored int
 	matches := make([]forge.Match, 0, len(candidates))
 	for _, c := range candidates {
 		// Concreteness from the in-memory cache — preserves the *float64
@@ -313,6 +342,7 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 		// the only attrition we can see here is no_properties (curated
 		// props could have been pruned). Drop those from product output.
 		if res.Status != forge.CascadeStatusScored {
+			droppedNonScored++
 			continue
 		}
 
@@ -338,13 +368,27 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 		})
 	}
 
+	stopScore("word", word, "scored", len(matches), "dropped_non_scored", droppedNonScored)
+
+	stopSort := observe.Start("cascade_sort")
 	sortByFinalScore(matches)
+	stopSort("word", word, "matches", len(matches))
+
+	slog.Debug("cascade response ready",
+		"word", word, "candidates", len(candidates), "scored", len(matches),
+		"dropped_non_scored", droppedNonScored)
 
 	resp := SuggestResponse{Source: word, Suggestions: matches}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		slog.Error("failed to encode cascade suggest response", "word", word, "err", err)
+	stopEncode := observe.Start("cascade_response_encode")
+	encodeErr := json.NewEncoder(w).Encode(resp)
+	stopEncode("word", word, "suggestion_count", len(matches))
+	outcome := "scored"
+	if encodeErr != nil {
+		slog.Error("failed to encode cascade suggest response", "word", word, "err", encodeErr)
+		outcome = "scored_encode_error"
 	}
+	stopTotal("word", word, "outcome", outcome, "candidates", len(candidates), "scored_count", len(matches))
 }
 
 func sortByFinalScore(matches []forge.Match) {

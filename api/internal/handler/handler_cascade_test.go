@@ -1,14 +1,18 @@
 package handler
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/snailuj/metaforge/internal/forge"
+	"github.com/snailuj/metaforge/internal/observe"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -214,6 +218,209 @@ func TestSortByFinalScore_AllNilFinalScores_DoesNotPanicOrLoop(t *testing.T) {
 	sortByFinalScore(matches)
 	if len(matches) != 3 {
 		t.Errorf("expected 3 matches preserved, got %d", len(matches))
+	}
+}
+
+func TestCascadeRequest_TimingEnabled_EmitsStageRecords(t *testing.T) {
+	// D20: when METAFORGE_CASCADE_TIMING is on, the hot path must emit
+	// timing records for the recognised stages so operators can build a
+	// latency baseline before M04 broadens the candidate pool. Default
+	// must remain NO-OP per the Observability standard.
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=5", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d: %s", w.Code, w.Body.String())
+	}
+
+	out := buf.String()
+	wantLabels := []string{
+		// Startup-phase labels (emitted during NewHandlerWithCascade →
+		// LoadCascadeCache with timing already enabled by Init above).
+		"cascade_cache_load_total",
+		"cascade_cache_load_concreteness",
+		"cascade_cache_load_centroids",
+		// Request-phase labels.
+		"cascade_request_total",
+		"cascade_candidates_query",
+		"cascade_batch_props_query",
+		"cascade_scoring_loop",
+		"cascade_sort",
+		"cascade_response_encode",
+	}
+	for _, label := range wantLabels {
+		if !strings.Contains(out, `"label":"`+label+`"`) {
+			t.Errorf("expected timing record for %q in output", label)
+		}
+	}
+}
+
+func TestCascadeRequest_TimingEnabled_EmptyNoGatePass_EmitsEncodeStage(t *testing.T) {
+	// R3-S1/R3-OWN-1: the cascade_response_encode timer on the empty
+	// (no-gate-pass) branch was added in round 2 commit e793e168 but the
+	// existing TimingEnabled test only exercises the scored path ('anger'
+	// has gate-pass candidates). This test pins the symmetric instrumentation
+	// using 'cat' — a highly-concrete topic that usually produces an empty
+	// Suggestions list — and asserts that cascade_response_encode AND
+	// cascade_request_total both fire regardless of which branch the request
+	// lands on. Robust against the rare case 'cat' returns scored candidates
+	// because both branches emit the encode label.
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=cat&limit=5", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d: %s", w.Code, w.Body.String())
+	}
+
+	out := buf.String()
+	for _, label := range []string{"cascade_response_encode", "cascade_request_total"} {
+		if !strings.Contains(out, `"label":"`+label+`"`) {
+			t.Errorf("expected timing record for %q regardless of branch, got: %s", label, out)
+		}
+	}
+	// R4-ST3 / R4-S1 tightening: assert this test actually pinned the
+	// empty branch's outcome enum, not just its label presence. If the
+	// fixture drifts so 'cat' starts scoring, this assertion fires and
+	// the test author re-picks a fixture rather than silently moving to
+	// scored-branch coverage.
+	if !strings.Contains(out, `"outcome":"empty_no_gate_pass"`) {
+		t.Errorf("expected outcome=empty_no_gate_pass on this fixture — 'cat' may have started scoring, re-pick fixture or stub candidates: %s", out)
+	}
+}
+
+// failingWriter is an http.ResponseWriter that returns an error from
+// every Write call. Used to exercise the encode-error outcome branches
+// on /forge/suggest cascade paths (R4-OWN-2 / R4-ST2 pins).
+type failingWriter struct {
+	header http.Header
+	code   int
+}
+
+func (f *failingWriter) Header() http.Header {
+	if f.header == nil {
+		f.header = make(http.Header)
+	}
+	return f.header
+}
+
+func (f *failingWriter) Write(p []byte) (int, error) {
+	return 0, fmt.Errorf("simulated write failure")
+}
+
+func (f *failingWriter) WriteHeader(code int) {
+	f.code = code
+}
+
+func TestCascadeRequest_ScoredEncodeError_OutcomeBranches(t *testing.T) {
+	// R4-OWN-2 / R4-ST2 pin: when json.NewEncoder.Encode fails on the
+	// scored path, cascade_request_total must record
+	// outcome="scored_encode_error" rather than the happy "scored".
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=5", nil)
+	w := &failingWriter{}
+	h.HandleSuggest(w, req)
+
+	out := buf.String()
+	if !strings.Contains(out, `"outcome":"scored_encode_error"`) {
+		t.Errorf("expected scored_encode_error outcome on failing writer, got: %s", out)
+	}
+}
+
+func TestCascadeRequest_EmptyEncodeError_OutcomeBranches(t *testing.T) {
+	// R4-OWN-2 / R4-ST2 pin: when json.NewEncoder.Encode fails on the
+	// empty-no-gate-pass path, cascade_request_total must record
+	// outcome="empty_encode_error".
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=cat&limit=5", nil)
+	w := &failingWriter{}
+	h.HandleSuggest(w, req)
+
+	out := buf.String()
+	if !strings.Contains(out, `"outcome":"empty_encode_error"`) {
+		t.Errorf("expected empty_encode_error outcome on failing writer + no-gate-pass fixture, got: %s", out)
+	}
+}
+
+func TestCascadeRequest_TimingDisabled_EmitsNoTimingRecords(t *testing.T) {
+	// Confirms the default off-state really is NO-OP — no timing records
+	// emitted even though the cascade hot path executes.
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=5", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d: %s", w.Code, w.Body.String())
+	}
+
+	out := buf.String()
+	if strings.Contains(out, `"msg":"timing"`) {
+		t.Errorf("expected zero timing records when disabled, got: %s", out)
 	}
 }
 

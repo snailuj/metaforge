@@ -260,7 +260,19 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 		SELECT bs.target_id,
 		       ts.pos,
 		       ts.definition,
-		       l.lemma,
+		       -- D16: pick one lemma per target via a correlated subquery so
+		       -- LIMIT applies to distinct synsets, not lemma-amplified rows.
+		       -- Mirrors the PR1.1 fix on the cascade path; alphabetical-first
+		       -- chosen for the same perf reasons documented in cascade.go
+		       -- (polysemy-ASC ordering costs ~16× on broad-coverage lemmas).
+		       -- Perf note: lemmas has PRIMARY KEY (lemma, synset_id) with
+		       -- no dedicated synset_id index, so SQLite executes this as
+		       -- a SCAN of sqlite_autoindex_lemmas_1 per outer row (see
+		       -- EXPLAIN QUERY PLAN). Bounded by LIMIT ? — fine at <=200
+		       -- but would benefit from idx_lemmas_synset_id when M04
+		       -- broadens the candidate pool. Tracked in the Pipeline
+		       -- Architectural Review backlog (schema-change-management).
+		       (SELECT lemma FROM lemmas WHERE synset_id = bs.target_id ORDER BY lemma LIMIT 1) as lemma,
 		       bs.salience_sum,
 		       COALESCE(bc.contrast_count, 0) as contrast_count,
 		       bs.shared_props,
@@ -270,7 +282,6 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 		FROM best_sense bs
 		JOIN synsets ts ON ts.synset_id = bs.target_id
 		JOIN synsets ss ON ss.synset_id = bs.source_id
-		JOIN lemmas l ON l.synset_id = bs.target_id
 		LEFT JOIN best_contrast bc ON bc.target_id = bs.target_id AND bc.rn = 1
 		WHERE bs.rn = 1
 		ORDER BY bs.salience_sum + COALESCE(bc.contrast_count, 0) DESC
@@ -294,13 +305,15 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 			&m.SalienceSum, &m.ContrastCount, &sharedProps,
 			&m.SourceSynsetID, &m.SourceDefinition, &m.SourcePOS,
 		); err != nil {
-			slog.Warn("scan curated-by-lemma match failed", "err", err)
-			continue
+			return nil, fmt.Errorf("scan curated-by-lemma match: %w", err)
 		}
 
-		// Deduplicate: a synset with multiple lemmas produces multiple rows
+		// Post-D16: SQL CTE returns one row per target by construction (the
+		// SELECT lemma subquery picks one lemma per target). A duplicate
+		// here means the CTE has regressed — fail loud rather than silently
+		// dropping. Mirrors the cascade-side F-R2-2 tripwire.
 		if seen[m.SynsetID] {
-			continue
+			return nil, fmt.Errorf("GetForgeMatchesCuratedByLemma: SQL CTE produced duplicate target %s — CTE regression?", m.SynsetID)
 		}
 		seen[m.SynsetID] = true
 
@@ -367,7 +380,9 @@ func GetSynsetIDForLemma(db *sql.DB, lemma string) (string, error) {
 }
 
 // GetLemmaEmbedding retrieves the FastText embedding for a single lemma.
-// Returns (nil, nil) if the lemma is not found or if the lemma_embeddings table doesn't exist.
+// Returns (nil, nil) for benign absence cases ("no row", "table missing");
+// real DB faults and pipeline-contract violations (malformed BLOB,
+// wrong dimension) escalate via error so callers can route to 500.
 func GetLemmaEmbedding(db *sql.DB, lemma string) ([]float32, error) {
 	var blob []byte
 	err := db.QueryRow("SELECT embedding FROM lemma_embeddings WHERE lemma = ?", lemma).Scan(&blob)
@@ -382,12 +397,37 @@ func GetLemmaEmbedding(db *sql.DB, lemma string) ([]float32, error) {
 		}
 		return nil, fmt.Errorf("GetLemmaEmbedding failed for %s: %w", lemma, err)
 	}
-	return blobconv.BlobToFloats(blob), nil
+	vec := blobconv.BlobToFloats(blob)
+	if vec == nil {
+		// Malformed BLOB (wrong dimension or zero bytes) — pipeline
+		// contract violation. Per-request lookup escalates immediately
+		// so handlers can 500; this is asymmetric with the loader-side
+		// path in cascade_cache.go which log+continue+aggregate to keep
+		// startup tolerant of partial damage.
+		return nil, fmt.Errorf("GetLemmaEmbedding: malformed embedding blob for %s (bytes=%d)", lemma, len(blob))
+	}
+	return vec, nil
 }
+
+// malformedLogCap bounds the per-request count of malformed-blob Error logs
+// before falling back to silent tally. 10 keeps the alert-flood risk small
+// on a fully-corrupted table while preserving enough lemma identifiers for
+// triage when corruption is partial.
+const malformedLogCap = 10
 
 // GetLemmaEmbeddingsBatch retrieves FastText embeddings for multiple lemmas.
 // Returns a map of lemma -> embedding. Missing lemmas are simply absent from the map.
 // Returns (nil, nil) gracefully if the lemma_embeddings table doesn't exist.
+//
+// Real DB faults and pipeline-contract violations (scan failure, malformed BLOB)
+// escalate via error so callers can route to 500. On any error path the
+// partial result accumulated mid-loop is discarded — callers receive
+// (nil, err), never (partialMap, err). This is strict-fail by design: a
+// single malformed BLOB makes the batch unusable for ranking until the
+// pipeline is rebuilt, so silently degrading would mask the contract
+// violation. Contrast with loadCentroids in cascade_cache.go which
+// retains the partial map at startup; the request-time policy is
+// stricter than the startup-time policy.
 func GetLemmaEmbeddingsBatch(db *sql.DB, lemmas []string) (map[string][]float32, error) {
 	if len(lemmas) == 0 {
 		return nil, nil
@@ -412,22 +452,48 @@ func GetLemmaEmbeddingsBatch(db *sql.DB, lemmas []string) (map[string][]float32,
 	}
 	defer rows.Close()
 
+	var malformed int
 	result := make(map[string][]float32)
 	for rows.Next() {
 		var lemma string
 		var blob []byte
 		if err := rows.Scan(&lemma, &blob); err != nil {
-			slog.Warn("scan lemma embedding failed", "err", err)
-			continue
+			// Homogeneous result set — first scan failure is structural
+			// (schema drift, type mismatch). Escalate so callers can 500
+			// rather than silently degrading domain distance.
+			return nil, fmt.Errorf("scan lemma embedding row: %w", err)
 		}
 		vec := blobconv.BlobToFloats(blob)
-		if vec != nil {
-			result[lemma] = vec
+		if vec == nil {
+			// Malformed BLOB — pipeline-contract violation. Log Error
+			// for the first malformedLogCap occurrences (with lemma +
+			// occurrence index so operators can triage each one), then
+			// tally silently so a fully-corrupted table can't flood
+			// alerts. Aggregate count surfaces in the post-loop error
+			// so operators see total damage even past the log cap.
+			if malformed < malformedLogCap {
+				slog.Error("malformed lemma embedding blob",
+					"lemma", lemma, "bytes", len(blob), "occurrence", malformed+1)
+			}
+			malformed++
+			if malformed == malformedLogCap {
+				// Cap boundary marker — emitted exactly once per request
+				// at the transition from logged to silently-tallied,
+				// so the cap event is visible even if a later rows.Err()
+				// short-circuits the post-loop aggregate error.
+				slog.Warn("malformed lemma embedding log cap reached; further occurrences silently tallied",
+					"cap", malformedLogCap)
+			}
+			continue
 		}
+		result[lemma] = vec
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("GetLemmaEmbeddingsBatch iteration error: %w", err)
+	}
+	if malformed > 0 {
+		return nil, fmt.Errorf("GetLemmaEmbeddingsBatch: %d malformed embedding blobs encountered", malformed)
 	}
 
 	return result, nil
