@@ -27,12 +27,21 @@ func Init(on bool) {
 // emits a slog Info record tagged "timing" with the supplied label,
 // elapsed milliseconds, and any extra attrs passed to stop. When timing
 // is disabled, the returned stop function does no slog work and does
-// not call time.Now — but the variadic arg slice at the call site is
-// still constructed by the caller, so "NO-OP" here means "no I/O, no
-// timing arithmetic", not "zero per-call allocation". Callers on hot
-// paths that pass many extras should keep the per-call overhead in
-// mind; for the cascade hot path (≤5 stages per request) it is
-// negligible.
+// not call time.Now — but two per-call costs remain regardless of the
+// feature flag:
+//
+//  1. The closure literal `func(...any) {}` returned on the disabled
+//     path is a fresh function value per call (escape analysis on a
+//     func returning a func usually pushes it to the heap).
+//  2. The variadic arg slice at the call site (e.g. `"word", w,
+//     "candidates", n`) is constructed by the caller before the
+//     no-op closure runs.
+//
+// So "NO-OP" here means "no I/O, no timing arithmetic", not "zero
+// per-call allocation". Callers on hot paths that pass many extras
+// should keep this in mind; for the cascade hot path (≤6 stages per
+// request) the cost is negligible vs the slog and json-encode work
+// the request is already paying for.
 //
 // Two usage patterns are supported:
 //

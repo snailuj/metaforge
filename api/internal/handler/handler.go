@@ -259,12 +259,15 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 	slog.Debug("cascade candidates fetched", "word", word, "count", len(candidates))
 	if len(candidates) == 0 {
 		// Lemma is enriched but no gate-pass — return empty 200.
-		stopTotal("word", word, "outcome", "empty_no_gate_pass")
 		resp := SuggestResponse{Source: word, Suggestions: []forge.Match{}}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			slog.Error("failed to encode empty cascade suggest response", "word", word, "err", err)
+		stopEncode := observe.Start("cascade_response_encode")
+		encodeErr := json.NewEncoder(w).Encode(resp)
+		stopEncode("word", word, "suggestion_count", 0)
+		if encodeErr != nil {
+			slog.Error("failed to encode empty cascade suggest response", "word", word, "err", encodeErr)
 		}
+		stopTotal("word", word, "outcome", "empty_no_gate_pass")
 		return
 	}
 
