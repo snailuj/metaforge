@@ -6,10 +6,7 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Active
 
-- **M02 integration & code-review-loop** *(started 2026-05-16)* — land the M02 retro on main. M02's algorithmic premise closed empirically negative, but the retro artifacts (cohort-shape diagnostic, prompt-rename A/B, Sonnet-vs-Haiku audit, Haiku+SM rebuild scripts, eval-harness improvements) are the durable win and need to be discoverable to future agents. Stage atomic commits → PR → `/code-review-loop` → merge.
-  - Why before M03: M03 leans heavily on the retro's eval-harness improvements and cohort-shape diagnostic methodology. Better that lives on main, not bundled into the M03 PR where it would conflate two milestones.
-  - Scope: ~25 uncommitted retro files (8 atomic commits planned), gitignore additions for runtime lock/DB-backup/checkpoint patterns, PR with retro arc summary.
-  - Branch: `m02/asymmetric-ortony-scoring` (current tip).
+_(none — M03-S05 + the M03-pre-M04 deferrals branch merged 2026-05-22; M04 promoted to Next.)_
 
 ## Next
 
