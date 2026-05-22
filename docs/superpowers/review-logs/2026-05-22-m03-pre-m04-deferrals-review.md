@@ -425,3 +425,68 @@ Trend: 1 adapter CLEAN (type-design with deferred caveats) → 5 adapters with m
 
 **Stop nudge: APPROACHING (round 5 expected to halt).** Last 4 rounds: 2 important, 1 important, 0 important, 2 important (round 4 brought back important via TDD-trail catching missing tests from round 3 — but those are now closed). Round 5 should converge if no new fixes land.
 
+
+## Round 5 — pr-review-toolkit (2026-05-22T23:55:00Z)
+
+**Agents dispatched:** code-reviewer, silent-failure-hunter, type-design-analyzer (in parallel)
+
+### Items Found
+
+- **code-reviewer:** **CLEAN: true.** Zero own findings; 10/10 deferrals concur with engaged reasoning.
+- **silent-failure-hunter:** **CLEAN: true.** Zero own findings. Noted that cap-boundary Warn marker's "fires exactly once" guarantee is structurally provable (`malformed == cap` strict equality on monotonic counter) — below threshold for OWN_FINDINGS. 10/10 deferrals concur.
+- **type-design-analyzer:** **CLEAN: true.** Zero own findings. Walked failingWriter type (test-scoped, correct shape for encode-error path), outcome enum at 7 values (still defensible at this scale per OWN-T1 self-defer rationale), `malformedLogCap` constant locality (now load-bearing at 2 sites in db.go — strengthens R1-D1/D3 cluster deferral). 10/10 deferrals concur.
+- **superpowers:** **CLEAN: false.** 2 findings:
+  - [low] **R5-OWN-1** — Cap-boundary Warn marker added in 72bd9a0b lacks a specific TDD pin. Test exercises the marker at runtime but doesn't assert it fires. **Decision: fix.**
+  - [low] **R5-OWN-2** — `TestGetLemmaEmbeddingsBatch_MalformedBlob_LogCapBounded` only asserts the aggregate-count error; would pass under cap=1 or cap=100. **Decision: fix (same change as R5-OWN-1).**
+- **standards:** **CLEAN: false.** 1 finding:
+  - [low] **R5-ST1** — Same shape as R5-OWN-1 (TDD pin on cap-boundary marker). Reviewer self-recommended defer as R5-D1, but applying the fix in this round closes the trail and prevents a sixth round. **Decision: fix.**
+
+### Critique Sections
+- code-reviewer: 6 categories walked (TDD trail on R3+R4 fixes, encode-error symmetry, cap-marker design, fixture tolerance, atomic-commit pattern recurrence, deferral freshness); explicit "no gaps identified" with files re-checked.
+- silent-failure-hunter: categories include failingWriter mock semantics, cap-boundary trigger fires-once invariant, atomic-commit recurrence, EmbeddingDim contract. Acknowledges R4-D2 captures the bundling pattern that 72bd9a0b also exhibits (third instance this loop).
+- type-design-analyzer: walked outcome enum threshold, malformedLogCap locality reinforcement, failingWriter interface shape (no http.Flusher/Hijacker dependency — cleanly minimal).
+- superpowers: critiqued round-4 superpowers' own fix-acceptance — observed that the "important" R4-OWN-1 finding was closed against an assertion that didn't actually pin the cap *value*. Self-critique surfaced R5-OWN-1/R5-OWN-2.
+- standards: walked all 7 standards individually against the round-4 diff; noted that the cap-boundary Warn marker is itself instrumentation without a TDD pin — same recursion as the round-3-to-round-4 chain.
+
+### Fixes Applied
+- **b1f820cf** — R5-OWN-1 + R5-OWN-2 + R5-ST1. Captures slog output in `TestGetLemmaEmbeddingsBatch_MalformedBlob_LogCapBounded` and asserts (i) exactly `malformedLogCap`=10 Error records emit, (ii) exactly 1 cap-boundary Warn record fires. Closes the TDD trail on the R4-S2 cap-boundary marker.
+
+### Files Modified
+- `api/internal/db/db_test.go`
+
+### Test Results
+Full Go suite green: 7 packages PASS. Tightened test PASSes with new assertions.
+
+### Cumulative Status
+Total rounds: 5 | Items resolved: 25 (R1: 8, R2: 6, R3: 4, R4: 4, R5: 3) | Active deferrals: 10 (R1-D1..R1-D7 + R2-D1 + R4-D1 + R4-D2) | Superseded/closed deferrals: 0 | Elapsed: ~180m
+
+`last_reviewer_pre_fix_sha = 878c3ed7`
+
+## Round 5 — superpowers (2026-05-22T23:55:00Z)
+
+2 own findings (R5-OWN-1, R5-OWN-2 — TDD gaps on cap-boundary marker and cap-value pinning). Both fixed by b1f820cf. `DEFERRAL_LEDGER_REVIEW:` 10/10 concur. Returned `CLEAN: false`.
+
+## Round 5 — standards (2026-05-22T23:55:00Z)
+
+**Standards sources:** `/home/agent/.claude/CLAUDE.md` · `/home/agent/projects/metaforge/CLAUDE.md`
+
+1 own finding (R5-ST1 — TDD gap on cap-boundary marker, duplicate of R5-OWN-1). Fixed by b1f820cf (rather than the self-recommended defer, since the fix is a 3-line slog-buffer assertion and closes the trail in one round). `DEFERRAL_LEDGER_REVIEW:` 10/10 concur. Returned `CLEAN: false`.
+
+## Round 5 — ux-designer (2026-05-22T23:55:00Z)
+
+**No-op** — no UI files in scope. Counts as adapter-CLEAN.
+
+---
+
+### Round 5 — Severity Assessment & Stop Nudge
+
+Items fixed this round (by severity):
+- 3 low (R5-OWN-1, R5-OWN-2, R5-ST1 — duplicate TDD-trail gaps on cap-boundary marker)
+- 0 important / critical / cosmetic
+
+Cumulative: R1: 8, R2: 6, R3: 4, R4: 4, R5: 3 = 25 items resolved across 5 rounds.
+
+Trend: severity strictly decreasing. Round 5 is the first round with **zero important findings** — all 3 pr-review-toolkit subagents returned CLEAN. The only NOT-CLEAN responses were from superpowers + standards, both converging on the same trivial TDD-trail gap which is now closed.
+
+**Stop nudge: STRONG — halt expected in round 6.** Round 5 closed the recursive TDD-trail loop the previous rounds had been catching. Round 6 should see all 5 adapters return CLEAN.
+
