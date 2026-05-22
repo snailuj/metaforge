@@ -82,6 +82,14 @@ Files touched (backend + docs only, no UI):
 - **why_out_of_scope:** Pure log ordering, no functional impact. The fix is a one-line move of the banner above NewHandlerWithCascade, but the banner currently includes the resolved `--cascade-timing` flag value (set by `flag.Parse`) so moving requires careful re-ordering and isn't worth a dedicated commit pre-M04.
 - **proposed_followup:** Fold into the next `cmd/metaforge/main.go` touch (likely the M04 ANN-index startup wiring).
 
+### R2-D1 — handleSuggestLegacy silent domainDist=0 when sourceEmb absent (R2-S4)
+- **status:** active
+- **severity:** low
+- **raised by:** pr-review-toolkit:silent-failure-hunter (round 2)
+- **scope_boundary:** `api/internal/handler/handler.go:194-199` (legacy path). When `GetLemmaEmbedding` returns `(nil, nil)` for a benign-absence case (lemma row exists but no embedding row), every candidate falls through to `domainDist=0` and the response returns 200 with silently-degraded CompositeScore. No log breadcrumb at request time. The cascade path drops such candidates with `CascadeStatusNoProperties` which is at least visible in the response shape; the legacy path leaves no signal.
+- **why_out_of_scope:** Pre-existing legacy behaviour — not introduced by D20/D16/D8. The (nil, nil) contract for `GetLemmaEmbedding` is an explicit design choice (benign absence ≠ error) and predates this branch. The remedy is either a debug-level log or a response-level flag — both are M04-friendly changes (M04's broader candidate set will surface this more often). Folding into M04 keeps the legacy path stable until cascade goes default.
+- **proposed_followup:** Land with M04 ANN-candidate work — by then the cascade path will be the default and the legacy path may be retired or held to the same domainDist-signal discipline as cascade.
+
 ---
 
 ## Round 1 — pr-review-toolkit (2026-05-22T22:00:00Z)
@@ -174,4 +182,81 @@ Items fixed this round (by severity):
 Cumulative: round 1 fixed 8 items; 7 active deferrals (4 architectural → metaphor-package extraction; 2 process/cosmetic; 1 pre-existing).
 
 Stop nudge: N/A — trend not yet established (single round).
+
+
+## Round 2 — pr-review-toolkit (2026-05-22T22:45:00Z)
+
+**Agents dispatched:** code-reviewer, silent-failure-hunter, type-design-analyzer (in parallel)
+
+### Items Found
+
+- **code-reviewer** (3 findings, CLEAN: false):
+  - [important] **R2-P1** — `TestGetLemmaEmbeddingsBatch_RealDBErrorEscalates` does not actually pin SF1's Scan-error branch. The wrong-column-shape table makes `db.Query` fail before `rows.Next()` is reached, so the test exercises a pre-existing escalation path and the SF1 per-row Scan branch (and the new SF2 malformed-tally branch) is unpinned. **Decision: fix.**
+  - [low] **R2-P2** — `GetLemmaEmbeddingsBatch` malformed-tally drops correctly-formed rows on partial corruption; loop comment ("Don't drop the whole batch") contradicts function-level effect (one bad blob → 500). **Decision: fix via doc clarification (strict-fail-by-design is the intended policy; comment + godoc tightened to match).**
+  - [low] **R2-P3** — `cascade_response_encode` timer asymmetric across the two encode call sites (scored vs empty_no_gate_pass). **Decision: fix.**
+- **silent-failure-hunter** (4 findings, CLEAN: false):
+  - [cosmetic] **R2-S1** — timer.go doc says "≤5 stages" but the encode timer adds a 6th. **Decision: fix.**
+  - [cosmetic] **R2-S2** — SF2 fix-comment claims "parallel to cascade_cache.go" but the actual policy is asymmetric (per-request escalate immediately vs loader-side log+continue+aggregate). **Decision: fix via comment clarification.**
+  - [low] **R2-S3** — `GetLemmaEmbeddingsBatch` per-row malformed-blob log can flood alerts if the table is fully corrupted (bounded at ≤200 per request). **Decision: fix — log first occurrence at Error, count silently, aggregate in post-loop error.**
+  - [low] **R2-S4** — `handleSuggestLegacy` silently degrades to `domainDist=0` when `sourceEmb == nil` (benign-absence case). Pre-existing behaviour, not introduced by this branch's commits. **Decision: defer as R2-D1.**
+- **type-design-analyzer** (3 findings, CLEAN: false):
+  - [low] **R2-T1** — encode-stage timer missing on empty-candidates branch (duplicate of R2-P3). **Decision: fix (deduplicated).**
+  - [low] **R2-T2** — `GetLemmaEmbeddingsBatch` doc-comment doesn't explicitly document the (nil, err) discard-partial-map contract. **Decision: fix via godoc clarification.**
+  - [cosmetic] **R2-T3** — observe.Start doc updated in round 1 acknowledges variadic-slice cost but omits the per-call closure construction. **Decision: fix (folded into timer.go doc update).**
+- **superpowers** (CLEAN: true) — no own findings; concurred with all 7 active deferrals (R1-D1..R1-D7).
+- **standards** (CLEAN: true) — no own findings; concurred with all 7 active deferrals.
+
+### Critique Sections
+- **code-reviewer:** `prior_reviewer:` all 5 round-1 reviewers; `categories_checked:` TDD trail, error escalation, CTE tripwire, NO-OP contract, SQL correctness, fixture realism, malformed-blob handling, partial-batch semantics, atomic.Bool, comment-vs-behaviour consistency. `fixes_reviewed:` all 3 round-1 fix commits + round-1 log commit; per-fix verdicts captured above. `ledger_size: 7`; all 7 concurred.
+- **silent-failure-hunter:** Walked 9 categories including scan-error, malformed-BLOB, log-and-continue, log-flood risk, silent fallback, partial-state observability. `fixes_reviewed:` all 4 commits with evidence (BlobToFloats nil contract, EmbeddingDim=300 byte arithmetic, encode-timer placement). `ledger_size: 7`; all 7 concurred.
+- **type-design-analyzer:** Categories include tagged-union shape, encapsulation, pointer-discipline, constructor invariant bypass, variadic-API hot-path, global-flag concurrency, error-contract shape. `fixes_reviewed:` all 4 commits with EmbeddingDim contract verification + closure-allocation cross-check. `ledger_size: 7`; all 7 concurred.
+- **superpowers:** Categories include TDD trail, atomic-commit hygiene, Algorithms/perf, R1-D1/D2/D3 anchor re-validation, observe.Enabled() removal sweep. `fixes_reviewed:` all 4 commits, all `correct: yes`. `ledger_size: 7`; 7/7 concurred.
+- **standards:** All 7 standards walked individually against the round-1 fix diff. `fixes_reviewed:` all 4 commits per-standard; all 4 `correct: yes` with no new drift. `ledger_size: 7`; 7/7 concurred.
+
+### Fixes Applied
+- **c59b673e** — R2-P1 + R2-P2 + R2-S2 + R2-S3 + R2-T2. Rename `TestGetLemmaEmbeddingsBatch_RealDBErrorEscalates` → `_QueryFaultEscalates`; add `TestGetLemmaEmbeddingsBatch_MalformedBlobEscalates` that DOES exercise the SF2 post-loop tally branch. Tighten function godoc on the (nil, err) discard contract. Acknowledge the per-request vs loader-side asymmetry in the SF2 fix comment. Throttle per-row malformed log to first occurrence.
+- **e793e168** — R2-P3 + R2-T1 + R2-S1 + R2-T3. Add encode timer to empty-candidates branch (symmetric coverage). Update timer.go doc: "≤5 stages" → "≤6"; add explicit note on closure-construction cost on the disabled path.
+
+### Files Modified
+- `api/internal/db/db.go`
+- `api/internal/db/db_test.go`
+- `api/internal/handler/handler.go`
+- `api/internal/observe/timer.go`
+
+### Test Results
+Full Go suite green: 7 packages PASS. New `TestGetLemmaEmbeddingsBatch_MalformedBlobEscalates` verified red-then-green (insert 4-byte blob → SF2 escalation fires).
+
+### Cumulative Status
+Total rounds: 2 | Items resolved: 14 (R1: 8, R2: 6) | Active deferrals: 8 (R1-D1..R1-D7 + R2-D1) | Superseded/closed deferrals: 0 | Elapsed: ~75m
+
+`last_reviewer_pre_fix_sha = 5f20ef84`
+
+## Round 2 — superpowers (2026-05-22T22:45:00Z)
+
+**CLEAN: true.** 0 own findings after walking all four passes. `categories_checked:` TDD trail / atomic-commit hygiene / Algorithms-perf / R1-D1/D2/D3 anchor re-validation / observe.Enabled removal sweep / startup ordering. `fixes_reviewed:` all 4 round-1 commits — all `correct: yes` with evidence (file:line re-reads, test reruns). `DEFERRAL_LEDGER_REVIEW.summary:` "all 7 concurred".
+
+## Round 2 — standards (2026-05-22T22:45:00Z)
+
+**Standards sources:** `/home/agent/.claude/CLAUDE.md` · `/home/agent/projects/metaforge/CLAUDE.md`
+
+**CLEAN: true.** Walked all 7 standards individually against the round-1 fix diff; no new drift. `fixes_reviewed:` all 4 commits with explicit per-fix per-standard evidence — TDD red-then-green trail verified; Algorithms/OOM via the documented index gap; All-Errors-Handled via the malformed-blob escalation and aggregate error contract; Idempotency preserved; Observability NO-OP contract honestly documented; Coding-style (YAGNI on Enabled() removal); Frequent-Commits acceptable per atomic intent. `DEFERRAL_LEDGER_REVIEW:` 7/7 concur — all entries have substantive scope_boundary + why_out_of_scope.
+
+## Round 2 — ux-designer (2026-05-22T22:45:00Z)
+
+**No-op** — still no UI files in scope (round-2 fixes touched the same 4 Go files as round-1; no new file types added). Counts as adapter-CLEAN for halt purposes per the scope-detection rule.
+
+---
+
+### Round 2 — Severity Assessment & Stop Nudge
+
+Items fixed this round (by severity):
+- 1 important (R2-P1 — TDD test-coverage gap on SF1/SF2 batch branches)
+- 4 low (R2-P2, R2-P3/R2-T1, R2-S3, R2-T2)
+- 3 cosmetic (R2-S1, R2-S2, R2-T3)
+
+Cumulative: round 1 fixed 8, round 2 fixed 6; 8 active deferrals (1 new pre-existing R2-D1).
+
+Trend: severities decreasing (round 1 had 2 important, round 2 has 1 important on test coverage rather than code-fault). Two adapters (superpowers + standards) returned CLEAN this round — the loop is converging.
+
+Stop nudge: not yet — pr-review-toolkit's three sub-agents all found new items, so the round-1 fixes triggered real (if low-severity) follow-on concerns. One more round to confirm convergence on the four-section critique pass.
 
