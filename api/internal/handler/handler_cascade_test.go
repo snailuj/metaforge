@@ -1,14 +1,17 @@
 package handler
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/snailuj/metaforge/internal/forge"
+	"github.com/snailuj/metaforge/internal/observe"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -214,6 +217,76 @@ func TestSortByFinalScore_AllNilFinalScores_DoesNotPanicOrLoop(t *testing.T) {
 	sortByFinalScore(matches)
 	if len(matches) != 3 {
 		t.Errorf("expected 3 matches preserved, got %d", len(matches))
+	}
+}
+
+func TestCascadeRequest_TimingEnabled_EmitsStageRecords(t *testing.T) {
+	// D20: when METAFORGE_CASCADE_TIMING is on, the hot path must emit
+	// timing records for the recognised stages so operators can build a
+	// latency baseline before M04 broadens the candidate pool. Default
+	// must remain NO-OP per the Observability standard.
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=5", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d: %s", w.Code, w.Body.String())
+	}
+
+	out := buf.String()
+	wantLabels := []string{
+		"cascade_request_total",
+		"cascade_candidates_query",
+		"cascade_batch_props_query",
+		"cascade_scoring_loop",
+		"cascade_sort",
+	}
+	for _, label := range wantLabels {
+		if !strings.Contains(out, `"label":"`+label+`"`) {
+			t.Errorf("expected timing record for %q in output", label)
+		}
+	}
+}
+
+func TestCascadeRequest_TimingDisabled_EmitsNoTimingRecords(t *testing.T) {
+	// Confirms the default off-state really is NO-OP — no timing records
+	// emitted even though the cascade hot path executes.
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=5", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d: %s", w.Code, w.Body.String())
+	}
+
+	out := buf.String()
+	if strings.Contains(out, `"msg":"timing"`) {
+		t.Errorf("expected zero timing records when disabled, got: %s", out)
 	}
 }
 

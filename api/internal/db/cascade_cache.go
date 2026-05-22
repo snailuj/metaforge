@@ -13,6 +13,7 @@ import (
 	"log/slog"
 
 	"github.com/snailuj/metaforge/internal/blobconv"
+	"github.com/snailuj/metaforge/internal/observe"
 )
 
 // CascadeCache holds the per-synset concreteness scores and centroid
@@ -31,18 +32,29 @@ type CascadeCache struct {
 // corruption surfaces loudly rather than silently producing an empty
 // cache that routes every cascade pair to missing_concreteness.
 func LoadCascadeCache(database *sql.DB) (*CascadeCache, error) {
+	stopTotal := observe.Start("cascade_cache_load_total")
 	cache := &CascadeCache{
 		Concreteness: make(map[string]float64, 80000),
 		Centroids:    make(map[string][]float32, 40000),
 	}
 
+	stopConc := observe.Start("cascade_cache_load_concreteness")
 	if err := loadConcreteness(database, cache.Concreteness); err != nil {
+		stopConc("rows", len(cache.Concreteness), "err", err.Error())
+		stopTotal("phase", "concreteness", "err", err.Error())
 		return nil, err
 	}
-	if err := loadCentroids(database, cache.Centroids); err != nil {
-		return nil, err
-	}
+	stopConc("rows", len(cache.Concreteness))
 
+	stopCent := observe.Start("cascade_cache_load_centroids")
+	if err := loadCentroids(database, cache.Centroids); err != nil {
+		stopCent("rows", len(cache.Centroids), "err", err.Error())
+		stopTotal("phase", "centroids", "err", err.Error())
+		return nil, err
+	}
+	stopCent("rows", len(cache.Centroids))
+
+	stopTotal("concreteness_rows", len(cache.Concreteness), "centroid_rows", len(cache.Centroids))
 	slog.Info("cascade cache loaded",
 		"concreteness_rows", len(cache.Concreteness),
 		"centroid_rows", len(cache.Centroids),
