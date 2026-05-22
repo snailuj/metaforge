@@ -17,11 +17,17 @@ The single source of truth for what comes next. Always read this when starting m
   - Why before type-alignment: optimising the *scoring* of a candidate set that systematically excludes apt cross-domain pairs is peak diminishing returns. Broadening the set first delivers the eval-cohort lift; M05 type-alignment then sharpens that richer set.
   - Detail doc: [`M04-cosine-candidate-gen-roadmap.md`](M04-cosine-candidate-gen-roadmap.md)
   - Depends on: M03 (done)
-  - **Deferrals to address as part of M04** *(carried from M03-S05 review log, 2026-05-21)*:
+  - **Deferrals to address as part of M04** *(carried from M03-S05 review log, 2026-05-21, plus M03-pre-M04-deferrals branch close, 2026-05-22)*:
     - **D9** — cascade ordering by salience+contrast vs final_score; revisit ordering criterion once ANN candidates UNION with cluster-overlap.
     - **D15** — IN-clause batch chunking for `GetSynsetClusterPropertiesBatch`; chunk when the candidate set broadens beyond ~1k.
     - **D17** — formalise the centroid-coverage contract and asymmetric centroid-vs-concreteness lookup discipline in the handler.
-  - **Observability prerequisite** *(D20, in flight on `m03/pre-m04-deferrals` branch)*: cascade hot-path timing + per-request trace must land before M04 broadens the candidate pool so we have a latency baseline.
+    - **R2-D1** — `handleSuggestLegacy` silently degrades to `domainDist=0` when `sourceEmb` absent (legacy path's (nil, nil) benign-absence contract leaves no breadcrumb at request time). Land when cascade becomes default — legacy path may be retired or held to cascade's domainDist-signal discipline.
+    - **R1-D7** — `cascade_cache_load_*` timing records emit before the "Metaforge API starting" banner. Cosmetic log-ordering fix; folds into M04's ANN-index startup wiring in `cmd/metaforge/main.go`.
+  - **Cascade-anomaly aggregator** *(new slice, queued for M04 or shortly after)*:
+    - **R1-D4** — `handleSuggestCascade` logs `Error` + continues when batch `propsByID` is empty for all candidates (200 indistinguishable from legitimate no-gate-pass). Wants a runtime row-count tripwire for `synset_properties_curated`.
+    - **R4-D1** — `handler.go:325-328` cache-divergence `Error` log fires per candidate with no per-request cap (asymmetric with the `malformedLogCap` throttle in `db.go`).
+    - Both want the same per-request anomaly aggregator: consolidate per-candidate Error logs into a count tagged on the `cascade_request_total` timing record, plus a startup-style runtime tripwire on cascade-supporting tables.
+  - **Observability prerequisite** *(landed on `m03/pre-m04-deferrals` 2026-05-22)*: cascade hot-path timing + per-request trace + encode-stage outcome attribution + malformed-blob log throttle — latency baseline now collectable before M04 broadens the candidate pool. M04 should re-run the timing-enabled smoke set after wiring ANN candidates to compare against the M03-S05 baseline.
 
 - **M03 — Cascade Gate-and-Rank** *(Stages 1 + 2 complete 2026-05-20)* — concreteness gate → Ortony rank → domain-distance re-rank. Restructures the pipeline from pointwise formula choice (M02 territory) to structural primitives. Wires in concreteness prediction (already available via `synset_concreteness`) and domain-distance re-rank.
   - Why now: M02 — Asymmetric Ortony Scoring closed empirically negative on 2026-05-16. Every variant in the pointwise-property-overlap family (symmetric, asymmetric, null) landed within ±0.06 of zero separation on a balanced cohort. The pointwise approach is exhausted; structural primitives are the next available lever.
@@ -63,6 +69,9 @@ The single source of truth for what comes next. Always read this when starting m
   - JSJSJS — signal-weighted snap (Stage 3 picks highest-aptness target, not highest-cosine) *(still backlog)*
 - **Purge stale DB backups** — `data-pipeline/output/lexicon_v2.db.*-backup` (and `*.pre-purge-*` snapshots) accumulate during destructive operations like the M02-S04 retro and the 2026-05-17 pre-enrichment clean. Each is ~336 MB. They're gitignored so they don't bloat the repo, but they do bloat the worktree volume. Define a retention policy (e.g. keep newest two, archive older to `~/.local/share/metaforge/backups/`, prune anything >30 days unless tagged) and a small `scripts/prune_db_backups.sh` to enforce it. **Required: honour a `<dbname>.keep-for-<reason>` sentinel companion file as a "do not delete" marker** — M03's Stage-1 eval depends on `lexicon_v2.db.pre-purge-20260517` (tagged with `.keep-for-m03-baseline`) and must survive any pruning sweep. Run manually for now; promote to a periodic hook if it becomes a recurring chore.
 - **Pre-existing Go handler test failures** — 8 tests in `api/internal/handler/handler_test.go` failing because the test fixture DB isn't being provided. Confirmed pre-existing at the pre-M01 main HEAD. Worth tackling alongside or just before the M01 review-loop since the reviewer will trip on these.
+- **Sweep-with-next-touch micro-fixes** *(from M03-pre-M04-deferrals review log, 2026-05-22)*:
+  - **R1-D5** — `GetLemmaForSynset` (`api/internal/db/db.go`) returns bare `err` without wrapping. One-line `fmt.Errorf("GetLemmaForSynset failed for %s: %w", synsetID, err)` fix; pick up on the next `db.go` touch (likely the M04 cluster-prop work).
+- **Atomic-commit hygiene — recurring pattern** *(R1-D6 + R4-D2 informational; M03-pre-M04 review log)*: commits `ccfa6c3b` and `218fad1d` each bundled 3-4 logically independent fixes (test + behaviour change + config plumbing). Project standard "Commit after each green test. Small, atomic commits. Never batch up changes" was violated twice in the same loop. Cannot fix retroactively (force-push trade-off). Watch-list item for future review-loop fix dispatches — each finding's fix should land as its own commit. Round-5 commit `b1f820cf` showed the discipline can be restored.
 - **CI/CD pipeline** — referenced in MVP punch list, no dedicated milestone yet
 - **20k-word enrichment** — 8k top-up *in progress as a side-task of M02 — Asymmetric Ortony Scoring S04* (running 2026-05-15, ~52h ETA, ~144 synsets/hour at batch-size 10). Brings DB from ~12k → ~20k enriched synsets. After import (`enrich.sh --from-json`), feeds S04-F re-sweep.
 
@@ -79,14 +88,19 @@ The single source of truth for what comes next. Always read this when starting m
   - Goal: keep `code-as-documentation` of valuable patterns; remove clutter that misleads future contributors.
   - Cost estimate: ~1-day PR for the backfills + relevance audit doc.
 
-- **`metaphor` package extraction & architectural cleanup** *(programme-level; queued for the M04 → Bridge gap)* — extract the shared language structure (concept-senses as nodes, semantic relations as edges, concreteness gradient, type-aware features, cascade scorer, candidate generators) into a small `metaphor` package so Forge and Bridge sit on top as thin orchestrators. See M04 roadmap doc's "language-structure framing" section for the structure-vs-orchestrator argument. Carries the following deferrals from the M03-S05 review log (2026-05-21):
-  - **D1** — Tagged-union refactor for `CascadeResult` (`(Status, *Scored)` shape).
-  - **D2** — Constrained-type discipline for `CascadeStatus` + `Composition` (Valid() methods / constructors).
-  - **D3** — `CascadeCache` encapsulation (unexport maps, add accessors) — pairs with the package extraction.
-  - **D4** — `Match` struct legacy/cascade split (or `GatePassed` → `*bool`) for cleaner JSON wire format.
-  - **D5** — Nil-cache defence in `handleSuggestCascade` (lands when cache lifecycle moves into the package).
-  - **D14** — Port Python `__post_init__` validation into `CascadeConfig.Validate()`.
-  - Cost estimate: ~1-2 day refactor; lands between M04 and The Bridge so the Bridge inherits the package shape on day one.
+- **`metaphor` package extraction & architectural cleanup** *(programme-level; queued for the M04 → Bridge gap)* — extract the shared language structure (concept-senses as nodes, semantic relations as edges, concreteness gradient, type-aware features, cascade scorer, candidate generators) into a small `metaphor` package so Forge and Bridge sit on top as thin orchestrators. See M04 roadmap doc's "language-structure framing" section for the structure-vs-orchestrator argument. Carries the following deferrals:
+  - **From the M03-S05 review log (2026-05-21):**
+    - **D1** — Tagged-union refactor for `CascadeResult` (`(Status, *Scored)` shape).
+    - **D2** — Constrained-type discipline for `CascadeStatus` + `Composition` (Valid() methods / constructors).
+    - **D3** — `CascadeCache` encapsulation (unexport maps, add accessors) — pairs with the package extraction.
+    - **D4** — `Match` struct legacy/cascade split (or `GatePassed` → `*bool`) for cleaner JSON wire format.
+    - **D5** — Nil-cache defence in `handleSuggestCascade` (lands when cache lifecycle moves into the package).
+    - **D14** — Port Python `__post_init__` validation into `CascadeConfig.Validate()`.
+  - **From the M03-pre-M04-deferrals review log (2026-05-22):** the observe-surface redesign cluster — three deferrals converged here independently:
+    - **R1-D1** — `observe.Start` allocates a closure literal + variadic slice on every disabled-path call. Architectural fix is a typed `Timer` struct (or two-method `Stop()` + `StopWith(...)` API) so callers opt into variadic boxing only on the enabled path.
+    - **R1-D2** — `handler_legacy_embedding_error_test.go` bypasses `NewHandlerWithCascade` via direct `&Handler{}` construction. Add a `newHandlerForTest(...)` constructor as part of the Handler-construction discipline rework alongside D3/D5; migrate the test.
+    - **R1-D3** — `observe.enabled` global `atomic.Bool`; race vector under `t.Parallel()`. The observe surface redesign removes the global by injecting `*Timer` through the handler graph.
+  - Cost estimate: ~1-2 day refactor for the core extraction; the observe-surface redesign is ~half a day on top — total ~1.5-2.5 days. Lands between M04 and The Bridge so the Bridge inherits the package shape on day one.
 
 - **Pipeline Architectural Review** *(programme-level; queued after the tooling consolidation chunk above)* — design-level retro on how Metaforge maintains its three data tiers and the schema that holds them. Four lifecycle questions:
   1. **Schema change management.** `SCHEMA.sql` is the canonical DDL but it has drifted from the committed `lexicon_v2.sql` (which is the actual data dump). When a column is added (e.g. `synset_properties.salience` in M01), how does that propagate to (a) fresh-from-PRE_ENRICH DB rebuilds, (b) in-place schema upgrades on the live DB, (c) backwards compatibility for old enrichment JSONs? Today this is implicit and breaks when assumed (see M02-S04 DB-freshness incident on 2026-05-12).
