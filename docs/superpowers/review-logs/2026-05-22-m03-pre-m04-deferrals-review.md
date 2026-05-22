@@ -490,3 +490,95 @@ Trend: severity strictly decreasing. Round 5 is the first round with **zero impo
 
 **Stop nudge: STRONG — halt expected in round 6.** Round 5 closed the recursive TDD-trail loop the previous rounds had been catching. Round 6 should see all 5 adapters return CLEAN.
 
+
+## Round 6 — pr-review-toolkit (2026-05-23T00:30:00Z)
+
+**Agents dispatched:** code-reviewer, silent-failure-hunter, type-design-analyzer (in parallel)
+
+### Items Found
+
+- **code-reviewer: CLEAN: true.** 0 own findings. Walked 7 categories (TDD trail, encode-error symmetry, cap-marker design, atomic-commit pattern, deferral freshness, etc.). 10/10 deferrals concur with engaged per-entry reasoning.
+- **silent-failure-hunter: CLEAN: true.** 0 own findings. Walked 6 categories including cap-value pin correctness, cap-boundary marker fires-once invariant, slog buffer capture lifecycle, substring-match selector specificity. Notes R2-D1 + R1-D4 + R4-D1 remain the three silent-failure-shaped deferrals; all correctly anchored. 10/10 concur.
+- **type-design-analyzer: CLEAN: true.** 0 own findings. Re-validated outcome enum at 7 values (still defensible), failingWriter mock shape, malformedLogCap locality. 10/10 concur.
+
+### Critique Sections
+- **code-reviewer:** "Three of five round-5 adapters returned CLEAN; the two NOT-CLEAN responses (superpowers R5-OWN-1/-2, standards R5-ST1) flagged the same trivial TDD-trail recursion and applied the fix in-round rather than deferring — sound process choice that prevents a sixth bounce." No prior-finding gap.
+- **silent-failure-hunter:** "Test-only commit lands cleanly. The slog-buffer pattern is reusable for the next throttled-log instrumentation that needs a TDD pin (worth folding into a tiny test helper if a third caller emerges, but YAGNI says wait). No type-design regressions; no new surface area introduced." No prior-finding gap.
+- **type-design-analyzer:** "Prior type-design passes hit every type-shape concern that could plausibly land in this branch's scope. The R5 self-critique that re-opened R4-OWN-1 was a model of receiving-code-review discipline." Fully converged.
+
+### Files Modified
+None this round.
+
+### Test Results
+Full Go suite green: 7 packages PASS. The R5 test (TestGetLemmaEmbeddingsBatch_MalformedBlob_LogCapBounded) verified fresh non-cached.
+
+### Cumulative Status
+Total rounds: 6 | Items resolved: 25 | Active deferrals: 10 | Superseded/closed: 0 | Elapsed: ~205m
+
+## Round 6 — superpowers (2026-05-23T00:30:00Z)
+
+**CLEAN: true.** 0 own findings. Categories walked: TDD trail completeness, slog-buffer pattern correctness, atomic-commit hygiene of b1f820cf (single-purpose, restored discipline), deferral-ledger freshness. Engaged per-entry concur for all 10 deferrals. Notes that R1-D6 + R4-D2 capture the bundling pattern that round-5 did NOT repeat — discipline is transferring.
+
+## Round 6 — standards (2026-05-23T00:30:00Z)
+
+**Standards sources:** `/home/agent/.claude/CLAUDE.md` · `/home/agent/projects/metaforge/CLAUDE.md`
+
+**CLEAN: true.** 0 own findings. Walked all 7 standards individually against the round-5 diff. Below-threshold observation: the new test mutates slog package-global default — same shape as R1-D3 architectural defer (observe.enabled), reinforces rather than weakens that deferral. 10/10 deferrals concur.
+
+## Round 6 — ux-designer (2026-05-23T00:30:00Z)
+
+**No-op** — no UI files in scope. Counts as adapter-CLEAN.
+
+---
+
+## HALT — Round 6 CLEAN (2026-05-23T00:30:00Z)
+
+All 5 adapters returned `CLEAN: true` AND zero fixes were applied this round. Per the skill's halt condition: **the loop terminates.**
+
+- **6 rounds total** (R1, R2, R3, R4, R5, R6)
+- **25 items resolved** across 5 fix rounds (R1: 8, R2: 6, R3: 4, R4: 4, R5: 3)
+- **10 active deferrals** captured with substantive `scope_boundary` + `why_out_of_scope` + `proposed_followup` each
+- **0 closed/superseded** (all 10 remain valid follow-up work)
+- **5 commits of feature work + 5 commits of review logs** on `m03/pre-m04-deferrals`
+- **Total elapsed: ~205 minutes** across 6 rounds
+
+
+## Out-of-Scope Deferral Report
+
+This branch surfaced **10 active deferrals** during the review loop. None were closed in-loop; all are recorded as follow-up work anchored against specific PIPELINE.md slots. None mask a higher-severity issue (the highest severity in the ledger is `low`).
+
+### By target slot
+
+**Anchored against M04 (Cosine-Sim Candidate Generation):**
+- **R2-D1** — `handleSuggestLegacy` silently degrades to `domainDist=0` when `sourceEmb == nil`. M04 makes cascade the default; legacy path may be retired or held to cascade's domainDist-signal discipline.
+
+**Anchored against the `metaphor` package extraction milestone (between M04 and The Bridge):**
+- **R1-D1** — `observe.Start` allocates a closure literal + variadic slice on every disabled-path call. Architectural fix is a typed Timer or two-method API.
+- **R1-D2** — Test in `handler_legacy_embedding_error_test.go` bypasses `NewHandlerWithCascade` via direct `&Handler{}` construction. Folds with D3/D5 (CascadeCache encapsulation + nil-cache defence).
+- **R1-D3** — `observe.enabled` is a global mutable `atomic.Bool`. Same surface as R1-D1 redesign.
+
+**Anchored against the cascade-observability / per-request anomaly aggregator slice (queued for M04-or-after):**
+- **R1-D4** — `handleSuggestCascade` logs `Error` and continues when `propsByID` is empty for all candidates (200 indistinguishable from legitimate no-gate-pass). Canonical fix: runtime row-count tripwire for `synset_properties_curated`.
+- **R4-D1** — `handler.go:325-328` cache-divergence `Error` log fires per candidate with no per-request cap. Asymmetric with `db.go`'s `malformedLogCap` throttle. Pairs with R1-D4 — both want the same per-request anomaly aggregator.
+
+**Anchored against the next `db.go` touch (M04 cluster-prop work or tooling-consolidation):**
+- **R1-D5** — `GetLemmaForSynset` returns bare `err` without wrapping. Pre-existing pattern inconsistency.
+
+**Anchored against the next `cmd/metaforge/main.go` touch (M04 ANN-index startup wiring):**
+- **R1-D7** — `cascade_cache_load_*` timing records emit before `"Metaforge API starting"` banner. Cosmetic log ordering.
+
+**Process / informational (cannot fix retroactively without force-push):**
+- **R1-D6** — Commit `ccfa6c3b` bundled 4 logical changes; should have been per-surface. Lesson captured.
+- **R4-D2** — Commit `218fad1d` repeated the pattern (3 logical changes); recurrence of R1-D6. Round-5 b1f820cf showed the discipline can be restored.
+
+### Severity distribution
+- 0 critical, 0 important
+- 10 low (R1-D1, R1-D2, R1-D3, R1-D4, R1-D5, R1-D7, R2-D1, R4-D1, R4-D2)
+- 0 cosmetic (R1-D7 was originally cosmetic but reclassified low after architectural framing)
+
+### Recurring themes
+- **Architectural cluster (R1-D1, R1-D2, R1-D3 + prior log's D3)** — all point at the same redesign window (`metaphor` package extraction) where the observe surface and Handler construction discipline can be reworked together.
+- **Cascade-anomaly aggregator (R1-D4 + R4-D1)** — two sites with the same shape (log-and-continue without per-request cap on cascade integrity events) wanting the same consolidation fix.
+- **Atomic-commit hygiene (R1-D6 + R4-D2)** — captured twice as informational; round-5 demonstrated the lesson is learnable.
+- **Silent-failure on legacy path (R2-D1)** — only true legacy silent-failure; folds with M04 cascade-default cutover.
+
