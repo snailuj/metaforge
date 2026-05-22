@@ -375,8 +375,11 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 
 	resp := SuggestResponse{Source: word, Suggestions: matches}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		slog.Error("failed to encode cascade suggest response", "word", word, "err", err)
+	stopEncode := observe.Start("cascade_response_encode")
+	encodeErr := json.NewEncoder(w).Encode(resp)
+	stopEncode("word", word, "suggestion_count", len(matches))
+	if encodeErr != nil {
+		slog.Error("failed to encode cascade suggest response", "word", word, "err", encodeErr)
 	}
 	stopTotal("word", word, "outcome", "scored", "candidates", len(candidates), "scored_count", len(matches))
 }

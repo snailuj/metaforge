@@ -23,21 +23,27 @@ func Init(on bool) {
 	enabled.Store(on)
 }
 
-// Enabled reports whether timing collection is on. Useful for callers that
-// want to skip allocating attrs for the disabled path.
-func Enabled() bool {
-	return enabled.Load()
-}
-
 // Start returns a stop function. When timing is enabled, calling stop
 // emits a slog Info record tagged "timing" with the supplied label,
 // elapsed milliseconds, and any extra attrs passed to stop. When timing
-// is disabled, Start returns a NO-OP stop and does no allocation beyond
-// the closure itself.
+// is disabled, the returned stop function does no slog work and does
+// not call time.Now — but the variadic arg slice at the call site is
+// still constructed by the caller, so "NO-OP" here means "no I/O, no
+// timing arithmetic", not "zero per-call allocation". Callers on hot
+// paths that pass many extras should keep the per-call overhead in
+// mind; for the cascade hot path (≤5 stages per request) it is
+// negligible.
 //
-// Pattern:
+// Two usage patterns are supported:
 //
-//	defer observe.Start("cascade_request")("word", word, "candidates", n)
+//  1. Manual stop at known exit points (what the cascade handler uses
+//     so it can tag each `outcome=` enum branch separately):
+//         stopTotal := observe.Start("cascade_request_total")
+//         ...
+//         stopTotal("word", word, "outcome", "scored")
+//
+//  2. Deferred stop for single-exit functions:
+//         defer observe.Start("cascade_request")("word", word, "candidates", n)
 //
 // Extra attrs are appended to the timing record so callers can include
 // per-call context (input size, output count, etc).

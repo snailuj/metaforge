@@ -248,11 +248,18 @@ func TestCascadeRequest_TimingEnabled_EmitsStageRecords(t *testing.T) {
 
 	out := buf.String()
 	wantLabels := []string{
+		// Startup-phase labels (emitted during NewHandlerWithCascade →
+		// LoadCascadeCache with timing already enabled by Init above).
+		"cascade_cache_load_total",
+		"cascade_cache_load_concreteness",
+		"cascade_cache_load_centroids",
+		// Request-phase labels.
 		"cascade_request_total",
 		"cascade_candidates_query",
 		"cascade_batch_props_query",
 		"cascade_scoring_loop",
 		"cascade_sort",
+		"cascade_response_encode",
 	}
 	for _, label := range wantLabels {
 		if !strings.Contains(out, `"label":"`+label+`"`) {
