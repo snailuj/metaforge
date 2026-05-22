@@ -17,6 +17,11 @@ The single source of truth for what comes next. Always read this when starting m
   - Why before type-alignment: optimising the *scoring* of a candidate set that systematically excludes apt cross-domain pairs is peak diminishing returns. Broadening the set first delivers the eval-cohort lift; M05 type-alignment then sharpens that richer set.
   - Detail doc: [`M04-cosine-candidate-gen-roadmap.md`](M04-cosine-candidate-gen-roadmap.md)
   - Depends on: M03 (done)
+  - **Deferrals to address as part of M04** *(carried from M03-S05 review log, 2026-05-21)*:
+    - **D9** — cascade ordering by salience+contrast vs final_score; revisit ordering criterion once ANN candidates UNION with cluster-overlap.
+    - **D15** — IN-clause batch chunking for `GetSynsetClusterPropertiesBatch`; chunk when the candidate set broadens beyond ~1k.
+    - **D17** — formalise the centroid-coverage contract and asymmetric centroid-vs-concreteness lookup discipline in the handler.
+  - **Observability prerequisite** *(D20, in flight on `m03/pre-m04-deferrals` branch)*: cascade hot-path timing + per-request trace must land before M04 broadens the candidate pool so we have a latency baseline.
 
 - **M03 — Cascade Gate-and-Rank** *(Stages 1 + 2 complete 2026-05-20)* — concreteness gate → Ortony rank → domain-distance re-rank. Restructures the pipeline from pointwise formula choice (M02 territory) to structural primitives. Wires in concreteness prediction (already available via `synset_concreteness`) and domain-distance re-rank.
   - Why now: M02 — Asymmetric Ortony Scoring closed empirically negative on 2026-05-16. Every variant in the pointwise-property-overlap family (symmetric, asymmetric, null) landed within ±0.06 of zero separation on a balanced cohort. The pointwise approach is exhausted; structural primitives are the next available lever.
@@ -73,6 +78,15 @@ The single source of truth for what comes next. Always read this when starting m
      * Other potentially-defunct files: `evolve_prompts.py`, `evolve_trials.sh`, `ab_test_purpose_prompt.py`, `prompt_templates.py` — pre-M01 evolutionary-prompt-search era. Confirm whether any still active.
   - Goal: keep `code-as-documentation` of valuable patterns; remove clutter that misleads future contributors.
   - Cost estimate: ~1-day PR for the backfills + relevance audit doc.
+
+- **`metaphor` package extraction & architectural cleanup** *(programme-level; queued for the M04 → Bridge gap)* — extract the shared language structure (concept-senses as nodes, semantic relations as edges, concreteness gradient, type-aware features, cascade scorer, candidate generators) into a small `metaphor` package so Forge and Bridge sit on top as thin orchestrators. See M04 roadmap doc's "language-structure framing" section for the structure-vs-orchestrator argument. Carries the following deferrals from the M03-S05 review log (2026-05-21):
+  - **D1** — Tagged-union refactor for `CascadeResult` (`(Status, *Scored)` shape).
+  - **D2** — Constrained-type discipline for `CascadeStatus` + `Composition` (Valid() methods / constructors).
+  - **D3** — `CascadeCache` encapsulation (unexport maps, add accessors) — pairs with the package extraction.
+  - **D4** — `Match` struct legacy/cascade split (or `GatePassed` → `*bool`) for cleaner JSON wire format.
+  - **D5** — Nil-cache defence in `handleSuggestCascade` (lands when cache lifecycle moves into the package).
+  - **D14** — Port Python `__post_init__` validation into `CascadeConfig.Validate()`.
+  - Cost estimate: ~1-2 day refactor; lands between M04 and The Bridge so the Bridge inherits the package shape on day one.
 
 - **Pipeline Architectural Review** *(programme-level; queued after the tooling consolidation chunk above)* — design-level retro on how Metaforge maintains its three data tiers and the schema that holds them. Four lifecycle questions:
   1. **Schema change management.** `SCHEMA.sql` is the canonical DDL but it has drifted from the committed `lexicon_v2.sql` (which is the actual data dump). When a column is added (e.g. `synset_properties.salience` in M01), how does that propagate to (a) fresh-from-PRE_ENRICH DB rebuilds, (b) in-place schema upgrades on the live DB, (c) backwards compatibility for old enrichment JSONs? Today this is implicit and breaks when assumed (see M02-S04 DB-freshness incident on 2026-05-12).
