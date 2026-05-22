@@ -409,6 +409,12 @@ func GetLemmaEmbedding(db *sql.DB, lemma string) ([]float32, error) {
 	return vec, nil
 }
 
+// malformedLogCap bounds the per-request count of malformed-blob Error logs
+// before falling back to silent tally. 10 keeps the alert-flood risk small
+// on a fully-corrupted table while preserving enough lemma identifiers for
+// triage when corruption is partial.
+const malformedLogCap = 10
+
 // GetLemmaEmbeddingsBatch retrieves FastText embeddings for multiple lemmas.
 // Returns a map of lemma -> embedding. Missing lemmas are simply absent from the map.
 // Returns (nil, nil) gracefully if the lemma_embeddings table doesn't exist.
@@ -460,12 +466,14 @@ func GetLemmaEmbeddingsBatch(db *sql.DB, lemmas []string) (map[string][]float32,
 		vec := blobconv.BlobToFloats(blob)
 		if vec == nil {
 			// Malformed BLOB — pipeline-contract violation. Log Error
-			// on the FIRST occurrence (with the lemma for triage), then
-			// tally silently so a fully-corrupted table doesn't flood
-			// alerts. Aggregate count is surfaced in the post-loop
-			// error so operators see total damage.
-			if malformed == 0 {
-				slog.Error("malformed lemma embedding blob (first occurrence)", "lemma", lemma, "bytes", len(blob))
+			// for the first malformedLogCap occurrences (with lemma +
+			// occurrence index so operators can triage each one), then
+			// tally silently so a fully-corrupted table can't flood
+			// alerts. Aggregate count surfaces in the post-loop error
+			// so operators see total damage even past the log cap.
+			if malformed < malformedLogCap {
+				slog.Error("malformed lemma embedding blob",
+					"lemma", lemma, "bytes", len(blob), "occurrence", malformed+1)
 			}
 			malformed++
 			continue

@@ -264,10 +264,12 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 		stopEncode := observe.Start("cascade_response_encode")
 		encodeErr := json.NewEncoder(w).Encode(resp)
 		stopEncode("word", word, "suggestion_count", 0)
+		outcome := "empty_no_gate_pass"
 		if encodeErr != nil {
 			slog.Error("failed to encode empty cascade suggest response", "word", word, "err", encodeErr)
+			outcome = "empty_encode_error"
 		}
-		stopTotal("word", word, "outcome", "empty_no_gate_pass")
+		stopTotal("word", word, "outcome", outcome)
 		return
 	}
 
@@ -381,10 +383,12 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 	stopEncode := observe.Start("cascade_response_encode")
 	encodeErr := json.NewEncoder(w).Encode(resp)
 	stopEncode("word", word, "suggestion_count", len(matches))
+	outcome := "scored"
 	if encodeErr != nil {
 		slog.Error("failed to encode cascade suggest response", "word", word, "err", encodeErr)
+		outcome = "scored_encode_error"
 	}
-	stopTotal("word", word, "outcome", "scored", "candidates", len(candidates), "scored_count", len(matches))
+	stopTotal("word", word, "outcome", outcome, "candidates", len(candidates), "scored_count", len(matches))
 }
 
 func sortByFinalScore(matches []forge.Match) {

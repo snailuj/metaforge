@@ -268,6 +268,45 @@ func TestCascadeRequest_TimingEnabled_EmitsStageRecords(t *testing.T) {
 	}
 }
 
+func TestCascadeRequest_TimingEnabled_EmptyNoGatePass_EmitsEncodeStage(t *testing.T) {
+	// R3-S1/R3-OWN-1: the cascade_response_encode timer on the empty
+	// (no-gate-pass) branch was added in round 2 commit e793e168 but the
+	// existing TimingEnabled test only exercises the scored path ('anger'
+	// has gate-pass candidates). This test pins the symmetric instrumentation
+	// using 'cat' — a highly-concrete topic that usually produces an empty
+	// Suggestions list — and asserts that cascade_response_encode AND
+	// cascade_request_total both fire regardless of which branch the request
+	// lands on. Robust against the rare case 'cat' returns scored candidates
+	// because both branches emit the encode label.
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=cat&limit=5", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d: %s", w.Code, w.Body.String())
+	}
+
+	out := buf.String()
+	for _, label := range []string{"cascade_response_encode", "cascade_request_total"} {
+		if !strings.Contains(out, `"label":"`+label+`"`) {
+			t.Errorf("expected timing record for %q regardless of branch, got: %s", label, out)
+		}
+	}
+}
+
 func TestCascadeRequest_TimingDisabled_EmitsNoTimingRecords(t *testing.T) {
 	// Confirms the default off-state really is NO-OP — no timing records
 	// emitted even though the cascade hot path executes.
