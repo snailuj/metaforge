@@ -265,6 +265,13 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 		       -- Mirrors the PR1.1 fix on the cascade path; alphabetical-first
 		       -- chosen for the same perf reasons documented in cascade.go
 		       -- (polysemy-ASC ordering costs ~16× on broad-coverage lemmas).
+		       -- Perf note: lemmas has PRIMARY KEY (lemma, synset_id) with
+		       -- no dedicated synset_id index, so SQLite executes this as
+		       -- a SCAN of sqlite_autoindex_lemmas_1 per outer row (see
+		       -- EXPLAIN QUERY PLAN). Bounded by LIMIT ? — fine at <=200
+		       -- but would benefit from idx_lemmas_synset_id when M04
+		       -- broadens the candidate pool. Tracked in the Pipeline
+		       -- Architectural Review backlog (schema-change-management).
 		       (SELECT lemma FROM lemmas WHERE synset_id = bs.target_id ORDER BY lemma LIMIT 1) as lemma,
 		       bs.salience_sum,
 		       COALESCE(bc.contrast_count, 0) as contrast_count,
@@ -373,7 +380,9 @@ func GetSynsetIDForLemma(db *sql.DB, lemma string) (string, error) {
 }
 
 // GetLemmaEmbedding retrieves the FastText embedding for a single lemma.
-// Returns (nil, nil) if the lemma is not found or if the lemma_embeddings table doesn't exist.
+// Returns (nil, nil) for benign absence cases ("no row", "table missing");
+// real DB faults and pipeline-contract violations (malformed BLOB,
+// wrong dimension) escalate via error so callers can route to 500.
 func GetLemmaEmbedding(db *sql.DB, lemma string) ([]float32, error) {
 	var blob []byte
 	err := db.QueryRow("SELECT embedding FROM lemma_embeddings WHERE lemma = ?", lemma).Scan(&blob)
@@ -388,12 +397,21 @@ func GetLemmaEmbedding(db *sql.DB, lemma string) ([]float32, error) {
 		}
 		return nil, fmt.Errorf("GetLemmaEmbedding failed for %s: %w", lemma, err)
 	}
-	return blobconv.BlobToFloats(blob), nil
+	vec := blobconv.BlobToFloats(blob)
+	if vec == nil {
+		// Malformed BLOB (wrong dimension or zero bytes) — pipeline
+		// contract violation, parallel to the loader-side check in
+		// cascade_cache.go. Escalate instead of returning silent nil.
+		return nil, fmt.Errorf("GetLemmaEmbedding: malformed embedding blob for %s (bytes=%d)", lemma, len(blob))
+	}
+	return vec, nil
 }
 
 // GetLemmaEmbeddingsBatch retrieves FastText embeddings for multiple lemmas.
 // Returns a map of lemma -> embedding. Missing lemmas are simply absent from the map.
 // Returns (nil, nil) gracefully if the lemma_embeddings table doesn't exist.
+// Real DB faults and pipeline-contract violations (scan failure, malformed BLOB)
+// escalate via error so callers can route to 500.
 func GetLemmaEmbeddingsBatch(db *sql.DB, lemmas []string) (map[string][]float32, error) {
 	if len(lemmas) == 0 {
 		return nil, nil
@@ -418,22 +436,35 @@ func GetLemmaEmbeddingsBatch(db *sql.DB, lemmas []string) (map[string][]float32,
 	}
 	defer rows.Close()
 
+	var malformed int
 	result := make(map[string][]float32)
 	for rows.Next() {
 		var lemma string
 		var blob []byte
 		if err := rows.Scan(&lemma, &blob); err != nil {
-			slog.Warn("scan lemma embedding failed", "err", err)
-			continue
+			// Homogeneous result set — first scan failure is structural
+			// (schema drift, type mismatch). Escalate so callers can 500
+			// rather than silently degrading domain distance.
+			return nil, fmt.Errorf("scan lemma embedding row: %w", err)
 		}
 		vec := blobconv.BlobToFloats(blob)
-		if vec != nil {
-			result[lemma] = vec
+		if vec == nil {
+			// Malformed BLOB — pipeline-contract violation. Log at Error
+			// (matching loadCentroids in cascade_cache.go) and tally so
+			// the caller can decide whether to escalate when the count
+			// is non-zero. Don't drop the whole batch for one bad row.
+			slog.Error("malformed lemma embedding blob", "lemma", lemma, "bytes", len(blob))
+			malformed++
+			continue
 		}
+		result[lemma] = vec
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("GetLemmaEmbeddingsBatch iteration error: %w", err)
+	}
+	if malformed > 0 {
+		return nil, fmt.Errorf("GetLemmaEmbeddingsBatch: %d malformed embedding blobs encountered", malformed)
 	}
 
 	return result, nil

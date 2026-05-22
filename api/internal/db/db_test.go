@@ -2,8 +2,11 @@
 package db
 
 import (
+	"database/sql"
 	"errors"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestOpenDatabase(t *testing.T) {
@@ -122,6 +125,56 @@ func TestGetForgeMatchesCuratedByLemma_LimitReturnsDistinctCandidates(t *testing
 			t.Errorf("duplicate synset in legacy matches: %s", m.SynsetID)
 		}
 		seen[m.SynsetID] = true
+	}
+}
+
+func TestGetLemmaEmbeddingsBatch_RealDBErrorEscalates(t *testing.T) {
+	// SF1 / D8 chain pin: GetLemmaEmbeddingsBatch must escalate real DB
+	// faults (here: a wrong-column-shape table) rather than swallowing
+	// per-row scan failures with slog.Warn+continue. handleSuggestLegacy
+	// relies on this contract to route to 500 on the candidate-batch path.
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE lemma_embeddings (lemma TEXT PRIMARY KEY, vector_garbled BLOB);`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO lemma_embeddings VALUES ('anger', NULL)`); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = GetLemmaEmbeddingsBatch(db, []string{"anger", "fire"})
+	if err == nil {
+		t.Fatal("expected error on wrong-column-shape lemma_embeddings, got nil")
+	}
+}
+
+func TestGetLemmaEmbedding_MalformedBlobEscalates(t *testing.T) {
+	// SF2 pin: a malformed-dim BLOB is a pipeline contract violation
+	// indistinguishable from the benign (nil, nil) absence path pre-fix.
+	// Must now escalate so the handler can 500 instead of silently
+	// returning domainDist=0.
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE lemma_embeddings (lemma TEXT PRIMARY KEY, embedding BLOB);`); err != nil {
+		t.Fatal(err)
+	}
+	// 7-byte blob — clearly not EmbeddingDim*4 floats.
+	if _, err := db.Exec(`INSERT INTO lemma_embeddings VALUES ('anger', x'01020304050607')`); err != nil {
+		t.Fatal(err)
+	}
+
+	vec, err := GetLemmaEmbedding(db, "anger")
+	if err == nil {
+		t.Fatalf("expected error on malformed embedding blob, got nil vec=%v", vec)
+	}
+	if vec != nil {
+		t.Errorf("expected nil vec alongside error, got %v", vec)
 	}
 }
 
