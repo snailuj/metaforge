@@ -2,9 +2,11 @@
 package db
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -219,7 +221,16 @@ func TestGetLemmaEmbeddingsBatch_MalformedBlob_LogCapBounded(t *testing.T) {
 	// throttle from "first occurrence only" to "first malformedLogCap
 	// occurrences with explicit occurrence index". Insert 12 malformed
 	// rows (> cap of 10) and assert (i) the function still escalates
-	// with the full count, (ii) the partial map is discarded.
+	// with the full count, (ii) the partial map is discarded, (iii) exactly
+	// `malformedLogCap` Error log records emit (R5-OWN-2 pin — pins the
+	// cap *value*, not just the count), (iv) exactly 1 cap-boundary Warn
+	// marker fires at the transition (R5-OWN-1 / R5-ST1 pin — pins the
+	// marker added in R4 commit 72bd9a0b).
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -250,6 +261,23 @@ func TestGetLemmaEmbeddingsBatch_MalformedBlob_LogCapBounded(t *testing.T) {
 	// 10 that were logged.
 	if !strings.Contains(err.Error(), "12 malformed embedding blobs") {
 		t.Errorf("aggregate count past cap not surfaced in error: %v", err)
+	}
+
+	// Pin the cap-value behaviour: exactly malformedLogCap (=10) Error
+	// records emit, then suppression kicks in. Counted via the slog JSON
+	// "msg":"malformed lemma embedding blob" substring.
+	logBytes := buf.Bytes()
+	errorMarkerCount := bytes.Count(logBytes, []byte(`"msg":"malformed lemma embedding blob"`))
+	if errorMarkerCount != malformedLogCap {
+		t.Errorf("expected exactly %d malformed-blob Error records (cap value), got %d",
+			malformedLogCap, errorMarkerCount)
+	}
+
+	// Pin the cap-boundary Warn marker (R4-S2 / 72bd9a0b): fires exactly
+	// once when malformed transitions from cap-1 to cap.
+	capMarkerCount := bytes.Count(logBytes, []byte(`"msg":"malformed lemma embedding log cap reached`))
+	if capMarkerCount != 1 {
+		t.Errorf("expected exactly 1 cap-boundary Warn record, got %d", capMarkerCount)
 	}
 }
 
