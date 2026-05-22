@@ -4,6 +4,8 @@ package db
 import (
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -209,6 +211,45 @@ func TestGetLemmaEmbedding_MalformedBlobEscalates(t *testing.T) {
 	}
 	if vec != nil {
 		t.Errorf("expected nil vec alongside error, got %v", vec)
+	}
+}
+
+func TestGetLemmaEmbeddingsBatch_MalformedBlob_LogCapBounded(t *testing.T) {
+	// R4-OWN-1 / R4-ST1 pin: round-3 widened the malformed-blob log
+	// throttle from "first occurrence only" to "first malformedLogCap
+	// occurrences with explicit occurrence index". Insert 12 malformed
+	// rows (> cap of 10) and assert (i) the function still escalates
+	// with the full count, (ii) the partial map is discarded.
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE lemma_embeddings (lemma TEXT PRIMARY KEY, embedding BLOB);`); err != nil {
+		t.Fatal(err)
+	}
+
+	lemmas := make([]string, 12)
+	for i := 0; i < 12; i++ {
+		lemma := fmt.Sprintf("bad_%02d", i)
+		lemmas[i] = lemma
+		// 4-byte blob — wrong size, BlobToFloats returns nil.
+		if _, err := db.Exec(`INSERT INTO lemma_embeddings VALUES (?, x'01020304')`, lemma); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := GetLemmaEmbeddingsBatch(db, lemmas)
+	if err == nil {
+		t.Fatal("expected error on 12 malformed blobs, got nil")
+	}
+	if result != nil {
+		t.Errorf("expected nil map alongside error, got %v", result)
+	}
+	// The aggregate-count error message must report all 12, not just the
+	// 10 that were logged.
+	if !strings.Contains(err.Error(), "12 malformed embedding blobs") {
+		t.Errorf("aggregate count past cap not surfaced in error: %v", err)
 	}
 }
 

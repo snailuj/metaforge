@@ -476,6 +476,14 @@ func GetLemmaEmbeddingsBatch(db *sql.DB, lemmas []string) (map[string][]float32,
 					"lemma", lemma, "bytes", len(blob), "occurrence", malformed+1)
 			}
 			malformed++
+			if malformed == malformedLogCap {
+				// Cap boundary marker — emitted exactly once per request
+				// at the transition from logged to silently-tallied,
+				// so the cap event is visible even if a later rows.Err()
+				// short-circuits the post-loop aggregate error.
+				slog.Warn("malformed lemma embedding log cap reached; further occurrences silently tallied",
+					"cap", malformedLogCap)
+			}
 			continue
 		}
 		result[lemma] = vec

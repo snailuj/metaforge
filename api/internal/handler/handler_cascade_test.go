@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -304,6 +305,93 @@ func TestCascadeRequest_TimingEnabled_EmptyNoGatePass_EmitsEncodeStage(t *testin
 		if !strings.Contains(out, `"label":"`+label+`"`) {
 			t.Errorf("expected timing record for %q regardless of branch, got: %s", label, out)
 		}
+	}
+	// R4-ST3 / R4-S1 tightening: assert this test actually pinned the
+	// empty branch's outcome enum, not just its label presence. If the
+	// fixture drifts so 'cat' starts scoring, this assertion fires and
+	// the test author re-picks a fixture rather than silently moving to
+	// scored-branch coverage.
+	if !strings.Contains(out, `"outcome":"empty_no_gate_pass"`) {
+		t.Errorf("expected outcome=empty_no_gate_pass on this fixture — 'cat' may have started scoring, re-pick fixture or stub candidates: %s", out)
+	}
+}
+
+// failingWriter is an http.ResponseWriter that returns an error from
+// every Write call. Used to exercise the encode-error outcome branches
+// on /forge/suggest cascade paths (R4-OWN-2 / R4-ST2 pins).
+type failingWriter struct {
+	header http.Header
+	code   int
+}
+
+func (f *failingWriter) Header() http.Header {
+	if f.header == nil {
+		f.header = make(http.Header)
+	}
+	return f.header
+}
+
+func (f *failingWriter) Write(p []byte) (int, error) {
+	return 0, fmt.Errorf("simulated write failure")
+}
+
+func (f *failingWriter) WriteHeader(code int) {
+	f.code = code
+}
+
+func TestCascadeRequest_ScoredEncodeError_OutcomeBranches(t *testing.T) {
+	// R4-OWN-2 / R4-ST2 pin: when json.NewEncoder.Encode fails on the
+	// scored path, cascade_request_total must record
+	// outcome="scored_encode_error" rather than the happy "scored".
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=5", nil)
+	w := &failingWriter{}
+	h.HandleSuggest(w, req)
+
+	out := buf.String()
+	if !strings.Contains(out, `"outcome":"scored_encode_error"`) {
+		t.Errorf("expected scored_encode_error outcome on failing writer, got: %s", out)
+	}
+}
+
+func TestCascadeRequest_EmptyEncodeError_OutcomeBranches(t *testing.T) {
+	// R4-OWN-2 / R4-ST2 pin: when json.NewEncoder.Encode fails on the
+	// empty-no-gate-pass path, cascade_request_total must record
+	// outcome="empty_encode_error".
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=cat&limit=5", nil)
+	w := &failingWriter{}
+	h.HandleSuggest(w, req)
+
+	out := buf.String()
+	if !strings.Contains(out, `"outcome":"empty_encode_error"`) {
+		t.Errorf("expected empty_encode_error outcome on failing writer + no-gate-pass fixture, got: %s", out)
 	}
 }
 
