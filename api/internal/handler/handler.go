@@ -163,10 +163,17 @@ func (h *Handler) handleSuggestLegacy(w http.ResponseWriter, word string, limit 
 		return
 	}
 
-	// Fetch source lemma embedding for cross-domain distance
+	// D8: lemma-embedding lookups return (nil, nil) for benign cases
+	// ("no embedding row", "table missing") and (nil, err) only for real
+	// DB faults (schema corruption, I/O failures, etc). A real error here
+	// produces silently-degraded composite scores (domainDist = 0 for
+	// every candidate) without any signal to the caller, so escalate to
+	// 500 to match the cascade-path discipline.
 	sourceEmb, err := db.GetLemmaEmbedding(h.database, word)
 	if err != nil {
-		slog.Warn("source embedding lookup failed", "word", word, "err", err)
+		slog.Error("source embedding lookup failed", "word", word, "err", err)
+		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		return
 	}
 
 	// Batch-fetch candidate embeddings
@@ -176,7 +183,9 @@ func (h *Handler) handleSuggestLegacy(w http.ResponseWriter, word string, limit 
 	}
 	candidateEmbs, err := db.GetLemmaEmbeddingsBatch(h.database, candidateWords)
 	if err != nil {
-		slog.Warn("candidate embeddings batch lookup failed", "word", word, "err", err)
+		slog.Error("candidate embeddings batch lookup failed", "word", word, "err", err)
+		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		return
 	}
 
 	var matches []forge.Match
