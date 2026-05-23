@@ -39,7 +39,21 @@ func main() {
 	embTopK := flag.Int("embedding-top-k",
 		envInt("METAFORGE_FORGE_EMB_TOPK", 100),
 		"Cap on embedding candidates per request")
-	gamma := flag.Float64("gamma", envFloat("METAFORGE_FORGE_GAMMA", 0.0),
+	// Gamma needs a stricter parse than envFloat's Warn-and-default
+	// behaviour: a malformed value silently falling back to 0.0 would
+	// disable M05 while the operator believes it is set — defeating the
+	// whole NewGamma boundary cast. Parse the env var explicitly and
+	// log.Fatalf on malformed input, then thread the validated value as
+	// the flag default.
+	gammaDefault := 0.0
+	if envGamma := os.Getenv("METAFORGE_FORGE_GAMMA"); envGamma != "" {
+		v, err := strconv.ParseFloat(envGamma, 64)
+		if err != nil {
+			log.Fatalf("METAFORGE_FORGE_GAMMA is malformed (%q): %v", envGamma, err)
+		}
+		gammaDefault = v
+	}
+	gamma := flag.Float64("gamma", gammaDefault,
 		"M05 type-diversity bonus weight (additive into final_score). 0 disables M05 — production default until γ-sweep verdict.")
 	flag.Parse()
 
