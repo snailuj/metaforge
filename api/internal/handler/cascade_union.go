@@ -23,7 +23,10 @@ func unionCandidates(cluster, embedding []db.CascadeCandidate) []db.CascadeCandi
 	}
 	for _, c := range cluster {
 		clusterIDs[c.SynsetID] = struct{}{}
-		c.Source = forge.SourceCluster
+		// Cluster row already carries Source=SourceCluster from
+		// NewCascadeCandidate. If the same synset also appears in the
+		// embedding hit set, upgrade the tag to SourceBoth so the
+		// diagnostic captures the dual-path signal.
 		if _, dual := embeddingIDs[c.SynsetID]; dual {
 			c.Source = forge.SourceBoth
 			// D5 observability lift: when the same vehicle synset is
@@ -42,7 +45,8 @@ func unionCandidates(cluster, embedding []db.CascadeCandidate) []db.CascadeCandi
 		if _, clash := clusterIDs[e.SynsetID]; clash {
 			continue // cluster row already represents this synset
 		}
-		e.Source = forge.SourceEmbedding
+		// Embedding row already carries Source=SourceEmbedding from
+		// NewCascadeCandidate.
 		out = append(out, e)
 	}
 	return out

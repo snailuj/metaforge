@@ -342,7 +342,7 @@ Total rounds: 2 | Items resolved (fixed): 13 | Active deferrals: 16 (D1, D2, D3,
 #### Deferred (legitimate, scoped to follow-up)
 - **SF-R3-1: in-scan `ok==false` skip needs counter (dim-mismatch + bNorm==0)** — D19 (severity: low; the load-side filter catches most cases; runtime path is hypothetical until a future cache-mutation feature)
 - **SF-R3-3: `resolveLemmaSiblingSynsets` empty-result not logged** — D20 (severity: low; reachable only on schema-mutation-in-flight which is itself a contract violation that should fail elsewhere first)
-- **TD-R3 OWN-2: `CandidateSource.Valid()` is dead code (never called)** — D21 (cosmetic; pairs with D1 enforcement-discipline sweep)
+- **TD-R3 OWN-2: `CandidateSource.Valid()` is dead code (never called)** — D21 **SUPERSEDED-BY-FIX** (M04 structural debt sweep, commit `3c73872e`): `NewCascadeCandidate` now calls `source.Valid()` to panic on unknown tags at construction, so `CandidateSource.Valid()` is no longer dead code.
 - **TD-R3 OWN-3..4: Tier/TierName denormalisation across two call sites** — defer with D11 naming/discipline sweep
 - **TD-R3 OWN-6: `ForgeEmbeddingConfig` has no `Validate()`** — defer with D3 (the duplication itself)
 - **TD-R3 OWN-7: `CascadeCosineDistanceWithANorm` aNorm could be a tagged type** — defer (semantic misuse of `aNorm` is one site today; M05 type sweep)
@@ -390,7 +390,7 @@ Full `go test ./...` PASS across all 7 packages (db 5.3s, forge 0.9s, handler 37
 ### New deferrals
 - D19 — in-scan `ok==false` skip counter (dim-mismatch + bNorm==0) [low; SF-R3-1, fold with anomalies-struct refactor]
 - D20 — `resolveLemmaSiblingSynsets` empty-result Error log [low; SF-R3-3]
-- D21 — `CandidateSource.Valid()` is dead code [cosmetic; fold with D1]
+- D21 — `CandidateSource.Valid()` is dead code [cosmetic; fold with D1] — **SUPERSEDED-BY-FIX** (commit `3c73872e`: `NewCascadeCandidate` calls `source.Valid()`, dead-code claim no longer holds)
 - D22 — `resolveLemmaSiblingSynsets` no direct unit test [low; STD-OWN-1]
 - D23 — Lift `cascadeAnomalies` to named type with `Attrs()` method [low; bundles with STD-R2-4]
 - D24 — `handleSuggestCascade` god-function refactor into `cascadePipeline` type [low; M05 onset]

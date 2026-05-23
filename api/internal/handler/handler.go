@@ -267,16 +267,16 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 	// flips p.closed=true, and close() is a no-op.
 	defer p.close()
 
-	if outcome, status, err := p.fetch(); status != http.StatusOK {
-		p.emitError(w, outcome, status, err)
+	if outcome, status, _ := p.fetch(); status != http.StatusOK {
+		p.emitError(w, outcome, status)
 		return
 	}
 	if len(p.candidates) == 0 {
 		p.respondEmpty(w)
 		return
 	}
-	if outcome, status, err := p.score(); status != http.StatusOK {
-		p.emitError(w, outcome, status, err)
+	if outcome, status, _ := p.score(); status != http.StatusOK {
+		p.emitError(w, outcome, status)
 		return
 	}
 	p.respondScored(w)

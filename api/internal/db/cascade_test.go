@@ -213,21 +213,35 @@ func TestNewCascadeCandidate_PanicsOnInvalidSource(t *testing.T) {
 			t.Errorf("panic message missing expected phrase: %v", r)
 		}
 	}()
-	_ = NewCascadeCandidate(
-		"s1", "fire", "n", "definition",
-		1.0, 0, nil,
-		"s0", "src definition", "n",
-		forge.CandidateSource(""), // invalid
-	)
+	_ = NewCascadeCandidate(NewCascadeCandidateOpts{
+		SynsetID:         "s1",
+		Word:             "fire",
+		POS:              "n",
+		Definition:       "definition",
+		SalienceSum:      1.0,
+		ContrastCount:    0,
+		SharedProps:      nil,
+		SourceSynsetID:   "s0",
+		SourceDefinition: "src definition",
+		SourcePOS:        "n",
+		Source:           forge.CandidateSource(""), // invalid
+	})
 }
 
 func TestNewCascadeCandidate_AcceptsValidSource(t *testing.T) {
-	c := NewCascadeCandidate(
-		"s1", "fire", "n", "definition",
-		1.0, 0, nil,
-		"s0", "src definition", "n",
-		forge.SourceCluster,
-	)
+	c := NewCascadeCandidate(NewCascadeCandidateOpts{
+		SynsetID:         "s1",
+		Word:             "fire",
+		POS:              "n",
+		Definition:       "definition",
+		SalienceSum:      1.0,
+		ContrastCount:    0,
+		SharedProps:      nil,
+		SourceSynsetID:   "s0",
+		SourceDefinition: "src definition",
+		SourcePOS:        "n",
+		Source:           forge.SourceCluster,
+	})
 	if c.Source != forge.SourceCluster {
 		t.Errorf("Source: want SourceCluster, got %q", c.Source)
 	}
