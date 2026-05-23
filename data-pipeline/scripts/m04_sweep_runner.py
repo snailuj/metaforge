@@ -55,7 +55,11 @@ class CellResult:
     def aptness_rate(self) -> float:
         if not self.apt_scores:
             return 0.0
-        if not self.inapt_scores:
+        # statistics.quantiles requires >=2 data points; Lakoff cohort
+        # often has many inapt pairs unresolved by the API (cross-domain
+        # implausible vehicles fall outside the cosine band), so guard
+        # explicitly rather than crashing on the percentile call.
+        if len(self.inapt_scores) < 2:
             return 0.0
         threshold = statistics.quantiles(self.inapt_scores, n=20)[18]  # 95th percentile
         return sum(1 for s in self.apt_scores if s > threshold) / len(self.apt_scores)
