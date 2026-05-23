@@ -22,7 +22,7 @@ import logging
 import sqlite3
 import struct
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -250,7 +250,9 @@ def snap_properties(
     accumulated: dict[tuple[str, int], AccumulatedMatch] = {}
     # M05: per-cluster property-type histogram, populated as each property
     # snaps successfully. Mode (post-snap) → vocab_clusters.dominant_type.
-    cluster_type_counts: dict[int, Counter[str]] = {}
+    # defaultdict(Counter) avoids ~245k throwaway Counter() constructions
+    # vs setdefault(cid, Counter()) which eagerly evaluates every iteration.
+    cluster_type_counts: defaultdict[int, Counter[str]] = defaultdict(Counter)
     # Per-reason drop counts (so we can log a breakdown without buffering records).
     drop_counts: dict[str, int] = {}
 
@@ -392,7 +394,7 @@ def snap_properties(
                 vid = vocab_by_lemma[prop_lower]
                 cid = cluster_lookup.get(vid, vid)
                 _merge((sid, cid), vid, "exact", None, salience)
-                cluster_type_counts.setdefault(cid, Counter())[_canonical_type(prop_type)] += 1  # M05
+                cluster_type_counts[cid][_canonical_type(prop_type)] += 1  # M05
                 stats["exact"] += 1
                 continue
 
@@ -403,7 +405,7 @@ def snap_properties(
                     vid = vocab_by_lemma[variant]
                     cid = cluster_lookup.get(vid, vid)
                     _merge((sid, cid), vid, "morphological", None, salience)
-                    cluster_type_counts.setdefault(cid, Counter())[_canonical_type(prop_type)] += 1  # M05
+                    cluster_type_counts[cid][_canonical_type(prop_type)] += 1  # M05
                     stats["morphological"] += 1
                     matched = True
                     break
@@ -484,7 +486,7 @@ def snap_properties(
                     best_vid = vocab_ids[best_idx]
                     best_cid = cluster_lookup.get(best_vid, best_vid)
                     _merge((sid, best_cid), best_vid, "embedding", best_score, salience)
-                    cluster_type_counts.setdefault(best_cid, Counter())[_canonical_type(prop_type)] += 1  # M05
+                    cluster_type_counts[best_cid][_canonical_type(prop_type)] += 1  # M05
                     stats["embedding"] += 1
                 else:
                     _record_drop({"text": prop_text, "synset_id": sid,
