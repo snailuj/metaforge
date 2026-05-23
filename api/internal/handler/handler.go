@@ -17,7 +17,6 @@ import (
 	"github.com/snailuj/metaforge/internal/db"
 	"github.com/snailuj/metaforge/internal/embeddings"
 	"github.com/snailuj/metaforge/internal/forge"
-	"github.com/snailuj/metaforge/internal/observe"
 	"github.com/snailuj/metaforge/internal/thesaurus"
 )
 
@@ -73,7 +72,7 @@ func NewHandlerWithCascade(dbPath string, useCascade bool) (*Handler, error) {
 		// caches, and every request returns empty 200. Assert non-zero
 		// rows so we fail loud at startup instead. SQL injection-safe:
 		// table names are hard-coded, not user input.
-		for _, table := range []string{"synset_concreteness", "synset_centroids"} {
+		for _, table := range []string{"synset_concreteness", "synset_centroids", "synset_properties_curated"} {
 			var rowCount int
 			err := database.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&rowCount)
 			if err != nil {
@@ -112,6 +111,17 @@ func (h *Handler) SetStringsDir(dir string) {
 	h.stringsDir = dir
 }
 
+// WithCascadeConfig overrides the default cascade config. Must be
+// called immediately after NewHandlerWithCascade and before serving
+// traffic. Errors if cfg.Validate() rejects the config.
+func (h *Handler) WithCascadeConfig(cfg forge.CascadeConfig) error {
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid cascade config: %w", err)
+	}
+	h.cascadeConf = cfg
+	return nil
+}
+
 // Close releases database resources.
 func (h *Handler) Close() error {
 	return h.database.Close()
@@ -132,6 +142,14 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error": "missing 'word' parameter"}`, http.StatusBadRequest)
 		return
 	}
+
+	// Normalise lemma to lowercase: the DB's lemmas table stores lemmas
+	// case-sensitive, and the cluster CTE + resolvePrimaryCuratedSynset
+	// + resolveLemmaSiblingSynsets all use exact-match `WHERE lemma = ?`.
+	// Without normalisation here, "Anger" 404s while "anger" resolves —
+	// a real user-facing bug surfaced in Round 3 review. Canonical
+	// normalisation at the entry boundary is the single-site fix.
+	word = strings.ToLower(word)
 
 	limit := DefaultLimit
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -233,162 +251,35 @@ func (h *Handler) handleSuggestLegacy(w http.ResponseWriter, word string, limit 
 
 // handleSuggestCascade scores candidates through the M03 cascade.
 //
+// Thin orchestrator: builds a cascadePipeline and delegates each phase
+// (fetch → score → respond). The pipeline owns all telemetry emission
+// — every terminal outcome flows through pipeline.emit() exactly once.
+// See cascade_pipeline.go for phase implementations and the rationale
+// for the D24 god-function extraction.
+//
 // Hot path: 1 gated CTE candidate query + 1 batch properties query + N
 // in-memory map lookups + per-pair pure-function scoring. Source-side
 // data is memoised implicitly via the batch properties map.
 func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit int) {
-	stopTotal := observe.Start("cascade_request_total")
-	slog.Debug("cascade request begin", "word", word, "limit", limit)
+	p := newCascadePipeline(h, word, limit)
+	// Safety net: if a phase returns without calling emit() (programming
+	// error), close() flags it loud. In normal flow emit() runs first,
+	// flips p.closed=true, and close() is a no-op.
+	defer p.close()
 
-	stopCand := observe.Start("cascade_candidates_query")
-	candidates, err := db.GetForgeCascadeCandidatesByLemma(
-		h.database, word, h.cascadeConf.ConcretenessThreshold, limit,
-	)
-	stopCand("word", word, "count", len(candidates))
-	if errors.Is(err, db.ErrLemmaNotFound) {
-		stopTotal("word", word, "outcome", "lemma_not_found")
-		http.Error(w, `{"error": "word not found or has no curated properties"}`, http.StatusNotFound)
+	if outcome, status, err := p.fetch(); status != http.StatusOK {
+		p.emitError(w, outcome, status, err)
 		return
 	}
-	if err != nil {
-		stopTotal("word", word, "outcome", "candidates_error")
-		slog.Error("cascade candidate fetch failed", "word", word, "err", err)
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+	if len(p.candidates) == 0 {
+		p.respondEmpty(w)
 		return
 	}
-	slog.Debug("cascade candidates fetched", "word", word, "count", len(candidates))
-	if len(candidates) == 0 {
-		// Lemma is enriched but no gate-pass — return empty 200.
-		resp := SuggestResponse{Source: word, Suggestions: []forge.Match{}}
-		w.Header().Set("Content-Type", "application/json")
-		stopEncode := observe.Start("cascade_response_encode")
-		encodeErr := json.NewEncoder(w).Encode(resp)
-		stopEncode("word", word, "suggestion_count", 0)
-		outcome := "empty_no_gate_pass"
-		if encodeErr != nil {
-			slog.Error("failed to encode empty cascade suggest response", "word", word, "err", encodeErr)
-			outcome = "empty_encode_error"
-		}
-		stopTotal("word", word, "outcome", outcome)
+	if outcome, status, err := p.score(); status != http.StatusOK {
+		p.emitError(w, outcome, status, err)
 		return
 	}
-
-	// Collect distinct synset_ids for one batch properties query.
-	idSet := make(map[string]struct{}, 2*len(candidates))
-	for _, c := range candidates {
-		idSet[c.SourceSynsetID] = struct{}{}
-		idSet[c.SynsetID] = struct{}{}
-	}
-	ids := make([]string, 0, len(idSet))
-	for id := range idSet {
-		ids = append(ids, id)
-	}
-	stopProps := observe.Start("cascade_batch_props_query")
-	propsByID, err := db.GetSynsetClusterPropertiesBatch(h.database, ids)
-	stopProps("word", word, "synset_ids", len(ids), "rows", len(propsByID))
-	if err != nil {
-		stopTotal("word", word, "outcome", "batch_props_error")
-		slog.Error("cascade batch properties fetch failed", "word", word, "err", err)
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-	if len(propsByID) == 0 {
-		// Anomaly: candidates were gate-passed (so the cascade tables are
-		// populated for these synsets) but NONE of them have curated
-		// properties. Most likely synset_properties_curated was truncated
-		// post-startup or schema drifted. Surface as Error so operators
-		// can spot the silent attrition; continue serving (response will
-		// be empty due to the no_properties filter below).
-		slog.Error("cascade batch properties returned empty for all candidates",
-			"word", word, "candidate_count", len(candidates))
-	}
-
-	stopScore := observe.Start("cascade_scoring_loop")
-	var droppedNonScored int
-	matches := make([]forge.Match, 0, len(candidates))
-	for _, c := range candidates {
-		// Concreteness from the in-memory cache — preserves the *float64
-		// absence-signal contract EvaluateCascadePair expects (TD1).
-		var tConc, vConc *float64
-		if v, ok := h.cache.Concreteness[c.SourceSynsetID]; ok {
-			tConc = &v
-		}
-		if v, ok := h.cache.Concreteness[c.SynsetID]; ok {
-			vConc = &v
-		}
-		// Invariant tripwire: the gated CTE filters candidates via INNER JOIN
-		// on synset_concreteness for both sides, so a missing cache entry
-		// here means the cache and SQL view of the table diverged — most
-		// likely cache load skipped a row (SF4 malformed-blob class) or the
-		// DB was rewritten under us between cache load and the request.
-		// Error level so operators see the signal.
-		if tConc == nil || vConc == nil {
-			slog.Error("cascade candidate concreteness missing from cache despite SQL filter",
-				"source", c.SourceSynsetID, "target", c.SynsetID)
-		}
-		topicCent := h.cache.Centroids[c.SourceSynsetID] // nil-safe: zero value is nil
-		vehCent := h.cache.Centroids[c.SynsetID]
-
-		res := forge.EvaluateCascadePair(forge.CascadeInputs{
-			TopicConcreteness:   tConc,
-			VehicleConcreteness: vConc,
-			TopicProperties:     propsByID[c.SourceSynsetID],
-			VehicleProperties:   propsByID[c.SynsetID],
-			TopicCentroid:       topicCent,
-			VehicleCentroid:     vehCent,
-		}, h.cascadeConf)
-
-		// SQL CTE already filtered gate_dropped + missing_concreteness, so
-		// the only attrition we can see here is no_properties (curated
-		// props could have been pruned). Drop those from product output.
-		if res.Status != forge.CascadeStatusScored {
-			droppedNonScored++
-			continue
-		}
-
-		tier := forge.ClassifyTierCurated(c.SalienceSum, c.ContrastCount)
-		matches = append(matches, forge.Match{
-			SynsetID:         c.SynsetID,
-			Word:             c.Word,
-			Definition:       c.Definition,
-			SharedProperties: c.SharedProps,
-			OverlapCount:     int(c.SalienceSum),
-			SalienceSum:      c.SalienceSum,
-			Tier:             tier,
-			TierName:         tier.String(),
-			SourceSynsetID:   c.SourceSynsetID,
-			SourceDefinition: c.SourceDefinition,
-			SourcePOS:        c.SourcePOS,
-			FinalScore:       res.FinalScore,
-			CascadeStatus:    res.Status,
-			GatePassed:       res.GatePassed,
-			OrtonyScore:      res.OrtonyScore,
-			CosineDistance:   res.CosineDistance,
-			ReRankBonus:      res.ReRankBonus,
-		})
-	}
-
-	stopScore("word", word, "scored", len(matches), "dropped_non_scored", droppedNonScored)
-
-	stopSort := observe.Start("cascade_sort")
-	sortByFinalScore(matches)
-	stopSort("word", word, "matches", len(matches))
-
-	slog.Debug("cascade response ready",
-		"word", word, "candidates", len(candidates), "scored", len(matches),
-		"dropped_non_scored", droppedNonScored)
-
-	resp := SuggestResponse{Source: word, Suggestions: matches}
-	w.Header().Set("Content-Type", "application/json")
-	stopEncode := observe.Start("cascade_response_encode")
-	encodeErr := json.NewEncoder(w).Encode(resp)
-	stopEncode("word", word, "suggestion_count", len(matches))
-	outcome := "scored"
-	if encodeErr != nil {
-		slog.Error("failed to encode cascade suggest response", "word", word, "err", encodeErr)
-		outcome = "scored_encode_error"
-	}
-	stopTotal("word", word, "outcome", outcome, "candidates", len(candidates), "scored_count", len(matches))
+	p.respondScored(w)
 }
 
 func sortByFinalScore(matches []forge.Match) {

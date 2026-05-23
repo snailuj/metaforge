@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/snailuj/metaforge/internal/forge"
 	"github.com/snailuj/metaforge/internal/observe"
@@ -442,5 +443,454 @@ func TestSortByFinalScore_MixedNilAndNonNil_SinksNilToBottom(t *testing.T) {
 	}
 	if matches[2].SynsetID != "no-score" {
 		t.Errorf("expected 'no-score' last, got %q", matches[2].SynsetID)
+	}
+}
+
+// TestCascadeUnion_ClassicalPairsSurface_AsCandidates pins M04's binary
+// generation criterion: the four canonical cross-domain pairs MUST
+// reach the cascade scorer as candidates when ModeUnion is active.
+// We assert candidate PRESENCE only — final-score rank is M05/M06
+// territory and out of scope here. The vehicle is the second synset
+// of the pair; we accept a hit on ANY of its lemmas.
+func TestCascadeUnion_ClassicalPairsSurface_AsCandidates(t *testing.T) {
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.ModeUnion
+	cfg.EmbeddingDMin = 0.0
+	cfg.EmbeddingDMax = 2.0
+	// TopK pinned at forge.EmbeddingTopKCeiling for the canary: this
+	// test asserts CANDIDATE PRESENCE, not production ranking.
+	// Diagnostics show "hammer" lands at rank ~4600 by cosine distance
+	// from "truth", "money" at ~2000 from "time" — both within band but
+	// well outside production TopK=100. Widening here is intentional
+	// and isolated to this test; the ceiling bounds it to a value the
+	// SQLite IN-clause can safely accept, and DMax=2.0 expands the band
+	// to its theoretical maximum so distant-but-in-cache candidates
+	// still surface in this candidate-presence canary.
+	cfg.EmbeddingTopK = forge.EmbeddingTopKCeiling // = 10000; lab-mode max
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	cases := []struct {
+		topic   string
+		vehicle string // lemma we expect to see in suggestions
+	}{
+		{"anger", "fire"},
+		{"idea", "light"},
+		{"time", "money"},
+		{"truth", "hammer"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.topic+"-"+tc.vehicle, func(t *testing.T) {
+			req := httptest.NewRequest("GET",
+				"/forge/suggest?word="+tc.topic+"&limit=200", nil)
+			w := httptest.NewRecorder()
+			h.HandleSuggest(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", w.Code, w.Body.String())
+			}
+			var resp SuggestResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			for _, s := range resp.Suggestions {
+				if s.Word == tc.vehicle {
+					return // hit — pass
+				}
+			}
+			words := make([]string, 0, len(resp.Suggestions))
+			for _, s := range resp.Suggestions {
+				words = append(words, s.Word)
+			}
+			t.Errorf("vehicle %q not present in %d suggestions for %q (sample: %v)",
+				tc.vehicle, len(resp.Suggestions), tc.topic, words[:min(10, len(words))])
+		})
+	}
+}
+
+// TestCascadeClusterOnly_ResponseShapeUnchanged pins the contract that
+// CandidateSources=cluster_only behaves byte-for-byte identically to
+// the pre-M04 M03 cascade. The assertion is "no row carries Source !=
+// SourceCluster" plus "the embedding query stage timer is NOT emitted"
+// — i.e. the embedding path is fully skipped, not run-and-discarded.
+func TestCascadeClusterOnly_ResponseShapeUnchanged(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.ModeCluster
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=20", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SuggestResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, s := range resp.Suggestions {
+		if s.Source != "" && s.Source != forge.SourceCluster {
+			t.Errorf("cluster_only mode produced %q-tagged suggestion %s", s.Source, s.Word)
+		}
+	}
+	if strings.Contains(buf.String(), `"cascade_embedding_query"`) {
+		t.Errorf("cluster_only mode must NOT emit cascade_embedding_query stage timer:\n%s", buf.String())
+	}
+}
+
+// TestCascadeEmbeddingOnly_ProducesEmbeddingTaggedRowsOnly pins the
+// embedding_only mode contract: every returned row is tagged
+// SourceEmbedding, no cluster-overlap query timer is emitted, and the
+// canary anger→fire pair still surfaces.
+func TestCascadeEmbeddingOnly_ProducesEmbeddingTaggedRowsOnly(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.ModeEmbedding
+	cfg.EmbeddingDMin = 0.0
+	cfg.EmbeddingDMax = 1.5
+	cfg.EmbeddingTopK = 200
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=200", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SuggestResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, s := range resp.Suggestions {
+		if s.Source != forge.SourceEmbedding {
+			t.Errorf("embedding_only mode produced %q-tagged suggestion %s", s.Source, s.Word)
+		}
+	}
+	logs := buf.String()
+	if strings.Contains(logs, `"cascade_candidates_query"`) {
+		// Cluster-path query timer must NOT fire in embedding_only mode.
+		t.Errorf("embedding_only mode must skip cluster path; saw cascade_candidates_query in logs")
+	}
+}
+
+// TestCascadeUnion_LatencyBudget pins the M04 latency floor: a union-mode
+// request for 'anger' (broad lemma, ~35k centroid scan) must complete
+// within 750ms in-process. Threshold is generous vs the spec's 500ms p99
+// — this is a smoke test running under the Go test framework, not a
+// production benchmark.
+func TestCascadeUnion_LatencyBudget(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping latency smoke in -short mode")
+	}
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.ModeUnion
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=50", nil)
+	w := httptest.NewRecorder()
+
+	start := time.Now()
+	h.HandleSuggest(w, req)
+	elapsed := time.Since(start)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if elapsed > 750*time.Millisecond {
+		t.Errorf("union-mode anger limit=50 took %v, want ≤ 750ms", elapsed)
+	}
+	t.Logf("union-mode anger limit=50 elapsed: %v", elapsed)
+}
+
+// TestCascade_AggregatesConcretenessCacheMisses_NoPerCandidateSpam pins
+// the R1-D4 fix: per-candidate concreteness cache-miss spam must be
+// replaced by a single aggregate Error log post-loop plus a count attr
+// on cascade_request_total. We can't easily force a real cache divergence
+// against the test DB, so this test asserts the steady-state contract:
+// under a healthy cache the per-candidate Error log MUST NOT fire even
+// once during a normal request. (Direct positive verification of the
+// aggregator path requires a fixture that diverges cache from SQL — see
+// Task 16 for the runtime tripwire which closes that gap.)
+func TestCascade_AggregatesConcretenessCacheMisses_NoPerCandidateSpam(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=50", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(buf.String(), "cascade candidate concreteness missing from cache despite SQL filter") {
+		t.Errorf("per-candidate concreteness Error log must not fire on healthy data:\n%s", buf.String())
+	}
+}
+
+// TestCascade_EmptyPropsByID_FlagsAggregatorAndContinues pins the R4-D1
+// behaviour: when batch props returns empty for all candidates, we do
+// NOT emit a per-request Error spam — instead we set the aggregator
+// flag and continue serving. Verified via a synthetic DB where
+// synset_properties_curated is empty but cascade tables are populated.
+// (Note: this is a low-fidelity proxy — the test DB has properties,
+// so we assert the negative steady-state contract.)
+func TestCascade_EmptyPropsByID_NoErrorLogOnHealthyData(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=20", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(buf.String(), "cascade batch properties returned empty for all candidates") {
+		t.Errorf("per-request empty-propsByID Error log must not fire on healthy data:\n%s", buf.String())
+	}
+}
+
+// TestNewHandlerWithCascade_EmptyCuratedProps_FailsLoud extends the
+// post-preflight tripwire to also assert synset_properties_curated is
+// non-empty. Closes R1-D4 — without this, a deploy with all cascade
+// tables populated but curated_props empty would pass startup and
+// silently serve no_properties for every gate-passed candidate.
+func TestNewHandlerWithCascade_EmptyCuratedProps_FailsLoud(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/empty_curated.db"
+
+	database, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	schema := []string{
+		`CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT)`,
+		`CREATE TABLE lemmas (synset_id TEXT, lemma TEXT)`,
+		// Empty curated table — this is the failure mode we're trying to catch.
+		`CREATE TABLE synset_properties_curated (synset_id TEXT, cluster_id INTEGER, salience_sum REAL)`,
+		`CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, lemma TEXT NOT NULL)`,
+		`CREATE TABLE frequencies (lemma TEXT, count INTEGER)`,
+		`CREATE TABLE cluster_antonyms (cluster_id_a INTEGER, cluster_id_b INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER PRIMARY KEY, lemma TEXT)`,
+		`CREATE TABLE lemma_embeddings (lemma TEXT, embedding BLOB)`,
+		// Cascade tables populated with one row each (need a row so the
+		// existing existence-AND-row check passes for them).
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`INSERT INTO synset_concreteness VALUES ('test-1', 3.0, 'test')`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`INSERT INTO synset_centroids VALUES ('test-1', x'00', 1)`,
+	}
+	for _, stmt := range schema {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("schema setup: %v", err)
+		}
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	_, err = NewHandlerWithCascade(dbPath, true)
+	if err == nil {
+		t.Fatal("expected error for empty synset_properties_curated, got nil")
+	}
+	if !strings.Contains(err.Error(), "synset_properties_curated") {
+		t.Errorf("expected error mentioning synset_properties_curated, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "is empty") {
+		t.Errorf("expected 'is empty' in error, got: %v", err)
+	}
+}
+
+// TestCascade_EmitsOutcomeSlogInfoUnconditionally pins R1-Fix-A: every
+// cascade request must emit an unconditional slog.Info "cascade request
+// complete" record at INFO level, independent of observe.Start's
+// feature flag. Tests with timing OFF (production-like).
+func TestCascade_EmitsOutcomeSlogInfoUnconditionally(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(false) // production posture — timing OFF
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=10", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, `"msg":"cascade request complete"`) {
+		t.Errorf("expected unconditional 'cascade request complete' slog.Info; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `"outcome":"scored"`) {
+		t.Errorf("outcome=scored not present in log:\n%s", logs)
+	}
+}
+
+// TestCascade_UnionMode_NoConcretenessErrorForEmbeddingMisses pins R1-Fix-B:
+// in union mode, embedding-path candidates that lack synset_concreteness
+// MUST NOT trigger the "cascade concreteness cache divergence" Error log.
+// The current production DB produces ~30 such embedding misses per
+// 'anger' union request; pre-fix this was 30 lines of Error spam, now
+// it's a single Info attr (embedding_no_concreteness=30).
+func TestCascade_UnionMode_NoConcretenessErrorForEmbeddingMisses(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.ModeUnion
+	cfg.EmbeddingDMin = 0.0
+	cfg.EmbeddingDMax = 1.5
+	cfg.EmbeddingTopK = 200
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=200", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	logs := buf.String()
+	if strings.Contains(logs, `"cascade concreteness cache divergence"`) {
+		t.Errorf("union mode must NOT emit 'cache divergence' Error for embedding-source misses:\n%s", logs)
+	}
+	// Confirm the embedding miss count IS recorded as an Info attr instead.
+	if !strings.Contains(logs, `"embedding_no_concreteness"`) {
+		t.Errorf("expected 'embedding_no_concreteness' attr on cascade_request_total / cascade request complete log; got:\n%s", logs)
+	}
+}
+
+// TestCascade_EmbeddingOnly_OmitsTierFromJSON pins D4: embedding-only
+// candidates have no meaningful salience-based tier; the JSON wire
+// must omit the tier field rather than emit a misleading "unlikely".
+func TestCascade_EmbeddingOnly_OmitsTierFromJSON(t *testing.T) {
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.ModeEmbedding
+	cfg.EmbeddingDMin = 0.0
+	cfg.EmbeddingDMax = 1.5
+	cfg.EmbeddingTopK = 50
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=50", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, `"tier":"unlikely"`) {
+		t.Errorf("embedding-only response must not emit tier=unlikely (semantically wrong); body=\n%s", body)
+	}
+}
+
+// TestHandleSuggest_LemmaCaseInsensitive pins the entry-boundary lowercase
+// normalisation. Without it, the cluster path's exact-match SQL would
+// 404 on capitalised words even when the lowercase form is enriched.
+func TestHandleSuggest_LemmaCaseInsensitive(t *testing.T) {
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	for _, word := range []string{"Anger", "ANGER", "AnGeR"} {
+		t.Run(word, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/forge/suggest?word="+word+"&limit=5", nil)
+			w := httptest.NewRecorder()
+			h.HandleSuggest(w, req)
+			if w.Code != http.StatusOK {
+				t.Errorf("status %d for word=%q (want 200; lowercase 'anger' resolves): %s",
+					w.Code, word, w.Body.String())
+			}
+		})
 	}
 }

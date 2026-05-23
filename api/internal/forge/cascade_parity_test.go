@@ -17,7 +17,7 @@
 // pinned crib values to ±1e-6.
 //
 // Crib: docs/plans/2026-05-21-m03-s05-smoke-test-crib.md
-package forge
+package forge_test
 
 import (
 	"database/sql"
@@ -27,6 +27,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/snailuj/metaforge/internal/db"
+	"github.com/snailuj/metaforge/internal/forge"
 )
 
 const testDBPath = "../../../data-pipeline/output/lexicon_v2.db"
@@ -35,7 +36,7 @@ const testDBPath = "../../../data-pipeline/output/lexicon_v2.db"
 type cribEntry struct {
 	topic, vehicle              string
 	topicSynset, vehicleSynset  string
-	status                      CascadeStatus
+	status                      forge.CascadeStatus
 	finalScore, ortonyScore     *float64
 	cosineDistance, reRankBonus *float64
 }
@@ -51,44 +52,44 @@ func ptr(v float64) *float64 { return &v }
 var crib = []cribEntry{
 	{topic: "anger", vehicle: "fire",
 		topicSynset: "30227", vehicleSynset: "50554",
-		status:         CascadeStatusScored,
+		status:         forge.CascadeStatusScored,
 		finalScore:     ptr(0.3264111093603957),
 		ortonyScore:    ptr(0.0),
 		cosineDistance: ptr(0.25133655420750467),
 		reRankBonus:    ptr(0.3264111093603957)},
 	{topic: "idea", vehicle: "light",
 		topicSynset: "64981", vehicleSynset: "44464",
-		status:         CascadeStatusScored,
+		status:         forge.CascadeStatusScored,
 		finalScore:     ptr(0.2483492844771258),
 		ortonyScore:    ptr(0.0),
 		cosineDistance: ptr(0.19122894904738685),
 		reRankBonus:    ptr(0.2483492844771258)},
 	{topic: "time", vehicle: "money",
 		topicSynset: "445", vehicleSynset: "94024",
-		status:         CascadeStatusScored,
+		status:         forge.CascadeStatusScored,
 		finalScore:     ptr(0.31237238468193407),
 		ortonyScore:    ptr(0.0),
 		cosineDistance: ptr(0.24052673620508924),
 		reRankBonus:    ptr(0.31237238468193407)},
 	{topic: "argument", vehicle: "war",
 		topicSynset: "67993", vehicleSynset: "15970",
-		status: CascadeStatusGateDropped},
+		status: forge.CascadeStatusGateDropped},
 	{topic: "life", vehicle: "journey",
 		topicSynset: "92", vehicleSynset: "31055",
-		status: CascadeStatusGateDropped},
+		status: forge.CascadeStatusGateDropped},
 	{topic: "truth", vehicle: "hammer",
 		topicSynset: "64180", vehicleSynset: "28753",
-		status:         CascadeStatusScored,
+		status:         forge.CascadeStatusScored,
 		finalScore:     ptr(0.26667097125952566),
 		ortonyScore:    ptr(0.0),
 		cosineDistance: ptr(0.20533664786983474),
 		reRankBonus:    ptr(0.26667097125952566)},
 	{topic: "silence", vehicle: "velvet",
 		topicSynset: "59903", vehicleSynset: "57528",
-		status: CascadeStatusNoProperties},
+		status: forge.CascadeStatusNoProperties},
 	{topic: "cat", vehicle: "feline",
 		topicSynset: "81628", vehicleSynset: "46156",
-		status: CascadeStatusGateDropped},
+		status: forge.CascadeStatusGateDropped},
 }
 
 func TestCascadeParity_GoMatchesPythonGroundTruth(t *testing.T) {
@@ -103,7 +104,7 @@ func TestCascadeParity_GoMatchesPythonGroundTruth(t *testing.T) {
 		t.Fatalf("LoadCascadeCache: %v", err)
 	}
 
-	cfg := DefaultCascadeConfig()
+	cfg := forge.DefaultCascadeConfig()
 	const tolerance = 1e-6
 
 	for _, c := range crib {
@@ -142,7 +143,7 @@ func TestCascadeParity_GoMatchesPythonGroundTruth(t *testing.T) {
 				vConc = &v
 			}
 
-			res := EvaluateCascadePair(CascadeInputs{
+			res := forge.EvaluateCascadePair(forge.CascadeInputs{
 				TopicConcreteness:   tConc,
 				VehicleConcreteness: vConc,
 				TopicProperties:     propsByID[topicID],
@@ -158,7 +159,7 @@ func TestCascadeParity_GoMatchesPythonGroundTruth(t *testing.T) {
 			}
 
 			// 4. For scored entries, diff each numeric field.
-			if c.status == CascadeStatusScored {
+			if c.status == forge.CascadeStatusScored {
 				diffField(t, "final_score", c.finalScore, res.FinalScore, tolerance)
 				diffField(t, "ortony_score", c.ortonyScore, res.OrtonyScore, tolerance)
 				diffField(t, "cosine_distance", c.cosineDistance, res.CosineDistance, tolerance)

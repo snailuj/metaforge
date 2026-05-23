@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/snailuj/metaforge/internal/forge"
 )
 
 // GetSynsetClusterPropertiesBatch returns the curated-vocab cluster_id →
@@ -53,11 +55,11 @@ func GetSynsetClusterPropertiesBatch(database *sql.DB, synsetIDs []string) (map[
 	return out, nil
 }
 
-// CascadeCandidate is one gate-passed candidate row, populated by
-// GetForgeCascadeCandidatesByLemma. Mirrors CuratedMatch. Concreteness is
-// NOT carried on the row — the handler reads it from the in-memory
-// cascade cache so the *float64 absence-signal contract that
-// EvaluateCascadePair expects is preserved (TD1 fix).
+// CascadeCandidate is one gate-passed candidate row. Source tags which
+// generation path produced the row — set by the generator that built it.
+// Concreteness is NOT carried on the row — the handler reads it from
+// the in-memory cascade cache so the *float64 absence-signal contract
+// that EvaluateCascadePair expects is preserved (TD1 fix).
 type CascadeCandidate struct {
 	SynsetID         string
 	Word             string
@@ -69,6 +71,40 @@ type CascadeCandidate struct {
 	SourceSynsetID   string
 	SourceDefinition string
 	SourcePOS        string
+	Source           forge.CandidateSource
+}
+
+// NewCascadeCandidate is the validated constructor for CascadeCandidate.
+// It enforces the Source.Valid() invariant that downstream consumers
+// (handler scoring loop, union dedup, D4 tier-omit branch) depend on.
+// Panics on !source.Valid() — every generator MUST tag with a known
+// per-row source. Callers: GetForgeCascadeCandidatesByLemma (cluster
+// path), GetForgeCascadeCandidatesByEmbedding (embedding path), any
+// future generator.
+func NewCascadeCandidate(
+	synsetID, word, pos, definition string,
+	salienceSum float64,
+	contrastCount int,
+	sharedProps []string,
+	sourceSynsetID, sourceDefinition, sourcePOS string,
+	source forge.CandidateSource,
+) CascadeCandidate {
+	if !source.Valid() {
+		panic(fmt.Sprintf("NewCascadeCandidate: invalid Source %q for synset %s — generator must stamp a known per-row source", source, synsetID))
+	}
+	return CascadeCandidate{
+		SynsetID:         synsetID,
+		Word:             word,
+		POS:              pos,
+		Definition:       definition,
+		SalienceSum:      salienceSum,
+		ContrastCount:    contrastCount,
+		SharedProps:      sharedProps,
+		SourceSynsetID:   sourceSynsetID,
+		SourceDefinition: sourceDefinition,
+		SourcePOS:        sourcePOS,
+		Source:           source,
+	}
 }
 
 // GetForgeCascadeCandidatesByLemma extends the curated-by-lemma CTE with a
@@ -185,12 +221,17 @@ func GetForgeCascadeCandidatesByLemma(
 
 	for rows.Next() {
 		sawAnyRow = true
-		var m CascadeCandidate
-		var sharedProps string
+		var (
+			synsetID, pos, definition, word             string
+			salienceSum                                 float64
+			contrastCount                               int
+			sharedProps                                 string
+			sourceSynsetID, sourceDefinition, sourcePOS string
+		)
 		if err := rows.Scan(
-			&m.SynsetID, &m.POS, &m.Definition, &m.Word,
-			&m.SalienceSum, &m.ContrastCount, &sharedProps,
-			&m.SourceSynsetID, &m.SourceDefinition, &m.SourcePOS,
+			&synsetID, &pos, &definition, &word,
+			&salienceSum, &contrastCount, &sharedProps,
+			&sourceSynsetID, &sourceDefinition, &sourcePOS,
 		); err != nil {
 			return nil, fmt.Errorf("scan cascade candidate: %w", err)
 		}
@@ -198,14 +239,20 @@ func GetForgeCascadeCandidatesByLemma(
 		// lemma subquery deduplicates within the JOIN). If we see a duplicate
 		// here, the CTE has regressed — fail loud rather than silently
 		// dropping the duplicate (F-R2-2: regression tripwire).
-		if seen[m.SynsetID] {
-			return nil, fmt.Errorf("GetForgeCascadeCandidatesByLemma: SQL CTE produced duplicate target %s — CTE regression?", m.SynsetID)
+		if seen[synsetID] {
+			return nil, fmt.Errorf("GetForgeCascadeCandidatesByLemma: SQL CTE produced duplicate target %s — CTE regression?", synsetID)
 		}
-		seen[m.SynsetID] = true
+		seen[synsetID] = true
+		var splitShared []string
 		if sharedProps != "" {
-			m.SharedProps = strings.Split(sharedProps, ",")
+			splitShared = strings.Split(sharedProps, ",")
 		}
-		matches = append(matches, m)
+		matches = append(matches, NewCascadeCandidate(
+			synsetID, word, pos, definition,
+			salienceSum, contrastCount, splitShared,
+			sourceSynsetID, sourceDefinition, sourcePOS,
+			forge.SourceCluster,
+		))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("GetForgeCascadeCandidatesByLemma iterate: %w", err)

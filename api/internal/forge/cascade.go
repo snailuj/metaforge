@@ -3,7 +3,10 @@
 // — divergences from the Python ground truth in the smoke crib are port bugs.
 package forge
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
 
 // JaccardSalience returns Σ min(pa[c],pb[c]) over shared keys divided by
 // Σ max(pa[c],pb[c]) over the union. Returns 0.0 for empty inputs or
@@ -82,6 +85,36 @@ func CascadeCosineDistance(a, b []float32) (float64, bool) {
 	return 1.0 - sim, true
 }
 
+// CascadeCosineDistanceWithANorm is CascadeCosineDistance with `a`'s norm
+// precomputed by the caller. Used by hot-path scans (e.g. the M04
+// embedding-band candidate scan) where the same `a` vector is compared
+// against thousands of `b` vectors and recomputing |a| per call wastes
+// ~Σ|a| × O(len(a)) ops. Pass aNorm = math.Sqrt(Σ a[i]²) once outside
+// the loop. Returns (0, false) on dim mismatch or aNorm/bNorm == 0.
+func CascadeCosineDistanceWithANorm(a []float32, aNorm float64, b []float32) (float64, bool) {
+	if len(a) != len(b) || len(a) == 0 {
+		return 0, false
+	}
+	if aNorm <= 0 || math.IsNaN(aNorm) || math.IsInf(aNorm, 0) {
+		return 0, false
+	}
+	var dot, nb float64
+	for i := range a {
+		dot += float64(a[i]) * float64(b[i])
+		nb += float64(b[i]) * float64(b[i])
+	}
+	if nb == 0 {
+		return 0, false
+	}
+	sim := dot / (aNorm * math.Sqrt(nb))
+	if sim > 1.0 {
+		sim = 1.0
+	} else if sim < -1.0 {
+		sim = -1.0
+	}
+	return 1.0 - sim, true
+}
+
 // CascadeStatus routes a pair into one of four attrition / scored buckets,
 // mirroring the Python CascadeStatus literal type.
 type CascadeStatus string
@@ -101,6 +134,76 @@ const (
 	CompositionMultiplicative Composition = "multiplicative"
 )
 
+// Valid reports whether c is one of the two known composition modes.
+// CascadeConfig.Validate() consults this so an invalid value fails loud
+// at startup rather than silently dropping the re-rank bonus.
+func (c Composition) Valid() bool {
+	switch c {
+	case CompositionAdditive, CompositionMultiplicative:
+		return true
+	}
+	return false
+}
+
+// CandidateSource tags a single candidate row with the generation path
+// that produced it. Distinct from CandidateMode (the config-side enum
+// that chooses which paths to run) — a `union` request can produce rows
+// tagged cluster, embedding, OR both. Purely diagnostic in M04 v1; a
+// future co-generation scoring bonus may key off SourceBoth.
+type CandidateSource string
+
+const (
+	SourceCluster   CandidateSource = "cluster"
+	SourceEmbedding CandidateSource = "embedding"
+	SourceBoth      CandidateSource = "both"
+)
+
+// Valid reports whether s is one of the three known per-row source tags.
+// Unknown values indicate a structural bug (untagged candidate, manual
+// JSON tampering); callers may use this on the boundary between trusted
+// internal code and untrusted inputs.
+func (s CandidateSource) Valid() bool {
+	switch s {
+	case SourceCluster, SourceEmbedding, SourceBoth:
+		return true
+	}
+	return false
+}
+
+// CandidateMode is the config-side enum: which generation paths to
+// run for each cascade request. Maps to METAFORGE_FORGE_CANDIDATES /
+// --candidate-sources. Different value set from CandidateSource — see
+// the per-row CandidateSource doc above.
+type CandidateMode string
+
+const (
+	ModeCluster   CandidateMode = "cluster_only"
+	ModeEmbedding CandidateMode = "embedding_only"
+	ModeUnion     CandidateMode = "union"
+)
+
+// Valid reports whether m is one of the three known config modes.
+// CascadeConfig.Validate() consults this at startup so an invalid env
+// value fails loud instead of silently falling back to a default.
+func (m CandidateMode) Valid() bool {
+	switch m {
+	case ModeCluster, ModeEmbedding, ModeUnion:
+		return true
+	}
+	return false
+}
+
+// ParseCandidateMode is the validated constructor for CandidateMode.
+// Used at the env/flag boundary in main.go so an invalid operator-supplied
+// value fails loud at the cast site, not via downstream CascadeConfig.Validate().
+func ParseCandidateMode(s string) (CandidateMode, error) {
+	m := CandidateMode(s)
+	if !m.Valid() {
+		return "", fmt.Errorf("invalid candidate mode %q: must be one of cluster_only|embedding_only|union", s)
+	}
+	return m, nil
+}
+
 // CascadeConfig pins the cascade hyperparameters. Use DefaultCascadeConfig
 // for the production-blessed winner config.
 type CascadeConfig struct {
@@ -108,17 +211,75 @@ type CascadeConfig struct {
 	Alpha                 float64
 	DCap                  float64
 	Composition           Composition
+
+	// M04 candidate-generation knobs.
+	CandidateSources CandidateMode // which paths to run
+	EmbeddingDMin    float64       // inclusive lower band on cosine distance
+	EmbeddingDMax    float64       // inclusive upper band; must satisfy DMax > DMin
+	EmbeddingTopK    int           // cap on per-request embedding candidates
 }
 
 // DefaultCascadeConfig returns the production-blessed winner config from
-// the M03 Stage-2 sweep (separation +0.1779).
+// the M03 Stage-2 sweep (separation +0.1779) plus the pre-sweep M04
+// candidate-generation defaults. CandidateSources is ModeCluster
+// (M03 behaviour) until the M04 sweep ratifies ModeUnion.
 func DefaultCascadeConfig() CascadeConfig {
 	return CascadeConfig{
 		ConcretenessThreshold: 1.0,
 		Alpha:                 1.0,
 		DCap:                  0.77,
 		Composition:           CompositionAdditive,
+		CandidateSources:      ModeCluster,
+		EmbeddingDMin:         0.4,
+		EmbeddingDMax:         0.85,
+		EmbeddingTopK:         100,
 	}
+}
+
+// EmbeddingTopKCeiling is the safety upper bound on EmbeddingTopK.
+// Modern mattn/go-sqlite3 builds have SQLITE_MAX_VARIABLE_NUMBER=32766
+// (SQLite ≥3.32, May 2020). 10000 is ~3× safety margin and matches the
+// lab-mode canary's needs. SQLite ≤3.31 ships the historical 999
+// limit, which would break this ceiling — chunking the IN-clause in
+// db.getSynsetRowsBatch is the right cross-platform fix and is parked
+// as an M04 v2 backlog item.
+const EmbeddingTopKCeiling = 10000
+
+// Validate enforces invariants on CascadeConfig before the handler
+// accepts the config. Called at startup from main.go after env/flag
+// parsing so bad values fail loud instead of silently degrading the
+// scorer.
+func (c CascadeConfig) Validate() error {
+	if !c.CandidateSources.Valid() {
+		return fmt.Errorf("CandidateMode %q is not one of cluster_only|embedding_only|union", c.CandidateSources)
+	}
+	if !c.Composition.Valid() {
+		return fmt.Errorf("Composition %q is not one of additive|multiplicative", c.Composition)
+	}
+	if c.Alpha < 0 || math.IsNaN(c.Alpha) || math.IsInf(c.Alpha, 0) {
+		return fmt.Errorf("Alpha %v must be ≥ 0 and finite", c.Alpha)
+	}
+	if c.DCap <= 0 || math.IsNaN(c.DCap) || math.IsInf(c.DCap, 0) {
+		return fmt.Errorf("DCap %v must be > 0 and finite", c.DCap)
+	}
+	if math.IsNaN(c.ConcretenessThreshold) || math.IsInf(c.ConcretenessThreshold, 0) {
+		return fmt.Errorf("ConcretenessThreshold %v must be finite", c.ConcretenessThreshold)
+	}
+	if c.EmbeddingDMin < 0.0 || c.EmbeddingDMin > 2.0 {
+		return fmt.Errorf("EmbeddingDMin %v out of range [0, 2]", c.EmbeddingDMin)
+	}
+	if c.EmbeddingDMax <= c.EmbeddingDMin || c.EmbeddingDMax > 2.0 {
+		return fmt.Errorf("EmbeddingDMax %v must be > EmbeddingDMin (%v) and ≤ 2.0",
+			c.EmbeddingDMax, c.EmbeddingDMin)
+	}
+	if c.EmbeddingTopK <= 0 {
+		return fmt.Errorf("EmbeddingTopK %d must be > 0", c.EmbeddingTopK)
+	}
+	if c.EmbeddingTopK > EmbeddingTopKCeiling {
+		return fmt.Errorf("EmbeddingTopK %d exceeds ceiling %d (SQLite IN-clause variable limit safety)",
+			c.EmbeddingTopK, EmbeddingTopKCeiling)
+	}
+	return nil
 }
 
 // CascadeInputs bundles per-pair data for EvaluateCascadePair. Pointer

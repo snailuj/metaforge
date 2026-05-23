@@ -2,6 +2,7 @@ package forge
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -96,6 +97,42 @@ func TestCascadeCosineDistance_DimMismatchReturnsNotOk(t *testing.T) {
 func TestCascadeCosineDistance_ZeroNormReturnsNotOk(t *testing.T) {
 	if _, ok := CascadeCosineDistance([]float32{0, 0, 0}, []float32{1, 0, 0}); ok {
 		t.Error("expected ok=false on zero norm")
+	}
+}
+
+func TestCascadeCosineDistanceWithANorm_RejectsBadANorm(t *testing.T) {
+	a := []float32{1, 0, 0}
+	b := []float32{0, 1, 0}
+	cases := []struct {
+		name  string
+		aNorm float64
+	}{
+		{"zero", 0},
+		{"negative", -1.0},
+		{"NaN", math.NaN()},
+		{"+Inf", math.Inf(1)},
+		{"-Inf", math.Inf(-1)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, ok := CascadeCosineDistanceWithANorm(a, tc.aNorm, b)
+			if ok {
+				t.Errorf("aNorm=%v: want ok=false, got d=%v ok=true", tc.aNorm, d)
+			}
+		})
+	}
+}
+
+func TestCascadeCosineDistanceWithANorm_AcceptsGoodANorm(t *testing.T) {
+	a := []float32{1, 0, 0}
+	b := []float32{1, 0, 0}
+	aNorm := math.Sqrt(1.0) // = 1
+	d, ok := CascadeCosineDistanceWithANorm(a, aNorm, b)
+	if !ok {
+		t.Fatalf("want ok=true for valid aNorm")
+	}
+	if d > 1e-9 {
+		t.Errorf("identical vectors should give distance ~0, got %v", d)
 	}
 }
 
@@ -210,3 +247,108 @@ func TestEvaluateCascadePair_FailOpenOnMissingCentroid(t *testing.T) {
 }
 
 func floatPtr(v float64) *float64 { return &v }
+
+func TestCandidateSource_ValidRecognisesKnownTags(t *testing.T) {
+	for _, s := range []CandidateSource{SourceCluster, SourceEmbedding, SourceBoth} {
+		if !s.Valid() {
+			t.Errorf("CandidateSource(%q).Valid() = false, want true", s)
+		}
+	}
+}
+
+func TestCandidateSource_ValidRejectsUnknown(t *testing.T) {
+	for _, s := range []CandidateSource{"", "neither", "cluster_only", "embedding_only"} {
+		if CandidateSource(s).Valid() {
+			t.Errorf("CandidateSource(%q).Valid() = true, want false", s)
+		}
+	}
+}
+
+func TestCandidateMode_ValidRecognisesKnownModes(t *testing.T) {
+	for _, s := range []CandidateMode{ModeCluster, ModeEmbedding, ModeUnion} {
+		if !s.Valid() {
+			t.Errorf("CandidateMode(%q).Valid() = false, want true", s)
+		}
+	}
+}
+
+func TestCandidateMode_ValidRejectsUnknown(t *testing.T) {
+	for _, s := range []CandidateMode{"", "cluster", "embedding", "both", "all"} {
+		if CandidateMode(s).Valid() {
+			t.Errorf("CandidateMode(%q).Valid() = true, want false", s)
+		}
+	}
+}
+
+func TestParseCandidateMode_AcceptsKnownModes(t *testing.T) {
+	for _, s := range []string{"cluster_only", "embedding_only", "union"} {
+		m, err := ParseCandidateMode(s)
+		if err != nil {
+			t.Errorf("ParseCandidateMode(%q): unexpected error: %v", s, err)
+		}
+		if string(m) != s {
+			t.Errorf("ParseCandidateMode(%q): got %q, want %q", s, m, s)
+		}
+	}
+}
+
+func TestParseCandidateMode_RejectsUnknownAndEmpty(t *testing.T) {
+	for _, s := range []string{"", "cluster", "embedding", "both", "all", "CLUSTER_ONLY"} {
+		_, err := ParseCandidateMode(s)
+		if err == nil {
+			t.Errorf("ParseCandidateMode(%q): want error, got nil", s)
+		}
+	}
+}
+
+func TestCascadeConfig_DefaultIsValid(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("DefaultCascadeConfig must validate: %v", err)
+	}
+	if cfg.CandidateSources != ModeCluster {
+		t.Errorf("default CandidateSources: want %q (pre-sweep), got %q",
+			ModeCluster, cfg.CandidateSources)
+	}
+	if cfg.EmbeddingDMin != 0.4 || cfg.EmbeddingDMax != 0.85 || cfg.EmbeddingTopK != 100 {
+		t.Errorf("default embedding knobs: got dMin=%v dMax=%v topK=%v",
+			cfg.EmbeddingDMin, cfg.EmbeddingDMax, cfg.EmbeddingTopK)
+	}
+}
+
+func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
+	base := DefaultCascadeConfig()
+
+	cases := []struct {
+		name string
+		mut  func(c *CascadeConfig)
+		want string
+	}{
+		{"unknown sources", func(c *CascadeConfig) { c.CandidateSources = "all" }, "CandidateMode"},
+		{"negative dMin", func(c *CascadeConfig) { c.EmbeddingDMin = -0.1 }, "EmbeddingDMin"},
+		{"dMin above 2", func(c *CascadeConfig) { c.EmbeddingDMin = 2.5 }, "EmbeddingDMin"},
+		{"dMax not above dMin", func(c *CascadeConfig) { c.EmbeddingDMax = c.EmbeddingDMin }, "EmbeddingDMax"},
+		{"topK zero", func(c *CascadeConfig) { c.EmbeddingTopK = 0 }, "EmbeddingTopK"},
+		{"topK negative", func(c *CascadeConfig) { c.EmbeddingTopK = -5 }, "EmbeddingTopK"},
+		{"invalid composition", func(c *CascadeConfig) { c.Composition = "weird" }, "Composition"},
+		{"negative alpha", func(c *CascadeConfig) { c.Alpha = -0.1 }, "Alpha"},
+		{"NaN alpha", func(c *CascadeConfig) { c.Alpha = math.NaN() }, "Alpha"},
+		{"zero dCap", func(c *CascadeConfig) { c.DCap = 0 }, "DCap"},
+		{"negative dCap", func(c *CascadeConfig) { c.DCap = -1 }, "DCap"},
+		{"NaN concreteness threshold", func(c *CascadeConfig) { c.ConcretenessThreshold = math.NaN() }, "ConcretenessThreshold"},
+		{"topK above ceiling", func(c *CascadeConfig) { c.EmbeddingTopK = EmbeddingTopKCeiling + 1 }, "EmbeddingTopK"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := base
+			tc.mut(&c)
+			err := c.Validate()
+			if err == nil {
+				t.Fatalf("want error mentioning %q, got nil", tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("want error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}

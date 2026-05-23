@@ -2,9 +2,11 @@ package db
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/snailuj/metaforge/internal/forge"
 )
 
 func TestGetSynsetClusterPropertiesBatch_ReturnsMapPerSynset(t *testing.T) {
@@ -176,5 +178,60 @@ func TestGetForgeCascadeCandidatesByLemma_UnknownLemmaReturnsErrLemmaNotFound(t 
 	_, err = GetForgeCascadeCandidatesByLemma(database, "zzznotarealword", 1.0, 20)
 	if !errors.Is(err, ErrLemmaNotFound) {
 		t.Errorf("expected ErrLemmaNotFound for unknown lemma, got %v", err)
+	}
+}
+
+func TestGetForgeCascadeCandidatesByLemma_TagsRowsWithSourceCluster(t *testing.T) {
+	database, err := Open(testDBPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer database.Close()
+
+	candidates, err := GetForgeCascadeCandidatesByLemma(database, "anger", 1.0, 10)
+	if err != nil {
+		t.Fatalf("candidates: %v", err)
+	}
+	if len(candidates) == 0 {
+		t.Fatal("expected at least one candidate for 'anger'")
+	}
+	for _, c := range candidates {
+		if c.Source != forge.SourceCluster {
+			t.Errorf("candidate %s tagged %q, want %q", c.SynsetID, c.Source, forge.SourceCluster)
+		}
+	}
+}
+
+func TestNewCascadeCandidate_PanicsOnInvalidSource(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for invalid Source, got none")
+		}
+		msg, _ := r.(string)
+		if !strings.Contains(msg, "invalid Source") {
+			t.Errorf("panic message missing expected phrase: %v", r)
+		}
+	}()
+	_ = NewCascadeCandidate(
+		"s1", "fire", "n", "definition",
+		1.0, 0, nil,
+		"s0", "src definition", "n",
+		forge.CandidateSource(""), // invalid
+	)
+}
+
+func TestNewCascadeCandidate_AcceptsValidSource(t *testing.T) {
+	c := NewCascadeCandidate(
+		"s1", "fire", "n", "definition",
+		1.0, 0, nil,
+		"s0", "src definition", "n",
+		forge.SourceCluster,
+	)
+	if c.Source != forge.SourceCluster {
+		t.Errorf("Source: want SourceCluster, got %q", c.Source)
+	}
+	if c.SynsetID != "s1" {
+		t.Errorf("SynsetID: want s1, got %q", c.SynsetID)
 	}
 }
