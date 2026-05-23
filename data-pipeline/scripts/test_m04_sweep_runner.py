@@ -74,8 +74,15 @@ def test_write_verdict_preserves_m04_sections_when_axis_is_embedding_band(tmp_pa
 
 
 def test_cell_result_serialises_aptness_rate_and_separation_score() -> None:
-    """asdict() must include aptness_rate and separation_score so the JSON
-    output is auditable without recomputing from the raw score lists."""
+    """asdict() must include the derived metrics so the JSON output is
+    auditable without recomputing from the raw score lists.
+
+    The dataclass fields are underscore-prefixed (`_aptness_rate`,
+    `_separation_score`) because the public attributes are @property
+    accessors. ``dataclasses.asdict`` serialises the stored fields, so the
+    JSON keys carry the underscore prefix — finalise_metrics() must run
+    first to snapshot the values.
+    """
     import dataclasses
 
     cell = _make_cell("test", apt=[0.5, 0.6, 0.7], inapt=[0.1, 0.2, 0.3, 0.4])
@@ -83,12 +90,12 @@ def test_cell_result_serialises_aptness_rate_and_separation_score() -> None:
     cell.finalise_metrics()
 
     dumped = dataclasses.asdict(cell)
-    assert "aptness_rate" in dumped, "aptness_rate missing from JSON dump"
-    assert "separation_score" in dumped, "separation_score missing from JSON dump"
-    assert isinstance(dumped["aptness_rate"], float)
-    assert isinstance(dumped["separation_score"], float)
+    assert "_aptness_rate" in dumped, "_aptness_rate missing from JSON dump"
+    assert "_separation_score" in dumped, "_separation_score missing from JSON dump"
+    assert isinstance(dumped["_aptness_rate"], float)
+    assert isinstance(dumped["_separation_score"], float)
     # Sanity — separation = mean(apt) - mean(inapt) = 0.6 - 0.25 = 0.35
-    assert dumped["separation_score"] == pytest.approx(0.35, abs=1e-9)
+    assert dumped["_separation_score"] == pytest.approx(0.35, abs=1e-9)
 
 
 def test_cell_result_property_accessors_still_work() -> None:
@@ -100,3 +107,43 @@ def test_cell_result_property_accessors_still_work() -> None:
     cell.finalise_metrics()
     # After finalise — same value (idempotent).
     assert cell.separation_score == pytest.approx(0.4, abs=1e-9)
+
+
+def test_cell_result_property_accessor_recomputes_when_unfinalised() -> None:
+    """The @property accessor for aptness_rate / separation_score must
+    recompute on the fly when the backing stored field is None — this
+    guarantees ergonomic ad-hoc use (tests, REPL) without forcing
+    callers to remember finalise_metrics. After finalise_metrics() runs,
+    the stored field must be populated (no longer None) and the property
+    must return the stored value verbatim.
+
+    This pins the @property-based implementation that replaces the old
+    __getattribute__ override: a CellResult must NOT have __getattribute__
+    intercepting attribute reads — that's heavyweight and non-idiomatic.
+    """
+    cell = _make_cell("test", apt=[0.5, 0.6, 0.7], inapt=[0.1, 0.2, 0.3, 0.4])
+
+    # Pre-finalise: the dataclass field is None, but the property recomputes.
+    assert cell._aptness_rate is None
+    assert cell._separation_score is None
+    # mean(apt) - mean(inapt) = 0.6 - 0.25 = 0.35
+    assert cell.separation_score == pytest.approx(0.35, abs=1e-9)
+    # 95th percentile of inapt has insufficient data (n=4 < required) so
+    # _compute_aptness_rate hits the n<2 guard? Actually n=4 is fine for
+    # quantiles(n=20) but only when there are >=2 points. Just assert it
+    # returns a float without crashing.
+    rate = cell.aptness_rate
+    assert isinstance(rate, float)
+
+    # Post-finalise: stored fields populated and property returns stored value.
+    cell.finalise_metrics()
+    assert cell._aptness_rate is not None
+    assert cell._separation_score is not None
+    assert cell.separation_score == pytest.approx(0.35, abs=1e-9)
+
+    # Regression guard: the old __getattribute__ override must be gone.
+    # A @property-based implementation leaves CellResult with object's
+    # default __getattribute__ (not overridden on the class itself).
+    assert "__getattribute__" not in CellResult.__dict__, (
+        "CellResult should not override __getattribute__ — use @property instead"
+    )

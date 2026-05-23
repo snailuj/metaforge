@@ -53,12 +53,14 @@ class CellResult:
     source_mix: dict[str, int] = field(default_factory=lambda: {"cluster": 0, "embedding": 0, "both": 0})
     # Derived metrics — populated by ``finalise_metrics`` before serialisation
     # so that ``dataclasses.asdict`` exposes them in the JSON output.
-    # ``None`` means "not yet computed"; callers should call
-    # ``finalise_metrics()`` after the score lists are fully populated.
-    # The accessors below treat ``None`` as a signal to recompute on the
-    # fly, which keeps ad-hoc use (e.g. tests, REPL) ergonomic.
-    aptness_rate: float | None = None
-    separation_score: float | None = None
+    # ``None`` means "not yet computed"; the @property accessors below treat
+    # ``None`` as a signal to recompute on the fly, which keeps ad-hoc use
+    # (e.g. tests, REPL) ergonomic without forcing callers to remember
+    # ``finalise_metrics()``. Note: ``dataclasses.asdict`` serialises the
+    # underscore-prefixed *fields*, not the @property values, so
+    # ``finalise_metrics()`` is still required before serialising.
+    _aptness_rate: float | None = None
+    _separation_score: float | None = None
 
     def _compute_aptness_rate(self) -> float:
         if not self.apt_scores:
@@ -77,29 +79,38 @@ class CellResult:
             return 0.0
         return statistics.mean(self.apt_scores) - statistics.mean(self.inapt_scores)
 
+    @property
+    def aptness_rate(self) -> float:
+        """Return the stored aptness_rate, or recompute on the fly if unset.
+
+        After ``finalise_metrics()`` runs, this returns the snapshot verbatim.
+        Before then, it recomputes from ``apt_scores`` / ``inapt_scores`` so
+        ad-hoc access (tests, REPL) works without needing to finalise first.
+        """
+        if self._aptness_rate is None:
+            return self._compute_aptness_rate()
+        return self._aptness_rate
+
+    @property
+    def separation_score(self) -> float:
+        """Return the stored separation_score, or recompute on the fly if unset.
+
+        After ``finalise_metrics()`` runs, this returns the snapshot verbatim.
+        """
+        if self._separation_score is None:
+            return self._compute_separation_score()
+        return self._separation_score
+
     def finalise_metrics(self) -> None:
-        """Populate stored derived-metric fields from raw score lists.
+        """Snapshot derived-metric fields from raw score lists.
 
         Idempotent — safe to call multiple times. Must be invoked before
         ``dataclasses.asdict`` if the JSON output is expected to carry
-        aptness_rate and separation_score.
+        aptness_rate and separation_score (asdict serialises the stored
+        fields, not the @property accessors).
         """
-        self.aptness_rate = self._compute_aptness_rate()
-        self.separation_score = self._compute_separation_score()
-
-    def __getattribute__(self, name: str):  # noqa: D401 — small convenience layer
-        # Lazy recompute: when callers read aptness_rate / separation_score
-        # before ``finalise_metrics`` has run, recompute on the fly so the
-        # accessors remain ergonomic for tests / REPL. Once finalised the
-        # stored float is returned verbatim.
-        if name in ("aptness_rate", "separation_score"):
-            stored = object.__getattribute__(self, name)
-            if stored is None:
-                if name == "aptness_rate":
-                    return object.__getattribute__(self, "_compute_aptness_rate")()
-                return object.__getattribute__(self, "_compute_separation_score")()
-            return stored
-        return object.__getattribute__(self, name)
+        self._aptness_rate = self._compute_aptness_rate()
+        self._separation_score = self._compute_separation_score()
 
 
 def load_pairs(path: Path) -> list[tuple[str, str]]:
