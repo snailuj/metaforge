@@ -214,6 +214,15 @@ func loadClusterTypes(database *sql.DB, dst map[int64]string) error {
 			// structural, escalate.
 			return fmt.Errorf("scan cluster type row: %w", err)
 		}
+		// Defensive divergence check: snap_properties.py writes one
+		// dominant_type per cluster, so every row for the same cluster
+		// must carry the same value. A pipeline bug that diverged
+		// would otherwise be silently absorbed by last-write-wins —
+		// surface it instead.
+		if existing, ok := dst[id]; ok && existing != "" && dt.Valid && existing != dt.String {
+			slog.Warn("cascade cache: vocab_clusters.dominant_type divergence within cluster",
+				"cluster_id", id, "first_seen", existing, "new", dt.String)
+		}
 		if dt.Valid {
 			dst[id] = dt.String
 		} else {

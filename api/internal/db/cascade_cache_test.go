@@ -166,6 +166,51 @@ func TestLoadClusterTypes_PopulatesMapWithCanonicalTypesAndEmptyForNull(t *testi
 	}
 }
 
+func TestLoadClusterTypes_LogsDivergenceWarning(t *testing.T) {
+	// Defensive tripwire: a pipeline bug that wrote diverging
+	// dominant_type values for two rows of the same cluster_id would
+	// otherwise be silently absorbed by last-write-wins on the map.
+	// loadClusterTypes must log a slog.Warn the first time it observes
+	// a non-empty existing value that differs from the incoming one.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		// Two rows for cluster 1 with diverging non-NULL dominant_type
+		// — a pipeline contract violation that the loader must surface.
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (1, 101, 'behaviour')`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "vocab_clusters.dominant_type divergence") {
+		t.Errorf("expected slog.Warn about dominant_type divergence; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `"level":"WARN"`) {
+		t.Errorf("expected WARN level; got:\n%s", logs)
+	}
+}
+
 func TestLoadCascadeCache_AllNullDominantType_LogsWarn(t *testing.T) {
 	// M05 S02 readiness tripwire: if every vocab_clusters row has
 	// NULL dominant_type, the pipeline hasn't been re-run since the
