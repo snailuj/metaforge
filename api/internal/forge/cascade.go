@@ -163,7 +163,7 @@ type CascadeConfig struct {
 	// M04 candidate-generation knobs.
 	CandidateSources CandidateSources // which paths to run
 	EmbeddingDMin    float64          // inclusive lower band on cosine distance
-	EmbeddingDMax    float64          // inclusive upper band
+	EmbeddingDMax    float64          // inclusive upper band; must satisfy DMax > DMin
 	EmbeddingTopK    int              // cap on per-request embedding candidates
 }
 
