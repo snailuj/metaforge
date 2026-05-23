@@ -10,6 +10,12 @@ data-pipeline/output/sweep_*.json
 data-pipeline/output/sweep_*.md
 data-pipeline/output/checkpoint_*.json
 data-pipeline/output/checkpoint_*.json.pre-*
+# Diagnostic / sweep result artefacts — environment-specific, regenerated
+# on every snap or sweep run. They should not be committed; previous slips
+# (e.g. docs(m05) gamma verdict) smuggled +45k regenerated lines into
+# unrelated commits.
+data-pipeline/output/snap_dropped.jsonl
+data-pipeline/output/*_results.json
 # Negation: re-include explicit "do not delete" sentinels (small text companion
 # files placed next to a snapshot the user wants protected from automated
 # pruning — e.g. lexicon_v2.db.pre-purge-20260517.keep-for-m03-baseline).
