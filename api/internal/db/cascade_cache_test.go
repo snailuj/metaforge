@@ -211,6 +211,65 @@ func TestLoadClusterTypes_LogsDivergenceWarning(t *testing.T) {
 	}
 }
 
+func TestLoadClusterTypes_DivergenceFlood_RateLimited(t *testing.T) {
+	// Log-flood defence: a pathological pipeline bug could write
+	// divergent dominant_type on every row (~35k+ on live DBs). Emitting
+	// a full Warn per row would drown observability. The loader caps
+	// Warn at the first 10 divergences and follows up with a single
+	// slog.Error summarising the total count beyond the cap.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+	// 25 clusters each with a non-NULL→divergent-non-NULL pair → 25
+	// divergence events. Cap is 10, so we expect 10 WARN + 1 ERROR.
+	for i := 1; i <= 25; i++ {
+		if _, err := database.Exec(
+			`INSERT INTO vocab_clusters VALUES (?, ?, 'sensorimotor')`, i, i*10); err != nil {
+			t.Fatalf("seed sensorimotor row %d: %v", i, err)
+		}
+		if _, err := database.Exec(
+			`INSERT INTO vocab_clusters VALUES (?, ?, 'behaviour')`, i, i*10+1); err != nil {
+			t.Fatalf("seed behaviour row %d: %v", i, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	warnCount := strings.Count(logs, `"level":"WARN","msg":"cascade cache: vocab_clusters.dominant_type divergence`)
+	if warnCount > 10 {
+		t.Errorf("expected at most 10 divergence WARN messages, got %d:\n%s", warnCount, logs)
+	}
+	if warnCount < 10 {
+		t.Errorf("expected exactly 10 divergence WARN messages (cap), got %d:\n%s", warnCount, logs)
+	}
+	// Single summary ERROR for the tail beyond the cap (15 of 25).
+	errCount := strings.Count(logs, `"level":"ERROR","msg":"cascade cache: vocab_clusters.dominant_type divergence flood`)
+	if errCount != 1 {
+		t.Errorf("expected exactly 1 summary ERROR for flood tail, got %d:\n%s", errCount, logs)
+	}
+}
+
 func TestLoadClusterTypes_NullThenNonNull_LogsDivergence(t *testing.T) {
 	// Case A divergence: first row dt=NULL writes "" into the map, then a
 	// later row carries a real dominant_type. The original guard

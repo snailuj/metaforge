@@ -206,6 +206,12 @@ func loadClusterTypes(database *sql.DB, dst map[int64]string) error {
 	}
 	defer rows.Close()
 
+	// Bounded divergence reporting: a pathological pipeline bug could
+	// emit divergence on every row (~35k+ on the live DB). Cap the
+	// per-row Warn at maxWarns and emit a single summary Error at the
+	// end so observability survives the flood without losing the signal.
+	const maxWarns = 10
+	divergences := 0
 	for rows.Next() {
 		var id int64
 		var dt sql.NullString
@@ -227,8 +233,11 @@ func loadClusterTypes(database *sql.DB, dst map[int64]string) error {
 			incoming = dt.String
 		}
 		if existing, ok := dst[id]; ok && existing != incoming {
-			slog.Warn("cascade cache: vocab_clusters.dominant_type divergence within cluster",
-				"cluster_id", id, "first_seen", existing, "new", incoming)
+			divergences++
+			if divergences <= maxWarns {
+				slog.Warn("cascade cache: vocab_clusters.dominant_type divergence within cluster",
+					"cluster_id", id, "first_seen", existing, "new", incoming)
+			}
 			// Prefer-non-empty recovery: a real dominant_type beats ""
 			// regardless of arrival order. This rescues Case B (real
 			// value already in the map, NULL row arriving second) where
@@ -241,6 +250,12 @@ func loadClusterTypes(database *sql.DB, dst map[int64]string) error {
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate cluster types: %w", err)
+	}
+	if divergences > maxWarns {
+		slog.Error("cascade cache: vocab_clusters.dominant_type divergence flood — pipeline contract broken",
+			"total_divergences", divergences,
+			"warns_emitted", maxWarns,
+			"suppressed", divergences-maxWarns)
 	}
 	return nil
 }
