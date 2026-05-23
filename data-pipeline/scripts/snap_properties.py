@@ -6,6 +6,13 @@ Three-stage cascade:
   3. Embedding top-1 — cosine similarity above threshold (numpy-vectorised)
   4. Drop — no match found
 
+Diagnostic drop stream (`snap_dropped.jsonl` next to the DB) emits one JSON
+object per dropped property link with the schema:
+    {"text", "synset_id", "salience", "property_type", "reason", ["best_score"]}
+`best_score` is present only for `below_threshold` rows. `property_type` is
+the canonical M05 type (sensorimotor/behaviour/functional/effect/emotional/
+social/other) so drop analyses can correlate loss against type.
+
 Usage:
     python snap_properties.py --db PATH [--threshold 0.7]
 """
@@ -263,12 +270,17 @@ def snap_properties(
     # or commit raises mid-stage.
     dropped_fh = None
 
-    def _record_drop(record: dict) -> None:
+    def _record_drop(record: dict, property_type: str | None) -> None:
         """Stream one drop record to JSONL and bump per-reason counter.
 
         Streaming caps memory at V2 scale (~50MB if buffered as a list). Each
         record is one self-contained line, so jq/grep work without loading the
         whole file.
+
+        `property_type` is canonicalised and injected into the JSONL row so
+        post-hoc drop analyses can correlate loss against M05 type buckets.
+        Kept as a dedicated parameter (not folded into the record dict at the
+        call site) so no future caller can silently omit it.
 
         Drops are diagnostic-only — if open() or write() fails (PermissionError,
         ENOSPC, etc.) OR json.dumps() fails (TypeError/ValueError on a
@@ -279,6 +291,7 @@ def snap_properties(
         nonlocal dropped_fh, dropped_path
         stats["dropped"] += 1
         drop_counts[record["reason"]] = drop_counts.get(record["reason"], 0) + 1
+        record["property_type"] = _canonical_type(property_type)
         if dropped_path is None:
             return
         try:
@@ -447,13 +460,15 @@ def snap_properties(
 
                 if pid in zero_norm_pids:
                     _record_drop({"text": prop_text, "synset_id": sid,
-                                  "salience": salience, "reason": "zero_norm"})
+                                  "salience": salience, "reason": "zero_norm"},
+                                 prop_type)
                     continue
 
                 vec = emb_cache.get(pid)
                 if vec is None:
                     _record_drop({"text": prop_text, "synset_id": sid,
-                                  "salience": salience, "reason": "no_embedding"})
+                                  "salience": salience, "reason": "no_embedding"},
+                                 prop_type)
                     continue
 
                 # Cosine similarities via single matrix-vector multiply.
@@ -474,12 +489,14 @@ def snap_properties(
                 else:
                     _record_drop({"text": prop_text, "synset_id": sid,
                                   "salience": salience, "reason": "below_threshold",
-                                  "best_score": best_score})
+                                  "best_score": best_score},
+                                 prop_type)
         else:
             # No vocab embeddings (or no residue) — every unmatched entry is dropped
             for sid, pid, prop_text, salience, prop_type in unmatched:
                 _record_drop({"text": prop_text, "synset_id": sid,
-                              "salience": salience, "reason": "no_embedding"})
+                              "salience": salience, "reason": "no_embedding"},
+                             prop_type)
 
         # M05: compute and persist dominant_type per cluster from the per-cluster
         # type counts accumulated during snap. Mode (most-frequent type) is the

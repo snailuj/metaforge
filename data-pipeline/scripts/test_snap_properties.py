@@ -1901,6 +1901,40 @@ def test_snap_populates_dominant_type_per_cluster(tmp_path):
         conn.close()
 
 
+def test_dropped_records_carry_property_type(tmp_path):
+    """Each line of snap_dropped.jsonl must carry the source property_type
+    so post-hoc drop analysis can correlate loss against the 7 canonical
+    M05 types. Without this, the drop stream is type-blind."""
+    import json as _json
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)
+    # The fixture's drop candidate is 'xyzqwerty' on synset 'abc'. Stamp a
+    # property_type on that row so the drop record can echo it back.
+    conn.execute(
+        "UPDATE synset_properties SET property_type='emotional' "
+        "WHERE property_id=13"
+    )
+    conn.commit()
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    jsonl_path = tmp_path / "snap_dropped.jsonl"
+    assert jsonl_path.exists()
+    with open(jsonl_path) as f:
+        records = [_json.loads(line) for line in f if line.strip()]
+
+    assert any(
+        r.get("property_type") == "emotional" for r in records
+    ), (
+        "expected at least one drop record with property_type='emotional'; "
+        f"got: {records}"
+    )
+
+
 def test_snap_dominant_type_is_idempotent_under_re_snap(tmp_path):
     """A standalone re-snap (CLAUDE.md operation #3) must NULL stale
     dominant_type values for clusters that have no matches in the current run.
