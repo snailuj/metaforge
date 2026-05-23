@@ -187,12 +187,14 @@ func loadCentroids(database *sql.DB, dst map[string][]float32) error {
 // loadClusterTypes populates dst with cluster_id → dominant_type for the
 // M05 type-diversity bonus (consumed by EvaluateCascadePair in S03).
 //
-// vocab_clusters has one row per (cluster_id, vocab_id) pair, so the
-// (cluster_id, dominant_type) projection repeats. The write is
-// idempotent — every row for the same cluster carries the same
-// dominant_type by construction (snap_properties.py writes the per-
-// cluster mode once via UPDATE). SELECT DISTINCT would save a few map
-// writes but obscures the contract; the simpler form wins.
+// vocab_clusters has one row per vocab_id (PK is vocab_id); cluster_id
+// is non-unique (~5-7 vocab_ids per cluster on average), so the
+// (cluster_id, dominant_type) projection writes the same tuple once per
+// cluster member. Idempotent by construction — snap_properties.py
+// writes one dominant_type per cluster via an UPDATE, so every row for
+// the same cluster carries the same dominant_type. SELECT DISTINCT
+// would save a few map writes but obscures the contract; the simpler
+// form wins.
 //
 // dominant_type is nullable for pre-M05 DBs and for empty clusters.
 // Store the canonical zero value ("") in both cases so the scorer can
