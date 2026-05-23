@@ -327,11 +327,45 @@ def snap_properties(
         dropped_path = None
         log.warning("skipping snap_dropped.jsonl: in-memory DB has no on-disk path")
 
+    # Unlink any pre-existing .tmp left behind by a prior crashed run. An
+    # orphan .tmp is NOT this run's data; without this clean-slate step the
+    # atomic-rename branch at commit-success would silently promote the orphan
+    # to canonical whenever this run records zero drops (the rename used to
+    # gate on dropped_path.exists() alone, which cannot tell "this run's .tmp"
+    # apart from "a prior crash's .tmp").
+    if dropped_path is not None and dropped_path.exists():
+        try:
+            dropped_path.unlink()
+            log.warning(
+                "unlinked pre-existing %s — orphan from a prior crashed run, "
+                "not this run's data",
+                dropped_path,
+            )
+        except OSError as exc:
+            # Diagnostic stream is best-effort; if we can't clean up, log and
+            # disable JSONL writes so we can't accidentally append to or rename
+            # the orphan further along.
+            log.warning(
+                "failed to unlink orphan %s (%s: %s); disabling snap_dropped "
+                "JSONL stream for this run to avoid promoting stale data",
+                dropped_path,
+                type(exc).__name__,
+                exc,
+            )
+            dropped_path = None
+            final_dropped_path = None
+
     # Lazy open: only create the file if at least one drop occurs. The handle is
     # opened on first drop inside _record_drop and closed by the finally clause
     # below — this guarantees no leak even if Pass 2, executemany, executescript,
     # or commit raises mid-stage.
     dropped_fh = None
+    # Sentinel: True iff THIS run successfully opened .tmp for writing at least
+    # once. The atomic-rename at commit-success gates on this flag, not on
+    # dropped_path.exists() — a successful run with zero drops must not promote
+    # anything, even if (defence-in-depth) an orphan reappeared between the
+    # unlink above and the rename below.
+    we_wrote_to_tmp = False
 
     def _record_drop(record: dict, property_type: str | None) -> None:
         """Stream one drop record to JSONL and bump per-reason counter.
@@ -351,7 +385,7 @@ def snap_properties(
         WARNING, disable further JSONL writes, and let the canonical snap stage
         continue. Mirrors the in-memory-DB guard.
         """
-        nonlocal dropped_fh, dropped_path
+        nonlocal dropped_fh, dropped_path, we_wrote_to_tmp
         stats["dropped"] += 1
         drop_counts[record["reason"]] = drop_counts.get(record["reason"], 0) + 1
         record["property_type"] = _canonical_type(
@@ -362,6 +396,10 @@ def snap_properties(
         try:
             if dropped_fh is None:
                 dropped_fh = open(dropped_path, "w")
+                # Sentinel flip: this run now owns the .tmp file. Only flips
+                # AFTER open() succeeds so a failed open doesn't falsely
+                # authorise a later rename.
+                we_wrote_to_tmp = True
             dropped_fh.write(json.dumps(record) + "\n")
         except (OSError, TypeError, ValueError) as exc:
             log.warning(
@@ -630,9 +668,18 @@ def snap_properties(
         # Atomic-rename the diagnostic JSONL only after commit succeeds. If
         # commit (or anything earlier) raises, the canonical name never appears
         # — operators can't mistake rolled-back drops for authoritative ones.
+        # Gate on `we_wrote_to_tmp` (set true only when THIS run successfully
+        # opened .tmp), not on dropped_path.exists() — the latter cannot tell
+        # this run's data apart from a prior crashed run's orphan, and would
+        # silently promote stale data on a zero-drop run.
         # The dropped_fh handle must be closed before rename on Windows; the
         # finally clause below handles that, so we close-then-rename here too.
-        if final_dropped_path is not None and dropped_path is not None and dropped_path.exists():
+        if (
+            we_wrote_to_tmp
+            and final_dropped_path is not None
+            and dropped_path is not None
+            and dropped_path.exists()
+        ):
             if dropped_fh is not None:
                 try:
                     dropped_fh.close()

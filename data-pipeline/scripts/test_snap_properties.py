@@ -2155,6 +2155,43 @@ def test_schema_check_matches_canonical_set():
     )
 
 
+def test_cluster_vocab_check_matches_schema():
+    """cluster_vocab.py runtime DDL must mirror SCHEMA.sql's CHECK clause.
+
+    SCHEMA.sql and cluster_vocab.py independently declare the same
+    dominant_type CHECK constraint. If someone updates SCHEMA.sql and
+    CANONICAL_TYPES but forgets cluster_vocab.py, the runtime-rebuilt
+    vocab_clusters table will silently drift from the canonical schema.
+    This test pins them together.
+    """
+    import re
+
+    repo_root = Path(__file__).resolve().parents[2]
+    schema_sql = (repo_root / "data-pipeline/SCHEMA.sql").read_text()
+    cluster_vocab = (repo_root / "data-pipeline/scripts/cluster_vocab.py").read_text()
+
+    def extract_check_set(text: str) -> set[str] | None:
+        m = re.search(
+            r"dominant_type\s+TEXT\s+CHECK\s*\(\s*dominant_type\s+IS\s+NULL\s+OR\s+dominant_type\s+IN\s*\(([^)]+)\)\s*\)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if not m:
+            return None
+        return set(re.findall(r"'([^']+)'", m.group(1)))
+
+    schema_set = extract_check_set(schema_sql)
+    runtime_set = extract_check_set(cluster_vocab)
+
+    assert schema_set is not None, "SCHEMA.sql missing dominant_type CHECK clause"
+    assert runtime_set is not None, "cluster_vocab.py missing dominant_type CHECK clause"
+    assert schema_set == runtime_set, (
+        f"CHECK clause drift between SCHEMA.sql and cluster_vocab.py:\n"
+        f"  SCHEMA.sql:       {sorted(schema_set)}\n"
+        f"  cluster_vocab.py: {sorted(runtime_set)}"
+    )
+
+
 def test_snap_dropped_jsonl_uses_atomic_rename_on_commit(tmp_path, monkeypatch):
     """Drop records must be written to snap_dropped.jsonl.tmp during the run
     and atomic-renamed to snap_dropped.jsonl ONLY after conn.commit() succeeds.
@@ -2222,6 +2259,127 @@ def test_snap_dropped_jsonl_renamed_on_success(tmp_path):
     assert not (tmp_path / "snap_dropped.jsonl.tmp").exists(), (
         "snap_dropped.jsonl.tmp must be renamed away on successful commit"
     )
+
+
+def _make_zero_drop_db(tmp_path):
+    """Create a snap fixture where every property exact-matches the vocab.
+
+    Used to pin behaviour when THIS run records no drops — so any
+    snap_dropped.jsonl.tmp present on disk must be a leftover from a
+    prior crashed run, not data this run produced.
+    """
+    db_path = tmp_path / "zero_drop.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
+        );
+
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm', 'a', 1);
+        INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'cold', 'a', 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1, NULL);
+
+        -- Every property text is an exact-match for the vocab → zero drops.
+        INSERT INTO property_vocabulary VALUES (10, 'warm', NULL, 0, 'pilot');
+        INSERT INTO property_vocabulary VALUES (11, 'cold', NULL, 0, 'pilot');
+        INSERT INTO synset_properties VALUES ('s1', 10, 1.0, 'sensorimotor', NULL);
+        INSERT INTO synset_properties VALUES ('s1', 11, 1.0, 'sensorimotor', NULL);
+    """)
+    conn.commit()
+    return db_path, conn
+
+
+def test_snap_unlinks_orphan_tmp_at_start(tmp_path):
+    """Pre-existing snap_dropped.jsonl.tmp from a prior crashed run must be
+    unlinked at the start of snap_properties. When THIS run has zero drops,
+    neither the canonical nor the .tmp file should exist after the run —
+    the orphan is not this run's data and must not be promoted to canonical
+    by the atomic-rename branch.
+    """
+    from snap_properties import snap_properties
+
+    # Pre-create an orphan .tmp from an imaginary prior crashed run.
+    orphan = tmp_path / "snap_dropped.jsonl.tmp"
+    orphan.write_text('{"text": "orphan", "synset_id": "x", "reason": "crash"}\n')
+    assert orphan.exists()
+
+    db_path, conn = _make_zero_drop_db(tmp_path)
+    try:
+        stats = snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    # Sanity: this run actually had zero drops.
+    assert stats["dropped"] == 0, (
+        f"fixture invariant broken: expected zero drops, got {stats}"
+    )
+
+    # The orphan .tmp must have been unlinked at start.
+    assert not (tmp_path / "snap_dropped.jsonl.tmp").exists(), (
+        "expected orphan snap_dropped.jsonl.tmp to be unlinked at the start "
+        "of snap_properties — pre-existing .tmp is not this run's data"
+    )
+    # And because this run wrote no drops, the rename must NOT have fired.
+    assert not (tmp_path / "snap_dropped.jsonl").exists(), (
+        "snap_dropped.jsonl must not exist when this run produced zero drops "
+        "— the rename branch must be gated on a sentinel set only when THIS "
+        "run actually wrote to .tmp"
+    )
+
+
+def test_snap_does_not_promote_orphan_with_no_drops(tmp_path):
+    """A pre-existing orphan snap_dropped.jsonl.tmp must not be silently
+    promoted to canonical snap_dropped.jsonl when this run produces zero
+    drops. Verified by content — the canonical file (if it exists at all)
+    must not contain the orphan's text.
+    """
+    from snap_properties import snap_properties
+
+    orphan_payload = '{"text": "orphan", "synset_id": "x", "reason": "crash"}\n'
+    orphan = tmp_path / "snap_dropped.jsonl.tmp"
+    orphan.write_text(orphan_payload)
+
+    db_path, conn = _make_zero_drop_db(tmp_path)
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    canonical = tmp_path / "snap_dropped.jsonl"
+    if canonical.exists():
+        contents = canonical.read_text()
+        assert "orphan" not in contents, (
+            f"canonical snap_dropped.jsonl inherited orphan content from a "
+            f"prior crashed run's .tmp; got: {contents!r}"
+        )
 
 
 def test_canonical_type_buckets_distinguish_null_unknown_explicit_other(
