@@ -45,6 +45,7 @@ class CellResult:
     d_min: float | None
     d_max: float | None
     top_k: int | None
+    gamma: float | None = None
     apt_scores: list[float] = field(default_factory=list)
     inapt_scores: list[float] = field(default_factory=list)
     apt_missing: int = 0
@@ -175,6 +176,7 @@ def evaluate_cell(
     d_min: float | None,
     d_max: float | None,
     top_k: int | None,
+    gamma: float | None,
     binary: str,
     db: Path,
     port: int,
@@ -189,9 +191,11 @@ def evaluate_cell(
         env["METAFORGE_FORGE_EMB_DMAX"] = str(d_max)
     if top_k is not None:
         env["METAFORGE_FORGE_EMB_TOPK"] = str(top_k)
+    if gamma is not None:
+        env["METAFORGE_FORGE_GAMMA"] = str(gamma)
 
     result = CellResult(name=name, candidate_sources=candidate_sources,
-                        d_min=d_min, d_max=d_max, top_k=top_k)
+                        d_min=d_min, d_max=d_max, top_k=top_k, gamma=gamma)
     proc = start_api(binary, db, port, env)
     try:
         base_url = f"http://127.0.0.1:{port}"
@@ -228,12 +232,12 @@ def write_verdict(results: list[CellResult], baseline: CellResult, verdict_path:
         "",
         "## Results Grid",
         "",
-        "| Cell | d_min | d_max | separation_score | aptness_rate | cluster | embedding | both | apt_miss | inapt_miss |",
-        "|------|------:|------:|-----------------:|-------------:|--------:|----------:|-----:|---------:|-----------:|",
+        "| Cell | d_min | d_max | gamma | separation_score | aptness_rate | cluster | embedding | both | apt_miss | inapt_miss |",
+        "|------|------:|------:|------:|-----------------:|-------------:|--------:|----------:|-----:|---------:|-----------:|",
     ]
     for r in sorted(results, key=lambda r: -r.separation_score):
         lines.append(
-            f"| {r.name} | {r.d_min} | {r.d_max} | {r.separation_score:.4f} | "
+            f"| {r.name} | {r.d_min} | {r.d_max} | {r.gamma} | {r.separation_score:.4f} | "
             f"{r.aptness_rate:.4f} | {r.source_mix['cluster']} | "
             f"{r.source_mix['embedding']} | {r.source_mix['both']} | "
             f"{r.apt_missing} | {r.inapt_missing} |"
@@ -299,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     baseline = evaluate_cell(
         "baseline_cluster_only",
         candidate_sources=baseline_cfg["candidate_sources"],
-        d_min=None, d_max=None, top_k=None,
+        d_min=None, d_max=None, top_k=None, gamma=None,
         binary=binary, db=db, port=port_base,
         apt_pairs=apt_pairs, inapt_pairs=inapt_pairs, limit=limit,
     )
@@ -313,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
             d_min=var.get("d_min"),
             d_max=var.get("d_max"),
             top_k=var.get("top_k"),
+            gamma=var.get("gamma"),
             binary=binary, db=db, port=port,
             apt_pairs=apt_pairs, inapt_pairs=inapt_pairs, limit=limit,
         )
