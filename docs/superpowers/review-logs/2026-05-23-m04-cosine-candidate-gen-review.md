@@ -226,3 +226,93 @@ Full `go test ./...` PASS across all 7 packages (db 6.8s, forge 1.2s, handler 33
 
 ### Cumulative
 Total rounds: 1 | Items resolved (fixed): 7 | Active deferrals: 14 | Superseded deferrals: 0 | Elapsed: ~1h
+
+---
+
+## Round 2 — 2026-05-23T11:30:00Z
+
+**Reviewers dispatched in parallel:**
+- pr-review-toolkit:code-reviewer — returned CLEAN ✓ (substantive four-section, all deferrals concurred)
+- pr-review-toolkit:silent-failure-hunter — 6 own findings (SF-R2-1..6); challenged D4 + D12
+- pr-review-toolkit:type-design-analyzer — 8 own findings (TD-R2-1..8); challenged D4 + D12
+- superpowers:code-reviewer — 7 own findings (O1..7); flagged 2 test gaps + Fix-A DRY; challenged D4 + D12
+- standards — 5 own findings (STD-R2-1..5); 3 critical TDD-gap items
+- ux-designer — NO-OP
+
+**Last reviewer pre-fix SHA:** `7c715003` (Round 1 base) — Round 2 fix base: `ef118a8c`
+
+### Items Found
+
+#### Critical (consensus — 2 reviewers)
+- [critical] **STD-R2-2: Fix A has no positive emission test** — Decision: **fix**
+- [critical] **STD-R2-3: Fix B source-branch under union mode has no positive test** — Decision: **fix**
+- [critical] **STD-R2-1: Fix G new fall-through branch has no positive test** — Decision: **push back**
+  - **Push-back rationale:** The new branch ("cluster succeeds, embedding 404s in union mode → continue with cluster") is unreachable on real DB today because both paths use the same `lemmas JOIN synset_properties_curated` filter and return ErrLemmaNotFound symmetrically. Testing the branch requires synthetic DB construction (cluster path mocked to succeed, embedding path mocked to 404) — wider scope than other Round 2 fixes. The safety check is the right shape; it guards against future SQL divergence. Defer the synthetic-DB test as part of a wider "dispatch logic" test suite when M05 introduces a third generator.
+
+#### Important
+- [important] **SF-R2-2 / TD-R2-4: Zero-norm topic centroid silent in `scanEmbeddingBand`** — Decision: **fix** (Error log added)
+- [important] **TD-R2-1: `CascadeCosineDistanceWithANorm` lacks aNorm validity guard** — Decision: **fix** (negative/NaN/Inf now refused)
+- [important] **D4 challenge: embedding-only `TierUnlikely` in JSON wire** — Decision: **promote to fix**; ledger updated (D4 superseded-by-fix)
+- [important] **D12 challenge: `Match.Source` JSON tag collides with `SuggestResponse.Source`** — Decision: **promote to fix**; ledger updated (D12 superseded-by-fix)
+- [important] **SF-R2-5: Embedding-error-after-cluster-success normalises to outcome=scored with no `embedding_path_unavailable` signal** — Decision: **defer** (D15 new)
+
+#### Low / observations (deferred)
+- O1: case-sensitivity invariant comment on `resolveLemmaSiblingSynsets` — D16
+- O3: cross-reference polysemy-ASC rejection comment in `getSynsetRow` — D17
+- O4: `CascadeCache.Centroids` read-only documentation — D18
+- TD-R2-3: `EmbeddingTopK` field name doesn't convey "post-sort cap" — fold with D17
+- TD-R2-5: SourceBoth doc tightening — defer (cosmetic)
+- TD-R2-6: `clusterLemmaNotFound` flag fragility comment — defer (cosmetic)
+- TD-R2-7, TD-R2-8: pre-existing patterns (`Tier`/`TierName` duplication, `GatePassed` bool with omitempty)
+- STD-R2-4: DRY helper for paired `stopTotal` + `slog.Info` sites — defer (maintainability, cosmetic)
+- STD-R2-5: per-request final-emit attr buried — accepted shape (warns level is already used for empty-batch)
+- SF-R2-1: `resolveLemmaSiblingSynsets` empty-silent → defer (no failure mode on healthy DB; SF-R2-2 fix already added the zero-norm log)
+- SF-R2-3: `embedding_dim_mismatches` counter never landed from Round 1 fold-deferral — defer (no observed dim mismatch in steady-state)
+- SF-R2-4: empty env string handling — push back (matches conventional empty-as-unset; behaviour change not warranted)
+- SF-R2-6: outcome=empty_no_gate_pass misleading — Round 1 accepted, hold the line
+- NaN dCap / Inf alpha test cases — fold next round
+
+### New deferrals (D15–D18)
+- **D15 — Embedding-error-after-cluster-success signal** (low). scope_boundary: per-request anomaly counter symmetric to `concretenessCacheMisses`/`emptyPropsBatchFlag`. why_out_of_scope: Fix G test gap covers the union-mode path correctness; the missing signal is observability-only, not correctness. proposed_followup: `embeddingPathUnavailable bool` in the anomaly aggregator + final-log attr.
+- **D16 — Case-sensitivity invariant on `resolveLemmaSiblingSynsets`** (cosmetic). scope_boundary: doc comment alignment with cluster CTE. why_out_of_scope: invariant is correct (case-sensitive), just undocumented. proposed_followup: 1-line comment in cascade_embedding.go pinning the case-sensitivity match with cascade.go CTE.
+- **D17 — Cross-reference polysemy-ASC rejection** (cosmetic). scope_boundary: `getSynsetRow` doc comment. why_out_of_scope: pure documentation hygiene; future reader risk. proposed_followup: 1-line cross-reference to cascade.go:149 comment.
+- **D18 — `CascadeCache.Centroids` read-only documentation** (cosmetic). scope_boundary: cache_cache.go doc comment. why_out_of_scope: no current writer; future race-condition prevention. proposed_followup: 1-line struct field comment.
+
+### Pushed back
+- STD-R2-1 (Fix G positive test) — branch unreachable on real DB
+- SF-R2-4 (empty env string distinguished from unset) — behaviour change not warranted
+
+### Critique sections (verbatim summaries)
+
+- **pr-rt:code-reviewer:** CLEAN (substantive: all categories checked, all fixes assessed positively with evidence — file paths read end-to-end, deferrals concurred 14/14).
+- **pr-rt:silent-failure-hunter:** PRIOR_FINDINGS_CRITIQUE called out Round 1 fold-deferrals (PR-SFH #3, #4, #10) not landed in Round 2 → noted as Round 3 candidates; we accept this critique but defer (the original deferrals were folded into the broader Fix A observability work, which IS landed).
+- **pr-rt:type-design-analyzer:** Round 1 type-design fully addressed via Fix E expansion; Round 2 found marginal items + JSON wire concerns. Validates the existing fixes as type-clean.
+- **superpowers:code-reviewer:** Substantive Pass 3 — re-ran tests, traced specific paths, identified two test-coverage gaps (Fix G branch, Fix E NaN dCap / Inf alpha). Test gaps folded into D15 / fold next round.
+- **standards:** Self-critique acknowledged that Round 1 "TDD ✓" was blanket and should have been per-fix. Round 2 corrected with STD-R2-1..3.
+
+### Fixes Applied (Round 2 — 2 commits)
+
+- **Commit `a3af2157`** — `fix(handler,forge): D4 omit embedding tier + D12 candidate_source JSON tag + STD-R2-2/3 tests`
+  - D4: Source-branched tier classification — `SourceEmbedding` rows leave `TierName=""`; JSON tag `tier` now has `omitempty`
+  - D12: `Match.Source` JSON tag renamed `source` → `candidate_source`
+  - STD-R2-2: positive test for unconditional cascade outcome slog.Info emission
+  - STD-R2-3: positive test for union-mode no-Error-spam on embedding-source concreteness misses
+
+- **Commit `b5772e5d`** — `fix(db,forge): zero-norm topic Error log + CascadeCosineDistanceWithANorm aNorm guards`
+  - SF-R2-2/TD-R2-4: zero-norm topic centroid path now logs `slog.Error("scanEmbeddingBand zero-norm topic centroid — pipeline contract violation", topic_dim=N)`
+  - TD-R2-1: `CascadeCosineDistanceWithANorm` rejects `aNorm <= 0 || NaN || Inf`; new tests cover all five bad-aNorm cases + positive control
+
+### Files Modified
+- `api/internal/handler/handler.go`
+- `api/internal/handler/handler_cascade_test.go`
+- `api/internal/forge/forge.go`
+- `api/internal/forge/forge_test.go`
+- `api/internal/forge/cascade.go`
+- `api/internal/forge/cascade_test.go`
+- `api/internal/db/cascade_embedding.go`
+
+### Test Results
+Full `go test ./...` PASS across all 7 packages (db 5.4s, forge 1.0s, handler 36.0s).
+
+### Cumulative
+Total rounds: 2 | Items resolved (fixed): 13 | Active deferrals: 16 (D1, D2, D3, D5, D6, D7, D8, D9, D10, D11, D13, D14, D15, D16, D17, D18) | Superseded deferrals: 2 (D4, D12) | Elapsed: ~2h
