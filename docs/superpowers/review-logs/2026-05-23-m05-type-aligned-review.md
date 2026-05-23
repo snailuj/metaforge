@@ -395,3 +395,83 @@ Modules patched in 3+ separate review-loop rounds in this branch alone:
 - **Branch:** `m05/type-aligned`
 - **Verdict:** Branch is materially merge-ready. Operator should review and merge OR dispatch the missing 2 R3 reviewers for full coverage before merging.
 
+---
+
+## Round 4 — Catch-up dispatch of the two R3-missed reviewers (2026-05-23T22:50:00Z)
+
+**Adapters dispatched in parallel:** pr-review-toolkit:type-design-analyzer, standards (general-purpose).
+
+**Why this round exists:** R3 dispatched only 3 of 5 configured reviewers (omitted type-design-analyzer + standards general-purpose), logged as a contract violation. Operator asked to run the missing two before deciding on merge — "There was not really any benefit to skipping those that I can see." This round closes the contract gap.
+
+**Standards sources:** `~/.claude/CLAUDE.md`, `/home/agent/projects/metaforge/CLAUDE.md`, `data-pipeline/CLAUDE.md`.
+
+### Items Found (merged across 2 reviewers)
+
+**IMPORTANT (3) — all fixed in this round:**
+
+- [important] **`m04_sweep_runner.fetch_suggestions` silently swallows network/HTTP/JSON failures** (`data-pipeline/scripts/m04_sweep_runner.py:187-207`) — `requests.RequestException` returned `None` with no log; non-200 status returned `None` with no log; `r.json()` could raise `JSONDecodeError` unhandled. Operator running γ-sweep cannot distinguish a real cohort gap from network blip/5xx/timeout. **This is the diagnostic gap that produced the verdict-vs-notes contradiction** — `apt_missing`/`inapt_missing` counts in the committed verdict include undiagnosed transport failures. Raised by standards. Violates "All Errors/Exceptions Handled". → **fix** 7878c64f (stderr WARN per failure cause, body excerpts truncated to 200 chars, None-return contract preserved, 4 regression tests pin failure paths + happy-path quiet).
+
+- [important] **Committed `verdict.md` misrepresents the actual sweep outcome** (`data-pipeline/sweeps/m05_lakoff_gamma_verdict.md:1-21`) — verdict shows `separation_score=0.0000` across every cell; brainstorming notes record substantive trend (−0.2695 at γ=0 → +0.3193 at γ=2). Two committed artefacts on the same branch tell different stories. Operator reading only the verdict would conclude γ has no effect; reading only the notes would conclude γ=2 wins. Raised by standards. Violates "Verbatim Copy by Default" (operator memory triggers) + "Observability" (committed artefacts must not mislead). → **fix** b0aeebbc (prepend explicit caveat block to verdict.md: collapse is resolution failure not γ-effect signal; brainstorming notes remain directional authority with n=1 inapt caveat; instrument-then-rerun before ratifying γ).
+
+- [important] **`typed_clusters` startup metric overcounts vs scorer's discriminating set** (`api/internal/db/cascade_cache.go:85-99`) — readiness log counts `dominant_type != ""` as typed; scorer (`cascade.go:405`) excludes both `""` AND `"other"`. A DB heavy on `"other"` could log `typed_clusters=N untyped_pct=0` at startup while `TypeDiversityBonus` silently returns 0 on every pair. Same class of bug as the R1 wire-surface finding but on the operator readiness signal. Raised by type-design-analyzer. Today's DB shows ~1.5% gap; future LLM batches could widen this silently. → **fix** 77b0c405 (`discriminating_clusters` counter alongside `typed_clusters`, both logged with their own `_pct` field; separate operator-actionable Warn fires when `typed > 0 && discriminating == 0`; 2 new tests + 1 preserved-behaviour test).
+
+### Deferral Challenges This Round
+
+No deferrals attempted in R4 — all 3 findings were sub-1h fix-now per the loop's standing line-call-→-fix-now bias.
+
+### Critique Sections (verbatim from reviewers)
+
+**Standards — `PRIOR_FINDINGS_CRITIQUE`:** Categories checked: TDD/Red-Green, Algorithms/OOM, Frequent Commits, Errors/Exceptions Handled, Idempotency, Observability, FP-over-OOP, Readability, DRY/YAGNI, Code-to-interface, Immutable state, UK English, Comments, Pipeline file, Secrets Policy. Files re-checked: cascade.go, cascade_cache.go, snap_properties.py, cluster_vocab.py, m04_sweep_runner.py, main.go, cascade_pipeline.go, forge.go (diff), all matching `_test` files, SCHEMA.sql, m05_lakoff_gamma.yaml, m05_lakoff_gamma_verdict.md, m05-brainstorming-notes.md, docs/roadmap/PIPELINE.md (M05 entry confirmed at line 9). Two gaps identified: (1) silent-failure-hunter never re-scanned `m04_sweep_runner` because the runner sits outside the Go API on the sweep-driver side — OWN-1; (2) prior rounds focused on code-level integrity but did NOT cross-check that committed artefacts (verdict.md) are internally consistent with the brainstorming notes table they reference — OWN-2.
+
+**Type-design — `PRIOR_FINDINGS_CRITIQUE`:** Categories checked: type encapsulation (NewGamma boundary), wire-shape invariants (`*int`/`*float64` absent-vs-zero), schema-constraint closure (SCHEMA.sql CHECK + cross-language guard), composition-rule validation (Gamma+Multiplicative reject), cluster-types divergence determinism (first-write-wins), JSON deserialisation surface for CascadeConfig (none found — Gamma cannot be reconstructed outside NewGamma), observability invariants. One gap identified: no prior reviewer caught that the startup `typed_clusters` counter does not align with the scorer's `discriminating-types` definition — same shape as R1's "SharedTypesCount=0 conflates" finding but on the operator readiness signal, not the per-request wire — OWN-1.
+
+**Both — `APPLIED_FIXES_CRITIQUE`:** All 35 prior fixes re-read in selective depth (R3 important fixes + R2 refactors in full). Standards reviewer: "all 35 prior fixes re-read as correct and complete; no new items arose from the per-fix re-read — the new items come from the standards-lens sweep across files NOT recently patched." Type-design reviewer: "Re-read api/internal/forge/cascade.go, api/internal/db/cascade_cache.go, api/internal/handler/cascade_pipeline.go, api/cmd/metaforge/main.go, data-pipeline/scripts/snap_properties.py, data-pipeline/scripts/cluster_vocab.py, data-pipeline/SCHEMA.sql. Re-ran the Python data-pipeline test suite (58 tests pass) and the Go forge package NewGamma tests (8 sub-tests pass). All 12 fix-commits surveyed solve their stated problems without introducing adjacent regressions."
+
+**Both — `DEFERRAL_LEDGER_REVIEW`:** ledger empty (correctly reflects R1+R2's 5 challenged-and-reject_defer'd attempts plus R3's zero deferrals).
+
+### Fixes Applied (3 commits this round)
+
+```
+b0aeebbc docs(m05): verdict.md caveat — supersedes brainstorming numbers, n=1 inapt
+7878c64f fix(sweep): m04_sweep_runner.fetch_suggestions logs every failure path
+77b0c405 feat(cascade_cache): discriminating_clusters counter aligns startup signal with scorer
+```
+
+### Files Modified
+
+- api/internal/db/cascade_cache.go + cascade_cache_test.go
+- data-pipeline/scripts/m04_sweep_runner.py + test_m04_sweep_runner.py
+- data-pipeline/sweeps/m05_lakoff_gamma_verdict.md
+
+### Test Results
+
+- Full Go suite: passes (excluding the pre-existing `TestCascadeUnion_LatencyBudget` flake documented in the preamble — reproducible on main with M05 reverted).
+- Full Python suite: 11/11 tests pass in `test_m04_sweep_runner.py` (4 new); full pytest run pre-existing-green.
+
+### Operator Note — the n=1 inapt diagnosis sharpens
+
+The R4 standards finding closes a loop on the user's own observation during R4 dispatch: the qualitative reading "13/80 apt resolved + 0/90 inapt resolved is directional success" is correct IF the inapt drops are gate-level rejection rather than transport failure or vocab-coverage artefact. With the new fetch_suggestions logging (commit 7878c64f), the next γ-sweep can be tagged per-failure-cause and the gap can be interpreted properly. Without it, the verdict's all-zero numbers conflate "gate rejected vehicle" with "API timed out" — operator cannot ratify γ on an undiagnosed signal.
+
+### Cumulative
+
+Total rounds: 4 | Items resolved this round: 3 (all fix) | Cumulative items resolved: 59 | Cumulative fixes: 38 | Active deferrals: 0 | Superseded deferrals: 5 | Elapsed: ~10h
+
+---
+
+## Round 4 Halt Decision (2026-05-23T22:55:00Z)
+
+R4 surfaced 3 important findings the orchestrator's R3-curtailment had hidden — including a HIGH-impact diagnostic (the silent fetch_suggestions failures that compromise every cohort sweep verdict). All fixed. The two new reviewers also re-read all 35 prior fixes and confirmed correctness in their `APPLIED_FIXES_CRITIQUE`.
+
+**Halt condition status:** Not met (3 fixes applied in R4 → R4 is not a CLEAN round by definition). However the trajectory continues to converge: R1 27 items → R2 21 → R3 8 → R4 3.
+
+**Recommendation:** dispatch one more round (R5) with all 5 configured reviewers to test for CLEAN. If R5 returns CLEAN across all 5, halt and merge. If R5 returns more findings, continue per the loop's standard cycle.
+
+Alternative: operator may judge R4's findings are the last meaningful ones and accept R5 as a quality-vs-time trade. Given the standing mandate from the user ("There was not really any benefit to skipping those") and the R4 yield (3 important findings the R3 omission had hidden), running R5 to convergence is the right call.
+
+### Final Summary (R4)
+
+- **Commits ahead of main:** 47 (was 44 at R3 end, +3 fixes + 1 review-log update + 1 in-flight)
+- **Tests:** Full Go suite passes (excluding pre-existing latency flake), full Python pytest passes.
+- **Branch:** `m05/type-aligned`
+- **Verdict:** R4 closed the R3 contract gap and surfaced 3 important findings — all fixed. Branch remains materially merge-ready. The remaining decision is whether to run R5 to confirm CLEAN before merging, or to merge now.
+
