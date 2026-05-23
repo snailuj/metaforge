@@ -17,7 +17,6 @@ import (
 	"github.com/snailuj/metaforge/internal/db"
 	"github.com/snailuj/metaforge/internal/embeddings"
 	"github.com/snailuj/metaforge/internal/forge"
-	"github.com/snailuj/metaforge/internal/observe"
 	"github.com/snailuj/metaforge/internal/thesaurus"
 )
 
@@ -252,297 +251,35 @@ func (h *Handler) handleSuggestLegacy(w http.ResponseWriter, word string, limit 
 
 // handleSuggestCascade scores candidates through the M03 cascade.
 //
+// Thin orchestrator: builds a cascadePipeline and delegates each phase
+// (fetch → score → respond). The pipeline owns all telemetry emission
+// — every terminal outcome flows through pipeline.emit() exactly once.
+// See cascade_pipeline.go for phase implementations and the rationale
+// for the D24 god-function extraction.
+//
 // Hot path: 1 gated CTE candidate query + 1 batch properties query + N
 // in-memory map lookups + per-pair pure-function scoring. Source-side
 // data is memoised implicitly via the batch properties map.
 func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit int) {
-	stopTotal := observe.Start("cascade_request_total")
-	slog.Debug("cascade request begin", "word", word, "limit", limit)
+	p := newCascadePipeline(h, word, limit)
+	// Safety net: if a phase returns without calling emit() (programming
+	// error), close() flags it loud. In normal flow emit() runs first,
+	// flips p.closed=true, and close() is a no-op.
+	defer p.close()
 
-	anomalies := struct {
-		clusterConcretenessCacheMisses int  // SQL invariant violation — Error
-		embeddingConcretenessMisses    int  // expected for embedding rows — Info
-		emptyPropsBatchFlag            bool
-	}{}
-
-	var (
-		cluster              []db.CascadeCandidate
-		err                  error
-		clusterLemmaNotFound bool
-	)
-	if h.cascadeConf.CandidateSources != forge.SourcesEmbedding {
-		// Symmetric with the embedding-path stage timer below: only emit
-		// cascade_candidates_query when the cluster path actually runs.
-		// In embedding_only mode the cluster fetch is fully skipped — no
-		// stage timer, no zero-count log noise.
-		stopCand := observe.Start("cascade_candidates_query")
-		cluster, err = db.GetForgeCascadeCandidatesByLemma(
-			h.database, word, h.cascadeConf.ConcretenessThreshold, limit,
-		)
-		stopCand("word", word, "count", len(cluster))
-	}
-	// Track cluster-path ErrLemmaNotFound as a flag so union-mode can defer
-	// the 404 decision until after the embedding path runs. The
-	// previous code piggy-backed on the embedding-path branch always
-	// returning ErrLemmaNotFound when the cluster path did too — that was
-	// incidental, not enforced. A future cluster-recheck SQL change could
-	// break that coupling silently.
-	if errors.Is(err, db.ErrLemmaNotFound) {
-		clusterLemmaNotFound = true
-		if h.cascadeConf.CandidateSources == forge.SourcesCluster {
-			stopTotal("word", word, "outcome", "lemma_not_found")
-			slog.Info("cascade request complete", "word", word, "outcome", "lemma_not_found")
-			http.Error(w, `{"error": "word not found or has no curated properties"}`, http.StatusNotFound)
-			return
-		}
-		// In union mode, defer the 404 decision until after embedding path.
-	}
-	if err != nil && !errors.Is(err, db.ErrLemmaNotFound) {
-		stopTotal("word", word, "outcome", "candidates_error")
-		slog.Info("cascade request complete", "word", word, "outcome", "candidates_error")
-		slog.Error("cascade candidate fetch failed", "word", word, "err", err)
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+	if outcome, status, err := p.fetch(); status != http.StatusOK {
+		p.emitError(w, outcome, status, err)
 		return
 	}
-
-	var embedding []db.CascadeCandidate
-	if h.cascadeConf.CandidateSources != forge.SourcesCluster {
-		stopEmb := observe.Start("cascade_embedding_query")
-		embCfg := db.ForgeEmbeddingConfig{
-			DMin: h.cascadeConf.EmbeddingDMin,
-			DMax: h.cascadeConf.EmbeddingDMax,
-			TopK: h.cascadeConf.EmbeddingTopK,
-		}
-		embedding, err = db.GetForgeCascadeCandidatesByEmbedding(h.database, h.cache, word, embCfg)
-		stopEmb("word", word, "count", len(embedding))
-		if errors.Is(err, db.ErrLemmaNotFound) {
-			// Only 404 if cluster path also failed (or we're in
-			// embedding-only mode). Otherwise the cluster path already
-			// produced candidates and we continue with cluster-only.
-			if clusterLemmaNotFound || h.cascadeConf.CandidateSources == forge.SourcesEmbedding {
-				stopTotal("word", word, "outcome", "lemma_not_found")
-				slog.Info("cascade request complete", "word", word, "outcome", "lemma_not_found")
-				http.Error(w, `{"error": "word not found or has no curated properties"}`, http.StatusNotFound)
-				return
-			}
-			// embedding path failed but cluster succeeded — continue with cluster only
-			embedding = nil
-		} else if err != nil {
-			stopTotal("word", word, "outcome", "embedding_error")
-			slog.Info("cascade request complete", "word", word, "outcome", "embedding_error")
-			slog.Error("cascade embedding fetch failed", "word", word, "err", err)
-			http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
-			return
-		}
-	}
-
-	candidates := unionCandidates(cluster, embedding)
-	slog.Debug("cascade candidates assembled",
-		"word", word, "cluster", len(cluster), "embedding", len(embedding),
-		"after_union", len(candidates))
-
-	if len(candidates) == 0 {
-		// Lemma is enriched but neither path produced a candidate.
-		resp := SuggestResponse{Source: word, Suggestions: []forge.Match{}}
-		w.Header().Set("Content-Type", "application/json")
-		stopEncode := observe.Start("cascade_response_encode")
-		encodeErr := json.NewEncoder(w).Encode(resp)
-		stopEncode("word", word, "suggestion_count", 0)
-		outcome := "empty_no_gate_pass"
-		if encodeErr != nil {
-			slog.Error("failed to encode empty cascade suggest response", "word", word, "err", encodeErr)
-			outcome = "empty_encode_error"
-		}
-		stopTotal("word", word, "outcome", outcome)
-		slog.Info("cascade request complete",
-			"word", word,
-			"outcome", outcome,
-			"candidates", 0,
-		)
+	if len(p.candidates) == 0 {
+		p.respondEmpty(w)
 		return
 	}
-
-	// Collect distinct synset_ids for one batch properties query.
-	idSet := make(map[string]struct{}, 2*len(candidates))
-	for _, c := range candidates {
-		idSet[c.SourceSynsetID] = struct{}{}
-		idSet[c.SynsetID] = struct{}{}
-	}
-	ids := make([]string, 0, len(idSet))
-	for id := range idSet {
-		ids = append(ids, id)
-	}
-	stopProps := observe.Start("cascade_batch_props_query")
-	propsByID, err := db.GetSynsetClusterPropertiesBatch(h.database, ids)
-	stopProps("word", word, "synset_ids", len(ids), "rows", len(propsByID))
-	if err != nil {
-		stopTotal("word", word, "outcome", "batch_props_error")
-		slog.Info("cascade request complete", "word", word, "outcome", "batch_props_error")
-		slog.Error("cascade batch properties fetch failed", "word", word, "err", err)
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+	if outcome, status, err := p.score(); status != http.StatusOK {
+		p.emitError(w, outcome, status, err)
 		return
 	}
-	if len(propsByID) == 0 {
-		// R4-D1: previously a per-request Error log; now aggregated
-		// onto cascade_request_total as empty_props_batch=true. The
-		// runtime tripwire on synset_properties_curated (Task 16) catches
-		// the truncation-at-startup case loudly; the in-flight case here
-		// stays observable via the timing attr.
-		anomalies.emptyPropsBatchFlag = true
-		// Also emit unconditional Warn so empty-batch is visible without
-		// the cascade-timing feature flag (observe.Start is NO-OP in prod).
-		slog.Warn("cascade batch props returned empty",
-			"word", word,
-			"candidate_count", len(candidates))
-	}
-
-	var clusterOnly, embeddingOnly, bothPaths int
-	for _, c := range candidates {
-		switch c.Source {
-		case forge.SourceCluster:
-			clusterOnly++
-		case forge.SourceEmbedding:
-			embeddingOnly++
-		case forge.SourceBoth:
-			bothPaths++
-		}
-	}
-
-	stopScore := observe.Start("cascade_scoring_loop")
-	var droppedNonScored int
-	matches := make([]forge.Match, 0, len(candidates))
-	for _, c := range candidates {
-		// Concreteness from the in-memory cache — preserves the *float64
-		// absence-signal contract EvaluateCascadePair expects (TD1).
-		var tConc, vConc *float64
-		if v, ok := h.cache.Concreteness[c.SourceSynsetID]; ok {
-			tConc = &v
-		}
-		if v, ok := h.cache.Concreteness[c.SynsetID]; ok {
-			vConc = &v
-		}
-		// Invariant tripwire: the gated CTE for cluster-sourced candidates
-		// filters via INNER JOIN on synset_concreteness for both sides, so
-		// a missing cache entry on a cluster row means the cache and SQL
-		// view of the table diverged — most likely cache load skipped a
-		// row (SF4 malformed-blob class) or the DB was rewritten under us
-		// between cache load and the request. Embedding-sourced rows have
-		// no such SQL invariant — concreteness is not joined on the
-		// embedding path — so missing concreteness there is expected and
-		// must not page operators. Branch the counter so the post-loop
-		// Error fires only on the cluster-path divergence.
-		if tConc == nil || vConc == nil {
-			if c.Source == forge.SourceCluster || c.Source == forge.SourceBoth {
-				anomalies.clusterConcretenessCacheMisses++
-			} else {
-				anomalies.embeddingConcretenessMisses++
-			}
-		}
-		topicCent := h.cache.Centroids[c.SourceSynsetID] // nil-safe: zero value is nil
-		vehCent := h.cache.Centroids[c.SynsetID]
-
-		res := forge.EvaluateCascadePair(forge.CascadeInputs{
-			TopicConcreteness:   tConc,
-			VehicleConcreteness: vConc,
-			TopicProperties:     propsByID[c.SourceSynsetID],
-			VehicleProperties:   propsByID[c.SynsetID],
-			TopicCentroid:       topicCent,
-			VehicleCentroid:     vehCent,
-		}, h.cascadeConf)
-
-		// SQL CTE already filtered gate_dropped + missing_concreteness, so
-		// the only attrition we can see here is no_properties (curated
-		// props could have been pruned). Drop those from product output.
-		if res.Status != forge.CascadeStatusScored {
-			droppedNonScored++
-			continue
-		}
-
-		// Salience-based tier is meaningful for cluster-path rows; embedding-only
-		// rows have SalienceSum=0 by construction (no curated overlap signal),
-		// so emitting "unlikely" would mislead UI consumers. Empty TierName lets
-		// JSON omitempty drop the field, signalling "tier not applicable for
-		// this row" — final_score remains the quality signal.
-		var (
-			tier     forge.Tier
-			tierName string
-		)
-		if c.Source != forge.SourceEmbedding {
-			tier = forge.ClassifyTierCurated(c.SalienceSum, c.ContrastCount)
-			tierName = tier.String()
-		}
-		matches = append(matches, forge.Match{
-			SynsetID:         c.SynsetID,
-			Word:             c.Word,
-			Definition:       c.Definition,
-			SharedProperties: c.SharedProps,
-			OverlapCount:     int(c.SalienceSum),
-			SalienceSum:      c.SalienceSum,
-			Tier:             tier,
-			TierName:         tierName,
-			SourceSynsetID:   c.SourceSynsetID,
-			SourceDefinition: c.SourceDefinition,
-			SourcePOS:        c.SourcePOS,
-			FinalScore:       res.FinalScore,
-			CascadeStatus:    res.Status,
-			GatePassed:       res.GatePassed,
-			OrtonyScore:      res.OrtonyScore,
-			CosineDistance:   res.CosineDistance,
-			ReRankBonus:      res.ReRankBonus,
-			Source:           c.Source,
-		})
-	}
-
-	stopScore("word", word, "scored", len(matches), "dropped_non_scored", droppedNonScored)
-
-	if anomalies.clusterConcretenessCacheMisses > 0 {
-		slog.Error("cascade concreteness cache divergence",
-			"word", word,
-			"miss_count", anomalies.clusterConcretenessCacheMisses,
-			"candidate_count", len(candidates))
-	}
-
-	stopSort := observe.Start("cascade_sort")
-	sortByFinalScore(matches)
-	stopSort("word", word, "matches", len(matches))
-
-	slog.Debug("cascade response ready",
-		"word", word, "candidates", len(candidates), "scored", len(matches),
-		"dropped_non_scored", droppedNonScored)
-
-	resp := SuggestResponse{Source: word, Suggestions: matches}
-	w.Header().Set("Content-Type", "application/json")
-	stopEncode := observe.Start("cascade_response_encode")
-	encodeErr := json.NewEncoder(w).Encode(resp)
-	stopEncode("word", word, "suggestion_count", len(matches))
-	outcome := "scored"
-	if encodeErr != nil {
-		slog.Error("failed to encode cascade suggest response", "word", word, "err", encodeErr)
-		outcome = "scored_encode_error"
-	}
-	stopTotal("word", word,
-		"outcome", outcome,
-		"candidates", len(candidates),
-		"scored_count", len(matches),
-		"cluster_only", clusterOnly,
-		"embedding_only", embeddingOnly,
-		"both_paths", bothPaths,
-		"cluster_concreteness_misses", anomalies.clusterConcretenessCacheMisses,
-		"embedding_no_concreteness", anomalies.embeddingConcretenessMisses,
-		"empty_props_batch", anomalies.emptyPropsBatchFlag,
-	)
-	slog.Info("cascade request complete",
-		"word", word,
-		"outcome", outcome,
-		"candidates", len(candidates),
-		"scored_count", len(matches),
-		"cluster_only", clusterOnly,
-		"embedding_only", embeddingOnly,
-		"both_paths", bothPaths,
-		"cluster_concreteness_misses", anomalies.clusterConcretenessCacheMisses,
-		"embedding_no_concreteness", anomalies.embeddingConcretenessMisses,
-		"empty_props_batch", anomalies.emptyPropsBatchFlag,
-	)
+	p.respondScored(w)
 }
 
 func sortByFinalScore(matches []forge.Match) {

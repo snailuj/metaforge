@@ -27,7 +27,7 @@ func TestScanEmbeddingBand_FiltersOutsideBand(t *testing.T) {
 	}
 	topic := cache.Centroids["topic"]
 	siblings := map[string]struct{}{"topic": {}}
-	hits := scanEmbeddingBand(cache, topic, siblings, 0.2, 1.5, 10)
+	hits, _ := scanEmbeddingBand(cache, topic, siblings, 0.2, 1.5, 10)
 	got := map[string]bool{}
 	for _, h := range hits {
 		got[h.synsetID] = true
@@ -55,7 +55,7 @@ func TestScanEmbeddingBand_ExcludesAllSiblingSenses(t *testing.T) {
 		"topic-sense-b": {},
 		"topic-sense-c": {},
 	}
-	hits := scanEmbeddingBand(cache, topic, siblings, 0.0, 1.5, 10)
+	hits, _ := scanEmbeddingBand(cache, topic, siblings, 0.0, 1.5, 10)
 	got := map[string]bool{}
 	for _, h := range hits {
 		got[h.synsetID] = true
@@ -77,7 +77,7 @@ func TestScanEmbeddingBand_CapsAtTopK(t *testing.T) {
 	}
 	topic := cache.Centroids["topic"]
 	siblings := map[string]struct{}{"topic": {}}
-	hits := scanEmbeddingBand(cache, topic, siblings, 0.2, 1.5, 7)
+	hits, _ := scanEmbeddingBand(cache, topic, siblings, 0.2, 1.5, 7)
 	if len(hits) != 7 {
 		t.Errorf("want 7 hits (topK), got %d", len(hits))
 	}
@@ -85,9 +85,12 @@ func TestScanEmbeddingBand_CapsAtTopK(t *testing.T) {
 
 func TestScanEmbeddingBand_NoTopicCentroidReturnsNil(t *testing.T) {
 	cache := &CascadeCache{Centroids: map[string][]float32{"other": vec(1, 0, 0)}}
-	hits := scanEmbeddingBand(cache, nil, map[string]struct{}{}, 0.0, 2.0, 10)
+	hits, skipped := scanEmbeddingBand(cache, nil, map[string]struct{}{}, 0.0, 2.0, 10)
 	if hits != nil {
 		t.Errorf("missing topic centroid: want nil, got %v", hits)
+	}
+	if skipped != 0 {
+		t.Errorf("missing topic centroid: want 0 skipped, got %d", skipped)
 	}
 }
 
@@ -108,7 +111,7 @@ func TestGetForgeCascadeCandidatesByEmbedding_AnchorPairsSurface(t *testing.T) {
 	}
 
 	cfg := ForgeEmbeddingConfig{DMin: 0.0, DMax: 1.5, TopK: 200}
-	got, err := GetForgeCascadeCandidatesByEmbedding(database, cache, "anger", cfg)
+	got, err := GetForgeCascadeCandidatesByEmbedding(database, cache, "anger", cfg, nil)
 	if err != nil {
 		t.Fatalf("GetForgeCascadeCandidatesByEmbedding: %v", err)
 	}
@@ -142,7 +145,7 @@ func TestGetForgeCascadeCandidatesByEmbedding_UnknownLemmaReturnsErrLemmaNotFoun
 	}
 
 	cfg := ForgeEmbeddingConfig{DMin: 0.0, DMax: 1.5, TopK: 10}
-	_, err = GetForgeCascadeCandidatesByEmbedding(database, cache, "zzznotarealword", cfg)
+	_, err = GetForgeCascadeCandidatesByEmbedding(database, cache, "zzznotarealword", cfg, nil)
 	if err == nil {
 		t.Fatal("want ErrLemmaNotFound for unknown lemma, got nil")
 	}

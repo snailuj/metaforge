@@ -30,11 +30,19 @@ type embeddingHit struct {
 // ascending distance. Every entry whose ID is in `excludeIDs` is
 // skipped (typically: every sense of the topic lemma, to prevent
 // "anger is like anger" leakage on polysemous topics).
-// Returns nil when the topic centroid is nil — caller must treat nil
-// as "embedding path unavailable for this lemma".
-func scanEmbeddingBand(cache *CascadeCache, topic []float32, excludeIDs map[string]struct{}, dMin, dMax float64, topK int) []embeddingHit {
+// Returns (nil, 0) when the topic centroid is nil — caller must treat
+// nil as "embedding path unavailable for this lemma".
+//
+// The second return value is a per-call counter of entries the cosine
+// helper rejected with ok==false (dimension mismatch or zero target
+// norm). The load-side malformed-blob filter doesn't catch all classes
+// (e.g. a centroid with wrong dimension would still load if its byte
+// length happened to be a float32 multiple), so this per-request counter
+// closes the observability gap (D19). Callers surface it through the
+// cascade anomaly aggregator.
+func scanEmbeddingBand(cache *CascadeCache, topic []float32, excludeIDs map[string]struct{}, dMin, dMax float64, topK int) ([]embeddingHit, int) {
 	if topic == nil {
-		return nil
+		return nil, 0
 	}
 	// Precompute topic norm once — calling forge.CascadeCosineDistance
 	// inside the 35k-iteration scan recomputes Σ topic[i]² + math.Sqrt
@@ -53,9 +61,10 @@ func scanEmbeddingBand(cache *CascadeCache, topic []float32, excludeIDs map[stri
 		// back to cluster-only behaviour for this request.
 		slog.Error("scanEmbeddingBand zero-norm topic centroid — pipeline contract violation",
 			"topic_dim", len(topic))
-		return nil
+		return nil, 0
 	}
 	hits := make([]embeddingHit, 0, 64)
+	var dimMismatches int
 	for id, vec := range cache.Centroids {
 		if _, excluded := excludeIDs[id]; excluded {
 			continue
@@ -63,7 +72,13 @@ func scanEmbeddingBand(cache *CascadeCache, topic []float32, excludeIDs map[stri
 		d, ok := forge.CascadeCosineDistanceWithANorm(topic, topicNorm, vec)
 		if !ok {
 			// Dimension mismatch or zero-norm — skip silently; the
-			// load-side log already flagged the malformed entry.
+			// load-side log already flagged the malformed entry. D19:
+			// count the skip so callers can surface the per-request
+			// total. Load-side filter doesn't cover all classes
+			// (e.g. a wrong-dim blob that happens to be a float32-
+			// length multiple), so this is the only place a stray
+			// degenerate vector becomes visible to operators.
+			dimMismatches++
 			continue
 		}
 		if d < dMin || d > dMax {
@@ -83,7 +98,7 @@ func scanEmbeddingBand(cache *CascadeCache, topic []float32, excludeIDs map[stri
 	if len(hits) > topK {
 		hits = hits[:topK]
 	}
-	return hits
+	return hits, dimMismatches
 }
 
 // ForgeEmbeddingConfig is the per-call shape passed by the handler. We
@@ -113,11 +128,15 @@ type ForgeEmbeddingConfig struct {
 // Callers that need to distinguish the two should read the timing
 // record on cascade_embedding_query — Task 7 attaches the no_centroid
 // flag there.
+//
+// dimMismatches (nullable) accumulates the count of cosine-skipped
+// candidates (D19). Pass nil if the count is not needed.
 func GetForgeCascadeCandidatesByEmbedding(
 	database *sql.DB,
 	cache *CascadeCache,
 	lemma string,
 	cfg ForgeEmbeddingConfig,
+	dimMismatches *int,
 ) ([]CascadeCandidate, error) {
 	topicID, err := resolvePrimaryCuratedSynset(database, lemma)
 	if err != nil {
@@ -128,7 +147,10 @@ func GetForgeCascadeCandidatesByEmbedding(
 		return nil, err
 	}
 	topicCentroid := cache.Centroids[topicID]
-	hits := scanEmbeddingBand(cache, topicCentroid, siblings, cfg.DMin, cfg.DMax, cfg.TopK)
+	hits, scanSkipped := scanEmbeddingBand(cache, topicCentroid, siblings, cfg.DMin, cfg.DMax, cfg.TopK)
+	if dimMismatches != nil {
+		*dimMismatches += scanSkipped
+	}
 	if hits == nil {
 		// Pipeline contract violation: the topic synset resolved to a
 		// curated row (cluster_only resolution succeeded) but has no
@@ -218,6 +240,16 @@ func resolvePrimaryCuratedSynset(database *sql.DB, lemma string) (string, error)
 // the lemma appears. Used by GetForgeCascadeCandidatesByEmbedding to
 // build a self-match exclusion set covering every sense of the topic
 // lemma — mirrors the cluster path's NOT IN (source_synsets) filter.
+//
+// D20: caller (GetForgeCascadeCandidatesByEmbedding) only invokes this
+// AFTER resolvePrimaryCuratedSynset succeeds, which means lemmas has at
+// least one row for the lemma (the primary-resolution SQL joins via
+// lemmas). An empty result here is therefore a cross-row DB invariant
+// break — either the primary lemma row vanished mid-request, or the
+// `lemma = ?` predicate normalised differently between the two queries
+// (collation drift). Log loud — the deferral system had been silently
+// absorbing this; behaviour unchanged (caller's downstream nil-safe
+// path still runs).
 func resolveLemmaSiblingSynsets(database *sql.DB, lemma string) (map[string]struct{}, error) {
 	rows, err := database.Query("SELECT synset_id FROM lemmas WHERE lemma = ?", lemma)
 	if err != nil {
@@ -232,7 +264,14 @@ func resolveLemmaSiblingSynsets(database *sql.DB, lemma string) (map[string]stru
 		}
 		out[id] = struct{}{}
 	}
-	return out, rows.Err()
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, rowsErr
+	}
+	if len(out) == 0 {
+		slog.Error("resolveLemmaSiblingSynsets empty after primary resolved — DB invariant break",
+			"lemma", lemma)
+	}
+	return out, nil
 }
 
 // synsetRow is the minimal projection we need on the embedding path —
