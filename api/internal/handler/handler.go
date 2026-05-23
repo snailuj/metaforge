@@ -144,6 +144,14 @@ func (h *Handler) HandleSuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Normalise lemma to lowercase: the DB's lemmas table stores lemmas
+	// case-sensitive, and the cluster CTE + resolvePrimaryCuratedSynset
+	// + resolveLemmaSiblingSynsets all use exact-match `WHERE lemma = ?`.
+	// Without normalisation here, "Anger" 404s while "anger" resolves —
+	// a real user-facing bug surfaced in Round 3 review. Canonical
+	// normalisation at the entry boundary is the single-site fix.
+	word = strings.ToLower(word)
+
 	limit := DefaultLimit
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil {

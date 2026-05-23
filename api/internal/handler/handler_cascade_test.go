@@ -871,3 +871,26 @@ func TestCascade_EmbeddingOnly_OmitsTierFromJSON(t *testing.T) {
 		t.Errorf("embedding-only response must not emit tier=unlikely (semantically wrong); body=\n%s", body)
 	}
 }
+
+// TestHandleSuggest_LemmaCaseInsensitive pins the entry-boundary lowercase
+// normalisation. Without it, the cluster path's exact-match SQL would
+// 404 on capitalised words even when the lowercase form is enriched.
+func TestHandleSuggest_LemmaCaseInsensitive(t *testing.T) {
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	for _, word := range []string{"Anger", "ANGER", "AnGeR"} {
+		t.Run(word, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/forge/suggest?word="+word+"&limit=5", nil)
+			w := httptest.NewRecorder()
+			h.HandleSuggest(w, req)
+			if w.Code != http.StatusOK {
+				t.Errorf("status %d for word=%q (want 200; lowercase 'anger' resolves): %s",
+					w.Code, word, w.Body.String())
+			}
+		})
+	}
+}

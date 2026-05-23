@@ -130,11 +130,13 @@ func GetForgeCascadeCandidatesByEmbedding(
 	topicCentroid := cache.Centroids[topicID]
 	hits := scanEmbeddingBand(cache, topicCentroid, siblings, cfg.DMin, cfg.DMax, cfg.TopK)
 	if hits == nil {
-		// Topic resolved but no centroid in the cache. Pipeline contract
-		// says every enriched synset has a centroid, so this is rare —
-		// log Debug and return (nil, nil) so the handler falls back to
-		// cluster-only behaviour for this request.
-		slog.Debug("no topic centroid for embedding scan", "lemma", lemma, "synset", topicID)
+		// Pipeline contract violation: the topic synset resolved to a
+		// curated row (cluster_only resolution succeeded) but has no
+		// centroid in the cache. Fire at Warn so production operators
+		// see the partial-coverage signal. Caller returns (nil, nil)
+		// → handler falls back to cluster-only behaviour for this request.
+		slog.Warn("embedding path falls back: no topic centroid for curated synset",
+			"lemma", lemma, "synset", topicID)
 		return nil, nil
 	}
 	if len(hits) == 0 {

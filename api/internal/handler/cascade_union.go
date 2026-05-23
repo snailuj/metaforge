@@ -8,6 +8,8 @@
 package handler
 
 import (
+	"log/slog"
+
 	"github.com/snailuj/metaforge/internal/db"
 	"github.com/snailuj/metaforge/internal/forge"
 )
@@ -24,6 +26,15 @@ func unionCandidates(cluster, embedding []db.CascadeCandidate) []db.CascadeCandi
 		c.Source = forge.SourceCluster
 		if _, dual := embeddingIDs[c.SynsetID]; dual {
 			c.Source = forge.SourceBoth
+			// D5 observability lift: when the same vehicle synset is
+			// surfaced via both paths, the cluster row wins and the
+			// embedding row's SourceSynsetID (a potentially-different
+			// primary-sense pick) is silently discarded. Log at Debug
+			// so operators chasing a sense-mismatch can opt in. M05
+			// type-aligned scoring is the proper resolution.
+			slog.Debug("cascade union: cluster wins on dual-path conflict",
+				"synset_id", c.SynsetID,
+				"cluster_source_synset", c.SourceSynsetID)
 		}
 		out = append(out, c)
 	}
