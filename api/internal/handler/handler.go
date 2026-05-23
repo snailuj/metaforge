@@ -112,6 +112,17 @@ func (h *Handler) SetStringsDir(dir string) {
 	h.stringsDir = dir
 }
 
+// WithCascadeConfig overrides the default cascade config. Must be
+// called immediately after NewHandlerWithCascade and before serving
+// traffic. Errors if cfg.Validate() rejects the config.
+func (h *Handler) WithCascadeConfig(cfg forge.CascadeConfig) error {
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid cascade config: %w", err)
+	}
+	h.cascadeConf = cfg
+	return nil
+}
+
 // Close releases database resources.
 func (h *Handler) Close() error {
 	return h.database.Close()
