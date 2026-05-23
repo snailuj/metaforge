@@ -74,7 +74,11 @@ func main() {
 	})
 
 	addr := fmt.Sprintf("127.0.0.1:%s", *port)
-	slog.Info("Metaforge API starting", "addr", addr, "db", *dbPath, "strings", *stringsDir, "cors", *corsOrigin, "cascade", *cascade, "cascade_timing", *cascadeTiming)
+	slog.Info("Metaforge API starting",
+		"addr", addr, "db", *dbPath, "strings", *stringsDir, "cors", *corsOrigin,
+		"cascade", *cascade, "cascade_timing", *cascadeTiming,
+		"candidate_sources", *candidateSources,
+		"emb_dmin", *embDMin, "emb_dmax", *embDMax, "emb_topk", *embTopK)
 
 	srv := &http.Server{
 		Addr:         addr,
@@ -97,6 +101,7 @@ func envFloat(key string, fallback float64) float64 {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f
 		}
+		slog.Warn("malformed env var, using default", "key", key, "value", v, "default", fallback)
 	}
 	return fallback
 }
@@ -106,6 +111,7 @@ func envInt(key string, fallback int) int {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
 		}
+		slog.Warn("malformed env var, using default", "key", key, "value", v, "default", fallback)
 	}
 	return fallback
 }
