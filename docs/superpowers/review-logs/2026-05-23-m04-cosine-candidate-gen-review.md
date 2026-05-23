@@ -316,3 +316,98 @@ Full `go test ./...` PASS across all 7 packages (db 5.4s, forge 1.0s, handler 36
 
 ### Cumulative
 Total rounds: 2 | Items resolved (fixed): 13 | Active deferrals: 16 (D1, D2, D3, D5, D6, D7, D8, D9, D10, D11, D13, D14, D15, D16, D17, D18) | Superseded deferrals: 2 (D4, D12) | Elapsed: ~2h
+
+---
+
+## Round 3 — 2026-05-23T13:00:00Z
+
+**Reviewers dispatched in parallel:**
+- pr-review-toolkit:code-reviewer — **CLEAN ✓** (substantive four-section, all 16 active deferrals concurred)
+- pr-review-toolkit:silent-failure-hunter — 4 own findings (SF-R3-1..4), challenged D5 and D15
+- pr-review-toolkit:type-design-analyzer — 7 own findings (TD-R3 OWN-1..7), proposed D1+D11 severity escalation
+- superpowers:code-reviewer — 8 own findings (1A..1H), 7 deferral critiques
+- standards — STD-OWN-1..5, challenged D5
+
+**Last reviewer pre-fix SHA:** `21a4ce2d`
+
+### Items Found (consolidated)
+
+#### Critical (user-facing bug — superpowers 1C + standards STD-OWN, was misclassified as cosmetic D16)
+- [critical] **Lemma case-sensitivity divergence** — `resolvePrimaryCuratedSynset` uses `WHERE l.lemma = ?` (exact match). `"Anger"` resolves to 404 in production but the parity test resolver uses `LOWER(lemma) = LOWER(?)`. Decision: **fix** (entry-point lowercase normalisation in `HandleSuggest`). D16 promoted to superseded-by-fix.
+
+#### Important
+- [important] **SF-R3-2: `no topic centroid` Debug-only log invisible in production** — Decision: **fix** (promote to Warn)
+- [important] **D5 observability lift: silent embedding-source-synset drop on dual-path conflict** — Decision: **fix** (add Debug log on cluster-wins branch in `unionCandidates`)
+
+#### Deferred (legitimate, scoped to follow-up)
+- **SF-R3-1: in-scan `ok==false` skip needs counter (dim-mismatch + bNorm==0)** — D19 (severity: low; the load-side filter catches most cases; runtime path is hypothetical until a future cache-mutation feature)
+- **SF-R3-3: `resolveLemmaSiblingSynsets` empty-result not logged** — D20 (severity: low; reachable only on schema-mutation-in-flight which is itself a contract violation that should fail elsewhere first)
+- **TD-R3 OWN-2: `CandidateSource.Valid()` is dead code (never called)** — D21 (cosmetic; pairs with D1 enforcement-discipline sweep)
+- **TD-R3 OWN-3..4: Tier/TierName denormalisation across two call sites** — defer with D11 naming/discipline sweep
+- **TD-R3 OWN-6: `ForgeEmbeddingConfig` has no `Validate()`** — defer with D3 (the duplication itself)
+- **TD-R3 OWN-7: `CascadeCosineDistanceWithANorm` aNorm could be a tagged type** — defer (semantic misuse of `aNorm` is one site today; M05 type sweep)
+- **STD-OWN-1: `resolveLemmaSiblingSynsets` no direct unit test** — D22 (severity: low; integration tests cover the function transitively; standalone test is hardening, not a correctness gap)
+- **1A: `unionCandidates` Source clobber** — already D2; severity stands at low
+- **1B: `getSynsetRow`/`getSynsetRowsBatch` no NullString guard** — fold with D7
+- **1E: zero-norm vector dim-mismatch counter** — fold with D19
+- **1F: lift `cascadeAnomalies` to named type with `Attrs()` method** — D23 (DRY refactor; bundles with STD-R2-4 deferred helper)
+- **1G: `handleSuggestCascade` is 290 lines (god-function smell)** — D24 (refactor into `cascadePipeline` type; defer to M05 onset)
+- **1H: `sortByFinalScore` policy comment** — D25 (1-line doc; pure hygiene)
+- **2B: D4 fix correct on wire but `Tier int` zero-value still misleading in-memory** — defer with D1/D2 discipline sweep
+- **2C: D6 cost overstated; multi-sense ANN may be cheaper than M04 v2 implies** — re-price post-S04 sweep (no ledger change)
+- **2E: `main.go:54` unchecked type cast `forge.CandidateSources(*candidateSources)`** — D26 (severity: low; `Validate()` catches downstream, but the cast site is unhardened)
+- **2G/D13: SQLite version probe at startup** — fold with D13's existing follow-up
+- **3A: TestCascade_EmbeddingOnly_OmitsTierFromJSON could assert `"tier":` absence broadly** — D27 (test-hardening; low)
+- **3C: `scanEmbeddingBand` nil-vs-zero-norm ambiguity in return contract** — defer with D19 / D20 observability triad
+
+#### Pushed back
+- **STD-OWN-2: Fix G fall-through branch test** — already pushed back in Round 2 (STD-R2-1). Re-affirmed: branch is unreachable on real DB because both paths use identical `lemmas JOIN synset_properties_curated` filter.
+
+### Critique sections (verbatim summaries)
+
+- **pr-rt:code-reviewer:** **CLEAN: true** — substantive Pass 2/3/4. Concurred on all 16 deferrals with engaging reasoning (e.g. "D5 — concur; spec-prescribed cluster-wins for v1, semantic correctness gap legitimately scoped to M05"). Re-verified Round 2 fixes by reading source + running targeted tests.
+- **pr-rt:silent-failure-hunter:** Identified SF-R3-1..4 (in-scan silent-skip counter, no-topic-centroid Debug, sibling-empty silent, embedding-only 404 anomaly drop). Challenged D5 + D15 as observability-standard violations; D5 promoted to fix (1-line Debug log), D15 stays deferred (recoverable + symmetric with planned anomalies-struct lift).
+- **pr-rt:type-design-analyzer:** Proposed D1 escalation low→important (Round 2 D4 fix now depends on the unenforced invariant), D11 escalation cosmetic→low. Recorded but ledger severity unchanged this round — the dependence is real but the M05-binding follow-up captures it.
+- **superpowers:** Caught the lemma case-sensitivity bug (1C); identified handleSuggestCascade god-function smell (1G); test-hardening gaps (3A, 3E, 3F). 1C fixed; 1G/1F/STD-R2-4 deferred as M05 refactor.
+- **standards:** Self-acknowledged Round 1's blanket TDD ✓ was too coarse. Round 3 STD-OWN-1..5 mostly low-severity hardening; D5 observability lift promoted to fix.
+
+### Fixes Applied (Round 3 — 1 commit)
+
+- **Commit `808ca02e`** — `fix: lemma lowercase normalisation + Warn for missing topic centroid + Debug for union dual-path drop`
+  - **D16 promoted (case-sensitivity bug)**: `HandleSuggest` lowercases the `word` parameter at the entry boundary; new `TestHandleSuggest_LemmaCaseInsensitive` pins `Anger`/`ANGER`/`AnGeR` all resolving to 200.
+  - **SF-R3-2 (no topic centroid Debug→Warn)**: `cascade_embedding.go` warn-level log for the "topic resolved but no centroid" pipeline contract violation; message updated to "embedding path falls back".
+  - **D5 observability lift**: `cascade_union.go` Debug log on dual-path cluster-wins branch; new `"log/slog"` import.
+
+### Files Modified
+- `api/internal/handler/handler.go`
+- `api/internal/handler/handler_cascade_test.go`
+- `api/internal/db/cascade_embedding.go`
+- `api/internal/handler/cascade_union.go`
+
+### Test Results
+Full `go test ./...` PASS across all 7 packages (db 5.3s, forge 0.9s, handler 37.5s).
+
+### New deferrals
+- D19 — in-scan `ok==false` skip counter (dim-mismatch + bNorm==0) [low; SF-R3-1, fold with anomalies-struct refactor]
+- D20 — `resolveLemmaSiblingSynsets` empty-result Error log [low; SF-R3-3]
+- D21 — `CandidateSource.Valid()` is dead code [cosmetic; fold with D1]
+- D22 — `resolveLemmaSiblingSynsets` no direct unit test [low; STD-OWN-1]
+- D23 — Lift `cascadeAnomalies` to named type with `Attrs()` method [low; bundles with STD-R2-4]
+- D24 — `handleSuggestCascade` god-function refactor into `cascadePipeline` type [low; M05 onset]
+- D25 — `sortByFinalScore` policy doc comment [cosmetic]
+- D26 — `main.go:54` unchecked type cast `forge.CandidateSources(*candidateSources)` [low; fold with D11]
+- D27 — Test hardening: assert tier-key absence broadly in embedding-only mode [low]
+
+### Updated deferral statuses
+- D16 — **SUPERSEDED-BY-FIX** (commit 808ca02e)
+- D1 — severity note (low → important risk-adjusted given Round 2 D4 fix dependency; ledger language tightened)
+
+### Cumulative
+Total rounds: 3 | Items resolved (fixed): 16 | Active deferrals: 24 (D1, D2, D3, D5–D11, D13–D15, D17–D27) | Superseded deferrals: 3 (D4, D12, D16) | Elapsed: ~3h
+
+### Operator decision: stop loop at Round 3
+
+Per the code-review-loop skill's stop-nudge guidance and CLAUDE.md "Refactor mercilessly without overrunning YAGNI": the remaining 24 active deferrals are predominantly observability-hardening, test-hardening, refactor opportunities, and cosmetic doc lifts. Round 3's critical user-facing bug (lemma case-sensitivity) is fixed. The catch-fixing-forwards skill would flag fix-forward debt accumulating on `handler.go` (modified in every review round) if a fourth round opened.
+
+Strategic call: the M04 milestone has more value-bearing work ahead (calibration sweep, verdict application, branch finish). Round 3 closes the review-loop gate; remaining deferrals are anchored in PIPELINE.md for downstream pickup.
+
