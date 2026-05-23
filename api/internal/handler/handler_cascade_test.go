@@ -555,3 +555,54 @@ func TestCascadeClusterOnly_ResponseShapeUnchanged(t *testing.T) {
 		t.Errorf("cluster_only mode must NOT emit cascade_embedding_query stage timer:\n%s", buf.String())
 	}
 }
+
+// TestCascadeEmbeddingOnly_ProducesEmbeddingTaggedRowsOnly pins the
+// embedding_only mode contract: every returned row is tagged
+// SourceEmbedding, no cluster-overlap query timer is emitted, and the
+// canary anger→fire pair still surfaces.
+func TestCascadeEmbeddingOnly_ProducesEmbeddingTaggedRowsOnly(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.SourcesEmbedding
+	cfg.EmbeddingDMin = 0.0
+	cfg.EmbeddingDMax = 1.5
+	cfg.EmbeddingTopK = 200
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=200", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SuggestResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, s := range resp.Suggestions {
+		if s.Source != forge.SourceEmbedding {
+			t.Errorf("embedding_only mode produced %q-tagged suggestion %s", s.Source, s.Word)
+		}
+	}
+	logs := buf.String()
+	if strings.Contains(logs, `"cascade_candidates_query"`) {
+		// Cluster-path query timer must NOT fire in embedding_only mode.
+		t.Errorf("embedding_only mode must skip cluster path; saw cascade_candidates_query in logs")
+	}
+}

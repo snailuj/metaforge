@@ -251,17 +251,21 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 	stopTotal := observe.Start("cascade_request_total")
 	slog.Debug("cascade request begin", "word", word, "limit", limit)
 
-	stopCand := observe.Start("cascade_candidates_query")
 	var (
 		cluster []db.CascadeCandidate
 		err     error
 	)
 	if h.cascadeConf.CandidateSources != forge.SourcesEmbedding {
+		// Symmetric with the embedding-path stage timer below: only emit
+		// cascade_candidates_query when the cluster path actually runs.
+		// In embedding_only mode the cluster fetch is fully skipped — no
+		// stage timer, no zero-count log noise.
+		stopCand := observe.Start("cascade_candidates_query")
 		cluster, err = db.GetForgeCascadeCandidatesByLemma(
 			h.database, word, h.cascadeConf.ConcretenessThreshold, limit,
 		)
+		stopCand("word", word, "count", len(cluster))
 	}
-	stopCand("word", word, "count", len(cluster))
 	// Cluster-path ErrLemmaNotFound is a 404 ONLY when no embedding path
 	// will follow; under union mode an un-enriched lemma will also fail
 	// the embedding primary-synset resolver, so we let that branch return
