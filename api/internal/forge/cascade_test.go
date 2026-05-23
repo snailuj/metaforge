@@ -505,6 +505,56 @@ func TestEvaluateCascadePair_GammaPositiveLiftsFinalScore(t *testing.T) {
 	}
 }
 
+func TestEvaluateCascadePair_GammaPositive_ZeroDistinctTypes_DiagnosticsConsistent(t *testing.T) {
+	// When M05 evaluates a pair but the shared overlap yields <2 distinct
+	// canonical types (single type, or only "other"/unknown), the two
+	// diagnostic fields must agree on "M05 evaluated this pair":
+	// TypeDiversityBonus pointer set (to 0.0) AND SharedTypesCount reflects
+	// the count from that evaluation. Prior behaviour left the pointer nil
+	// (because `if tb > 0`) but populated SharedTypesCount — readers had no
+	// way to distinguish "M05 didn't run" from "M05 ran and scored zero".
+	cfg := DefaultCascadeConfig()
+	cfg.Gamma = 1.0
+	tConc := 3.0
+	vConc := 4.5
+
+	// Case 1: single distinct type in overlap → distinct=1, bonus=0.
+	in1 := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        map[int64]string{1: "sensorimotor", 2: "sensorimotor"},
+	}
+	res1 := EvaluateCascadePair(in1, cfg)
+	if res1.TypeDiversityBonus == nil {
+		t.Errorf("single-type overlap: TypeDiversityBonus pointer must be set when M05 ran (got nil)")
+	} else if *res1.TypeDiversityBonus != 0.0 {
+		t.Errorf("single-type overlap: bonus value should be 0.0, got %v", *res1.TypeDiversityBonus)
+	}
+	if res1.SharedTypesCount != 1 {
+		t.Errorf("single-type overlap: SharedTypesCount want 1, got %d", res1.SharedTypesCount)
+	}
+
+	// Case 2: zero discriminating types ("other" + unknown) → distinct=0.
+	in2 := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        map[int64]string{1: "other", 2: ""},
+	}
+	res2 := EvaluateCascadePair(in2, cfg)
+	if res2.TypeDiversityBonus == nil {
+		t.Errorf("zero-discriminating overlap: TypeDiversityBonus pointer must be set when M05 ran (got nil)")
+	} else if *res2.TypeDiversityBonus != 0.0 {
+		t.Errorf("zero-discriminating overlap: bonus value should be 0.0, got %v", *res2.TypeDiversityBonus)
+	}
+	if res2.SharedTypesCount != 0 {
+		t.Errorf("zero-discriminating overlap: SharedTypesCount want 0, got %d", res2.SharedTypesCount)
+	}
+}
+
 func TestEvaluateCascadePair_GammaPositiveNoClusterTypesIsZero(t *testing.T) {
 	// If ClusterTypes is nil (pre-M05 DB), the bonus is suppressed even
 	// with Gamma>0 — the function returns the M03/M04 score unchanged.

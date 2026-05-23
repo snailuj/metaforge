@@ -420,6 +420,10 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 	// M05 type-diversity bonus. Composition is additive (mirrors the
 	// production-winner additive cascade) and Gamma=0 by default so the
 	// scoring math reduces to M03/M04 exactly when M05 is disabled.
+	// When M05 runs (Gamma>0 + ClusterTypes provided), both diagnostic
+	// fields are populated together so downstream readers can distinguish
+	// "M05 didn't run" (pointer nil, count 0) from "M05 ran and scored
+	// zero" (pointer set to 0.0, count reflects evaluation).
 	var typeBonus *float64
 	sharedTypesCount := 0
 	if cfg.Gamma > 0 && in.ClusterTypes != nil {
@@ -431,8 +435,8 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 		}
 		tb, distinct := TypeDiversityBonus(shared, in.ClusterTypes)
 		sharedTypesCount = distinct
+		typeBonus = &tb
 		if tb > 0 {
-			typeBonus = &tb
 			final = final + cfg.Gamma*tb
 		}
 	}
