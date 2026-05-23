@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strings"
 
@@ -23,22 +24,37 @@ type embeddingHit struct {
 }
 
 // scanEmbeddingBand walks every entry in cache.Centroids, computes
-// cosine distance against the topic centroid, filters to [dMin, dMax]
-// (both inclusive), and returns the topK nearest by ascending distance.
-// Self-match (topicSynsetID == entry) is dropped regardless of band.
-// Returns nil when the topic centroid is absent from the cache —
-// caller must treat nil as "embedding path unavailable for this lemma".
-func scanEmbeddingBand(cache *CascadeCache, topicSynsetID string, dMin, dMax float64, topK int) []embeddingHit {
-	topic, ok := cache.Centroids[topicSynsetID]
-	if !ok {
+// cosine distance against the topic centroid (passed explicitly so the
+// caller controls which sense provides the "topic" vector), filters
+// to [dMin, dMax] (both inclusive), and returns the topK nearest by
+// ascending distance. Every entry whose ID is in `excludeIDs` is
+// skipped (typically: every sense of the topic lemma, to prevent
+// "anger is like anger" leakage on polysemous topics).
+// Returns nil when the topic centroid is nil — caller must treat nil
+// as "embedding path unavailable for this lemma".
+func scanEmbeddingBand(cache *CascadeCache, topic []float32, excludeIDs map[string]struct{}, dMin, dMax float64, topK int) []embeddingHit {
+	if topic == nil {
+		return nil
+	}
+	// Precompute topic norm once — calling forge.CascadeCosineDistance
+	// inside the 35k-iteration scan recomputes Σ topic[i]² + math.Sqrt
+	// per call (~12M wasted multiplies per request). Hot-path lever.
+	var topicSqSum float64
+	for _, v := range topic {
+		topicSqSum += float64(v) * float64(v)
+	}
+	topicNorm := math.Sqrt(topicSqSum)
+	if topicNorm == 0 {
+		// Defensive — a zero-norm topic centroid is a pipeline contract
+		// violation that cache load should have rejected.
 		return nil
 	}
 	hits := make([]embeddingHit, 0, 64)
-	for id, v := range cache.Centroids {
-		if id == topicSynsetID {
+	for id, vec := range cache.Centroids {
+		if _, excluded := excludeIDs[id]; excluded {
 			continue
 		}
-		d, ok := forge.CascadeCosineDistance(topic, v)
+		d, ok := forge.CascadeCosineDistanceWithANorm(topic, topicNorm, vec)
 		if !ok {
 			// Dimension mismatch or zero-norm — skip silently; the
 			// load-side log already flagged the malformed entry.
@@ -49,8 +65,14 @@ func scanEmbeddingBand(cache *CascadeCache, topicSynsetID string, dMin, dMax flo
 		}
 		hits = append(hits, embeddingHit{synsetID: id, distance: d})
 	}
-	sort.Slice(hits, func(i, j int) bool {
-		return hits[i].distance < hits[j].distance
+	sort.SliceStable(hits, func(i, j int) bool {
+		if hits[i].distance != hits[j].distance {
+			return hits[i].distance < hits[j].distance
+		}
+		// Tiebreak on synsetID for deterministic TopK truncation under
+		// distance ties — without this, the topK cut varies between
+		// requests due to Go's randomised map iteration order.
+		return hits[i].synsetID < hits[j].synsetID
 	})
 	if len(hits) > topK {
 		hits = hits[:topK]
@@ -95,8 +117,12 @@ func GetForgeCascadeCandidatesByEmbedding(
 	if err != nil {
 		return nil, err
 	}
-
-	hits := scanEmbeddingBand(cache, topicID, cfg.DMin, cfg.DMax, cfg.TopK)
+	siblings, err := resolveLemmaSiblingSynsets(database, lemma)
+	if err != nil {
+		return nil, err
+	}
+	topicCentroid := cache.Centroids[topicID]
+	hits := scanEmbeddingBand(cache, topicCentroid, siblings, cfg.DMin, cfg.DMax, cfg.TopK)
 	if hits == nil {
 		// Topic resolved but no centroid in the cache. Pipeline contract
 		// says every enriched synset has a centroid, so this is rare —
@@ -178,6 +204,27 @@ func resolvePrimaryCuratedSynset(database *sql.DB, lemma string) (string, error)
 		return "", fmt.Errorf("resolvePrimaryCuratedSynset(%q): %w", lemma, err)
 	}
 	return id, nil
+}
+
+// resolveLemmaSiblingSynsets returns the set of all synset_ids where
+// the lemma appears. Used by GetForgeCascadeCandidatesByEmbedding to
+// build a self-match exclusion set covering every sense of the topic
+// lemma — mirrors the cluster path's NOT IN (source_synsets) filter.
+func resolveLemmaSiblingSynsets(database *sql.DB, lemma string) (map[string]struct{}, error) {
+	rows, err := database.Query("SELECT synset_id FROM lemmas WHERE lemma = ?", lemma)
+	if err != nil {
+		return nil, fmt.Errorf("resolveLemmaSiblingSynsets(%q): %w", lemma, err)
+	}
+	defer rows.Close()
+	out := make(map[string]struct{}, 8)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan sibling synset: %w", err)
+		}
+		out[id] = struct{}{}
+	}
+	return out, rows.Err()
 }
 
 // synsetRow is the minimal projection we need on the embedding path —

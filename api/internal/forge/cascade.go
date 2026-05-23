@@ -85,6 +85,33 @@ func CascadeCosineDistance(a, b []float32) (float64, bool) {
 	return 1.0 - sim, true
 }
 
+// CascadeCosineDistanceWithANorm is CascadeCosineDistance with `a`'s norm
+// precomputed by the caller. Used by hot-path scans (e.g. the M04
+// embedding-band candidate scan) where the same `a` vector is compared
+// against thousands of `b` vectors and recomputing |a| per call wastes
+// ~Σ|a| × O(len(a)) ops. Pass aNorm = math.Sqrt(Σ a[i]²) once outside
+// the loop. Returns (0, false) on dim mismatch or aNorm/bNorm == 0.
+func CascadeCosineDistanceWithANorm(a []float32, aNorm float64, b []float32) (float64, bool) {
+	if len(a) != len(b) || len(a) == 0 || aNorm == 0 {
+		return 0, false
+	}
+	var dot, nb float64
+	for i := range a {
+		dot += float64(a[i]) * float64(b[i])
+		nb += float64(b[i]) * float64(b[i])
+	}
+	if nb == 0 {
+		return 0, false
+	}
+	sim := dot / (aNorm * math.Sqrt(nb))
+	if sim > 1.0 {
+		sim = 1.0
+	} else if sim < -1.0 {
+		sim = -1.0
+	}
+	return 1.0 - sim, true
+}
+
 // CascadeStatus routes a pair into one of four attrition / scored buckets,
 // mirroring the Python CascadeStatus literal type.
 type CascadeStatus string
@@ -103,6 +130,17 @@ const (
 	CompositionAdditive       Composition = "additive"
 	CompositionMultiplicative Composition = "multiplicative"
 )
+
+// Valid reports whether c is one of the two known composition modes.
+// CascadeConfig.Validate() consults this so an invalid value fails loud
+// at startup rather than silently dropping the re-rank bonus.
+func (c Composition) Valid() bool {
+	switch c {
+	case CompositionAdditive, CompositionMultiplicative:
+		return true
+	}
+	return false
+}
 
 // CandidateSource tags a single candidate row with the generation path
 // that produced it. Distinct from CandidateSources (the config-side enum
@@ -184,6 +222,13 @@ func DefaultCascadeConfig() CascadeConfig {
 	}
 }
 
+// EmbeddingTopKCeiling is the safety upper bound on EmbeddingTopK.
+// SQLite's SQLITE_MAX_VARIABLE_NUMBER ceiling is 32766 on modern
+// mattn/go-sqlite3 builds; older Debian/Alpine builds still ship the
+// historical 999. We cap well below both so the IN-clause in
+// db.getSynsetRowsBatch stays safe across deployment platforms.
+const EmbeddingTopKCeiling = 1000
+
 // Validate enforces invariants on CascadeConfig before the handler
 // accepts the config. Called at startup from main.go after env/flag
 // parsing so bad values fail loud instead of silently degrading the
@@ -191,6 +236,18 @@ func DefaultCascadeConfig() CascadeConfig {
 func (c CascadeConfig) Validate() error {
 	if !c.CandidateSources.Valid() {
 		return fmt.Errorf("CandidateSources %q is not one of cluster_only|embedding_only|union", c.CandidateSources)
+	}
+	if !c.Composition.Valid() {
+		return fmt.Errorf("Composition %q is not one of additive|multiplicative", c.Composition)
+	}
+	if c.Alpha < 0 || math.IsNaN(c.Alpha) || math.IsInf(c.Alpha, 0) {
+		return fmt.Errorf("Alpha %v must be ≥ 0 and finite", c.Alpha)
+	}
+	if c.DCap <= 0 || math.IsNaN(c.DCap) || math.IsInf(c.DCap, 0) {
+		return fmt.Errorf("DCap %v must be > 0 and finite", c.DCap)
+	}
+	if math.IsNaN(c.ConcretenessThreshold) || math.IsInf(c.ConcretenessThreshold, 0) {
+		return fmt.Errorf("ConcretenessThreshold %v must be finite", c.ConcretenessThreshold)
 	}
 	if c.EmbeddingDMin < 0.0 || c.EmbeddingDMin > 2.0 {
 		return fmt.Errorf("EmbeddingDMin %v out of range [0, 2]", c.EmbeddingDMin)
@@ -201,6 +258,10 @@ func (c CascadeConfig) Validate() error {
 	}
 	if c.EmbeddingTopK <= 0 {
 		return fmt.Errorf("EmbeddingTopK %d must be > 0", c.EmbeddingTopK)
+	}
+	if c.EmbeddingTopK > EmbeddingTopKCeiling {
+		return fmt.Errorf("EmbeddingTopK %d exceeds ceiling %d (SQLite IN-clause variable limit safety)",
+			c.EmbeddingTopK, EmbeddingTopKCeiling)
 	}
 	return nil
 }

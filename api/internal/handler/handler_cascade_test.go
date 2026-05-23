@@ -462,13 +462,17 @@ func TestCascadeUnion_ClassicalPairsSurface_AsCandidates(t *testing.T) {
 	cfg := forge.DefaultCascadeConfig()
 	cfg.CandidateSources = forge.SourcesUnion
 	cfg.EmbeddingDMin = 0.0
-	cfg.EmbeddingDMax = 1.5
-	// TopK pinned wide for the canary: this test asserts CANDIDATE
-	// PRESENCE, not production ranking. Diagnostics show "hammer" lands at
-	// rank ~4600 by cosine distance from "truth", "money" at ~2000 from
-	// "time" — both within band but well outside production TopK=100.
-	// Widening here is intentional and isolated to this test.
-	cfg.EmbeddingTopK = 10000
+	cfg.EmbeddingDMax = 2.0
+	// TopK pinned at forge.EmbeddingTopKCeiling for the canary: this
+	// test asserts CANDIDATE PRESENCE, not production ranking.
+	// Diagnostics show "hammer" lands at rank ~4600 by cosine distance
+	// from "truth", "money" at ~2000 from "time" — both within band but
+	// well outside production TopK=100. Widening here is intentional
+	// and isolated to this test; the ceiling bounds it to a value the
+	// SQLite IN-clause can safely accept, and DMax=2.0 expands the band
+	// to its theoretical maximum so distant-but-in-cache candidates
+	// still surface in this candidate-presence canary.
+	cfg.EmbeddingTopK = forge.EmbeddingTopKCeiling
 	if err := h.WithCascadeConfig(cfg); err != nil {
 		t.Fatalf("WithCascadeConfig: %v", err)
 	}

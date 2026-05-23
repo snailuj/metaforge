@@ -273,6 +273,13 @@ func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
 		{"dMax not above dMin", func(c *CascadeConfig) { c.EmbeddingDMax = c.EmbeddingDMin }, "EmbeddingDMax"},
 		{"topK zero", func(c *CascadeConfig) { c.EmbeddingTopK = 0 }, "EmbeddingTopK"},
 		{"topK negative", func(c *CascadeConfig) { c.EmbeddingTopK = -5 }, "EmbeddingTopK"},
+		{"invalid composition", func(c *CascadeConfig) { c.Composition = "weird" }, "Composition"},
+		{"negative alpha", func(c *CascadeConfig) { c.Alpha = -0.1 }, "Alpha"},
+		{"NaN alpha", func(c *CascadeConfig) { c.Alpha = math.NaN() }, "Alpha"},
+		{"zero dCap", func(c *CascadeConfig) { c.DCap = 0 }, "DCap"},
+		{"negative dCap", func(c *CascadeConfig) { c.DCap = -1 }, "DCap"},
+		{"NaN concreteness threshold", func(c *CascadeConfig) { c.ConcretenessThreshold = math.NaN() }, "ConcretenessThreshold"},
+		{"topK above ceiling", func(c *CascadeConfig) { c.EmbeddingTopK = EmbeddingTopKCeiling + 1 }, "EmbeddingTopK"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

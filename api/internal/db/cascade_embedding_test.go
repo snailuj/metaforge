@@ -25,7 +25,9 @@ func TestScanEmbeddingBand_FiltersOutsideBand(t *testing.T) {
 			"far":       vec(-1, 0, 0), // d=2 — above dMax
 		},
 	}
-	hits := scanEmbeddingBand(cache, "topic", 0.2, 1.5, 10)
+	topic := cache.Centroids["topic"]
+	siblings := map[string]struct{}{"topic": {}}
+	hits := scanEmbeddingBand(cache, topic, siblings, 0.2, 1.5, 10)
 	got := map[string]bool{}
 	for _, h := range hits {
 		got[h.synsetID] = true
@@ -38,6 +40,34 @@ func TestScanEmbeddingBand_FiltersOutsideBand(t *testing.T) {
 	}
 }
 
+func TestScanEmbeddingBand_ExcludesAllSiblingSenses(t *testing.T) {
+	cache := &CascadeCache{
+		Centroids: map[string][]float32{
+			"topic-sense-a":  vec(1, 0, 0),
+			"topic-sense-b":  vec(0.9, 0.1, 0), // also a sense of the topic lemma
+			"topic-sense-c":  vec(0.7, 0.3, 0), // also a sense
+			"unrelated-near": vec(0.6, 0.4, 0),
+		},
+	}
+	topic := cache.Centroids["topic-sense-a"]
+	siblings := map[string]struct{}{
+		"topic-sense-a": {},
+		"topic-sense-b": {},
+		"topic-sense-c": {},
+	}
+	hits := scanEmbeddingBand(cache, topic, siblings, 0.0, 1.5, 10)
+	got := map[string]bool{}
+	for _, h := range hits {
+		got[h.synsetID] = true
+	}
+	if got["topic-sense-a"] || got["topic-sense-b"] || got["topic-sense-c"] {
+		t.Errorf("all sibling senses must be excluded; got %v", got)
+	}
+	if !got["unrelated-near"] {
+		t.Errorf("unrelated in-band candidate must be present; got %v", got)
+	}
+}
+
 func TestScanEmbeddingBand_CapsAtTopK(t *testing.T) {
 	cache := &CascadeCache{Centroids: map[string][]float32{}}
 	cache.Centroids["topic"] = vec(1, 0, 0)
@@ -45,7 +75,9 @@ func TestScanEmbeddingBand_CapsAtTopK(t *testing.T) {
 		// All 50 will be in [0.2, 1.5] band by construction.
 		cache.Centroids[idForI(i)] = vec(0.5, 0.5, 0)
 	}
-	hits := scanEmbeddingBand(cache, "topic", 0.2, 1.5, 7)
+	topic := cache.Centroids["topic"]
+	siblings := map[string]struct{}{"topic": {}}
+	hits := scanEmbeddingBand(cache, topic, siblings, 0.2, 1.5, 7)
 	if len(hits) != 7 {
 		t.Errorf("want 7 hits (topK), got %d", len(hits))
 	}
@@ -53,7 +85,7 @@ func TestScanEmbeddingBand_CapsAtTopK(t *testing.T) {
 
 func TestScanEmbeddingBand_NoTopicCentroidReturnsNil(t *testing.T) {
 	cache := &CascadeCache{Centroids: map[string][]float32{"other": vec(1, 0, 0)}}
-	hits := scanEmbeddingBand(cache, "missing", 0.0, 2.0, 10)
+	hits := scanEmbeddingBand(cache, nil, map[string]struct{}{}, 0.0, 2.0, 10)
 	if hits != nil {
 		t.Errorf("missing topic centroid: want nil, got %v", hits)
 	}
