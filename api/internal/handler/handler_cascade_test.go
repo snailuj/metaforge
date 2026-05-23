@@ -761,3 +761,113 @@ func TestNewHandlerWithCascade_EmptyCuratedProps_FailsLoud(t *testing.T) {
 		t.Errorf("expected 'is empty' in error, got: %v", err)
 	}
 }
+
+// TestCascade_EmitsOutcomeSlogInfoUnconditionally pins R1-Fix-A: every
+// cascade request must emit an unconditional slog.Info "cascade request
+// complete" record at INFO level, independent of observe.Start's
+// feature flag. Tests with timing OFF (production-like).
+func TestCascade_EmitsOutcomeSlogInfoUnconditionally(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(false) // production posture — timing OFF
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=10", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, `"msg":"cascade request complete"`) {
+		t.Errorf("expected unconditional 'cascade request complete' slog.Info; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `"outcome":"scored"`) {
+		t.Errorf("outcome=scored not present in log:\n%s", logs)
+	}
+}
+
+// TestCascade_UnionMode_NoConcretenessErrorForEmbeddingMisses pins R1-Fix-B:
+// in union mode, embedding-path candidates that lack synset_concreteness
+// MUST NOT trigger the "cascade concreteness cache divergence" Error log.
+// The current production DB produces ~30 such embedding misses per
+// 'anger' union request; pre-fix this was 30 lines of Error spam, now
+// it's a single Info attr (embedding_no_concreteness=30).
+func TestCascade_UnionMode_NoConcretenessErrorForEmbeddingMisses(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.SourcesUnion
+	cfg.EmbeddingDMin = 0.0
+	cfg.EmbeddingDMax = 1.5
+	cfg.EmbeddingTopK = 200
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=200", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	logs := buf.String()
+	if strings.Contains(logs, `"cascade concreteness cache divergence"`) {
+		t.Errorf("union mode must NOT emit 'cache divergence' Error for embedding-source misses:\n%s", logs)
+	}
+	// Confirm the embedding miss count IS recorded as an Info attr instead.
+	if !strings.Contains(logs, `"embedding_no_concreteness"`) {
+		t.Errorf("expected 'embedding_no_concreteness' attr on cascade_request_total / cascade request complete log; got:\n%s", logs)
+	}
+}
+
+// TestCascade_EmbeddingOnly_OmitsTierFromJSON pins D4: embedding-only
+// candidates have no meaningful salience-based tier; the JSON wire
+// must omit the tier field rather than emit a misleading "unlikely".
+func TestCascade_EmbeddingOnly_OmitsTierFromJSON(t *testing.T) {
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.SourcesEmbedding
+	cfg.EmbeddingDMin = 0.0
+	cfg.EmbeddingDMax = 1.5
+	cfg.EmbeddingTopK = 50
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=50", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, `"tier":"unlikely"`) {
+		t.Errorf("embedding-only response must not emit tier=unlikely (semantically wrong); body=\n%s", body)
+	}
+}

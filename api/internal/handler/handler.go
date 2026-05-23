@@ -450,7 +450,19 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 			continue
 		}
 
-		tier := forge.ClassifyTierCurated(c.SalienceSum, c.ContrastCount)
+		// Salience-based tier is meaningful for cluster-path rows; embedding-only
+		// rows have SalienceSum=0 by construction (no curated overlap signal),
+		// so emitting "unlikely" would mislead UI consumers. Empty TierName lets
+		// JSON omitempty drop the field, signalling "tier not applicable for
+		// this row" — final_score remains the quality signal.
+		var (
+			tier     forge.Tier
+			tierName string
+		)
+		if c.Source != forge.SourceEmbedding {
+			tier = forge.ClassifyTierCurated(c.SalienceSum, c.ContrastCount)
+			tierName = tier.String()
+		}
 		matches = append(matches, forge.Match{
 			SynsetID:         c.SynsetID,
 			Word:             c.Word,
@@ -459,7 +471,7 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 			OverlapCount:     int(c.SalienceSum),
 			SalienceSum:      c.SalienceSum,
 			Tier:             tier,
-			TierName:         tier.String(),
+			TierName:         tierName,
 			SourceSynsetID:   c.SourceSynsetID,
 			SourceDefinition: c.SourceDefinition,
 			SourcePOS:        c.SourcePOS,

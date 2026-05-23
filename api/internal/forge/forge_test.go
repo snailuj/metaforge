@@ -90,7 +90,7 @@ func TestMatch_SourceOmittedFromJSONWhenEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if strings.Contains(string(out), `"source"`) {
+	if strings.Contains(string(out), `"candidate_source"`) {
 		t.Errorf("zero Source must be omitted from JSON, got %s", out)
 	}
 }
@@ -101,7 +101,7 @@ func TestMatch_SourceSerialisesWhenSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if !strings.Contains(string(out), `"source":"embedding"`) {
+	if !strings.Contains(string(out), `"candidate_source":"embedding"`) {
 		t.Errorf("Source serialisation: got %s", out)
 	}
 }
