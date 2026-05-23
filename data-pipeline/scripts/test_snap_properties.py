@@ -1901,6 +1901,90 @@ def test_snap_populates_dominant_type_per_cluster(tmp_path):
         conn.close()
 
 
+def test_snap_dominant_type_is_idempotent_under_re_snap(tmp_path):
+    """A standalone re-snap (CLAUDE.md operation #3) must NULL stale
+    dominant_type values for clusters that have no matches in the current run.
+    Without this, dominant_type drifts: a cluster that had matches in run N
+    but none in run N+1 would retain the stale type from N."""
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "resnap.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT,
+            embedding BLOB,
+            is_oov INTEGER DEFAULT 0,
+            source TEXT
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT,
+            property_id INTEGER,
+            salience REAL,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT,
+            lemma TEXT NOT NULL,
+            pos TEXT,
+            polysemy INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id INTEGER PRIMARY KEY,
+            cluster_id INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton INTEGER NOT NULL DEFAULT 0,
+            dominant_type TEXT
+        );
+    """)
+    # Two clusters: A (cluster_id=1, lemma 'hot') will receive a snap match
+    # this run with type 'emotional'; B (cluster_id=2, lemma 'cold') will
+    # not. Pre-populate BOTH clusters' dominant_type with a stale value
+    # ('sensorimotor') simulating a previous run's output.
+    conn.execute("INSERT INTO synsets VALUES ('s1')")
+    conn.execute("INSERT INTO property_vocab_curated VALUES (1, 's1', 'hot', 'a', 1)")
+    conn.execute("INSERT INTO property_vocab_curated VALUES (2, 's2', 'cold', 'a', 1)")
+    conn.execute(
+        "INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, 'sensorimotor')"
+    )
+    conn.execute(
+        "INSERT INTO vocab_clusters VALUES (2, 2, 1, 0, 'sensorimotor')"
+    )
+    conn.execute(
+        "INSERT INTO property_vocabulary (property_id, text, source) "
+        "VALUES (10, 'hot', 'test')"
+    )
+    conn.execute(
+        "INSERT INTO synset_properties VALUES "
+        "('s1', 10, 0.9, 'emotional', NULL)"
+    )
+    conn.commit()
+
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+
+        result_a = conn.execute(
+            "SELECT dominant_type FROM vocab_clusters WHERE cluster_id=1"
+        ).fetchone()
+        result_b = conn.execute(
+            "SELECT dominant_type FROM vocab_clusters WHERE cluster_id=2"
+        ).fetchone()
+        assert result_a[0] == "emotional", (
+            f"cluster A snapped 'emotional' this run, got {result_a[0]!r}"
+        )
+        assert result_b[0] is None, (
+            "cluster B had no matches this run — stale 'sensorimotor' must be "
+            f"cleared to NULL, got {result_b[0]!r}"
+        )
+    finally:
+        conn.close()
+
+
 def test_snap_normalises_variant_type_spellings():
     """M05 S01: variant spellings (behavior, behavioural, behavour) should all
     canonicalise to 'behaviour' for dominant_type computation."""

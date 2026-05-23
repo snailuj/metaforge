@@ -502,6 +502,11 @@ def snap_properties(
         # synset_properties_curated and report stats. Any other variant
         # (lock contention, disk-IO, schema drift) re-raises.
         try:
+            # Idempotency: clear ALL prior dominant_type values before writing
+            # the new mode set. A standalone re-snap that has no matches for a
+            # cluster must leave dominant_type IS NULL, not the stale value
+            # from a previous run.
+            conn.execute("UPDATE vocab_clusters SET dominant_type = NULL")
             conn.executemany(
                 "UPDATE vocab_clusters SET dominant_type = ? WHERE cluster_id = ?",
                 type_updates,
