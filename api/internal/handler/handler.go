@@ -241,24 +241,63 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 	slog.Debug("cascade request begin", "word", word, "limit", limit)
 
 	stopCand := observe.Start("cascade_candidates_query")
-	candidates, err := db.GetForgeCascadeCandidatesByLemma(
-		h.database, word, h.cascadeConf.ConcretenessThreshold, limit,
+	var (
+		cluster []db.CascadeCandidate
+		err     error
 	)
-	stopCand("word", word, "count", len(candidates))
-	if errors.Is(err, db.ErrLemmaNotFound) {
+	if h.cascadeConf.CandidateSources != forge.SourcesEmbedding {
+		cluster, err = db.GetForgeCascadeCandidatesByLemma(
+			h.database, word, h.cascadeConf.ConcretenessThreshold, limit,
+		)
+	}
+	stopCand("word", word, "count", len(cluster))
+	// Cluster-path ErrLemmaNotFound is a 404 ONLY when no embedding path
+	// will follow; under union mode an un-enriched lemma will also fail
+	// the embedding primary-synset resolver, so we let that branch return
+	// the 404 below for uniformity.
+	if errors.Is(err, db.ErrLemmaNotFound) && h.cascadeConf.CandidateSources == forge.SourcesCluster {
 		stopTotal("word", word, "outcome", "lemma_not_found")
 		http.Error(w, `{"error": "word not found or has no curated properties"}`, http.StatusNotFound)
 		return
 	}
-	if err != nil {
+	if err != nil && !errors.Is(err, db.ErrLemmaNotFound) {
 		stopTotal("word", word, "outcome", "candidates_error")
 		slog.Error("cascade candidate fetch failed", "word", word, "err", err)
 		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
 		return
 	}
-	slog.Debug("cascade candidates fetched", "word", word, "count", len(candidates))
+
+	var embedding []db.CascadeCandidate
+	if h.cascadeConf.CandidateSources != forge.SourcesCluster {
+		stopEmb := observe.Start("cascade_embedding_query")
+		embCfg := db.ForgeEmbeddingConfig{
+			DMin: h.cascadeConf.EmbeddingDMin,
+			DMax: h.cascadeConf.EmbeddingDMax,
+			TopK: h.cascadeConf.EmbeddingTopK,
+		}
+		embedding, err = db.GetForgeCascadeCandidatesByEmbedding(h.database, h.cache, word, embCfg)
+		stopEmb("word", word, "count", len(embedding))
+		if errors.Is(err, db.ErrLemmaNotFound) {
+			// Both paths agree: lemma not enriched.
+			stopTotal("word", word, "outcome", "lemma_not_found")
+			http.Error(w, `{"error": "word not found or has no curated properties"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			stopTotal("word", word, "outcome", "embedding_error")
+			slog.Error("cascade embedding fetch failed", "word", word, "err", err)
+			http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+			return
+		}
+	}
+
+	candidates := unionCandidates(cluster, embedding)
+	slog.Debug("cascade candidates assembled",
+		"word", word, "cluster", len(cluster), "embedding", len(embedding),
+		"after_union", len(candidates))
+
 	if len(candidates) == 0 {
-		// Lemma is enriched but no gate-pass — return empty 200.
+		// Lemma is enriched but neither path produced a candidate.
 		resp := SuggestResponse{Source: word, Suggestions: []forge.Match{}}
 		w.Header().Set("Content-Type", "application/json")
 		stopEncode := observe.Start("cascade_response_encode")
