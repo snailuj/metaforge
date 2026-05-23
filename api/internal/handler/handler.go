@@ -73,7 +73,7 @@ func NewHandlerWithCascade(dbPath string, useCascade bool) (*Handler, error) {
 		// caches, and every request returns empty 200. Assert non-zero
 		// rows so we fail loud at startup instead. SQL injection-safe:
 		// table names are hard-coded, not user input.
-		for _, table := range []string{"synset_concreteness", "synset_centroids"} {
+		for _, table := range []string{"synset_concreteness", "synset_centroids", "synset_properties_curated"} {
 			var rowCount int
 			err := database.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&rowCount)
 			if err != nil {

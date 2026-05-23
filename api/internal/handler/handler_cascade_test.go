@@ -706,3 +706,54 @@ func TestCascade_EmptyPropsByID_NoErrorLogOnHealthyData(t *testing.T) {
 		t.Errorf("per-request empty-propsByID Error log must not fire on healthy data:\n%s", buf.String())
 	}
 }
+
+// TestNewHandlerWithCascade_EmptyCuratedProps_FailsLoud extends the
+// post-preflight tripwire to also assert synset_properties_curated is
+// non-empty. Closes R1-D4 — without this, a deploy with all cascade
+// tables populated but curated_props empty would pass startup and
+// silently serve no_properties for every gate-passed candidate.
+func TestNewHandlerWithCascade_EmptyCuratedProps_FailsLoud(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/empty_curated.db"
+
+	database, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	schema := []string{
+		`CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT)`,
+		`CREATE TABLE lemmas (synset_id TEXT, lemma TEXT)`,
+		// Empty curated table — this is the failure mode we're trying to catch.
+		`CREATE TABLE synset_properties_curated (synset_id TEXT, cluster_id INTEGER, salience_sum REAL)`,
+		`CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, lemma TEXT NOT NULL)`,
+		`CREATE TABLE frequencies (lemma TEXT, count INTEGER)`,
+		`CREATE TABLE cluster_antonyms (cluster_id_a INTEGER, cluster_id_b INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER PRIMARY KEY, lemma TEXT)`,
+		`CREATE TABLE lemma_embeddings (lemma TEXT, embedding BLOB)`,
+		// Cascade tables populated with one row each (need a row so the
+		// existing existence-AND-row check passes for them).
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`INSERT INTO synset_concreteness VALUES ('test-1', 3.0, 'test')`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`INSERT INTO synset_centroids VALUES ('test-1', x'00', 1)`,
+	}
+	for _, stmt := range schema {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("schema setup: %v", err)
+		}
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	_, err = NewHandlerWithCascade(dbPath, true)
+	if err == nil {
+		t.Fatal("expected error for empty synset_properties_curated, got nil")
+	}
+	if !strings.Contains(err.Error(), "synset_properties_curated") {
+		t.Errorf("expected error mentioning synset_properties_curated, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "is empty") {
+		t.Errorf("expected 'is empty' in error, got: %v", err)
+	}
+}
