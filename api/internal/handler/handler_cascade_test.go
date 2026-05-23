@@ -179,7 +179,7 @@ func TestNewHandlerWithCascade_EmptyCascadeTables_FailsLoud(t *testing.T) {
 		`CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, lemma TEXT NOT NULL)`,
 		`CREATE TABLE frequencies (lemma TEXT, count INTEGER)`,
 		`CREATE TABLE cluster_antonyms (cluster_id_a INTEGER, cluster_id_b INTEGER)`,
-		`CREATE TABLE vocab_clusters (cluster_id INTEGER PRIMARY KEY, lemma TEXT)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER PRIMARY KEY, lemma TEXT, dominant_type TEXT)`,
 		`CREATE TABLE lemma_embeddings (lemma TEXT, embedding BLOB)`,
 		// Both cascade tables exist but are empty:
 		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
@@ -732,7 +732,7 @@ func TestNewHandlerWithCascade_EmptyCuratedProps_FailsLoud(t *testing.T) {
 		`CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, lemma TEXT NOT NULL)`,
 		`CREATE TABLE frequencies (lemma TEXT, count INTEGER)`,
 		`CREATE TABLE cluster_antonyms (cluster_id_a INTEGER, cluster_id_b INTEGER)`,
-		`CREATE TABLE vocab_clusters (cluster_id INTEGER PRIMARY KEY, lemma TEXT)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER PRIMARY KEY, lemma TEXT, dominant_type TEXT)`,
 		`CREATE TABLE lemma_embeddings (lemma TEXT, embedding BLOB)`,
 		// Cascade tables populated with one row each (need a row so the
 		// existing existence-AND-row check passes for them).

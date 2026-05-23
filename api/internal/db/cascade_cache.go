@@ -23,6 +23,14 @@ import (
 type CascadeCache struct {
 	Concreteness map[string]float64
 	Centroids    map[string][]float32
+	// ClusterTypes maps cluster_id → canonical dominant type string
+	// (sensorimotor, behaviour, functional, effect, emotional, social,
+	// other) populated by snap_properties.py on the M05 schema. Empty
+	// string means dominant_type IS NULL for that cluster — either a
+	// pre-M05 DB or an empty cluster. The scorer treats "unknown type"
+	// identically across both cases. Lifecycle mirrors Concreteness /
+	// Centroids: loaded once at handler startup, read-only thereafter.
+	ClusterTypes map[int64]string
 }
 
 // LoadCascadeCache reads both static cascade tables into memory in one
@@ -36,6 +44,7 @@ func LoadCascadeCache(database *sql.DB) (*CascadeCache, error) {
 	cache := &CascadeCache{
 		Concreteness: make(map[string]float64, 80000),
 		Centroids:    make(map[string][]float32, 40000),
+		ClusterTypes: make(map[int64]string, 5000),
 	}
 
 	stopConc := observe.Start("cascade_cache_load_concreteness")
@@ -54,10 +63,43 @@ func LoadCascadeCache(database *sql.DB) (*CascadeCache, error) {
 	}
 	stopCent("rows", len(cache.Centroids))
 
-	stopTotal("concreteness_rows", len(cache.Concreteness), "centroid_rows", len(cache.Centroids))
+	stopTypes := observe.Start("cascade_cache_load_cluster_types")
+	if err := loadClusterTypes(database, cache.ClusterTypes); err != nil {
+		stopTypes("rows", len(cache.ClusterTypes), "err", err.Error())
+		stopTotal("phase", "cluster_types", "err", err.Error())
+		return nil, err
+	}
+	stopTypes("rows", len(cache.ClusterTypes))
+
+	// Surface M05 pipeline readiness: if vocab_clusters loaded but every
+	// dominant_type is NULL, the data pipeline hasn't been re-run since
+	// the M05 S01 snap_properties.py change. Non-blocking — the cascade
+	// remains serviceable; the type-diversity bonus simply degrades to
+	// the M03/M04 scoring math. Per-cluster ratio also logged so an
+	// operator can spot partial coverage.
+	typedClusters := 0
+	for _, t := range cache.ClusterTypes {
+		if t != "" {
+			typedClusters++
+		}
+	}
+	if len(cache.ClusterTypes) > 0 && typedClusters == 0 {
+		slog.Warn("cascade cache: vocab_clusters loaded but dominant_type is NULL for every row — pipeline needs snap_properties.py re-run for M05 type-aware scoring",
+			"cluster_rows", len(cache.ClusterTypes))
+	} else if len(cache.ClusterTypes) > 0 {
+		slog.Info("cascade cache: cluster types loaded",
+			"cluster_rows", len(cache.ClusterTypes),
+			"typed_clusters", typedClusters,
+			"untyped_pct", float64(len(cache.ClusterTypes)-typedClusters)/float64(len(cache.ClusterTypes))*100)
+	}
+
+	stopTotal("concreteness_rows", len(cache.Concreteness),
+		"centroid_rows", len(cache.Centroids),
+		"cluster_type_rows", len(cache.ClusterTypes))
 	slog.Info("cascade cache loaded",
 		"concreteness_rows", len(cache.Concreteness),
 		"centroid_rows", len(cache.Centroids),
+		"cluster_type_rows", len(cache.ClusterTypes),
 	)
 	return cache, nil
 }
@@ -133,6 +175,46 @@ func loadCentroids(database *sql.DB, dst map[string][]float32) error {
 			"malformed_count", malformed,
 			"loaded_count", len(dst),
 		)
+	}
+	return nil
+}
+
+// loadClusterTypes populates dst with cluster_id → dominant_type for the
+// M05 type-diversity bonus (consumed by EvaluateCascadePair in S03).
+//
+// vocab_clusters has one row per (cluster_id, vocab_id) pair, so the
+// (cluster_id, dominant_type) projection repeats. The write is
+// idempotent — every row for the same cluster carries the same
+// dominant_type by construction (snap_properties.py writes the per-
+// cluster mode once via UPDATE). SELECT DISTINCT would save a few map
+// writes but obscures the contract; the simpler form wins.
+//
+// dominant_type is nullable for pre-M05 DBs and for empty clusters.
+// Store the canonical zero value ("") in both cases so the scorer can
+// treat "unknown type" identically.
+func loadClusterTypes(database *sql.DB, dst map[int64]string) error {
+	rows, err := database.Query("SELECT cluster_id, dominant_type FROM vocab_clusters")
+	if err != nil {
+		return fmt.Errorf("load cluster types: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int64
+		var dt sql.NullString
+		if err := rows.Scan(&id, &dt); err != nil {
+			// Same rationale as concreteness — first scan failure is
+			// structural, escalate.
+			return fmt.Errorf("scan cluster type row: %w", err)
+		}
+		if dt.Valid {
+			dst[id] = dt.String
+		} else {
+			dst[id] = ""
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate cluster types: %w", err)
 	}
 	return nil
 }

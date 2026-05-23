@@ -1,7 +1,9 @@
 package db
 
 import (
+	"bytes"
 	"database/sql"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -89,6 +91,9 @@ func TestLoadCascadeCache_MalformedAndZeroBlobCentroidsExcluded(t *testing.T) {
 		`INSERT INTO synset_centroids VALUES ('zero-blob-synset', X'', 0)`,
 		// One wrong-dimension BLOB row (4 bytes instead of 1200).
 		`INSERT INTO synset_centroids VALUES ('wrong-dim-synset', X'01020304', 1)`,
+		// vocab_clusters needs to exist for LoadCascadeCache (M05 S02).
+		// Empty table is fine — the loader handles zero rows gracefully.
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
 	}
 	for _, stmt := range setup {
 		if _, err := database.Exec(stmt); err != nil {
@@ -111,4 +116,96 @@ func TestLoadCascadeCache_MalformedAndZeroBlobCentroidsExcluded(t *testing.T) {
 func openMemoryDB(t *testing.T) (*sql.DB, error) {
 	t.Helper()
 	return sql.Open("sqlite3", ":memory:")
+}
+
+func TestLoadClusterTypes_PopulatesMapWithCanonicalTypesAndEmptyForNull(t *testing.T) {
+	// M05 S02: vocab_clusters.dominant_type is the per-cluster mode
+	// over property types (sensorimotor / behaviour / functional /
+	// effect / emotional / social / other) populated by snap. NULL
+	// values must come back as empty string so the scorer can treat
+	// "unknown type" uniformly.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		// Two rows for cluster 1 (mirrors live shape — vocab_clusters
+		// repeats cluster_id per vocab member; dominant_type repeats).
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (1, 101, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (2, 200, 'behaviour')`,
+		`INSERT INTO vocab_clusters VALUES (3, 300, NULL)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	dst := make(map[int64]string, 4)
+	if err := loadClusterTypes(database, dst); err != nil {
+		t.Fatalf("loadClusterTypes: %v", err)
+	}
+
+	if got := dst[1]; got != "sensorimotor" {
+		t.Errorf("cluster 1: want %q, got %q", "sensorimotor", got)
+	}
+	if got := dst[2]; got != "behaviour" {
+		t.Errorf("cluster 2: want %q, got %q", "behaviour", got)
+	}
+	// NULL row must come back as empty string sentinel.
+	got, ok := dst[3]
+	if !ok {
+		t.Error("cluster 3 (NULL) should be present with empty string value")
+	}
+	if got != "" {
+		t.Errorf("cluster 3: want empty string (NULL sentinel), got %q", got)
+	}
+}
+
+func TestLoadCascadeCache_AllNullDominantType_LogsWarn(t *testing.T) {
+	// M05 S02 readiness tripwire: if every vocab_clusters row has
+	// NULL dominant_type, the pipeline hasn't been re-run since the
+	// S01 snap change. Log a single slog.Warn at startup so the
+	// missing-state is visible — does NOT block startup (cascade
+	// remains serviceable; type-diversity bonus simply degrades).
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`INSERT INTO synset_concreteness VALUES ('s-1', 3.0, 'test')`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		`INSERT INTO vocab_clusters VALUES (1, 100, NULL)`,
+		`INSERT INTO vocab_clusters VALUES (2, 200, NULL)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "vocab_clusters loaded but dominant_type is NULL") {
+		t.Errorf("expected slog.Warn about all-NULL dominant_type; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `"level":"WARN"`) {
+		t.Errorf("expected WARN level; got:\n%s", logs)
+	}
 }

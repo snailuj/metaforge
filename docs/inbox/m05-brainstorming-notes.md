@@ -221,3 +221,13 @@ Schema + snap change only; no behaviour shift in cascade scorer yet.
 - Tests: `test_snap_populates_dominant_type_per_cluster` covers the happy path (2 sensorimotor + 1 behaviour → dominant=sensorimotor); `test_snap_normalises_variant_type_spellings` covers `_canonical_type` cases (variants, unknowns, NULL, empty). Existing snap tests updated to add `dominant_type TEXT` column + `NULL` value to inline fixtures. Full data-pipeline suite (664 tests) green.
 
 S02 will plumb dominant_type into the cascade DB reads alongside shared cluster_ids. S03 will use it in `EvaluateCascadePair` for the type-diversity bonus.
+
+---
+
+## S02 progress — 2026-05-23
+
+Landed on `m05/type-aligned`. `db.CascadeCache` gains a `ClusterTypes map[int64]string` field loaded via `loadClusterTypes` at startup. Pre-M05 DBs (with `dominant_type IS NULL` across all rows) trigger a `slog.Warn` at cache-load time: "vocab_clusters loaded but dominant_type is NULL for every row — pipeline needs snap_properties.py re-run for M05 type-aware scoring". Startup does NOT block on this — the cascade remains serviceable without type signal; M03/M04 scoring math is unchanged this slice.
+
+Wire-up only — `cascadePipeline.score()` doesn't read `p.cache.ClusterTypes` yet. That's S03.
+
+Tests: positive load test in `cascade_cache_test.go`, two synthetic-schema handler tests updated to include the new column. Full Go suite PASS.
