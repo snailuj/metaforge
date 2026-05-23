@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/snailuj/metaforge/internal/forge"
 )
 
 // GetSynsetClusterPropertiesBatch returns the curated-vocab cluster_id →
@@ -53,11 +55,11 @@ func GetSynsetClusterPropertiesBatch(database *sql.DB, synsetIDs []string) (map[
 	return out, nil
 }
 
-// CascadeCandidate is one gate-passed candidate row, populated by
-// GetForgeCascadeCandidatesByLemma. Mirrors CuratedMatch. Concreteness is
-// NOT carried on the row — the handler reads it from the in-memory
-// cascade cache so the *float64 absence-signal contract that
-// EvaluateCascadePair expects is preserved (TD1 fix).
+// CascadeCandidate is one gate-passed candidate row. Source tags which
+// generation path produced the row — set by the generator that built it.
+// Concreteness is NOT carried on the row — the handler reads it from
+// the in-memory cascade cache so the *float64 absence-signal contract
+// that EvaluateCascadePair expects is preserved (TD1 fix).
 type CascadeCandidate struct {
 	SynsetID         string
 	Word             string
@@ -69,6 +71,7 @@ type CascadeCandidate struct {
 	SourceSynsetID   string
 	SourceDefinition string
 	SourcePOS        string
+	Source           forge.CandidateSource
 }
 
 // GetForgeCascadeCandidatesByLemma extends the curated-by-lemma CTE with a
@@ -205,6 +208,7 @@ func GetForgeCascadeCandidatesByLemma(
 		if sharedProps != "" {
 			m.SharedProps = strings.Split(sharedProps, ",")
 		}
+		m.Source = forge.SourceCluster
 		matches = append(matches, m)
 	}
 	if err := rows.Err(); err != nil {
