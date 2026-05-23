@@ -32,6 +32,14 @@ CREATE TABLE relations (
 );
 
 CREATE INDEX idx_lemmas_lemma ON lemmas(lemma);
+-- idx_lemmas_synset_id covers the reverse lookup ("which lemmas does
+-- this synset have?") used by the cascade forge query's correlated
+-- subquery `SELECT lemma FROM lemmas WHERE synset_id = ?`. Without it,
+-- SQLite scans the entire lemmas table (~185k rows) per result row,
+-- making broad-lemma /forge/suggest requests 3-4s instead of ~350ms.
+-- The PRIMARY KEY (lemma, synset_id) is leftmost-prefix only and
+-- cannot serve queries on synset_id alone.
+CREATE INDEX idx_lemmas_synset_id ON lemmas(synset_id);
 CREATE INDEX idx_relations_source ON relations(source_synset);
 CREATE INDEX idx_relations_type ON relations(relation_type);
 
