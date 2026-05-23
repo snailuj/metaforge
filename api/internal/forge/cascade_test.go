@@ -100,6 +100,42 @@ func TestCascadeCosineDistance_ZeroNormReturnsNotOk(t *testing.T) {
 	}
 }
 
+func TestCascadeCosineDistanceWithANorm_RejectsBadANorm(t *testing.T) {
+	a := []float32{1, 0, 0}
+	b := []float32{0, 1, 0}
+	cases := []struct {
+		name  string
+		aNorm float64
+	}{
+		{"zero", 0},
+		{"negative", -1.0},
+		{"NaN", math.NaN()},
+		{"+Inf", math.Inf(1)},
+		{"-Inf", math.Inf(-1)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, ok := CascadeCosineDistanceWithANorm(a, tc.aNorm, b)
+			if ok {
+				t.Errorf("aNorm=%v: want ok=false, got d=%v ok=true", tc.aNorm, d)
+			}
+		})
+	}
+}
+
+func TestCascadeCosineDistanceWithANorm_AcceptsGoodANorm(t *testing.T) {
+	a := []float32{1, 0, 0}
+	b := []float32{1, 0, 0}
+	aNorm := math.Sqrt(1.0) // = 1
+	d, ok := CascadeCosineDistanceWithANorm(a, aNorm, b)
+	if !ok {
+		t.Fatalf("want ok=true for valid aNorm")
+	}
+	if d > 1e-9 {
+		t.Errorf("identical vectors should give distance ~0, got %v", d)
+	}
+}
+
 func TestCascadeConfig_DefaultsMatchProductionWinner(t *testing.T) {
 	c := DefaultCascadeConfig()
 	if c.ConcretenessThreshold != 1.0 {

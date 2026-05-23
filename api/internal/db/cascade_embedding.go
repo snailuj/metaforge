@@ -45,8 +45,14 @@ func scanEmbeddingBand(cache *CascadeCache, topic []float32, excludeIDs map[stri
 	}
 	topicNorm := math.Sqrt(topicSqSum)
 	if topicNorm == 0 {
-		// Defensive — a zero-norm topic centroid is a pipeline contract
-		// violation that cache load should have rejected.
+		// Pipeline contract violation: a non-nil centroid with zero
+		// norm means cache load accepted a degenerate vector. Cache
+		// load's malformed-blob filter should have rejected this — if
+		// we reach here, the contract drifted. Log loud (Error) so
+		// operators see the signal; return nil so the caller falls
+		// back to cluster-only behaviour for this request.
+		slog.Error("scanEmbeddingBand zero-norm topic centroid — pipeline contract violation",
+			"topic_dim", len(topic))
 		return nil
 	}
 	hits := make([]embeddingHit, 0, 64)

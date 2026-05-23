@@ -92,7 +92,10 @@ func CascadeCosineDistance(a, b []float32) (float64, bool) {
 // ~Σ|a| × O(len(a)) ops. Pass aNorm = math.Sqrt(Σ a[i]²) once outside
 // the loop. Returns (0, false) on dim mismatch or aNorm/bNorm == 0.
 func CascadeCosineDistanceWithANorm(a []float32, aNorm float64, b []float32) (float64, bool) {
-	if len(a) != len(b) || len(a) == 0 || aNorm == 0 {
+	if len(a) != len(b) || len(a) == 0 {
+		return 0, false
+	}
+	if aNorm <= 0 || math.IsNaN(aNorm) || math.IsInf(aNorm, 0) {
 		return 0, false
 	}
 	var dot, nb float64
