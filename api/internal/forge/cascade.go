@@ -146,7 +146,7 @@ func (c Composition) Valid() bool {
 }
 
 // CandidateSource tags a single candidate row with the generation path
-// that produced it. Distinct from CandidateSources (the config-side enum
+// that produced it. Distinct from CandidateMode (the config-side enum
 // that chooses which paths to run) — a `union` request can produce rows
 // tagged cluster, embedding, OR both. Purely diagnostic in M04 v1; a
 // future co-generation scoring bonus may key off SourceBoth.
@@ -170,27 +170,38 @@ func (s CandidateSource) Valid() bool {
 	return false
 }
 
-// CandidateSources is the config-side enum: which generation paths to
+// CandidateMode is the config-side enum: which generation paths to
 // run for each cascade request. Maps to METAFORGE_FORGE_CANDIDATES /
 // --candidate-sources. Different value set from CandidateSource — see
 // the per-row CandidateSource doc above.
-type CandidateSources string
+type CandidateMode string
 
 const (
-	SourcesCluster   CandidateSources = "cluster_only"
-	SourcesEmbedding CandidateSources = "embedding_only"
-	SourcesUnion     CandidateSources = "union"
+	ModeCluster   CandidateMode = "cluster_only"
+	ModeEmbedding CandidateMode = "embedding_only"
+	ModeUnion     CandidateMode = "union"
 )
 
-// Valid reports whether s is one of the three known config modes.
+// Valid reports whether m is one of the three known config modes.
 // CascadeConfig.Validate() consults this at startup so an invalid env
 // value fails loud instead of silently falling back to a default.
-func (s CandidateSources) Valid() bool {
-	switch s {
-	case SourcesCluster, SourcesEmbedding, SourcesUnion:
+func (m CandidateMode) Valid() bool {
+	switch m {
+	case ModeCluster, ModeEmbedding, ModeUnion:
 		return true
 	}
 	return false
+}
+
+// ParseCandidateMode is the validated constructor for CandidateMode.
+// Used at the env/flag boundary in main.go so an invalid operator-supplied
+// value fails loud at the cast site, not via downstream CascadeConfig.Validate().
+func ParseCandidateMode(s string) (CandidateMode, error) {
+	m := CandidateMode(s)
+	if !m.Valid() {
+		return "", fmt.Errorf("invalid candidate mode %q: must be one of cluster_only|embedding_only|union", s)
+	}
+	return m, nil
 }
 
 // CascadeConfig pins the cascade hyperparameters. Use DefaultCascadeConfig
@@ -202,23 +213,23 @@ type CascadeConfig struct {
 	Composition           Composition
 
 	// M04 candidate-generation knobs.
-	CandidateSources CandidateSources // which paths to run
-	EmbeddingDMin    float64          // inclusive lower band on cosine distance
-	EmbeddingDMax    float64          // inclusive upper band; must satisfy DMax > DMin
-	EmbeddingTopK    int              // cap on per-request embedding candidates
+	CandidateSources CandidateMode // which paths to run
+	EmbeddingDMin    float64       // inclusive lower band on cosine distance
+	EmbeddingDMax    float64       // inclusive upper band; must satisfy DMax > DMin
+	EmbeddingTopK    int           // cap on per-request embedding candidates
 }
 
 // DefaultCascadeConfig returns the production-blessed winner config from
 // the M03 Stage-2 sweep (separation +0.1779) plus the pre-sweep M04
-// candidate-generation defaults. CandidateSources is SourcesCluster
-// (M03 behaviour) until the M04 sweep ratifies SourcesUnion.
+// candidate-generation defaults. CandidateSources is ModeCluster
+// (M03 behaviour) until the M04 sweep ratifies ModeUnion.
 func DefaultCascadeConfig() CascadeConfig {
 	return CascadeConfig{
 		ConcretenessThreshold: 1.0,
 		Alpha:                 1.0,
 		DCap:                  0.77,
 		Composition:           CompositionAdditive,
-		CandidateSources:      SourcesCluster,
+		CandidateSources:      ModeCluster,
 		EmbeddingDMin:         0.4,
 		EmbeddingDMax:         0.85,
 		EmbeddingTopK:         100,
@@ -240,7 +251,7 @@ const EmbeddingTopKCeiling = 10000
 // scorer.
 func (c CascadeConfig) Validate() error {
 	if !c.CandidateSources.Valid() {
-		return fmt.Errorf("CandidateSources %q is not one of cluster_only|embedding_only|union", c.CandidateSources)
+		return fmt.Errorf("CandidateMode %q is not one of cluster_only|embedding_only|union", c.CandidateSources)
 	}
 	if !c.Composition.Valid() {
 		return fmt.Errorf("Composition %q is not one of additive|multiplicative", c.Composition)

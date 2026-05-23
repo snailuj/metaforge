@@ -109,12 +109,12 @@ func (p *cascadePipeline) close() {
 }
 
 // fetch runs both candidate paths (cluster + embedding) per the active
-// CandidateSources config, unions the results into p.candidates, and
+// CandidateMode config, unions the results into p.candidates, and
 // returns (outcome, status, err). status==http.StatusOK means
 // "continue"; any other status means "respond with this error and stop".
 func (p *cascadePipeline) fetch() (string, int, error) {
 	var err error
-	if p.h.cascadeConf.CandidateSources != forge.SourcesEmbedding {
+	if p.h.cascadeConf.CandidateSources != forge.ModeEmbedding {
 		// Symmetric with the embedding-path stage timer below: only
 		// emit cascade_candidates_query when the cluster path actually
 		// runs. In embedding_only mode the cluster fetch is fully
@@ -129,7 +129,7 @@ func (p *cascadePipeline) fetch() (string, int, error) {
 	// defer the 404 decision until after the embedding path runs.
 	if errors.Is(err, db.ErrLemmaNotFound) {
 		p.clusterLemmaNotFound = true
-		if p.h.cascadeConf.CandidateSources == forge.SourcesCluster {
+		if p.h.cascadeConf.CandidateSources == forge.ModeCluster {
 			return "lemma_not_found", http.StatusNotFound, err
 		}
 		// In union mode, defer 404 decision until after embedding path.
@@ -138,7 +138,7 @@ func (p *cascadePipeline) fetch() (string, int, error) {
 		return "candidates_error", http.StatusInternalServerError, err
 	}
 
-	if p.h.cascadeConf.CandidateSources != forge.SourcesCluster {
+	if p.h.cascadeConf.CandidateSources != forge.ModeCluster {
 		stopEmb := observe.Start("cascade_embedding_query")
 		embCfg := db.ForgeEmbeddingConfig{
 			DMin: p.h.cascadeConf.EmbeddingDMin,
@@ -151,7 +151,7 @@ func (p *cascadePipeline) fetch() (string, int, error) {
 		stopEmb("word", p.word, "count", len(p.embedding))
 		if errors.Is(err, db.ErrLemmaNotFound) {
 			// Only 404 if cluster path also failed (or embedding-only).
-			if p.clusterLemmaNotFound || p.h.cascadeConf.CandidateSources == forge.SourcesEmbedding {
+			if p.clusterLemmaNotFound || p.h.cascadeConf.CandidateSources == forge.ModeEmbedding {
 				return "lemma_not_found", http.StatusNotFound, err
 			}
 			// D15: union mode + cluster-success + embedding-fetch-fail —

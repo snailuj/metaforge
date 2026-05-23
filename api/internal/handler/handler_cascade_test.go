@@ -448,7 +448,7 @@ func TestSortByFinalScore_MixedNilAndNonNil_SinksNilToBottom(t *testing.T) {
 
 // TestCascadeUnion_ClassicalPairsSurface_AsCandidates pins M04's binary
 // generation criterion: the four canonical cross-domain pairs MUST
-// reach the cascade scorer as candidates when SourcesUnion is active.
+// reach the cascade scorer as candidates when ModeUnion is active.
 // We assert candidate PRESENCE only — final-score rank is M05/M06
 // territory and out of scope here. The vehicle is the second synset
 // of the pair; we accept a hit on ANY of its lemmas.
@@ -460,7 +460,7 @@ func TestCascadeUnion_ClassicalPairsSurface_AsCandidates(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.SourcesUnion
+	cfg.CandidateSources = forge.ModeUnion
 	cfg.EmbeddingDMin = 0.0
 	cfg.EmbeddingDMax = 2.0
 	// TopK pinned at forge.EmbeddingTopKCeiling for the canary: this
@@ -535,7 +535,7 @@ func TestCascadeClusterOnly_ResponseShapeUnchanged(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.SourcesCluster
+	cfg.CandidateSources = forge.ModeCluster
 	if err := h.WithCascadeConfig(cfg); err != nil {
 		t.Fatalf("WithCascadeConfig: %v", err)
 	}
@@ -581,7 +581,7 @@ func TestCascadeEmbeddingOnly_ProducesEmbeddingTaggedRowsOnly(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.SourcesEmbedding
+	cfg.CandidateSources = forge.ModeEmbedding
 	cfg.EmbeddingDMin = 0.0
 	cfg.EmbeddingDMax = 1.5
 	cfg.EmbeddingTopK = 200
@@ -628,7 +628,7 @@ func TestCascadeUnion_LatencyBudget(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.SourcesUnion
+	cfg.CandidateSources = forge.ModeUnion
 	if err := h.WithCascadeConfig(cfg); err != nil {
 		t.Fatalf("WithCascadeConfig: %v", err)
 	}
@@ -816,7 +816,7 @@ func TestCascade_UnionMode_NoConcretenessErrorForEmbeddingMisses(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.SourcesUnion
+	cfg.CandidateSources = forge.ModeUnion
 	cfg.EmbeddingDMin = 0.0
 	cfg.EmbeddingDMax = 1.5
 	cfg.EmbeddingTopK = 200
@@ -852,7 +852,7 @@ func TestCascade_EmbeddingOnly_OmitsTierFromJSON(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.SourcesEmbedding
+	cfg.CandidateSources = forge.ModeEmbedding
 	cfg.EmbeddingDMin = 0.0
 	cfg.EmbeddingDMax = 1.5
 	cfg.EmbeddingTopK = 50

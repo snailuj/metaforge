@@ -51,7 +51,11 @@ func main() {
 	h.SetStringsDir(*stringsDir)
 
 	cascadeCfg := forge.DefaultCascadeConfig()
-	cascadeCfg.CandidateSources = forge.CandidateSources(*candidateSources)
+	mode, err := forge.ParseCandidateMode(*candidateSources)
+	if err != nil {
+		log.Fatalf("invalid --candidate-sources value: %v", err)
+	}
+	cascadeCfg.CandidateSources = mode
 	cascadeCfg.EmbeddingDMin = *embDMin
 	cascadeCfg.EmbeddingDMax = *embDMax
 	cascadeCfg.EmbeddingTopK = *embTopK

@@ -264,18 +264,39 @@ func TestCandidateSource_ValidRejectsUnknown(t *testing.T) {
 	}
 }
 
-func TestCandidateSources_ValidRecognisesKnownModes(t *testing.T) {
-	for _, s := range []CandidateSources{SourcesCluster, SourcesEmbedding, SourcesUnion} {
+func TestCandidateMode_ValidRecognisesKnownModes(t *testing.T) {
+	for _, s := range []CandidateMode{ModeCluster, ModeEmbedding, ModeUnion} {
 		if !s.Valid() {
-			t.Errorf("CandidateSources(%q).Valid() = false, want true", s)
+			t.Errorf("CandidateMode(%q).Valid() = false, want true", s)
 		}
 	}
 }
 
-func TestCandidateSources_ValidRejectsUnknown(t *testing.T) {
-	for _, s := range []CandidateSources{"", "cluster", "embedding", "both", "all"} {
-		if CandidateSources(s).Valid() {
-			t.Errorf("CandidateSources(%q).Valid() = true, want false", s)
+func TestCandidateMode_ValidRejectsUnknown(t *testing.T) {
+	for _, s := range []CandidateMode{"", "cluster", "embedding", "both", "all"} {
+		if CandidateMode(s).Valid() {
+			t.Errorf("CandidateMode(%q).Valid() = true, want false", s)
+		}
+	}
+}
+
+func TestParseCandidateMode_AcceptsKnownModes(t *testing.T) {
+	for _, s := range []string{"cluster_only", "embedding_only", "union"} {
+		m, err := ParseCandidateMode(s)
+		if err != nil {
+			t.Errorf("ParseCandidateMode(%q): unexpected error: %v", s, err)
+		}
+		if string(m) != s {
+			t.Errorf("ParseCandidateMode(%q): got %q, want %q", s, m, s)
+		}
+	}
+}
+
+func TestParseCandidateMode_RejectsUnknownAndEmpty(t *testing.T) {
+	for _, s := range []string{"", "cluster", "embedding", "both", "all", "CLUSTER_ONLY"} {
+		_, err := ParseCandidateMode(s)
+		if err == nil {
+			t.Errorf("ParseCandidateMode(%q): want error, got nil", s)
 		}
 	}
 }
@@ -285,9 +306,9 @@ func TestCascadeConfig_DefaultIsValid(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("DefaultCascadeConfig must validate: %v", err)
 	}
-	if cfg.CandidateSources != SourcesCluster {
+	if cfg.CandidateSources != ModeCluster {
 		t.Errorf("default CandidateSources: want %q (pre-sweep), got %q",
-			SourcesCluster, cfg.CandidateSources)
+			ModeCluster, cfg.CandidateSources)
 	}
 	if cfg.EmbeddingDMin != 0.4 || cfg.EmbeddingDMax != 0.85 || cfg.EmbeddingTopK != 100 {
 		t.Errorf("default embedding knobs: got dMin=%v dMax=%v topK=%v",
@@ -303,7 +324,7 @@ func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
 		mut  func(c *CascadeConfig)
 		want string
 	}{
-		{"unknown sources", func(c *CascadeConfig) { c.CandidateSources = "all" }, "CandidateSources"},
+		{"unknown sources", func(c *CascadeConfig) { c.CandidateSources = "all" }, "CandidateMode"},
 		{"negative dMin", func(c *CascadeConfig) { c.EmbeddingDMin = -0.1 }, "EmbeddingDMin"},
 		{"dMin above 2", func(c *CascadeConfig) { c.EmbeddingDMin = 2.5 }, "EmbeddingDMin"},
 		{"dMax not above dMin", func(c *CascadeConfig) { c.EmbeddingDMax = c.EmbeddingDMin }, "EmbeddingDMax"},

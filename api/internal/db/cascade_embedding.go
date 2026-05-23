@@ -188,19 +188,12 @@ func GetForgeCascadeCandidatesByEmbedding(
 			slog.Error("embedding hit has no synsets row", "synset", h.synsetID)
 			continue
 		}
-		out = append(out, CascadeCandidate{
-			SynsetID:         h.synsetID,
-			Word:             row.lemma,
-			POS:              row.pos,
-			Definition:       row.definition,
-			SalienceSum:      0,
-			ContrastCount:    0,
-			SharedProps:      nil,
-			SourceSynsetID:   topicID,
-			SourceDefinition: topicRow.definition,
-			SourcePOS:        topicRow.pos,
-			Source:           forge.SourceEmbedding,
-		})
+		out = append(out, NewCascadeCandidate(
+			h.synsetID, row.lemma, row.pos, row.definition,
+			0, 0, nil,
+			topicID, topicRow.definition, topicRow.pos,
+			forge.SourceEmbedding,
+		))
 	}
 	return out, nil
 }
