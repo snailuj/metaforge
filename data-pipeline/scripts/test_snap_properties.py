@@ -2032,3 +2032,24 @@ def test_snap_normalises_variant_type_spellings():
     assert _canonical_type(None) == "other"
     assert _canonical_type("") == "other"
     assert _canonical_type("sensorimotor") == "sensorimotor"
+
+
+def test_canonical_types_match_go_constant():
+    """Python CANONICAL_TYPES count must equal Go TypeDiversityMaxDistinct.
+
+    These constants are coupled across languages: the Go scorer's
+    bonus denominator is (TypeDiversityMaxDistinct - 1). Drift between
+    them silently rescales the M05 type-diversity bonus.
+    """
+    import re
+    from snap_properties import CANONICAL_TYPES
+    repo_root = Path(__file__).resolve().parents[2]
+    cascade_go = (repo_root / "api/internal/forge/cascade.go").read_text()
+    m = re.search(r"TypeDiversityMaxDistinct\s*=\s*(\d+)", cascade_go)
+    assert m, "Could not find TypeDiversityMaxDistinct in cascade.go"
+    go_max_distinct = int(m.group(1))
+    assert go_max_distinct == len(CANONICAL_TYPES), (
+        f"Go TypeDiversityMaxDistinct={go_max_distinct} but "
+        f"Python CANONICAL_TYPES has {len(CANONICAL_TYPES)} entries: "
+        f"{sorted(CANONICAL_TYPES)}"
+    )
