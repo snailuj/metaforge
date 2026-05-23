@@ -84,6 +84,46 @@ func TestMatch_CascadeFieldsSerialiseWhenSet(t *testing.T) {
 	}
 }
 
+func TestMatch_M05Fields_OmitemptyWhenZero(t *testing.T) {
+	// Pre-M05 / Gamma=0 wire contract: the two M05 diagnostic fields
+	// must NOT appear in the JSON when unset, so legacy consumers see
+	// the same JSON shape they always have.
+	m := Match{SynsetID: "x", Word: "x", TierName: "strong"}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	s := string(b)
+	for _, f := range []string{"type_diversity_bonus", "shared_types_count"} {
+		if strings.Contains(s, f) {
+			t.Errorf("expected %q omitted when unset, got %s", f, s)
+		}
+	}
+}
+
+func TestMatch_M05Fields_SerialiseWhenSet(t *testing.T) {
+	// When the cascade computes M05 diagnostics (Gamma>0 + cluster types
+	// available), the wire must surface them so operators tuning Gamma
+	// can see the underlying bonus and distinct-type count — not just
+	// the lift effect on final_score.
+	tb := 0.4
+	m := Match{
+		SynsetID: "x", Word: "x", TierName: "strong",
+		TypeDiversityBonus: &tb,
+		SharedTypesCount:   3,
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	s := string(b)
+	for _, f := range []string{"type_diversity_bonus", "shared_types_count"} {
+		if !strings.Contains(s, f) {
+			t.Errorf("expected %q present, got %s", f, s)
+		}
+	}
+}
+
 func TestMatch_SourceOmittedFromJSONWhenEmpty(t *testing.T) {
 	m := Match{SynsetID: "s1", Word: "fire"}
 	out, err := json.Marshal(m)

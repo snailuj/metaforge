@@ -82,6 +82,85 @@ func TestForgeSuggest_CascadeEnabled_PopulatesCascadeFields(t *testing.T) {
 	}
 }
 
+func TestForgeSuggest_CascadeEnabled_GammaPositive_SurfacesM05Diagnostics(t *testing.T) {
+	// M05 wire-boundary test: when Gamma>0 and the loaded CascadeCache
+	// has typed clusters, the scored-response Match rows must carry
+	// type_diversity_bonus + shared_types_count so operators tuning
+	// Gamma see the bonus and distinct-type count, not just the
+	// downstream lift on final_score.
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	// Activate M05 on the in-memory handler config. WithCascadeConfig
+	// runs the same Validate() path that startup uses, so Gamma=1.0 +
+	// additive composition is exercised exactly as production would.
+	cfg := h.cascadeConf
+	cfg.Gamma = 1.0
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig Gamma=1.0: %v", err)
+	}
+
+	// Skip when the test DB has no typed clusters — without dominant_type
+	// rows, EvaluateCascadePair can't produce a non-zero bonus and the
+	// assertion below would fail for environmental reasons rather than
+	// the wire-boundary regression this test guards.
+	typed := 0
+	for _, t := range h.cache.ClusterTypes {
+		if t != "" && t != "other" {
+			typed++
+		}
+	}
+	if typed == 0 {
+		t.Skip("test DB has no typed clusters (dominant_type all NULL/other) — M05 cannot lift any pair; rerun snap_properties.py")
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=50", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d: %s", w.Code, w.Body.String())
+	}
+	var resp SuggestResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// At least one scored row must surface a positive bonus + ≥2
+	// distinct shared types. 'anger' is the same emotion-rich fixture
+	// used by the rest of the cascade suite, so its candidates routinely
+	// share multiple property types (emotional + behaviour + functional).
+	sawBonus := false
+	for _, m := range resp.Suggestions {
+		if m.CascadeStatus != "scored" {
+			continue
+		}
+		if m.TypeDiversityBonus != nil && *m.TypeDiversityBonus > 0 && m.SharedTypesCount >= 2 {
+			sawBonus = true
+			break
+		}
+	}
+	if !sawBonus {
+		// Dump a compact diagnostic so a failure here points at the
+		// likely root cause (wire wiring vs underlying scorer).
+		summary := make([]string, 0, len(resp.Suggestions))
+		for i, m := range resp.Suggestions {
+			if i >= 5 {
+				break
+			}
+			tb := "nil"
+			if m.TypeDiversityBonus != nil {
+				tb = fmt.Sprintf("%v", *m.TypeDiversityBonus)
+			}
+			summary = append(summary, fmt.Sprintf("{%s status=%s tb=%s stc=%d}",
+				m.Word, m.CascadeStatus, tb, m.SharedTypesCount))
+		}
+		t.Fatalf("expected at least one scored match with type_diversity_bonus>0 and shared_types_count>=2; first rows: %v", summary)
+	}
+}
+
 func TestForgeSuggest_CascadeEnabled_RankedByFinalScore(t *testing.T) {
 	h, err := NewHandlerWithCascade(testDBPath, true)
 	if err != nil {

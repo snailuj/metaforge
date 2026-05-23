@@ -335,7 +335,12 @@ func (p *cascadePipeline) score() (phaseOutcome, int, error) {
 			OrtonyScore:      res.OrtonyScore,
 			CosineDistance:   res.CosineDistance,
 			ReRankBonus:      res.ReRankBonus,
-			Source:           c.Source,
+			// M05 diagnostics — pointer + count propagate as-is from the
+			// scorer. Both stay zero/nil under the default Gamma=0 config
+			// so the wire contract is unchanged when M05 is dormant.
+			TypeDiversityBonus: res.TypeDiversityBonus,
+			SharedTypesCount:   res.SharedTypesCount,
+			Source:             c.Source,
 		})
 	}
 	stopScore("word", p.word, "scored", len(p.matches), "dropped_non_scored", droppedNonScored)

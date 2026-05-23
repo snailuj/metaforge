@@ -81,6 +81,13 @@ type Match struct {
 	CosineDistance *float64      `json:"cosine_distance,omitempty"`
 	ReRankBonus    *float64      `json:"re_rank_bonus,omitempty"`
 
+	// M05 type-aligned scoring diagnostics. Populated only when the
+	// cascade ran with Gamma>0 AND cluster types were available. Pointer
+	// + omitempty on the bonus and omitempty on the int keep the wire
+	// contract identical when M05 is dormant (Gamma=0 default).
+	TypeDiversityBonus *float64 `json:"type_diversity_bonus,omitempty"`
+	SharedTypesCount   int      `json:"shared_types_count,omitempty"`
+
 	// M04 generation diagnostic. Empty string ("") on the legacy path,
 	// since CandidateSource only gets set by the cascade handler.
 	Source CandidateSource `json:"candidate_source,omitempty"`
