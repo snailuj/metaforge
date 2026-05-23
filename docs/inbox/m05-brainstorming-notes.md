@@ -139,3 +139,69 @@ The DB has noise types (`behavior`, `behavioural`, `behavioral` — all variants
 ## Open question for me to investigate while waiting on operator
 
 Is the noise-type proportion (≤1k rows for 15+ value variants) a problem? If `behavior` and `behaviour` are both used for the same conceptual type, snap normalisation should fold them. Quick win.
+
+---
+
+## Appendix — Property-type coverage audit (run 2026-05-23)
+
+Counts from the live `lexicon_v2.db` after the M04 v2 close:
+
+### Curated synsets with property-type data: 34,880
+
+**Distribution of distinct property types per synset:**
+| Distinct types | Synsets | % |
+|---|---:|---:|
+| 1 | 84 | 0.2% |
+| 2 | 1,791 | 5.1% |
+| 3 | 7,735 | 22.2% |
+| 4 | 13,216 | 37.9% |
+| 5 | 9,615 | 27.6% |
+| 6 | 2,438 | 7.0% |
+| 7 | 1 | 0.0% (noise variant slipped through) |
+
+**Implication:** 99.8% of curated synsets span ≥2 types; 92.7% span ≥3 types. Type signal is well-populated across the curated vocabulary.
+
+**Type-frequency across 4.3M curated property-rows:**
+| Type | Rows | % |
+|---|---:|---:|
+| sensorimotor | 1,542,345 | 35.8% (haiku-sm prompt biases here) |
+| behaviour | 879,284 | 20.4% |
+| functional | 714,240 | 16.6% |
+| effect | 466,449 | 10.8% |
+| emotional | 431,741 | 10.0% |
+| social | 273,582 | 6.3% |
+| **other** (noise variants) | **1,676** | **0.04%** |
+
+**Implication for Decision 5 (type-noise cleanup):** the noise bucket is 0.04% of rows. Variant-canonicalisation is a 1-line `CASE WHEN` during snap with negligible payoff. **Recommend folding into S01 as a 5-line tweak, not a separate slice.**
+
+### Lakoff pair audit — type signatures
+
+```
+anger:   sensorimotor 331  behaviour 216  effect 125  emotional 87  social 25  functional 9
+fire:    sensorimotor 1312 behaviour 966  effect 462  emotional 289 functional 245 social 87
+doormat: sensorimotor 81   emotional 36   functional 27 behaviour 27  effect 18  social 9
+```
+
+**Surprising finding (operator should consider):** ALL THREE concepts span ALL SIX types. Lakoff's apt vehicle (fire) and the inapt control (doormat) both have full type coverage. **A naive "shared-types count" bonus won't discriminate anger↔fire from anger↔doormat — the discrimination has to live at the OVERLAP level, not the per-concept level.**
+
+### What this implies for Decision 2 (bonus formula)
+
+The audit reverses one of my early hypotheses. Type-diversity must be measured over **shared properties** (jaccard intersection), not over each concept's full property set. Concretely:
+
+- For each cluster_id in `shared = topic.clusters ∩ vehicle.clusters`, look up `cluster.dominant_type`
+- Bonus = `f(distinct(dominant_type[c] for c in shared))`
+- M05 hypothesis: anger↔fire share clusters spanning `{sensorimotor, behaviour, effect}` (3 types), while anger↔doormat share clusters spanning `{sensorimotor}` (1 type — they both have generic "hot"-like or "textured"-like properties but no structural pattern).
+
+**This makes Decision 1/A (dominant_type per cluster) load-bearing**: the bonus formula iterates shared clusters and reads `cluster.dominant_type`. The other Decision 1 options (B/C/D) make the bonus harder to compute on the hot path.
+
+### Recommendation summary (still awaiting operator approval)
+
+| Decision | Recommendation | Confidence |
+|---|---|---|
+| 1. Where to persist type | **A — dominant_type on vocab_clusters** | High (consistent with bonus formula) |
+| 2. Bonus formula | **B — normalised distinct-type count over shared overlap** | Medium (audit clarified; reasonable starting point for sweep) |
+| 3. Composition | **A — additive with γ weight** | High (composable with M03 additive winner) |
+| 4. Eval | **Lakoff cohort + γ sweep grid {0, 0.25, 0.5, 1.0}** | High (cohort already shipped) |
+| 5. Type-noise cleanup | **Fold into S01 (5-line CASE WHEN during snap)** | High (audit shows 0.04% noise) |
+
+The single most consequential operator decision is **whether the M05 hypothesis is right at all** — i.e. whether the discrimination between apt and inapt cross-domain metaphors actually lives in the "distinct types in shared overlap" dimension. The audit suggests it might, but only running the sweep will tell. I'd recommend a short prototype: implement S01+S02+S03 with the lean recommendations, run a γ sweep against Lakoff, and only escalate if the verdict shows no separation lift.
