@@ -472,7 +472,7 @@ func TestCascadeUnion_ClassicalPairsSurface_AsCandidates(t *testing.T) {
 	// SQLite IN-clause can safely accept, and DMax=2.0 expands the band
 	// to its theoretical maximum so distant-but-in-cache candidates
 	// still surface in this candidate-presence canary.
-	cfg.EmbeddingTopK = forge.EmbeddingTopKCeiling
+	cfg.EmbeddingTopK = forge.EmbeddingTopKCeiling // = 10000; lab-mode max
 	if err := h.WithCascadeConfig(cfg); err != nil {
 		t.Fatalf("WithCascadeConfig: %v", err)
 	}

@@ -223,11 +223,13 @@ func DefaultCascadeConfig() CascadeConfig {
 }
 
 // EmbeddingTopKCeiling is the safety upper bound on EmbeddingTopK.
-// SQLite's SQLITE_MAX_VARIABLE_NUMBER ceiling is 32766 on modern
-// mattn/go-sqlite3 builds; older Debian/Alpine builds still ship the
-// historical 999. We cap well below both so the IN-clause in
-// db.getSynsetRowsBatch stays safe across deployment platforms.
-const EmbeddingTopKCeiling = 1000
+// Modern mattn/go-sqlite3 builds have SQLITE_MAX_VARIABLE_NUMBER=32766
+// (SQLite ≥3.32, May 2020). 10000 is ~3× safety margin and matches the
+// lab-mode canary's needs. SQLite ≤3.31 ships the historical 999
+// limit, which would break this ceiling — chunking the IN-clause in
+// db.getSynsetRowsBatch is the right cross-platform fix and is parked
+// as an M04 v2 backlog item.
+const EmbeddingTopKCeiling = 10000
 
 // Validate enforces invariants on CascadeConfig before the handler
 // accepts the config. Called at startup from main.go after env/flag
