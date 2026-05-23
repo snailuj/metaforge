@@ -6,6 +6,21 @@ import (
 	"testing"
 )
 
+// mustGamma is a test helper that constructs a GammaWeight via NewGamma
+// or fails the test on construction error. Use this in place of the
+// pre-struct-wrap `cfg.Gamma = 1.0` assignment idiom — the unexported
+// field on GammaWeight forbids direct literal assignment, forcing all
+// test-side construction through the same validated boundary as
+// production main.go.
+func mustGamma(t *testing.T, v float64) GammaWeight {
+	t.Helper()
+	g, err := NewGamma(v)
+	if err != nil {
+		t.Fatalf("mustGamma(%v): %v", v, err)
+	}
+	return g
+}
+
 func TestJaccardSalience_PerfectOverlap(t *testing.T) {
 	a := map[int64]float64{1: 1.0, 2: 1.0}
 	b := map[int64]float64{1: 1.0, 2: 1.0}
@@ -337,9 +352,13 @@ func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
 		{"negative dCap", func(c *CascadeConfig) { c.DCap = -1 }, "DCap"},
 		{"NaN concreteness threshold", func(c *CascadeConfig) { c.ConcretenessThreshold = math.NaN() }, "ConcretenessThreshold"},
 		{"topK above ceiling", func(c *CascadeConfig) { c.EmbeddingTopK = EmbeddingTopKCeiling + 1 }, "EmbeddingTopK"},
-		{"negative gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight(-0.1) }, "Gamma"},
-		{"NaN gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight(math.NaN()) }, "Gamma"},
-		{"Inf gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight(math.Inf(1)) }, "Gamma"},
+		// Direct struct-literal construction is the ONLY way to forge an
+		// invalid GammaWeight now (same-package only). These three rows
+		// exercise the defence-in-depth Validate branch — the same branch
+		// that future deserialisation paths would rely on.
+		{"negative gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight{v: -0.1} }, "Gamma"},
+		{"NaN gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight{v: math.NaN()} }, "Gamma"},
+		{"Inf gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight{v: math.Inf(1)} }, "Gamma"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -361,7 +380,7 @@ func TestCascadeConfig_Validate_RejectsGammaWithMultiplicative(t *testing.T) {
 	// multiplicative yields an untested score shape — fail loud at startup.
 	cfg := DefaultCascadeConfig()
 	cfg.Composition = CompositionMultiplicative
-	cfg.Gamma = 0.5
+	cfg.Gamma = mustGamma(t, 0.5)
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("want error for Gamma>0 + CompositionMultiplicative, got nil")
@@ -372,6 +391,26 @@ func TestCascadeConfig_Validate_RejectsGammaWithMultiplicative(t *testing.T) {
 	}
 	if !strings.Contains(msg, "multiplicative") && !strings.Contains(msg, "Multiplicative") {
 		t.Errorf("error must mention multiplicative composition, got %v", msg)
+	}
+}
+
+func TestGammaWeight_ZeroValueIsValidAndZero(t *testing.T) {
+	// DefaultCascadeConfig relies on the GammaWeight zero value
+	// representing "M05 dormant" (v=0). The struct-wrap change means
+	// the zero value is GammaWeight{} rather than GammaWeight(0); pin
+	// the contract so a future refactor (e.g. adding a "constructed via
+	// NewGamma" sentinel field) can't silently break the dormant default.
+	var g GammaWeight
+	if g.Value() != 0 {
+		t.Errorf("zero-value GammaWeight: want Value()==0, got %v", g.Value())
+	}
+	cfg := DefaultCascadeConfig()
+	if cfg.Gamma.Value() != 0 {
+		t.Errorf("DefaultCascadeConfig.Gamma: want Value()==0 (M05 dormant), got %v",
+			cfg.Gamma.Value())
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("DefaultCascadeConfig must validate with zero-value Gamma: %v", err)
 	}
 }
 
@@ -413,8 +452,8 @@ func TestNewGamma_AcceptsZeroAndPositive(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewGamma(%v) unexpected error: %v", v, err)
 			}
-			if float64(g) != v {
-				t.Errorf("NewGamma(%v) round-trip: got %v", v, float64(g))
+			if g.Value() != v {
+				t.Errorf("NewGamma(%v) round-trip: got %v", v, g.Value())
 			}
 		})
 	}
@@ -495,7 +534,7 @@ func TestTypeDiversityBonus_OtherAndEmptyExcluded(t *testing.T) {
 func TestEvaluateCascadePair_GammaZeroSkipsTypeBonus(t *testing.T) {
 	// M05 must be a no-op when Gamma=0 (default).
 	cfg := DefaultCascadeConfig()
-	cfg.Gamma = 0.0
+	cfg.Gamma = mustGamma(t, 0.0)
 	tConc := 3.0
 	vConc := 4.5
 	in := CascadeInputs{
@@ -518,7 +557,7 @@ func TestEvaluateCascadePair_GammaPositiveLiftsFinalScore(t *testing.T) {
 	// Same inputs as Gamma=0 but with Gamma=1.0 — final_score should
 	// increase by (gamma * type_diversity_bonus) = (1.0 * 0.2) = 0.2.
 	cfg := DefaultCascadeConfig()
-	cfg.Gamma = 0.0
+	cfg.Gamma = mustGamma(t, 0.0)
 	tConc := 3.0
 	vConc := 4.5
 	in := CascadeInputs{
@@ -530,7 +569,7 @@ func TestEvaluateCascadePair_GammaPositiveLiftsFinalScore(t *testing.T) {
 	}
 	baseline := EvaluateCascadePair(in, cfg)
 
-	cfg.Gamma = 1.0
+	cfg.Gamma = mustGamma(t, 1.0)
 	with := EvaluateCascadePair(in, cfg)
 
 	if baseline.FinalScore == nil || with.FinalScore == nil {
@@ -559,7 +598,7 @@ func TestEvaluateCascadePair_GammaPositive_ZeroDistinctTypes_DiagnosticsConsiste
 	// (because `if tb > 0`) but populated SharedTypesCount — readers had no
 	// way to distinguish "M05 didn't run" from "M05 ran and scored zero".
 	cfg := DefaultCascadeConfig()
-	cfg.Gamma = 1.0
+	cfg.Gamma = mustGamma(t, 1.0)
 	tConc := 3.0
 	vConc := 4.5
 
@@ -604,7 +643,7 @@ func TestEvaluateCascadePair_GammaPositiveNoClusterTypesIsZero(t *testing.T) {
 	// If ClusterTypes is nil (pre-M05 DB), the bonus is suppressed even
 	// with Gamma>0 — the function returns the M03/M04 score unchanged.
 	cfg := DefaultCascadeConfig()
-	cfg.Gamma = 1.0
+	cfg.Gamma = mustGamma(t, 1.0)
 	tConc := 3.0
 	vConc := 4.5
 	in := CascadeInputs{
@@ -628,7 +667,7 @@ func TestEvaluateCascadePair_EmptyClusterTypes_NoBonus(t *testing.T) {
 	// did not evaluate) and the function must not allocate a shared
 	// slice for an evaluation it can't perform.
 	cfg := DefaultCascadeConfig()
-	cfg.Gamma = 1.0
+	cfg.Gamma = mustGamma(t, 1.0)
 	tConc := 3.0
 	vConc := 4.5
 	in := CascadeInputs{

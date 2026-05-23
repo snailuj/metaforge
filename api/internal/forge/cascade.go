@@ -205,12 +205,24 @@ func ParseCandidateMode(s string) (CandidateMode, error) {
 }
 
 // GammaWeight is the M05 type-diversity-bonus weight on EvaluateCascadePair.
-// The defined type makes operator-supplied env/flag values a
-// validation-gated boundary cast (NewGamma) rather than a bare float64
-// mutation — mirrors the ParseCandidateMode / Composition.Valid pattern.
-// CascadeConfig.Validate() remains the second line of defence for
-// post-construction mutation.
-type GammaWeight float64
+// The struct wrap with an unexported field makes operator-supplied env/flag
+// values an unforgeable validation-gated boundary cast (NewGamma) — direct
+// literal assignment `cfg.Gamma = 1.0` no longer compiles, so callers
+// cannot bypass NewGamma's negative/NaN/±Inf check. Mirrors the
+// ParseCandidateMode / Composition.Valid pattern but stronger:
+// the defined-type form (`type GammaWeight float64`) was bypassable by
+// untyped numeric literals. CascadeConfig.Validate() remains the second
+// line of defence for any future deserialisation path that constructs a
+// GammaWeight outside NewGamma.
+//
+// The zero value `GammaWeight{}` is valid and represents M05 dormant
+// (v=0), matching the DefaultCascadeConfig's "M05 off" intent.
+type GammaWeight struct{ v float64 }
+
+// Value returns the underlying float64. Callers compare against zero
+// (M05 dormant check) and multiply by the type-diversity bonus through
+// this accessor — the unexported field forbids direct read.
+func (g GammaWeight) Value() float64 { return g.v }
 
 // NewGamma constructs a validated GammaWeight from a raw float64. Returns
 // an error for negative, NaN, or ±Inf inputs. Use this at the operator
@@ -218,9 +230,9 @@ type GammaWeight float64
 // cast site, not via downstream CascadeConfig.Validate().
 func NewGamma(v float64) (GammaWeight, error) {
 	if v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
-		return 0, fmt.Errorf("Gamma %v must be ≥ 0 and finite", v)
+		return GammaWeight{}, fmt.Errorf("Gamma %v must be ≥ 0 and finite", v)
 	}
-	return GammaWeight(v), nil
+	return GammaWeight{v: v}, nil
 }
 
 // CascadeConfig pins the cascade hyperparameters. Use DefaultCascadeConfig
@@ -258,7 +270,9 @@ func DefaultCascadeConfig() CascadeConfig {
 		EmbeddingDMin:         0.4,
 		EmbeddingDMax:         0.85,
 		EmbeddingTopK:         100,
-		Gamma:                 0.0, // M05 off by default until the γ-sweep verdict
+		// Gamma is the zero value GammaWeight{} (v=0): M05 off by default
+		// until the γ-sweep verdict. Construction via NewGamma is reserved
+		// for operator-supplied env/flag values at the main.go boundary.
 	}
 }
 
@@ -305,16 +319,19 @@ func (c CascadeConfig) Validate() error {
 		return fmt.Errorf("EmbeddingTopK %d exceeds ceiling %d (SQLite IN-clause variable limit safety)",
 			c.EmbeddingTopK, EmbeddingTopKCeiling)
 	}
-	if c.Gamma < 0 || math.IsNaN(float64(c.Gamma)) || math.IsInf(float64(c.Gamma), 0) {
-		return fmt.Errorf("Gamma %v must be ≥ 0 and finite", c.Gamma)
+	// Defence-in-depth: NewGamma guarantees these invariants on its
+	// outputs, but a future deserialisation path (JSON/SQL config) could
+	// build a GammaWeight outside NewGamma. Cheap to keep.
+	if gv := c.Gamma.Value(); gv < 0 || math.IsNaN(gv) || math.IsInf(gv, 0) {
+		return fmt.Errorf("Gamma %v must be ≥ 0 and finite", gv)
 	}
 	// γ-sweep only ratified the additive shape `final = ortony + Alpha·cosBonus
 	// + Gamma·typeBonus`. With multiplicative composition the resulting shape
 	// is `ortony*(1+Alpha*cos) + Gamma*tb`, which no sweep has validated —
 	// fail loud rather than silently scoring on an untested combiner.
-	if c.Gamma > 0 && c.Composition == CompositionMultiplicative {
+	if c.Gamma.Value() > 0 && c.Composition == CompositionMultiplicative {
 		return fmt.Errorf("Gamma>0 is only validated with Composition=additive; got Gamma=%v with Composition=%s. Set Gamma=0 or Composition=additive.",
-			c.Gamma, c.Composition)
+			c.Gamma.Value(), c.Composition)
 	}
 	return nil
 }
@@ -450,7 +467,7 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 	// empty non-nil map still entered the loop pre-fix, allocating the
 	// shared slice for an evaluation that TypeDiversityBonus would
 	// immediately reject on len(clusterTypes)==0.
-	if cfg.Gamma > 0 && len(in.ClusterTypes) > 0 {
+	if cfg.Gamma.Value() > 0 && len(in.ClusterTypes) > 0 {
 		shared := make([]int64, 0, len(in.TopicProperties))
 		for cid := range in.TopicProperties {
 			if _, dual := in.VehicleProperties[cid]; dual {
@@ -461,7 +478,7 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 		sharedTypesCount = distinct
 		typeBonus = &tb
 		if tb > 0 {
-			final = final + float64(cfg.Gamma)*tb
+			final = final + cfg.Gamma.Value()*tb
 		}
 	}
 

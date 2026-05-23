@@ -98,23 +98,35 @@ func TestForgeSuggest_CascadeEnabled_GammaPositive_SurfacesM05Diagnostics(t *tes
 	// runs the same Validate() path that startup uses, so Gamma=1.0 +
 	// additive composition is exercised exactly as production would.
 	cfg := h.cascadeConf
-	cfg.Gamma = 1.0
+	g, gerr := forge.NewGamma(1.0)
+	if gerr != nil {
+		t.Fatalf("forge.NewGamma(1.0): %v", gerr)
+	}
+	cfg.Gamma = g
 	if err := h.WithCascadeConfig(cfg); err != nil {
 		t.Fatalf("WithCascadeConfig Gamma=1.0: %v", err)
 	}
 
-	// Skip when the test DB has no typed clusters — without dominant_type
-	// rows, EvaluateCascadePair can't produce a non-zero bonus and the
-	// assertion below would fail for environmental reasons rather than
-	// the wire-boundary regression this test guards.
-	typed := 0
-	for _, t := range h.cache.ClusterTypes {
-		if t != "" && t != "other" {
-			typed++
-		}
+	// Force-inject distinct canonical types onto existing clusters so the
+	// M05 type-diversity bonus surfaces regardless of whether
+	// snap_properties.py has been re-run on this test DB. We rotate
+	// through canonical types deterministically so distinct >= 2 for any
+	// pair with >= 2 shared clusters. Mutation is per-test (h.cache is
+	// instance-scoped) and isolates this wire-contract assertion from
+	// snap_properties.py state — the t.Skip branch that previously fired
+	// here silently greened the only handler-level assertion locking the
+	// cache → CascadeInputs.ClusterTypes → EvaluateCascadePair wire.
+	canonicals := []string{
+		"sensorimotor", "behaviour", "functional",
+		"effect", "emotional", "social",
 	}
-	if typed == 0 {
-		t.Skip("test DB has no typed clusters (dominant_type all NULL/other) — M05 cannot lift any pair; rerun snap_properties.py")
+	i := 0
+	for cid := range h.cache.ClusterTypes {
+		h.cache.ClusterTypes[cid] = canonicals[i%len(canonicals)]
+		i++
+		if i >= 20 {
+			break // enough to guarantee shared distinct types in any candidate set
+		}
 	}
 
 	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=50", nil)
