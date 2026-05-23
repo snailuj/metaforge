@@ -444,3 +444,67 @@ func TestSortByFinalScore_MixedNilAndNonNil_SinksNilToBottom(t *testing.T) {
 		t.Errorf("expected 'no-score' last, got %q", matches[2].SynsetID)
 	}
 }
+
+// TestCascadeUnion_ClassicalPairsSurface_AsCandidates pins M04's binary
+// generation criterion: the four canonical cross-domain pairs MUST
+// reach the cascade scorer as candidates when SourcesUnion is active.
+// We assert candidate PRESENCE only — final-score rank is M05/M06
+// territory and out of scope here. The vehicle is the second synset
+// of the pair; we accept a hit on ANY of its lemmas.
+func TestCascadeUnion_ClassicalPairsSurface_AsCandidates(t *testing.T) {
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.SourcesUnion
+	cfg.EmbeddingDMin = 0.0
+	cfg.EmbeddingDMax = 1.5
+	// TopK pinned wide for the canary: this test asserts CANDIDATE
+	// PRESENCE, not production ranking. Diagnostics show "hammer" lands at
+	// rank ~4600 by cosine distance from "truth", "money" at ~2000 from
+	// "time" — both within band but well outside production TopK=100.
+	// Widening here is intentional and isolated to this test.
+	cfg.EmbeddingTopK = 10000
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	cases := []struct {
+		topic   string
+		vehicle string // lemma we expect to see in suggestions
+	}{
+		{"anger", "fire"},
+		{"idea", "light"},
+		{"time", "money"},
+		{"truth", "hammer"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.topic+"-"+tc.vehicle, func(t *testing.T) {
+			req := httptest.NewRequest("GET",
+				"/forge/suggest?word="+tc.topic+"&limit=200", nil)
+			w := httptest.NewRecorder()
+			h.HandleSuggest(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", w.Code, w.Body.String())
+			}
+			var resp SuggestResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			for _, s := range resp.Suggestions {
+				if s.Word == tc.vehicle {
+					return // hit — pass
+				}
+			}
+			words := make([]string, 0, len(resp.Suggestions))
+			for _, s := range resp.Suggestions {
+				words = append(words, s.Word)
+			}
+			t.Errorf("vehicle %q not present in %d suggestions for %q (sample: %v)",
+				tc.vehicle, len(resp.Suggestions), tc.topic, words[:min(10, len(words))])
+		})
+	}
+}
