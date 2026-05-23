@@ -508,3 +508,50 @@ func TestCascadeUnion_ClassicalPairsSurface_AsCandidates(t *testing.T) {
 		})
 	}
 }
+
+// TestCascadeClusterOnly_ResponseShapeUnchanged pins the contract that
+// CandidateSources=cluster_only behaves byte-for-byte identically to
+// the pre-M04 M03 cascade. The assertion is "no row carries Source !=
+// SourceCluster" plus "the embedding query stage timer is NOT emitted"
+// — i.e. the embedding path is fully skipped, not run-and-discarded.
+func TestCascadeClusterOnly_ResponseShapeUnchanged(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	observe.Init(true)
+	defer observe.Init(false)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.SourcesCluster
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=20", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SuggestResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, s := range resp.Suggestions {
+		if s.Source != "" && s.Source != forge.SourceCluster {
+			t.Errorf("cluster_only mode produced %q-tagged suggestion %s", s.Source, s.Word)
+		}
+	}
+	if strings.Contains(buf.String(), `"cascade_embedding_query"`) {
+		t.Errorf("cluster_only mode must NOT emit cascade_embedding_query stage timer:\n%s", buf.String())
+	}
+}
