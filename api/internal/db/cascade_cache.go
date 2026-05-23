@@ -251,11 +251,21 @@ func loadClusterTypes(database *sql.DB, dst map[int64]string) error {
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate cluster types: %w", err)
 	}
+	// Any non-zero divergence is a pipeline contract violation — snap
+	// writes one dominant_type per cluster, so disagreement within a
+	// cluster means data is wrong somewhere. Always emit a summary Error
+	// so operators alerting on Error level catch the signal regardless
+	// of whether the flood cap fired. Carry warns_emitted + suppressed
+	// only when the tail was actually suppressed; below the cap every
+	// divergence already has its own Warn line.
 	if divergences > maxWarns {
 		slog.Error("cascade cache: vocab_clusters.dominant_type divergence flood — pipeline contract broken",
 			"total_divergences", divergences,
 			"warns_emitted", maxWarns,
 			"suppressed", divergences-maxWarns)
+	} else if divergences > 0 {
+		slog.Error("cascade cache: vocab_clusters.dominant_type divergence — pipeline contract broken",
+			"total_divergences", divergences)
 	}
 	return nil
 }

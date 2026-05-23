@@ -270,6 +270,71 @@ func TestLoadClusterTypes_DivergenceFlood_RateLimited(t *testing.T) {
 	}
 }
 
+func TestLoadClusterTypes_DivergenceUnderCap_StillEmitsSummaryError(t *testing.T) {
+	// R3.PR.SFH O2: when divergences > 0 but <= maxWarns (10), the loader
+	// was emitting per-row Warns with NO summary Error. Operators
+	// alerting on Error level would miss a non-flood contract violation
+	// entirely. Any non-zero divergence count must produce exactly one
+	// summary Error so log-level alerting catches the signal regardless
+	// of magnitude.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+	// 3 clusters, each with a divergent pair — under the cap of 10 so
+	// every divergence gets its own Warn AND the summary Error must
+	// still fire.
+	for i := 1; i <= 3; i++ {
+		if _, err := database.Exec(
+			`INSERT INTO vocab_clusters VALUES (?, ?, 'sensorimotor')`, i, i*10); err != nil {
+			t.Fatalf("seed sensorimotor row %d: %v", i, err)
+		}
+		if _, err := database.Exec(
+			`INSERT INTO vocab_clusters VALUES (?, ?, 'behaviour')`, i, i*10+1); err != nil {
+			t.Fatalf("seed behaviour row %d: %v", i, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	warnCount := strings.Count(logs, `"level":"WARN","msg":"cascade cache: vocab_clusters.dominant_type divergence`)
+	if warnCount != 3 {
+		t.Errorf("expected exactly 3 divergence WARN messages (one per divergence under cap), got %d:\n%s",
+			warnCount, logs)
+	}
+	// The critical assertion: any non-zero divergence count must emit a
+	// summary Error so operators alerting on Error level catch the
+	// contract violation regardless of whether the flood cap fired.
+	errCount := strings.Count(logs, `"level":"ERROR"`)
+	if errCount != 1 {
+		t.Errorf("expected exactly 1 summary ERROR for any non-zero divergence count, got %d:\n%s",
+			errCount, logs)
+	}
+	if !strings.Contains(logs, `"total_divergences":3`) {
+		t.Errorf("expected summary ERROR to carry total_divergences=3; got:\n%s", logs)
+	}
+}
+
 func TestLoadClusterTypes_NullThenNonNull_LogsDivergence(t *testing.T) {
 	// Case A divergence: first row dt=NULL writes "" into the map, then a
 	// later row carries a real dominant_type. The original guard
@@ -361,6 +426,57 @@ func TestLoadClusterTypes_NonNullThenNull_LogsDivergence_PreservesNonNull(t *tes
 	// the stray NULL — losing data here is the worst-case failure.
 	if got := cache.ClusterTypes[1]; got != "sensorimotor" {
 		t.Errorf("cluster 1: want %q preserved through NULL second row, got %q", "sensorimotor", got)
+	}
+}
+
+func TestLoadClusterTypes_NonEmptyDivergence_KeepsFirstSeen(t *testing.T) {
+	// Case C divergence (R3 reviewer-flagged determinism gap): two rows
+	// for the same cluster_id carry different non-empty dominant_type
+	// values (e.g. row 1 "sensorimotor", row 2 "behaviour"). The R2
+	// prefer-non-empty fix handled the NULL/real asymmetry but left this
+	// case at last-write-wins — cascade scoring then becomes dependent
+	// on SQL row order, which is non-deterministic across re-runs. Fix:
+	// keep the first-seen non-empty value and Warn on the disagreement,
+	// so the cache is deterministic regardless of row order.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		// Two rows for cluster 1 with two distinct non-empty values.
+		// Order matters: row 1 establishes the first-seen winner.
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (1, 101, 'behaviour')`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	cache, err := LoadCascadeCache(database)
+	if err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "vocab_clusters.dominant_type divergence") {
+		t.Errorf("expected slog.Warn about non-empty divergence; got:\n%s", logs)
+	}
+	// First-write-wins for non-empty disagreement: deterministic across
+	// re-runs regardless of which SQL row order the storage engine picks.
+	if got := cache.ClusterTypes[1]; got != "sensorimotor" {
+		t.Errorf("cluster 1: want %q (first-seen kept), got %q", "sensorimotor", got)
 	}
 }
 
