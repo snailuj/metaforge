@@ -192,11 +192,17 @@ def fetch_suggestions(base_url: str, topic: str, limit: int) -> dict[str, tuple[
     """
     try:
         r = requests.get(f"{base_url}/forge/suggest", params={"word": topic, "limit": limit}, timeout=10)
-    except requests.RequestException:
+    except requests.RequestException as e:
+        print(f"  WARN fetch_suggestions: topic={topic!r} request failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         return None
     if r.status_code != 200:
+        print(f"  WARN fetch_suggestions: topic={topic!r} status={r.status_code} body={r.text[:200]!r}", file=sys.stderr, flush=True)
         return None
-    body = r.json()
+    try:
+        body = r.json()
+    except ValueError as e:
+        print(f"  WARN fetch_suggestions: topic={topic!r} non-JSON response: {e}; body={r.text[:200]!r}", file=sys.stderr, flush=True)
+        return None
     out: dict[str, tuple[float | None, str | None]] = {}
     for s in body.get("suggestions", []):
         word = s.get("word")

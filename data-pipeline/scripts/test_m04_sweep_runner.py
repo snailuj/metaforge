@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from m04_sweep_runner import CellResult, write_verdict
+from m04_sweep_runner import CellResult, fetch_suggestions, write_verdict
 
 
 def _make_cell(name: str, apt: list[float], inapt: list[float], **kw) -> CellResult:
@@ -171,3 +171,82 @@ def test_cell_result_property_accessor_recomputes_when_unfinalised() -> None:
     assert "__getattribute__" not in CellResult.__dict__, (
         "CellResult should not override __getattribute__ — use @property instead"
     )
+
+
+# ---- fetch_suggestions: silent-failure pinning -----------------------------
+#
+# R4 standards finding: fetch_suggestions used to return None on
+# RequestException, non-200 status, or JSON-decode error WITHOUT logging
+# anything. Operator could not distinguish a real cohort gap from a
+# network blip / 5xx / timeout. The fix emits a stderr WARN per failure
+# path. These tests pin the warnings exist and the None-return contract
+# is preserved (callers still rely on it).
+
+
+class _FakeResp:
+    def __init__(self, status_code: int, payload=None, text: str = "") -> None:
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text or (json.dumps(payload) if payload is not None else "")
+
+    def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
+def test_fetch_suggestions_request_exception_logs_and_returns_none(monkeypatch, capsys):
+    import requests as _requests
+
+    def boom(*_a, **_kw):
+        raise _requests.ConnectionError("connection refused")
+
+    monkeypatch.setattr("m04_sweep_runner.requests.get", boom)
+    result = fetch_suggestions("http://localhost:0", topic="anger", limit=10)
+    assert result is None
+    err = capsys.readouterr().err
+    assert "fetch_suggestions" in err
+    assert "anger" in err
+    assert "ConnectionError" in err
+
+
+def test_fetch_suggestions_non_200_logs_status_and_body(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "m04_sweep_runner.requests.get",
+        lambda *a, **kw: _FakeResp(503, text="upstream busy"),
+    )
+    result = fetch_suggestions("http://localhost:0", topic="idea", limit=10)
+    assert result is None
+    err = capsys.readouterr().err
+    assert "fetch_suggestions" in err
+    assert "idea" in err
+    assert "503" in err
+    assert "upstream busy" in err
+
+
+def test_fetch_suggestions_non_json_body_logs_and_returns_none(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "m04_sweep_runner.requests.get",
+        lambda *a, **kw: _FakeResp(200, payload=ValueError("not json"), text="<html/>"),
+    )
+    result = fetch_suggestions("http://localhost:0", topic="time", limit=10)
+    assert result is None
+    err = capsys.readouterr().err
+    assert "fetch_suggestions" in err
+    assert "time" in err
+    assert "non-JSON" in err
+
+
+def test_fetch_suggestions_happy_path_does_not_log(monkeypatch, capsys):
+    """Sanity: success path stays quiet (no false-positive WARN spam)."""
+    monkeypatch.setattr(
+        "m04_sweep_runner.requests.get",
+        lambda *a, **kw: _FakeResp(
+            200,
+            payload={"suggestions": [{"word": "fire", "final_score": 0.42, "candidate_source": "cluster"}]},
+        ),
+    )
+    result = fetch_suggestions("http://localhost:0", topic="anger", limit=10)
+    assert result == {"fire": (0.42, "cluster")}
+    err = capsys.readouterr().err
+    assert "WARN" not in err
