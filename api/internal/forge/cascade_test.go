@@ -356,6 +356,25 @@ func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
 	}
 }
 
+func TestCascadeConfig_Validate_RejectsGammaWithMultiplicative(t *testing.T) {
+	// γ-sweep only validated additive composition. Gamma>0 combined with
+	// multiplicative yields an untested score shape — fail loud at startup.
+	cfg := DefaultCascadeConfig()
+	cfg.Composition = CompositionMultiplicative
+	cfg.Gamma = 0.5
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("want error for Gamma>0 + CompositionMultiplicative, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "Gamma") {
+		t.Errorf("error must mention Gamma, got %v", msg)
+	}
+	if !strings.Contains(msg, "multiplicative") && !strings.Contains(msg, "Multiplicative") {
+		t.Errorf("error must mention multiplicative composition, got %v", msg)
+	}
+}
+
 func TestTypeDiversityBonus_EmptyInputsReturnZero(t *testing.T) {
 	b, n := TypeDiversityBonus(nil, nil)
 	if b != 0 || n != 0 {

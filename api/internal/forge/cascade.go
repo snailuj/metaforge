@@ -289,6 +289,14 @@ func (c CascadeConfig) Validate() error {
 	if c.Gamma < 0 || math.IsNaN(c.Gamma) || math.IsInf(c.Gamma, 0) {
 		return fmt.Errorf("Gamma %v must be ≥ 0 and finite", c.Gamma)
 	}
+	// γ-sweep only ratified the additive shape `final = ortony + Alpha·cosBonus
+	// + Gamma·typeBonus`. With multiplicative composition the resulting shape
+	// is `ortony*(1+Alpha*cos) + Gamma*tb`, which no sweep has validated —
+	// fail loud rather than silently scoring on an untested combiner.
+	if c.Gamma > 0 && c.Composition == CompositionMultiplicative {
+		return fmt.Errorf("Gamma>0 is only validated with Composition=additive; got Gamma=%v with Composition=%s. Set Gamma=0 or Composition=additive.",
+			c.Gamma, c.Composition)
+	}
 	return nil
 }
 
