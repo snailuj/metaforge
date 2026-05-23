@@ -52,6 +52,13 @@ class CellResult:
     apt_missing: int = 0
     inapt_missing: int = 0
     source_mix: dict[str, int] = field(default_factory=lambda: {"cluster": 0, "embedding": 0, "both": 0})
+    # Per-cause drop attribution (Phase 2). Keyed by the bucket name from
+    # m05_cohort_diagnose.py's pre-flight ledger or the synthetic
+    # ``api_filtered_or_no_overlap`` bucket for pairs that were pre-flight
+    # clean but the API still didn't return them. Optional — empty when
+    # the sweep was run without --diagnostics.
+    apt_drop_buckets: dict[str, int] = field(default_factory=dict)
+    inapt_drop_buckets: dict[str, int] = field(default_factory=dict)
     # Derived metrics — populated by ``finalise_metrics`` before serialisation
     # so that ``dataclasses.asdict`` exposes them in the JSON output.
     # ``None`` means "not yet computed"; the @property accessors below treat
@@ -236,6 +243,41 @@ def score_pair_cached(
     return None, None
 
 
+def _attribute_drop(topic: str, vehicle: str, preflight: dict | None) -> str:
+    """Return the Phase 2 drop bucket for a (topic, vehicle) pair.
+
+    - If a pre-flight ledger is supplied and the pair maps to a non-clean
+      bucket, return that bucket name verbatim.
+    - Otherwise the pre-flight was clean (or no ledger was supplied), so
+      the drop happened inside the API — bucket it as
+      ``api_filtered_or_no_overlap`` (the real gate-level signal).
+    """
+    if preflight is None:
+        return "api_filtered_or_no_overlap"
+    key = (topic, vehicle)
+    bucket = preflight.get(key)
+    if bucket is None or bucket == "preflight_clean":
+        return "api_filtered_or_no_overlap"
+    return bucket
+
+
+def load_preflight(path: Path) -> dict[str, dict[tuple[str, str], str]]:
+    """Read the diagnostics JSON written by m05_cohort_diagnose.py into a
+    lookup ``{"apt": {(topic, vehicle): bucket}, "inapt": {...}}``.
+
+    Cohort-side keys (``apt`` / ``inapt``) match how the sweep runner
+    splits its pairs. Missing keys downstream are treated the same as
+    "preflight_clean" — the api_filtered bucket — so a partial ledger
+    degrades gracefully.
+    """
+    payload = json.loads(path.read_text())
+    out: dict[str, dict[tuple[str, str], str]] = {"apt": {}, "inapt": {}}
+    for cohort in ("apt", "inapt"):
+        for entry in payload.get(cohort, {}).get("pair_diagnostics", []):
+            out[cohort][(entry["topic"], entry["vehicle"])] = entry["attribution"]
+    return out
+
+
 def evaluate_cell(
     name: str,
     candidate_sources: str,
@@ -249,6 +291,7 @@ def evaluate_cell(
     apt_pairs: list[tuple[str, str]],
     inapt_pairs: list[tuple[str, str]],
     limit: int,
+    preflight: dict[str, dict[tuple[str, str], str]] | None = None,
 ) -> CellResult:
     env = {"METAFORGE_FORGE_CANDIDATES": candidate_sources}
     if d_min is not None:
@@ -262,6 +305,8 @@ def evaluate_cell(
 
     result = CellResult(name=name, candidate_sources=candidate_sources,
                         d_min=d_min, d_max=d_max, top_k=top_k, gamma=gamma)
+    apt_pre = (preflight or {}).get("apt")
+    inapt_pre = (preflight or {}).get("inapt")
     proc = start_api(binary, db, port, env)
     try:
         base_url = f"http://127.0.0.1:{port}"
@@ -273,6 +318,8 @@ def evaluate_cell(
             fs, src = score_pair_cached(cache, base_url, topic, vehicle, limit)
             if fs is None:
                 result.apt_missing += 1
+                bucket = _attribute_drop(topic, vehicle, apt_pre)
+                result.apt_drop_buckets[bucket] = result.apt_drop_buckets.get(bucket, 0) + 1
                 continue
             result.apt_scores.append(fs)
             if src in result.source_mix:
@@ -281,6 +328,8 @@ def evaluate_cell(
             fs, _ = score_pair_cached(cache, base_url, topic, vehicle, limit)
             if fs is None:
                 result.inapt_missing += 1
+                bucket = _attribute_drop(topic, vehicle, inapt_pre)
+                result.inapt_drop_buckets[bucket] = result.inapt_drop_buckets.get(bucket, 0) + 1
                 continue
             result.inapt_scores.append(fs)
     finally:
@@ -385,6 +434,47 @@ def write_verdict(
             f"Δ separation_score = {delta:+.4f} ({verdict_word})"
         )
 
+    # Phase 2 surface: if any cell has bucketed drops, emit a per-cell
+    # breakdown. Conditional so legacy sweeps run without --diagnostics
+    # produce the same verdict shape they always have.
+    has_buckets = any(r.apt_drop_buckets or r.inapt_drop_buckets for r in results)
+    if has_buckets:
+        bucket_keys: set[str] = set()
+        for r in results:
+            bucket_keys.update(r.apt_drop_buckets.keys())
+            bucket_keys.update(r.inapt_drop_buckets.keys())
+        # Stable column order: api_filtered_or_no_overlap first (it's the
+        # real-signal bucket the operator reads first), then the rest in
+        # alphabetical order so cross-run diffs stay readable.
+        ordered_buckets = ["api_filtered_or_no_overlap"] + sorted(
+            b for b in bucket_keys if b != "api_filtered_or_no_overlap"
+        )
+        lines += [
+            "",
+            "## Drop Attribution (per-cause breakdown)",
+            "",
+            "_Pre-flight diagnostics loaded — each apt/inapt drop is attributed to a typed bucket._",
+            "_Bucket meanings: `api_filtered_or_no_overlap` = pre-flight clean, the API still didn't_",
+            "_surface this vehicle (the real candidate-gen / no-overlap signal); `pre_topic_*` /_",
+            "_`pre_vehicle_*` = pre-flight blocked at the named layer (data not in DB)._",
+            "",
+        ]
+        # Apt drops table
+        header = "| Cell | " + " | ".join(f"apt:{b}" for b in ordered_buckets) + " |"
+        sep = "|------|" + "|".join("---:" for _ in ordered_buckets) + "|"
+        lines += [header, sep]
+        for r in sorted(results, key=lambda r: -r.separation_score):
+            cells = " | ".join(str(r.apt_drop_buckets.get(b, 0)) for b in ordered_buckets)
+            lines.append(f"| {r.name} | {cells} |")
+        lines += [""]
+        # Inapt drops table
+        header = "| Cell | " + " | ".join(f"inapt:{b}" for b in ordered_buckets) + " |"
+        sep = "|------|" + "|".join("---:" for _ in ordered_buckets) + "|"
+        lines += [header, sep]
+        for r in sorted(results, key=lambda r: -r.separation_score):
+            cells = " | ".join(str(r.inapt_drop_buckets.get(b, 0)) for b in ordered_buckets)
+            lines.append(f"| {r.name} | {cells} |")
+
     verdict_path.write_text("\n".join(lines) + "\n")
 
 
@@ -393,6 +483,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--verdict", type=Path, required=True)
+    p.add_argument(
+        "--diagnostics",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to a pre-flight diagnostics JSON produced by "
+            "m05_cohort_diagnose.py. When supplied, each post-API drop is "
+            "attributed to a typed bucket (pre_topic_*, pre_vehicle_*, or "
+            "api_filtered_or_no_overlap) on CellResult.apt_drop_buckets and "
+            "inapt_drop_buckets, and the verdict markdown surfaces the "
+            "breakdown per cell."
+        ),
+    )
     args = p.parse_args(argv)
 
     cfg = yaml.safe_load(args.config.read_text())
@@ -423,6 +526,20 @@ def main(argv: list[str] | None = None) -> int:
         inapt_pairs = rng.sample(inapt_pairs, int(sample_inapt))
     print(f"Cohort: apt={len(apt_pairs)} pairs, inapt={len(inapt_pairs)} pairs", flush=True)
 
+    preflight: dict[str, dict[tuple[str, str], str]] | None = None
+    if args.diagnostics is not None:
+        if not args.diagnostics.exists():
+            print(f"ERROR: --diagnostics path not found: {args.diagnostics}", file=sys.stderr)
+            return 2
+        preflight = load_preflight(args.diagnostics)
+        n_apt_pre = len(preflight.get("apt", {}))
+        n_inapt_pre = len(preflight.get("inapt", {}))
+        print(
+            f"Pre-flight ledger loaded: apt={n_apt_pre} entries, inapt={n_inapt_pre} entries — "
+            "drops will be attributed per-cause",
+            flush=True,
+        )
+
     baseline_cfg = cfg["baseline"]
     baseline = evaluate_cell(
         "baseline_cluster_only",
@@ -430,6 +547,7 @@ def main(argv: list[str] | None = None) -> int:
         d_min=None, d_max=None, top_k=None, gamma=None,
         binary=binary, db=db, port=port_base,
         apt_pairs=apt_pairs, inapt_pairs=inapt_pairs, limit=limit,
+        preflight=preflight,
     )
 
     results: list[CellResult] = []
@@ -444,6 +562,7 @@ def main(argv: list[str] | None = None) -> int:
             gamma=var.get("gamma"),
             binary=binary, db=db, port=port,
             apt_pairs=apt_pairs, inapt_pairs=inapt_pairs, limit=limit,
+            preflight=preflight,
         )
         results.append(r)
         print(f"  {r.name}: sep={r.separation_score:.4f} apt_rate={r.aptness_rate:.4f}")

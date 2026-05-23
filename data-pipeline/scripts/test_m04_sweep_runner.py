@@ -10,7 +10,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from m04_sweep_runner import CellResult, fetch_suggestions, write_verdict
+from m04_sweep_runner import (
+    CellResult,
+    _attribute_drop,
+    fetch_suggestions,
+    load_preflight,
+    write_verdict,
+)
 
 
 def _make_cell(name: str, apt: list[float], inapt: list[float], **kw) -> CellResult:
@@ -250,3 +256,98 @@ def test_fetch_suggestions_happy_path_does_not_log(monkeypatch, capsys):
     assert result == {"fire": (0.42, "cluster")}
     err = capsys.readouterr().err
     assert "WARN" not in err
+
+
+# ---- Phase 2: pre-flight drop attribution ---------------------------------
+#
+# CellResult now carries apt_drop_buckets / inapt_drop_buckets. Each post-API
+# drop is attributed to either a pre-flight bucket (from the diagnostics JSON)
+# or to api_filtered_or_no_overlap (pre-flight clean but API still didn't
+# return the vehicle — the real gate-level signal).
+
+
+def test_attribute_drop_returns_api_filtered_when_no_preflight():
+    """Without a pre-flight ledger every drop is attributed to the
+    api_filtered bucket (legacy/no-diagnostics callers preserve the
+    "all drops are unknown" interpretation)."""
+    assert _attribute_drop("anger", "fire", None) == "api_filtered_or_no_overlap"
+
+
+def test_attribute_drop_returns_api_filtered_for_preflight_clean():
+    preflight = {("anger", "fire"): "preflight_clean"}
+    assert _attribute_drop("anger", "fire", preflight) == "api_filtered_or_no_overlap"
+
+
+def test_attribute_drop_returns_api_filtered_for_unknown_pair():
+    """A pair not in the ledger is treated as preflight_clean — graceful
+    degradation when the diagnostics file was generated against a different
+    cohort revision than the sweep run."""
+    preflight = {("anger", "fire"): "preflight_clean"}
+    assert _attribute_drop("idea", "light", preflight) == "api_filtered_or_no_overlap"
+
+
+def test_attribute_drop_returns_named_bucket_for_blocked_pair():
+    preflight = {
+        ("foo", "bar"): "pre_vehicle_no_concreteness",
+        ("foo", "baz"): "pre_topic_no_lemma",
+    }
+    assert _attribute_drop("foo", "bar", preflight) == "pre_vehicle_no_concreteness"
+    assert _attribute_drop("foo", "baz", preflight) == "pre_topic_no_lemma"
+
+
+def test_load_preflight_round_trips_pair_diagnostics(tmp_path: Path):
+    payload = {
+        "db": "test.db",
+        "apt": {
+            "n_pairs": 2,
+            "attribution_histogram": {"preflight_clean": 1, "pre_vehicle_no_lemma": 1},
+            "pair_diagnostics": [
+                {"topic": "anger", "vehicle": "fire", "topic_bucket": "clean", "vehicle_bucket": "clean", "attribution": "preflight_clean"},
+                {"topic": "anger", "vehicle": "nonsense", "topic_bucket": "clean", "vehicle_bucket": "vehicle_no_lemma", "attribution": "pre_vehicle_no_lemma"},
+            ],
+        },
+        "inapt": {
+            "n_pairs": 1,
+            "attribution_histogram": {"preflight_clean": 1},
+            "pair_diagnostics": [
+                {"topic": "anger", "vehicle": "doormat", "topic_bucket": "clean", "vehicle_bucket": "clean", "attribution": "preflight_clean"},
+            ],
+        },
+    }
+    p = tmp_path / "diag.json"
+    p.write_text(json.dumps(payload))
+    pre = load_preflight(p)
+    assert pre["apt"][("anger", "fire")] == "preflight_clean"
+    assert pre["apt"][("anger", "nonsense")] == "pre_vehicle_no_lemma"
+    assert pre["inapt"][("anger", "doormat")] == "preflight_clean"
+
+
+def test_write_verdict_emits_drop_attribution_when_buckets_present(tmp_path: Path):
+    """When any cell has drop buckets, the verdict gains a Drop Attribution
+    section with two tables (apt + inapt) and api_filtered_or_no_overlap
+    pinned as the first bucket column."""
+    out = tmp_path / "verdict.md"
+    baseline = _make_cell("baseline", apt=[0.3], inapt=[0.1, 0.2])
+    cell = _make_cell("gamma1.0", apt=[0.5], inapt=[0.1, 0.2], gamma=1.0)
+    cell.apt_drop_buckets = {"api_filtered_or_no_overlap": 5, "pre_vehicle_no_lemma": 2}
+    cell.inapt_drop_buckets = {"api_filtered_or_no_overlap": 88}
+
+    write_verdict([cell], baseline, out, cfg={"name": "m05_test"})
+    body = out.read_text()
+    assert "## Drop Attribution (per-cause breakdown)" in body
+    # api_filtered comes first in the column order
+    assert body.index("apt:api_filtered_or_no_overlap") < body.index("apt:pre_vehicle_no_lemma")
+    # Numbers surface verbatim
+    assert "| 5 |" in body or "| 5 " in body
+    assert "| 88 |" in body or "| 88 " in body
+
+
+def test_write_verdict_omits_drop_attribution_when_no_buckets(tmp_path: Path):
+    """Legacy/no-diagnostics callers must produce a verdict without the
+    new section so cross-run diffs against pre-Phase-2 sweeps stay clean."""
+    out = tmp_path / "verdict.md"
+    baseline = _make_cell("baseline", apt=[0.3], inapt=[0.1, 0.2])
+    cell = _make_cell("gamma1.0", apt=[0.5], inapt=[0.1, 0.2], gamma=1.0)
+    write_verdict([cell], baseline, out, cfg={"name": "m05_test"})
+    body = out.read_text()
+    assert "## Drop Attribution" not in body

@@ -22,7 +22,13 @@ api_port_base: 9300             # offset from M04 sweeps to avoid port collision
 api_binary: api/metaforge       # rebuild with: go build -o api/metaforge ./api/cmd/metaforge
 pairs: data-pipeline/fixtures/lakoff_apt.jsonl
 controls: data-pipeline/fixtures/lakoff_inapt.jsonl
-limit: 100
+# Phase 2 (2026-05-23): bumped from 100 → 10000 so ranking-cutoff drops
+# cannot masquerade as candidate-gen filtering. Every cohort vehicle
+# that makes it through gate + candidate-gen + scoring will surface in
+# the suggestion list regardless of where it ranks. Cost is moderate —
+# /forge/suggest pages the result set internally and the sweep
+# computes its own metrics from the response.
+limit: 10000
 
 # Baseline: M03 cluster-only (no embedding, gamma=0). Re-confirms the
 # Lakoff floor under the current snap state — separation = 0 expected.
