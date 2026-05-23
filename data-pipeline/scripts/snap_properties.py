@@ -79,18 +79,57 @@ _CANONICAL_ORDER = [
 _CANONICAL_ORDER_INDEX = {t: i for i, t in enumerate(_CANONICAL_ORDER)}
 
 
-def _canonical_type(raw: str | None) -> str:
+def _canonical_type(
+    raw: str | None,
+    buckets: Counter[str] | None = None,
+) -> str:
     """Map a raw property_type value to one of the 7 canonical M05 types.
 
     Returns "other" for unknown/NULL/empty inputs. The "other" bucket
     aggregates the long tail of low-frequency variant values from the
     original LLM extraction.
+
+    When `buckets` is supplied, increments one of five mutually-exclusive
+    bucket counters that distinguish operationally-distinct paths to the
+    canonical value — observability for the otherwise-silent grouping that
+    the JSONL drop stream cannot recover (it stores the canonicalised
+    value, not the raw one):
+
+      * "null"            — raw was None or empty (enricher data gap)
+      * "canonical"       — raw was already a canonical type (clean path)
+      * "normalised"      — raw was a variant in _TYPE_NORMALISATION (rewrite)
+      * "explicit_other"  — raw was literally "other" (LLM declared misc)
+      * "unknown_variant" — raw was non-empty, non-canonical, not in
+                            _TYPE_NORMALISATION and not "other" (drift —
+                            canonicalisation table needs an entry).
     """
     if not raw:
+        if buckets is not None:
+            buckets["null"] += 1
         return "other"
-    norm = _TYPE_NORMALISATION.get(raw, raw)
-    if norm in CANONICAL_TYPES:
+    if raw in CANONICAL_TYPES:
+        if buckets is not None:
+            buckets["canonical"] += 1
+        return raw
+    if raw in _TYPE_NORMALISATION:
+        norm = _TYPE_NORMALISATION[raw]
+        if buckets is not None:
+            buckets["normalised"] += 1
+        # Defence-in-depth: every value in _TYPE_NORMALISATION must map to
+        # a canonical type. If a future edit breaks that invariant we want
+        # to escalate, not silently fall through.
+        if norm not in CANONICAL_TYPES:
+            raise ValueError(
+                f"_TYPE_NORMALISATION[{raw!r}] = {norm!r} is not in "
+                f"CANONICAL_TYPES; canonicalisation table is inconsistent"
+            )
         return norm
+    if raw == "other":
+        if buckets is not None:
+            buckets["explicit_other"] += 1
+        return "other"
+    if buckets is not None:
+        buckets["unknown_variant"] += 1
     return "other"
 
 
@@ -263,6 +302,13 @@ def snap_properties(
     cluster_type_counts: defaultdict[int, Counter[str]] = defaultdict(Counter)
     # Per-reason drop counts (so we can log a breakdown without buffering records).
     drop_counts: dict[str, int] = {}
+    # Per-bucket canonical_type counts. Every _canonical_type() call passes
+    # this Counter so the end-of-snap summary can distinguish the five
+    # operationally-distinct paths through canonicalisation (null vs
+    # canonical vs normalised vs explicit_other vs unknown_variant). The
+    # committed JSONL writes the canonicalised value, so this is the only
+    # post-hoc trace of which bucket each input fell into.
+    canonical_type_buckets: Counter[str] = Counter()
 
     # Resolve DB path up front so we can open the dropped-records JSONL stream.
     # PRAGMA returns an empty string for ':memory:' connections — guard so we
@@ -308,7 +354,9 @@ def snap_properties(
         nonlocal dropped_fh, dropped_path
         stats["dropped"] += 1
         drop_counts[record["reason"]] = drop_counts.get(record["reason"], 0) + 1
-        record["property_type"] = _canonical_type(property_type)
+        record["property_type"] = _canonical_type(
+            property_type, canonical_type_buckets
+        )
         if dropped_path is None:
             return
         try:
@@ -409,7 +457,9 @@ def snap_properties(
                 vid = vocab_by_lemma[prop_lower]
                 cid = cluster_lookup.get(vid, vid)
                 _merge((sid, cid), vid, "exact", None, salience)
-                cluster_type_counts[cid][_canonical_type(prop_type)] += 1  # M05
+                cluster_type_counts[cid][
+                    _canonical_type(prop_type, canonical_type_buckets)
+                ] += 1  # M05
                 stats["exact"] += 1
                 continue
 
@@ -420,7 +470,9 @@ def snap_properties(
                     vid = vocab_by_lemma[variant]
                     cid = cluster_lookup.get(vid, vid)
                     _merge((sid, cid), vid, "morphological", None, salience)
-                    cluster_type_counts[cid][_canonical_type(prop_type)] += 1  # M05
+                    cluster_type_counts[cid][
+                        _canonical_type(prop_type, canonical_type_buckets)
+                    ] += 1  # M05
                     stats["morphological"] += 1
                     matched = True
                     break
@@ -501,7 +553,9 @@ def snap_properties(
                     best_vid = vocab_ids[best_idx]
                     best_cid = cluster_lookup.get(best_vid, best_vid)
                     _merge((sid, best_cid), best_vid, "embedding", best_score, salience)
-                    cluster_type_counts[best_cid][_canonical_type(prop_type)] += 1  # M05
+                    cluster_type_counts[best_cid][
+                        _canonical_type(prop_type, canonical_type_buckets)
+                    ] += 1  # M05
                     stats["embedding"] += 1
                 else:
                     _record_drop({"text": prop_text, "synset_id": sid,
@@ -638,6 +692,23 @@ def snap_properties(
             log.info("Dropped properties written to %s", final_dropped_path)
         elif dropped_path is not None and dropped_path.exists():
             log.info("Dropped properties written to %s", dropped_path)
+
+    # Per-bucket canonical_type breakdown — emits even when there are no
+    # drops, because snap-matched rows also pass through _canonical_type
+    # and operators need the trace either way. Promote to WARNING when
+    # unknown_variant > 0: that's the only bucket that signals
+    # canonicalisation-table drift and demands an entry be added to
+    # _TYPE_NORMALISATION (the rest are routine).
+    if canonical_type_buckets:
+        breakdown_dict = dict(canonical_type_buckets)
+        if canonical_type_buckets.get("unknown_variant", 0) > 0:
+            log.warning(
+                "Snap canonical_type buckets: %s (unknown_variant > 0 — add "
+                "missing entries to _TYPE_NORMALISATION or fix the enricher)",
+                breakdown_dict,
+            )
+        else:
+            log.info("Snap canonical_type buckets: %s", breakdown_dict)
 
     return stats
 

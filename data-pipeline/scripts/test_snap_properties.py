@@ -2222,3 +2222,150 @@ def test_snap_dropped_jsonl_renamed_on_success(tmp_path):
     assert not (tmp_path / "snap_dropped.jsonl.tmp").exists(), (
         "snap_dropped.jsonl.tmp must be renamed away on successful commit"
     )
+
+
+def test_canonical_type_buckets_distinguish_null_unknown_explicit_other(
+    tmp_path, caplog
+):
+    """_canonical_type silently collapses three pipeline-health states into
+    a single 'other' bucket on the JSONL drop stream:
+
+      1. NULL/empty property_type — enricher didn't classify (data gap)
+      2. Unknown variant string — canonicalisation table needs an entry (drift)
+      3. Explicit 'other' from the LLM — real property, doesn't fit categories
+
+    Snap must emit a per-bucket breakdown in the end-of-snap summary log so
+    operators can distinguish these three operationally distinct states
+    without having to recover information jq can no longer see (the JSONL
+    stores the canonicalised value, not the raw one).
+    """
+    import logging
+    import re
+
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "buckets.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER DEFAULT 0,
+            source TEXT
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT,
+            property_id INTEGER,
+            salience REAL,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT,
+            lemma TEXT NOT NULL,
+            pos TEXT,
+            polysemy INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id INTEGER PRIMARY KEY,
+            cluster_id INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton INTEGER NOT NULL DEFAULT 0,
+            dominant_type TEXT
+        );
+    """)
+    # Six distinct lemma + property pairs, each snapping via exact match into
+    # its own cluster. The property_type on each synset_properties row drives
+    # which bucket _canonical_type records.
+    rows = [
+        # (synset_id, vocab_id, lemma, property_id, property_text, property_type)
+        ("s1", 1, "alpha", 10, "alpha", None),                       # null
+        ("s2", 2, "beta", 11, "beta", ""),                           # null
+        ("s3", 3, "gamma", 12, "gamma", "sensorimotor"),             # canonical
+        ("s4", 4, "delta", 13, "delta", "behavior"),                 # normalised
+        ("s5", 5, "epsilon", 14, "epsilon", "qzqz_unknown_variant"), # unknown_variant
+        ("s6", 6, "zeta", 15, "zeta", "other"),                      # explicit_other
+    ]
+    for sid, vid, lemma, pid, ptext, ptype in rows:
+        conn.execute("INSERT INTO synsets VALUES (?)", (sid,))
+        conn.execute(
+            "INSERT INTO property_vocab_curated VALUES (?, ?, ?, 'a', 1)",
+            (vid, sid, lemma),
+        )
+        conn.execute(
+            "INSERT INTO vocab_clusters VALUES (?, ?, 1, 0, NULL)",
+            (vid, vid),
+        )
+        conn.execute(
+            "INSERT INTO property_vocabulary (property_id, text, source) "
+            "VALUES (?, ?, 'test')",
+            (pid, ptext),
+        )
+        conn.execute(
+            "INSERT INTO synset_properties VALUES (?, ?, 1.0, ?, NULL)",
+            (sid, pid, ptype),
+        )
+    conn.commit()
+
+    # Capture both INFO (routine breakdown) and WARNING (raised if unknown
+    # variants are seen — canonicalisation-table drift signal).
+    try:
+        with caplog.at_level(logging.INFO, logger="snap_properties"):
+            snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    bucket_messages = [
+        r.message for r in caplog.records
+        if "canonical_type buckets" in r.message
+    ]
+    assert bucket_messages, (
+        "expected a 'canonical_type buckets' summary log line; "
+        f"got messages: {[r.message for r in caplog.records]}"
+    )
+
+    # Parse the dict-rendered counts from the summary line. The log emits
+    # something like "Snap canonical_type buckets: {'null': 2, 'canonical': 1, ...}"
+    counts: dict[str, int] = {}
+    for name in (
+        "null",
+        "canonical",
+        "normalised",
+        "explicit_other",
+        "unknown_variant",
+    ):
+        m = re.search(rf"'{name}':\s*(\d+)", bucket_messages[-1])
+        if m:
+            counts[name] = int(m.group(1))
+
+    assert counts.get("null") == 2, (
+        f"expected null bucket=2 (None + empty string), got {counts}"
+    )
+    assert counts.get("canonical") == 1, (
+        f"expected canonical bucket=1 (sensorimotor), got {counts}"
+    )
+    assert counts.get("normalised") == 1, (
+        f"expected normalised bucket=1 (behavior → behaviour), got {counts}"
+    )
+    assert counts.get("unknown_variant") == 1, (
+        f"expected unknown_variant bucket=1 (qzqz_unknown_variant), got {counts}"
+    )
+    assert counts.get("explicit_other") == 1, (
+        f"expected explicit_other bucket=1 ('other' from LLM), got {counts}"
+    )
+
+    # unknown_variant > 0 must escalate to WARNING — canonicalisation-table
+    # drift is the only bucket that demands operator action (add an entry to
+    # _TYPE_NORMALISATION). Other buckets are routine.
+    warning_messages = [
+        r.message for r in caplog.records
+        if r.levelno == logging.WARNING and "canonical_type" in r.message
+    ]
+    assert warning_messages, (
+        "unknown_variant > 0 must surface as a WARNING so operators see "
+        "canonicalisation-table drift; got only INFO logs"
+    )
