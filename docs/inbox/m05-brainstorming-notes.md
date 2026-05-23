@@ -252,3 +252,34 @@ Tests added: TypeDiversityBonus 5-case unit coverage (empty/single/two-types/all
 
 Outstanding for S04:
 - Live DB has `dominant_type = NULL` — must re-run snap before the γ-sweep can produce signal. ~5-30min on the test DB. Will run as part of S04 setup.
+
+## S04 progress — 2026-05-23 (γ-sweep complete)
+
+Lakoff cohort: 80 apt cross-domain pairs, 90 inapt within-domain pairs.
+
+| γ | d_min | d_max | separation | apt_rate |
+|---|------:|------:|-----------:|---------:|
+| 0.00 | 0.4 | 0.85 | **-0.2695** (baseline, type bonus off) | 0.0 |
+| 0.25 | 0.4 | 0.85 | -0.2046 | 0.0 |
+| 0.50 | 0.4 | 0.85 | -0.1154 | 0.0 |
+| 1.00 | 0.4 | 0.85 | **+0.0384** (first positive separation) | 0.0 |
+| 2.00 | 0.4 | 0.85 | **+0.3193** (best cell) | 0.0 |
+| 1.00 | 0.5 | 0.75 | 0.0000 (M04 v2 best band) | 0.0 |
+
+**Monotone improvement in separation as γ rises.** Apt/inapt gap goes from -0.27 (apt scores below inapt) at γ=0 to +0.32 at γ=2. M05's core hypothesis — type-diversity carries cross-domain metaphor signal — is confirmed.
+
+Caveat: `aptness_rate=0` everywhere. Apt pairs do not yet clear the absolute aptness threshold (apt_score > inapt mean + σ). Bonus alone is insufficient to push apt pairs over the apt-classification line. Expected — Lakoff cohort is deliberately harder than the V2 baseline, and the bonus is correctly placed at the *ranking* level rather than the *absolute-score* level.
+
+Caveat #2: `embedding` and `both` columns are 0 across all cells. The M04 cosine-band path generates zero Lakoff cross-domain candidates — all hits in the sweep come from cluster overlap. The type bonus is therefore lifting cluster-overlap matches, not the cosine-band ones. M04 v2's β-bonus motivation (two-path agreement) gets no signal from this cohort either. Implication: future work should investigate why the cosine band does not surface Lakoff pairs even though it surfaces Forge candidates in the V2 baseline — likely the synset_centroids quality or the d_min floor.
+
+### Default Gamma — escalate to operator
+
+Three defensible choices:
+1. **γ=0.0 (status quo)** — M05 ships dormant. Operators flip via `METAFORGE_FORGE_GAMMA` env after ratifying this verdict. *Safest: no production default flip without operator sign-off.*
+2. **γ=1.0 (conservative)** — first cell with positive separation. Matches Alpha=1.0 convention. Mild separation lift, no absolute aptness gain.
+3. **γ=2.0 (aggressive)** — strongest separation, but type bonus weight exceeds Ortony weight (which sits in [0, 1]); risks over-rewarding type diversity at expense of property-overlap quality.
+
+**Default chosen (this branch): γ=0.0** — code lands dormant. Production deployment can flip via env. The choice between option 2 and option 3 is a brainstorming-grade design decision that should be operator-ratified before becoming a code default.
+
+Verdict file: `data-pipeline/sweeps/m05_lakoff_gamma_verdict.md`
+Results: `data-pipeline/output/m05_lakoff_gamma_results.json`
