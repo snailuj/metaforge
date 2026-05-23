@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import shutil
 import signal
 import statistics
@@ -67,7 +68,13 @@ class CellResult:
 
 
 def load_pairs(path: Path) -> list[tuple[str, str]]:
-    """Load MUNCH-shaped JSONL: one object per line with 'topic' + 'vehicle'."""
+    """Load MUNCH-shaped JSONL: one object per line.
+
+    MUNCH fixtures use ``target`` (the metaphor target word — the topic being
+    described) and ``paraphrase`` (the candidate substitute — the vehicle the
+    forge is ranking). We also accept generic ``topic``/``vehicle`` and other
+    synonyms so the runner works against non-MUNCH fixtures.
+    """
     pairs: list[tuple[str, str]] = []
     with path.open() as f:
         for line in f:
@@ -75,8 +82,8 @@ def load_pairs(path: Path) -> list[tuple[str, str]]:
             if not line:
                 continue
             obj = json.loads(line)
-            topic = obj.get("topic") or obj.get("source") or obj.get("subject")
-            vehicle = obj.get("vehicle") or obj.get("target") or obj.get("object")
+            topic = obj.get("topic") or obj.get("target") or obj.get("source") or obj.get("subject")
+            vehicle = obj.get("vehicle") or obj.get("paraphrase") or obj.get("object")
             if topic and vehicle:
                 pairs.append((str(topic), str(vehicle)))
     return pairs
@@ -112,19 +119,49 @@ def stop_api(proc: subprocess.Popen) -> None:
         proc.wait(timeout=2)
 
 
-def score_pair(base_url: str, topic: str, vehicle: str, limit: int) -> tuple[float | None, str | None]:
-    """Returns (final_score, source_tag) — (None, None) if vehicle absent."""
+def fetch_suggestions(base_url: str, topic: str, limit: int) -> dict[str, tuple[float | None, str | None]] | None:
+    """Fetch /forge/suggest for a topic and return a {vehicle_word: (final_score, source)} map.
+
+    Returns ``None`` if the API call failed (so callers can distinguish a missing topic
+    from a missing vehicle within a topic's suggestion list).
+    """
     try:
         r = requests.get(f"{base_url}/forge/suggest", params={"word": topic, "limit": limit}, timeout=10)
     except requests.RequestException:
-        return None, None
+        return None
     if r.status_code != 200:
-        return None, None
+        return None
     body = r.json()
+    out: dict[str, tuple[float | None, str | None]] = {}
     for s in body.get("suggestions", []):
-        if s.get("word") == vehicle:
-            fs = s.get("final_score")
-            return (float(fs) if fs is not None else None), s.get("candidate_source", "")
+        word = s.get("word")
+        if not word:
+            continue
+        fs = s.get("final_score")
+        out[word] = ((float(fs) if fs is not None else None), s.get("candidate_source", ""))
+    return out
+
+
+def score_pair_cached(
+    cache: dict[str, dict[str, tuple[float | None, str | None]] | None],
+    base_url: str,
+    topic: str,
+    vehicle: str,
+    limit: int,
+) -> tuple[float | None, str | None]:
+    """Returns (final_score, source_tag) — (None, None) if vehicle absent.
+
+    Caches per-topic suggestion lookups within a cell evaluation so repeated topics
+    cost a single HTTP round-trip. MUNCH apt has ~10k pairs over ~1.7k unique topics,
+    so this is a ~6x reduction in API requests per cell.
+    """
+    if topic not in cache:
+        cache[topic] = fetch_suggestions(base_url, topic, limit)
+    suggestions = cache[topic]
+    if suggestions is None:
+        return None, None
+    if vehicle in suggestions:
+        return suggestions[vehicle]
     return None, None
 
 
@@ -154,8 +191,12 @@ def evaluate_cell(
     proc = start_api(binary, db, port, env)
     try:
         base_url = f"http://127.0.0.1:{port}"
+        # Per-topic cache: /forge/suggest output depends only on topic+env, so
+        # we hit the API once per unique topic per cell (env is fixed for the
+        # cell's lifetime).
+        cache: dict[str, dict[str, tuple[float | None, str | None]] | None] = {}
         for topic, vehicle in apt_pairs:
-            fs, src = score_pair(base_url, topic, vehicle, limit)
+            fs, src = score_pair_cached(cache, base_url, topic, vehicle, limit)
             if fs is None:
                 result.apt_missing += 1
                 continue
@@ -163,7 +204,7 @@ def evaluate_cell(
             if src in result.source_mix:
                 result.source_mix[src] += 1
         for topic, vehicle in inapt_pairs:
-            fs, _ = score_pair(base_url, topic, vehicle, limit)
+            fs, _ = score_pair_cached(cache, base_url, topic, vehicle, limit)
             if fs is None:
                 result.inapt_missing += 1
                 continue
@@ -234,6 +275,21 @@ def main(argv: list[str] | None = None) -> int:
     inapt_pairs = load_pairs(Path(cfg["controls"]))
     limit = int(cfg.get("limit", 50))
     port_base = int(cfg.get("api_port_base", 9100))
+
+    # Optional deterministic subsample — keeps each cell's wall-clock
+    # under the calibration budget. Subsampling preserves per-topic
+    # variance because we sample full topic→vehicle pairs (not topics);
+    # the verdict markdown records the effective n.
+    sample_apt = cfg.get("sample_apt")
+    sample_inapt = cfg.get("sample_inapt")
+    seed = int(cfg.get("sample_seed", 17))
+    if sample_apt is not None and sample_apt < len(apt_pairs):
+        rng = random.Random(seed)
+        apt_pairs = rng.sample(apt_pairs, int(sample_apt))
+    if sample_inapt is not None and sample_inapt < len(inapt_pairs):
+        rng = random.Random(seed + 1)
+        inapt_pairs = rng.sample(inapt_pairs, int(sample_inapt))
+    print(f"Cohort: apt={len(apt_pairs)} pairs, inapt={len(inapt_pairs)} pairs", flush=True)
 
     baseline_cfg = cfg["baseline"]
     baseline = evaluate_cell(
