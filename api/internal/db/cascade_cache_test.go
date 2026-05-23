@@ -523,3 +523,103 @@ func TestLoadCascadeCache_AllNullDominantType_LogsWarn(t *testing.T) {
 		t.Errorf("expected WARN level; got:\n%s", logs)
 	}
 }
+
+func TestLoadCascadeCache_AllOtherDominantType_LogsWarn(t *testing.T) {
+	// R4 type-design finding: typed_clusters at startup must align with
+	// the scorer's discriminating-types definition (TypeDiversityBonus
+	// excludes both "" AND "other"). A DB where every cluster's
+	// dominant_type is "other" would log typed_clusters=N untyped_pct=0
+	// and look healthy, yet TypeDiversityBonus would silently return 0
+	// on every pair. Surface this with an operator-actionable Warn.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`INSERT INTO synset_concreteness VALUES ('s-1', 3.0, 'test')`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'other')`,
+		`INSERT INTO vocab_clusters VALUES (2, 200, 'other')`,
+		`INSERT INTO vocab_clusters VALUES (3, 300, 'other')`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, `"discriminating_clusters":0`) {
+		t.Errorf("expected discriminating_clusters=0 in Info log; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `"typed_clusters":3`) {
+		t.Errorf("expected typed_clusters=3 in Info log; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, "every typed cluster has dominant_type=\\\"other\\\"") {
+		t.Errorf("expected Warn about all-\"other\" typed clusters; got:\n%s", logs)
+	}
+}
+
+func TestLoadCascadeCache_MixedDominantType_LogsDiscriminatingCount(t *testing.T) {
+	// R4 type-design pinning: discriminating_clusters counts clusters
+	// with dominant_type set AND not equal to "other". Mixed-input
+	// regression guard so future "other"-bucket changes don't drift the
+	// signal away from TypeDiversityBonus's exclusion rule.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`INSERT INTO synset_concreteness VALUES ('s-1', 3.0, 'test')`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (2, 200, 'behaviour')`,
+		`INSERT INTO vocab_clusters VALUES (3, 300, 'other')`,
+		`INSERT INTO vocab_clusters VALUES (4, 400, NULL)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	// typed = sensorimotor + behaviour + other = 3
+	// discriminating = sensorimotor + behaviour = 2 (excludes "other" and NULL)
+	if !strings.Contains(logs, `"typed_clusters":3`) {
+		t.Errorf("expected typed_clusters=3; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `"discriminating_clusters":2`) {
+		t.Errorf("expected discriminating_clusters=2; got:\n%s", logs)
+	}
+	// All-"other" Warn must NOT fire — we have discriminating clusters.
+	if strings.Contains(logs, "every typed cluster has dominant_type") {
+		t.Errorf("must not emit all-other Warn when discriminating clusters exist; got:\n%s", logs)
+	}
+}

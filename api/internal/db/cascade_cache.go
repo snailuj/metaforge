@@ -76,16 +76,24 @@ func LoadCascadeCache(database *sql.DB) (*CascadeCache, error) {
 	}
 	stopTypes("rows", len(cache.ClusterTypes))
 
-	// Surface M05 pipeline readiness: if vocab_clusters loaded but every
-	// dominant_type is NULL, the data pipeline hasn't been re-run since
-	// the M05 S01 snap_properties.py change. Non-blocking — the cascade
-	// remains serviceable; the type-diversity bonus simply degrades to
-	// the M03/M04 scoring math. Per-cluster ratio also logged so an
-	// operator can spot partial coverage.
+	// Surface M05 pipeline readiness. Two counters with distinct semantics:
+	//   - typedClusters: dominant_type != "" — coverage of the snap pipeline.
+	//   - discriminatingClusters: dominant_type != "" AND != "other" — clusters
+	//     that actually contribute to forge.TypeDiversityBonus's distinct-count.
+	// Both matter: typedClusters tracks pipeline completeness (drives the
+	// "needs snap_properties.py re-run" Warn), discriminatingClusters tracks
+	// the scorer's effective input. A DB heavy in "other"-typed clusters
+	// would log typedClusters=N untyped_pct=0 yet produce zero bonus on
+	// every pair — keep the two signals aligned with the scorer at
+	// forge/cascade.go:TypeDiversityBonus.
 	typedClusters := 0
+	discriminatingClusters := 0
 	for _, t := range cache.ClusterTypes {
 		if t != "" {
 			typedClusters++
+			if t != "other" {
+				discriminatingClusters++
+			}
 		}
 	}
 	if len(cache.ClusterTypes) > 0 && typedClusters == 0 {
@@ -95,7 +103,17 @@ func LoadCascadeCache(database *sql.DB) (*CascadeCache, error) {
 		slog.Info("cascade cache: cluster types loaded",
 			"cluster_rows", len(cache.ClusterTypes),
 			"typed_clusters", typedClusters,
-			"untyped_pct", float64(len(cache.ClusterTypes)-typedClusters)/float64(len(cache.ClusterTypes))*100)
+			"discriminating_clusters", discriminatingClusters,
+			"untyped_pct", float64(len(cache.ClusterTypes)-typedClusters)/float64(len(cache.ClusterTypes))*100,
+			"non_discriminating_pct", float64(len(cache.ClusterTypes)-discriminatingClusters)/float64(len(cache.ClusterTypes))*100)
+		// Operator-actionable signal: typed but never discriminating means
+		// snap collapsed every cluster to "other". TypeDiversityBonus will
+		// silently return 0 for every pair scored against this cache.
+		if typedClusters > 0 && discriminatingClusters == 0 {
+			slog.Warn("cascade cache: every typed cluster has dominant_type=\"other\" — TypeDiversityBonus will yield 0 on every pair; inspect snap canonical_type buckets and the enrichment property_type distribution",
+				"cluster_rows", len(cache.ClusterTypes),
+				"typed_clusters", typedClusters)
+		}
 	}
 
 	stopTotal("concreteness_rows", len(cache.Concreteness),
