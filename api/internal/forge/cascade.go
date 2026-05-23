@@ -333,7 +333,7 @@ type CascadeResult struct {
 
 	// M05 diagnostics — set only when Gamma > 0 and ClusterTypes was provided.
 	TypeDiversityBonus *float64 // [0, 1] — (distinct_types - 1) / 5, clamped at 0
-	SharedTypesCount   int      // 0..7 — number of distinct canonical types in the overlap
+	SharedTypesCount   int      // 0..6 — count of distinct discriminating canonical types in the overlap (excludes "other" and unknown)
 }
 
 // TypeDiversityMaxDistinct is the canonical count of distinct property
