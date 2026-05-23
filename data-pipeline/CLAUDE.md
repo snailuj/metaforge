@@ -89,10 +89,12 @@ python data-pipeline/scripts/snap_properties.py \
 **Diagnostic artefact:** every drop (no exact, morphological, or embedding match above threshold) is streamed to `data-pipeline/output/snap_dropped.jsonl` (alongside the DB). One JSON object per line, lazy-opened on first drop:
 
 ```
-{"text": "...", "synset_id": "...", "salience": 0.42, "reason": "zero_norm|no_embedding|below_threshold", "best_score": 0.61}
+{"text": "...", "synset_id": "...", "salience": 0.42, "reason": "zero_norm|no_embedding|below_threshold", "property_type": "sensorimotor|behaviour|functional|effect|emotional|social|other", "best_score": 0.61}
 ```
 
-`best_score` is present only for `below_threshold` rows. The file is diagnostic-only: if `open()`/`write()` fails (ENOSPC, PermissionError, non-serialisable record) snap logs a WARNING and continues with the canonical pipeline. In-memory DBs (`:memory:`) skip the JSONL entirely — there's no on-disk path to write alongside.
+`property_type` is the M05 canonical type (always populated; LLM variants are normalised, unknown values bucket to `"other"`) so post-hoc drop analyses can correlate loss against type. `best_score` is present only for `below_threshold` rows. The file is diagnostic-only: if `open()`/`write()` fails (ENOSPC, PermissionError, non-serialisable record) snap logs a WARNING and continues with the canonical pipeline. In-memory DBs (`:memory:`) skip the JSONL entirely — there's no on-disk path to write alongside.
+
+Drops are written to `snap_dropped.jsonl.tmp` during the run and atomic-renamed to `snap_dropped.jsonl` ONLY after the DB transaction commits. On commit failure (or any earlier raise after the first drop) the canonical filename is never created — operators inspecting it after a crash will not mistake rolled-back drops for authoritative ones. The `.tmp` file is left in place so drops remain inspectable.
 
 ### 4. Evaluate MRR
 
