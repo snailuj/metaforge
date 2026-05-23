@@ -76,3 +76,62 @@ func TestMain_MalformedGamma_FailsLoud(t *testing.T) {
 			stderr.String())
 	}
 }
+
+// TestMain_EmptyGamma_FailsLoud — R3.PR.SFH O4: an explicit-empty
+// METAFORGE_FORGE_GAMMA (e.g. `export METAFORGE_FORGE_GAMMA=` to clear
+// it in a shell) is operationally indistinguishable from malformed
+// input — both should fail loud. The previous gate
+// `if envGamma != ""` treated explicit-empty as unset and silently
+// degraded to Gamma=0, disabling M05 while the operator believed they
+// had simply cleared a stale value. LookupEnv distinguishes "set to
+// empty" from "not set"; empty must escalate via ParseFloat error.
+func TestMain_EmptyGamma_FailsLoud(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping exec test in -short mode")
+	}
+
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "metaforge")
+
+	build := exec.Command("go", "build", "-o", bin, ".")
+	build.Dir = "."
+	var buildErr bytes.Buffer
+	build.Stderr = &buildErr
+	if err := build.Run(); err != nil {
+		t.Fatalf("go build: %v\nstderr: %s", err, buildErr.String())
+	}
+
+	cmd := exec.Command(bin, "--db", bin, "--port", "0")
+	// Explicit empty value — distinct from unset. The fix must treat
+	// this as a malformed signal and refuse to start.
+	cmd.Env = append(os.Environ(),
+		"METAFORGE_FORGE_GAMMA=",
+		"METAFORGE_FORGE_CASCADE=0",
+	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+
+	if err == nil {
+		t.Fatalf("expected non-zero exit on explicit-empty METAFORGE_FORGE_GAMMA, got success. stderr:\n%s",
+			stderr.String())
+	}
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected *exec.ExitError, got %T: %v", err, err)
+	}
+	if exitErr.ExitCode() == 0 {
+		t.Fatalf("expected non-zero exit code, got 0")
+	}
+	if !strings.Contains(stderr.String(), "METAFORGE_FORGE_GAMMA") {
+		t.Errorf("expected fatal log to mention METAFORGE_FORGE_GAMMA, stderr:\n%s",
+			stderr.String())
+	}
+	// Must die at the Gamma parse boundary, not later at handler init —
+	// otherwise the env-var-empty signal got masked by a downstream
+	// symptom.
+	if strings.Contains(stderr.String(), "Failed to initialise") {
+		t.Errorf("Gamma empty-value fatal must fire BEFORE handler init, but stderr shows handler-init failure:\n%s",
+			stderr.String())
+	}
+}

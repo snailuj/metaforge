@@ -45,8 +45,15 @@ func main() {
 	// whole NewGamma boundary cast. Parse the env var explicitly and
 	// log.Fatalf on malformed input, then thread the validated value as
 	// the flag default.
+	//
+	// R3.PR.SFH O4: use LookupEnv to distinguish "set to empty"
+	// (METAFORGE_FORGE_GAMMA= in a shell — operator clearing a stale
+	// value) from "not set" (no env var at all). An explicit empty
+	// string is operationally indistinguishable from malformed input
+	// — both should fail loud rather than silently degrade to Gamma=0
+	// while the operator believes they have cleared the var.
 	gammaDefault := 0.0
-	if envGamma := os.Getenv("METAFORGE_FORGE_GAMMA"); envGamma != "" {
+	if envGamma, set := os.LookupEnv("METAFORGE_FORGE_GAMMA"); set {
 		v, err := strconv.ParseFloat(envGamma, 64)
 		if err != nil {
 			log.Fatalf("METAFORGE_FORGE_GAMMA is malformed (%q): %v", envGamma, err)
