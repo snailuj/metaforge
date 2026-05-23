@@ -1,8 +1,8 @@
-// Package handler — cascadePipeline extracts the /forge/suggest cascade
-// orchestration out of the 290-line handleSuggestCascade god-function
-// (D24). Each method advances one phase (fetch → score → respond), and
-// every terminal outcome flows through emit() — the single emission
-// site for cascade_request_total timing + the "cascade request complete"
+// cascadePipeline extracts the /forge/suggest cascade orchestration out
+// of the 290-line handleSuggestCascade god-function (D24). Each method
+// advances one phase (fetch → score → respond), and every terminal
+// outcome flows through emit() — the single emission site for
+// cascade_request_total timing + the "cascade request complete"
 // slog.Info record. This eliminates the 6 paired stopTotal + slog.Info
 // sites that accumulated across M04 review rounds and provides a
 // natural home for the anomaly counters (D23).
@@ -62,6 +62,7 @@ type cascadeAnomalies struct {
 	embeddingConcretenessMisses    int
 	emptyPropsBatchFlag            bool
 	embeddingPathUnavailable       bool // D15: set when embedding ErrLemmaNotFound in union mode with cluster success
+	clusterPathUnavailable         bool // OWN-3: union mode + cluster ErrLemmaNotFound + embedding success
 	embeddingDimMismatches         int  // D19: counter for ok==false in scanEmbeddingBand
 }
 
@@ -74,6 +75,7 @@ func (a cascadeAnomalies) Attrs() []any {
 		"embedding_no_concreteness", a.embeddingConcretenessMisses,
 		"empty_props_batch", a.emptyPropsBatchFlag,
 		"embedding_path_unavailable", a.embeddingPathUnavailable,
+		"cluster_path_unavailable", a.clusterPathUnavailable,
 		"embedding_dim_mismatches", a.embeddingDimMismatches,
 	}
 }
@@ -114,7 +116,7 @@ func (p *cascadePipeline) close() {
 // "continue"; any other status means "respond with this error and stop".
 func (p *cascadePipeline) fetch() (string, int, error) {
 	var err error
-	if p.h.cascadeConf.CandidateSources != forge.ModeEmbedding {
+	if p.h.cascadeConf.Mode != forge.ModeEmbedding {
 		// Symmetric with the embedding-path stage timer below: only
 		// emit cascade_candidates_query when the cluster path actually
 		// runs. In embedding_only mode the cluster fetch is fully
@@ -129,7 +131,7 @@ func (p *cascadePipeline) fetch() (string, int, error) {
 	// defer the 404 decision until after the embedding path runs.
 	if errors.Is(err, db.ErrLemmaNotFound) {
 		p.clusterLemmaNotFound = true
-		if p.h.cascadeConf.CandidateSources == forge.ModeCluster {
+		if p.h.cascadeConf.Mode == forge.ModeCluster {
 			return "lemma_not_found", http.StatusNotFound, err
 		}
 		// In union mode, defer 404 decision until after embedding path.
@@ -138,7 +140,7 @@ func (p *cascadePipeline) fetch() (string, int, error) {
 		return "candidates_error", http.StatusInternalServerError, err
 	}
 
-	if p.h.cascadeConf.CandidateSources != forge.ModeCluster {
+	if p.h.cascadeConf.Mode != forge.ModeCluster {
 		stopEmb := observe.Start("cascade_embedding_query")
 		embCfg := db.ForgeEmbeddingConfig{
 			DMin: p.h.cascadeConf.EmbeddingDMin,
@@ -151,7 +153,7 @@ func (p *cascadePipeline) fetch() (string, int, error) {
 		stopEmb("word", p.word, "count", len(p.embedding))
 		if errors.Is(err, db.ErrLemmaNotFound) {
 			// Only 404 if cluster path also failed (or embedding-only).
-			if p.clusterLemmaNotFound || p.h.cascadeConf.CandidateSources == forge.ModeEmbedding {
+			if p.clusterLemmaNotFound || p.h.cascadeConf.Mode == forge.ModeEmbedding {
 				return "lemma_not_found", http.StatusNotFound, err
 			}
 			// D15: union mode + cluster-success + embedding-fetch-fail —
@@ -163,6 +165,13 @@ func (p *cascadePipeline) fetch() (string, int, error) {
 		} else if err != nil {
 			slog.Error("cascade embedding fetch failed", "word", p.word, "err", err)
 			return "embedding_error", http.StatusInternalServerError, err
+		} else if p.clusterLemmaNotFound && p.h.cascadeConf.Mode == forge.ModeUnion {
+			// OWN-3 symmetric to D15: union mode + cluster ErrLemmaNotFound
+			// + embedding-fetch-success. Cluster path is silently
+			// unavailable for this lemma. Lift to the anomaly aggregator
+			// so the final outcome log signals it instead of normalising
+			// to outcome=scored with zero signal.
+			p.anomalies.clusterPathUnavailable = true
 		}
 	}
 
@@ -358,10 +367,11 @@ func (p *cascadePipeline) respondScored(w http.ResponseWriter) {
 }
 
 // emitError writes an HTTP error response and closes the request
-// through emit(). The error has already been logged at Error level by
-// the phase method that produced it; emit() carries the outcome enum
-// onto the cascade_request_total + "cascade request complete" records.
-func (p *cascadePipeline) emitError(w http.ResponseWriter, outcome string, status int, _ error) {
+// through emit(). Phase methods log the underlying error at the
+// slog.Error level before invoking emitError; this method owns only
+// the HTTP response shape and the terminal cascade_request_complete
+// signal, so it does not need the error value.
+func (p *cascadePipeline) emitError(w http.ResponseWriter, outcome string, status int) {
 	switch status {
 	case http.StatusNotFound:
 		http.Error(w, `{"error": "word not found or has no curated properties"}`, status)

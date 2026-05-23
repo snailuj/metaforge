@@ -1,10 +1,16 @@
 package db
 
 import (
+	"bytes"
+	"database/sql"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/snailuj/metaforge/internal/forge"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // vec returns a length-300 float32 vector with the supplied prefix and
@@ -151,5 +157,39 @@ func TestGetForgeCascadeCandidatesByEmbedding_UnknownLemmaReturnsErrLemmaNotFoun
 	}
 	if !errors.Is(err, ErrLemmaNotFound) {
 		t.Fatalf("want ErrLemmaNotFound, got %v", err)
+	}
+}
+
+// TestResolveLemmaSiblingSynsets_EmptyResult_LogsError pins D20/D22:
+// when the lemmas table is empty (or has no rows for the requested
+// lemma) yet the caller has already resolved a primary synset, that is
+// a cross-row DB invariant break — the function must NOT swallow it
+// silently. The function returns an empty map (caller has a nil-safe
+// downstream path) but also fires a loud slog.Error.
+func TestResolveLemmaSiblingSynsets_EmptyResult_LogsError(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
+	defer slog.SetDefault(prev)
+
+	tmp := t.TempDir() + "/sib.db"
+	database, err := sql.Open("sqlite3", tmp)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`CREATE TABLE lemmas (synset_id TEXT, lemma TEXT)`); err != nil {
+		t.Fatalf("CREATE: %v", err)
+	}
+
+	out, err := resolveLemmaSiblingSynsets(database, "nonexistent")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(out) != 0 {
+		t.Errorf("want empty map, got %v", out)
+	}
+	if !strings.Contains(buf.String(), "resolveLemmaSiblingSynsets empty after primary resolved") {
+		t.Errorf("expected DB invariant break Error log; got:\n%s", buf.String())
 	}
 }

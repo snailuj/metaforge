@@ -460,7 +460,7 @@ func TestCascadeUnion_ClassicalPairsSurface_AsCandidates(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.ModeUnion
+	cfg.Mode = forge.ModeUnion
 	cfg.EmbeddingDMin = 0.0
 	cfg.EmbeddingDMax = 2.0
 	// TopK pinned at forge.EmbeddingTopKCeiling for the canary: this
@@ -515,7 +515,7 @@ func TestCascadeUnion_ClassicalPairsSurface_AsCandidates(t *testing.T) {
 }
 
 // TestCascadeClusterOnly_ResponseShapeUnchanged pins the contract that
-// CandidateSources=cluster_only behaves byte-for-byte identically to
+// Mode=cluster_only behaves byte-for-byte identically to
 // the pre-M04 M03 cascade. The assertion is "no row carries Source !=
 // SourceCluster" plus "the embedding query stage timer is NOT emitted"
 // — i.e. the embedding path is fully skipped, not run-and-discarded.
@@ -535,7 +535,7 @@ func TestCascadeClusterOnly_ResponseShapeUnchanged(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.ModeCluster
+	cfg.Mode = forge.ModeCluster
 	if err := h.WithCascadeConfig(cfg); err != nil {
 		t.Fatalf("WithCascadeConfig: %v", err)
 	}
@@ -581,7 +581,7 @@ func TestCascadeEmbeddingOnly_ProducesEmbeddingTaggedRowsOnly(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.ModeEmbedding
+	cfg.Mode = forge.ModeEmbedding
 	cfg.EmbeddingDMin = 0.0
 	cfg.EmbeddingDMax = 1.5
 	cfg.EmbeddingTopK = 200
@@ -628,7 +628,7 @@ func TestCascadeUnion_LatencyBudget(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.ModeUnion
+	cfg.Mode = forge.ModeUnion
 	if err := h.WithCascadeConfig(cfg); err != nil {
 		t.Fatalf("WithCascadeConfig: %v", err)
 	}
@@ -816,7 +816,7 @@ func TestCascade_UnionMode_NoConcretenessErrorForEmbeddingMisses(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.ModeUnion
+	cfg.Mode = forge.ModeUnion
 	cfg.EmbeddingDMin = 0.0
 	cfg.EmbeddingDMax = 1.5
 	cfg.EmbeddingTopK = 200
@@ -852,7 +852,7 @@ func TestCascade_EmbeddingOnly_OmitsTierFromJSON(t *testing.T) {
 	defer h.Close()
 
 	cfg := forge.DefaultCascadeConfig()
-	cfg.CandidateSources = forge.ModeEmbedding
+	cfg.Mode = forge.ModeEmbedding
 	cfg.EmbeddingDMin = 0.0
 	cfg.EmbeddingDMax = 1.5
 	cfg.EmbeddingTopK = 50
@@ -892,5 +892,154 @@ func TestHandleSuggest_LemmaCaseInsensitive(t *testing.T) {
 					w.Code, word, w.Body.String())
 			}
 		})
+	}
+}
+
+// TestCascadePipeline_EmbeddingPathUnavailable_AttrPresentOnCompleteLog
+// pins D15: the cascadeAnomalies.embeddingPathUnavailable flag must
+// flow through Attrs() → emit() onto the "cascade request complete"
+// Info log on every union-mode request. We assert PRESENCE of the
+// attr key here — constructing the union+cluster-success+embedding-404
+// scenario requires injecting a divergent test fixture (both paths
+// share the same lemmas JOIN synset_properties_curated filter against
+// the real DB), which is out of scope for this canary. Presence proves
+// the field flows from struct → Attrs() → emit().
+func TestCascadePipeline_EmbeddingPathUnavailable_AttrPresentOnCompleteLog(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer slog.SetDefault(prev)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.Mode = forge.ModeUnion
+	cfg.EmbeddingDMin = 0.0
+	cfg.EmbeddingDMax = 1.5
+	cfg.EmbeddingTopK = 50
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=10", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, `"msg":"cascade request complete"`) {
+		t.Fatalf("expected cascade request complete log; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `"embedding_path_unavailable":`) {
+		t.Errorf("embedding_path_unavailable attr missing from emit log:\n%s", logs)
+	}
+}
+
+// TestCascadePipeline_ClusterPathUnavailable_AttrPresentOnCompleteLog
+// pins the OWN-3 symmetric flag for union+cluster-404+embedding-success.
+// Asserts the attr key is present on every union-mode request — the
+// flag value is false in the happy path; non-zero requires the same
+// kind of fixture-divergence work as the D15 counterpart.
+func TestCascadePipeline_ClusterPathUnavailable_AttrPresentOnCompleteLog(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer slog.SetDefault(prev)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.Mode = forge.ModeUnion
+	cfg.EmbeddingDMin = 0.0
+	cfg.EmbeddingDMax = 1.5
+	cfg.EmbeddingTopK = 50
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=10", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, `"cluster_path_unavailable":`) {
+		t.Errorf("cluster_path_unavailable attr missing from emit log:\n%s", logs)
+	}
+}
+
+// TestCascadePipeline_EmbeddingDimMismatches_AttrPresentOnCompleteLog
+// pins D19: the cascadeAnomalies.embeddingDimMismatches counter must
+// flow through Attrs() → emit() onto the cascade_request_complete
+// Info log on every request. Non-zero requires injecting a wrong-dim
+// or zero-norm centroid into the cache — overkill for this canary;
+// presence of the attr key is sufficient to prove the wire.
+func TestCascadePipeline_EmbeddingDimMismatches_AttrPresentOnCompleteLog(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer slog.SetDefault(prev)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=10", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	logs := buf.String()
+	if !strings.Contains(logs, `"embedding_dim_mismatches":`) {
+		t.Errorf("embedding_dim_mismatches attr missing from emit log:\n%s", logs)
+	}
+}
+
+// TestCascadePipeline_CloseWithoutEmit_LogsProgrammingError pins the
+// defer-safety net: if a phase method returns without invoking emit()
+// (a programming error), close() must fire a loud slog.Error. In
+// normal flow emit() sets p.closed before close() is reached, making
+// close() a no-op. We exercise the dormant branch directly here.
+func TestCascadePipeline_CloseWithoutEmit_LogsProgrammingError(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
+	defer slog.SetDefault(prev)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	p := newCascadePipeline(h, "anger", 5)
+	// Deliberately skip any emit*() call — simulate a phase method
+	// returning without owning emission.
+	p.close()
+
+	if !strings.Contains(buf.String(), "cascadePipeline closed without explicit emit") {
+		t.Errorf("expected programming-error Error log on bare close(); got:\n%s", buf.String())
+	}
+
+	// Idempotency: a second close() must be a no-op (no second log line).
+	prevLen := buf.Len()
+	p.close()
+	if buf.Len() != prevLen {
+		t.Errorf("close() must be idempotent; second invocation wrote: %s", buf.String()[prevLen:])
 	}
 }

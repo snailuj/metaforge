@@ -306,9 +306,9 @@ func TestCascadeConfig_DefaultIsValid(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("DefaultCascadeConfig must validate: %v", err)
 	}
-	if cfg.CandidateSources != ModeCluster {
-		t.Errorf("default CandidateSources: want %q (pre-sweep), got %q",
-			ModeCluster, cfg.CandidateSources)
+	if cfg.Mode != ModeCluster {
+		t.Errorf("default Mode: want %q (pre-sweep), got %q",
+			ModeCluster, cfg.Mode)
 	}
 	if cfg.EmbeddingDMin != 0.4 || cfg.EmbeddingDMax != 0.85 || cfg.EmbeddingTopK != 100 {
 		t.Errorf("default embedding knobs: got dMin=%v dMax=%v topK=%v",
@@ -324,7 +324,7 @@ func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
 		mut  func(c *CascadeConfig)
 		want string
 	}{
-		{"unknown sources", func(c *CascadeConfig) { c.CandidateSources = "all" }, "CandidateMode"},
+		{"unknown sources", func(c *CascadeConfig) { c.Mode = "all" }, "CandidateMode"},
 		{"negative dMin", func(c *CascadeConfig) { c.EmbeddingDMin = -0.1 }, "EmbeddingDMin"},
 		{"dMin above 2", func(c *CascadeConfig) { c.EmbeddingDMin = 2.5 }, "EmbeddingDMin"},
 		{"dMax not above dMin", func(c *CascadeConfig) { c.EmbeddingDMax = c.EmbeddingDMin }, "EmbeddingDMax"},

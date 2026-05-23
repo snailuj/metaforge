@@ -55,7 +55,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid --candidate-sources value: %v", err)
 	}
-	cascadeCfg.CandidateSources = mode
+	cascadeCfg.Mode = mode
 	cascadeCfg.EmbeddingDMin = *embDMin
 	cascadeCfg.EmbeddingDMax = *embDMax
 	cascadeCfg.EmbeddingTopK = *embTopK
