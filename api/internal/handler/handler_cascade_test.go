@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/snailuj/metaforge/internal/forge"
 	"github.com/snailuj/metaforge/internal/observe"
@@ -605,4 +606,41 @@ func TestCascadeEmbeddingOnly_ProducesEmbeddingTaggedRowsOnly(t *testing.T) {
 		// Cluster-path query timer must NOT fire in embedding_only mode.
 		t.Errorf("embedding_only mode must skip cluster path; saw cascade_candidates_query in logs")
 	}
+}
+
+// TestCascadeUnion_LatencyBudget pins the M04 latency floor: a union-mode
+// request for 'anger' (broad lemma, ~35k centroid scan) must complete
+// within 750ms in-process. Threshold is generous vs the spec's 500ms p99
+// — this is a smoke test running under the Go test framework, not a
+// production benchmark.
+func TestCascadeUnion_LatencyBudget(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping latency smoke in -short mode")
+	}
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	cfg := forge.DefaultCascadeConfig()
+	cfg.CandidateSources = forge.SourcesUnion
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=50", nil)
+	w := httptest.NewRecorder()
+
+	start := time.Now()
+	h.HandleSuggest(w, req)
+	elapsed := time.Since(start)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if elapsed > 750*time.Millisecond {
+		t.Errorf("union-mode anger limit=50 took %v, want ≤ 750ms", elapsed)
+	}
+	t.Logf("union-mode anger limit=50 elapsed: %v", elapsed)
 }
