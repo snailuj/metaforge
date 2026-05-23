@@ -86,7 +86,7 @@ func main() {
 		"cascade", *cascade, "cascade_timing", *cascadeTiming,
 		"candidate_sources", *candidateSources,
 		"emb_dmin", *embDMin, "emb_dmax", *embDMax, "emb_topk", *embTopK,
-		"gamma", *gamma)
+		"forge_gamma", *gamma)
 
 	srv := &http.Server{
 		Addr:         addr,
