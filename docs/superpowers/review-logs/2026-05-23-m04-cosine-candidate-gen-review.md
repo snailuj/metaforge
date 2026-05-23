@@ -30,7 +30,7 @@
 - **why_out_of_scope:** The duplication is a 3-field copy at the handler boundary. The justification (layer isolation) is partially valid even if `db` already imports `forge` for `CandidateSource`. A future knob will be forgotten in one of the two places — but until that happens, the explicit copy is fine.
 - **proposed_followup:** Either lift `ForgeEmbeddingConfig` into `forge` and embed in `CascadeConfig`, or add `CascadeConfig.EmbeddingBand() ForgeEmbeddingConfig` accessor for the handler copy.
 
-### D4 — Embedding-only candidates get `TierUnlikely` in JSON wire
+### D4 — Embedding-only candidates get `TierUnlikely` in JSON wire ✗ SUPERSEDED-BY-FIX (commit a3af2157)
 - **Severity:** important
 - **Status:** active
 - **Raised by:** type-design-analyzer (TD-OWN-5)
@@ -94,7 +94,7 @@
 - **why_out_of_scope:** Renaming to `CandidateMode` / `ModeCluster` etc. would touch every call site in db, forge, handler, main, tests — wide blast radius for a cosmetic win. The Go compiler catches the only realistic confusion (passing `CandidateSource` where `CandidateSources` is expected).
 - **proposed_followup:** Land before M05 type-aligned work to avoid compounding the type vocabulary.
 
-### D12 — `forge.Match.Source` JSON tag collides with `SuggestResponse.Source`
+### D12 — `forge.Match.Source` JSON tag collides with `SuggestResponse.Source` ✗ SUPERSEDED-BY-FIX (commit a3af2157)
 - **Severity:** low
 - **Status:** active
 - **Raised by:** type-design-analyzer (TD-OWN-6)
