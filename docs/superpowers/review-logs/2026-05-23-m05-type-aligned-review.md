@@ -178,3 +178,109 @@ UX adapter skipped per orchestrator config (no UI changes in scope).
 
 Total rounds: 1 | Items resolved: 27 (17 fixes + 6 skips + 4 resolved-by-other-fix) | Active deferrals: 0 | Superseded deferrals: 1 (Gamma newtype → fixed via challenger re-triage) | Elapsed: ~3h
 
+
+---
+
+## Round 2 — Combined (2026-05-23T17:30:00Z)
+
+**Adapters dispatched in parallel (same 5 as Round 1).**
+
+### Items Found (merged across 5 reviewers, 21 unique)
+
+**IMPORTANT (7) — all fixed in this round:**
+
+- [important] loadClusterTypes divergence check has false-negative branches (NULL→non-NULL and non-NULL→NULL silently overwrite) → **fix** 602f0b1b
+- [important] divergence Warn unbounded → log-flood risk → **fix** 93febc6d (cap at 10 + summary Error)
+- [important] Committed verdict file stale (still M04 title) — write_verdict was parametrised in R1 but artefact never regenerated → **fix** 89e51a94 (regenerated against current code)
+- [important] forge.Match.SharedTypesCount int+omitempty defeats wire-shape diagnostic → **fix** e9f3078d (int → *int)
+- [important] envFloat swallows malformed METAFORGE_FORGE_GAMMA → silently defaults to 0 → **fix** c0545c38 (explicit ParseFloat + log.Fatalf)
+- [important] snap_dropped.jsonl persists across DB rollback (misleading authoritative artefact) → **fix** 46efc6fc (atomic-rename .tmp→canonical post-commit) + 5df7384a (CLAUDE.md doc)
+- [important] m04_sweep_runner __getattribute__ override leaks computation exceptions through plain attribute access → **fix** 16692031 (replace with @property)
+
+**MEDIUM (4) — all re-triaged via challenger to fix:**
+
+- [medium] GammaWeight newtype bypassable through untyped numeric literals — defined-type form is informational documentation only, not unforgeable. Challenger: `reject_defer / cost_under_1h` → **fix** 533dc038 (struct-wrap with unexported field + .Value() accessor)
+- [medium] vocab_clusters.dominant_type has no CHECK constraint — breaks SCHEMA convention; cross-language test pins count only, not contents. Challenger: `reject_defer / cost_under_1h` (DROP+CREATE on every cluster_vocab run = no migration concern) → **fix** 70234123 (CHECK constraint + set-contents test)
+- [medium] _canonical_type silently groups None/empty/unknown/explicit-other into single "other" bucket. Challenger: `reject_defer / scope_claim_false` (JSONL stores canonicalised value, jq can't recover) → **fix** a39e5f0a (3-bucket Counter + summary log)
+- [medium] t.Skip on M05 integration test silently greens stale-DB CI environments. Challenger: `reject_defer / cost_under_1h` (h.cache.ClusterTypes is mutable public map) → **fix** (bundled into 533dc038 by pre-commit hook concurrency; t.Skip removed, in-place mutation injected)
+
+**LOW (6):**
+
+- [low] ClusterTypes empty-map check inconsistent with docstring → **fix** 78b4af43 (tighten to len > 0)
+- [low] cluster_vocab.py DROP+CREATE wipes dominant_type with no operator notification → **fix** 31869682 (logger.warning on completion)
+- [low] data-pipeline/CLAUDE.md Operations §3 missing property_type schema update → **fix** 5df7384a
+- [low] R1's "Gamma>0 on all-NULL DB silent zero per-request log" skip rationale partly inaccurate (startup Warn only covers all-NULL extreme, not partial coverage) → **skip** with refined rationale: partial-coverage observability would need a periodic counter (M07-class observability work, not M05 scope). The pointed-out wording overclaim in R1 is fair; the skip decision still holds.
+- [low] R1's "ClusterTypes nil-vs-empty resolved by alignment fix" claim was partial — the alignment fixed in-memory struct but not wire shape. **Now resolved** by Batch C fixes (e9f3078d *int + 78b4af43 len>0 gate).
+- [low] R1's "SharedTypesCount=0 conflates 'no shared' vs 'shared all unknown'" — same as above, **now resolved** by e9f3078d.
+
+**COSMETIC (4):**
+
+- [cosmetic] cascade_cache.go map-size hint comment overstates row vs cluster count → **skip** (1-line nit, no behaviour impact; comment still useful)
+- [cosmetic] TypeDiversityMaxDistinct dual-use as max + denom-1 → **skip** (constant is correctly used; naming is local to forge package)
+- [cosmetic] Permanent commit subject 9977c003 says "confirmed" while body downgraded → **skip** (cannot rewrite landed history without force-push)
+- [cosmetic] Cross-language guard regex substring-match limitation → **skip** (current test catches what it set out to catch; tightening regex is defensive)
+
+**REVIEWER ERRORS (2):**
+
+- [reviewer-error] R2.STD claimed no direct NewGamma unit test exists → **skip**: `TestNewGamma_RejectsNegativeNaNInf` (cascade_test.go:378) and `TestNewGamma_AcceptsZeroAndPositive` (cascade_test.go:407) both exist from R1 fix 416ea0b6.
+- [reviewer-error] R2.SP.CR's "GammaWeight pattern drift vs Composition/CandidateMode" — both patterns (constructor vs Valid()) are defensible Go idioms. Subsumed by struct-wrap fix anyway (NewGamma is now the ONLY construction path, more strictly enforced than .Valid()).
+
+### Deferral Challenges This Round
+
+Four challengers dispatched:
+
+1. **GammaWeight encapsulation** (2026-05-23T17:50:00Z) — `reject_defer / cost_under_1h`. Scope claim "broader refactor of all 4 float64 params" failed (Alpha/DCap/ConcretenessThreshold have no operator entry point, struct-wrap precedent does not apply). 30-60min sketch followed → fix 533dc038.
+
+2. **dominant_type CHECK constraint** (2026-05-23T17:50:00Z) — `reject_defer / cost_under_1h`. Scope claim "live-DB migration required" failed (cluster_vocab.py DROP+CREATE recreates table every run). <30min sketch followed → fix 70234123.
+
+3. **_canonical_type 3-bucket Counter** (2026-05-23T17:50:00Z) — `reject_defer / scope_claim_false`. Deferral claimed downstream jq could recover the breakdown; challenger proved snap_properties.py:311 writes the CANONICAL value to JSONL, so the breakdown is unrecoverable downstream. <30min → fix a39e5f0a.
+
+4. **t.Skip on M05 integration test** (2026-05-23T17:50:00Z) — `reject_defer / cost_under_1h`. Scope claim "synthetic in-memory cache pattern is structural refactor" failed (h.cache.ClusterTypes is mutable public map). <30min → fix bundled into 533dc038.
+
+All 4 challengers verdict-confirmed the upgraded skill's "fix-now bias" — every deferral attempted in R2 was rejected and re-triaged to fix. **The deferral discipline is working.**
+
+### Critique Sections (persisted verbatim from reviewer responses)
+
+(Full responses preserved in the orchestrator's transcript; per-section verdicts and per-fix assessments are above.)
+
+### Fixes Applied (13 commits this round)
+
+702341237 feat(schema): CHECK constraint on vocab_clusters.dominant_type closes rename-drift gap
+533dc038 refactor(forge): GammaWeight struct-wrap — unforgeable construction via NewGamma
+a39e5f0a feat(snap): three-bucket canonical_type breakdown closes silent-grouping observability gap
+78b4af43 fix(forge): tighten ClusterTypes gate to len > 0 (match docstring)
+c0545c38 fix(main): malformed METAFORGE_FORGE_GAMMA fails loud instead of silently defaulting
+e9f3078d fix(forge): emit shared_types_count=0 on wire when M05 finds zero distinct types
+5df7384a docs(data-pipeline): snap_dropped.jsonl schema includes property_type + atomic-rename note
+46efc6fc fix(snap_properties): atomic-rename snap_dropped.jsonl post-commit
+31869682 feat(cluster_vocab): warn operator that dominant_type was wiped on rebuild
+16692031 refactor(m04_sweep_runner): replace CellResult __getattribute__ with @property accessors
+93febc6d fix(cascade_cache): rate-limit divergence Warn flood with summary Error
+602f0b1b fix(cascade_cache): tighten loadClusterTypes divergence check on canonical pair
+89e51a94 docs(m05): regenerate verdict with M05-axis-aware title and content
+
+### Files Modified
+
+- api/cmd/metaforge/main.go (+main_test.go new)
+- api/internal/db/cascade_cache.go + cascade_cache_test.go
+- api/internal/forge/cascade.go + cascade_test.go
+- api/internal/forge/forge.go + forge_test.go
+- api/internal/handler/cascade_pipeline.go + handler_cascade_test.go
+- data-pipeline/CLAUDE.md
+- data-pipeline/SCHEMA.sql
+- data-pipeline/scripts/cluster_vocab.py + test_cluster_vocab.py
+- data-pipeline/scripts/m04_sweep_runner.py + test_m04_sweep_runner.py
+- data-pipeline/scripts/snap_properties.py + test_snap_properties.py
+- data-pipeline/sweeps/m05_lakoff_gamma_verdict.md
+- .gitignore
+
+### Test Results
+
+- Go: full suite passes (excluding known flake + heavy-load skip). cmd/metaforge 4.76s, blobconv 0.004s, db 39.88s, forge 2.03s, handler 239.26s, observe 0.02s, thesaurus 111.15s — all green.
+- Python: data-pipeline pytest passes (exit 0).
+- Targeted post-Batch-D retest: forge + handler + db packages green.
+
+### Cumulative
+
+Total rounds: 2 | Items resolved this round: 21 (13 fix + 6 skip + 2 reviewer-error) | Active deferrals: 0 (4 attempted, all challenged + re-triaged to fix) | Superseded deferrals (R1 + R2): 5 | Elapsed: ~5h
+
