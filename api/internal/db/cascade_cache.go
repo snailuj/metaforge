@@ -223,11 +223,16 @@ func loadClusterTypes(database *sql.DB, dst map[int64]string) error {
 		// Defensive divergence check: snap_properties.py writes one
 		// dominant_type per cluster, so every row for the same cluster
 		// must carry the same canonical value (including "all NULL").
-		// Any disagreement — empty-vs-non-empty in either direction — is
-		// a pipeline contract violation that last-write-wins would
-		// otherwise silently absorb. Canonicalise the NullString to an
-		// incoming string and compare on the canonical pair so both
-		// Case A (NULL then real) and Case B (real then NULL) surface.
+		// Any disagreement is a pipeline contract violation that
+		// last-write-wins would silently absorb. Canonicalise the
+		// NullString to an incoming string and resolve the three
+		// divergence cases explicitly so the recovery policy is
+		// deterministic across SQL row order:
+		//   A) real → NULL: keep existing (prefer-non-empty).
+		//   B) NULL → real: overwrite "" with real value (prefer-non-empty).
+		//   C) non-empty disagreement: keep first-seen (first-write-wins).
+		// All three increment the divergence counter so the flood-limit
+		// summary covers them uniformly.
 		incoming := ""
 		if dt.Valid {
 			incoming = dt.String
@@ -238,13 +243,18 @@ func loadClusterTypes(database *sql.DB, dst map[int64]string) error {
 				slog.Warn("cascade cache: vocab_clusters.dominant_type divergence within cluster",
 					"cluster_id", id, "first_seen", existing, "new", incoming)
 			}
-			// Prefer-non-empty recovery: a real dominant_type beats ""
-			// regardless of arrival order. This rescues Case B (real
-			// value already in the map, NULL row arriving second) where
-			// last-write-wins would have destroyed real data.
 			if incoming == "" {
+				// Case A: real → NULL. Keep existing.
 				continue
 			}
+			if existing != "" {
+				// Case C: non-empty disagreement. Keep first-seen so
+				// the cache is deterministic across SQL row order —
+				// cascade scoring must not flip between re-runs.
+				continue
+			}
+			// Case B: existing == "", incoming non-empty. Fall through
+			// to overwrite the empty sentinel with the real value.
 		}
 		dst[id] = incoming
 	}
