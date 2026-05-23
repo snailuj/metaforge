@@ -205,3 +205,19 @@ The audit reverses one of my early hypotheses. Type-diversity must be measured o
 | 5. Type-noise cleanup | **Fold into S01 (5-line CASE WHEN during snap)** | High (audit shows 0.04% noise) |
 
 The single most consequential operator decision is **whether the M05 hypothesis is right at all** — i.e. whether the discrimination between apt and inapt cross-domain metaphors actually lives in the "distinct types in shared overlap" dimension. The audit suggests it might, but only running the sweep will tell. I'd recommend a short prototype: implement S01+S02+S03 with the lean recommendations, run a γ sweep against Lakoff, and only escalate if the verdict shows no separation lift.
+
+---
+
+## Progress
+
+### S01 — snap preserves property type per cluster (landed 2026-05-23)
+
+Schema + snap change only; no behaviour shift in cascade scorer yet.
+
+- Added `dominant_type TEXT` column to `vocab_clusters` (SCHEMA.sql + `cluster_vocab.py` CREATE TABLE block). NULL until a snap run with type-tracking populates it; backward compatible with pre-M05 DBs.
+- `snap_properties.py` now threads `synset_properties.property_type` through Pass 1 (exact + morphological) and Pass 2 (embedding), accumulating per-cluster type counts via `collections.Counter`.
+- Added `_canonical_type()` helper that folds variant spellings (`behavior`, `behavioural`, `behavoural`, `behavour` → `behaviour`; `physical` → `sensorimotor`) into the 6 LLM-prompt-declared canonical types plus a catch-all `other` bucket for low-frequency residue (~0.04% of rows per the M04 v2 audit).
+- After Pass 2 completes, snap writes the per-cluster mode (with deterministic tie-break by canonical-type ordering — sensorimotor wins first, other wins last) into `vocab_clusters.dominant_type` via a single `executemany` UPDATE. Missing-table case is handled with the same narrow `OperationalError` guard used for the existing vocab_clusters SELECT.
+- Tests: `test_snap_populates_dominant_type_per_cluster` covers the happy path (2 sensorimotor + 1 behaviour → dominant=sensorimotor); `test_snap_normalises_variant_type_spellings` covers `_canonical_type` cases (variants, unknowns, NULL, empty). Existing snap tests updated to add `dominant_type TEXT` column + `NULL` value to inline fixtures. Full data-pipeline suite (664 tests) green.
+
+S02 will plumb dominant_type into the cascade DB reads alongside shared cluster_ids. S03 will use it in `EvaluateCascadePair` for the type-diversity bonus.

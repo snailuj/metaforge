@@ -15,6 +15,7 @@ import logging
 import sqlite3
 import struct
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -32,6 +33,50 @@ log = logging.getLogger(__name__)
 # properties resolve to the same (synset_id, cluster_id).
 SnapMethod = Literal["exact", "morphological", "embedding"]
 _METHOD_RANK: dict[SnapMethod, int] = {"exact": 3, "morphological": 2, "embedding": 1}
+
+# Canonical M05 property-type set. The LLM enrichment prompt declares
+# 6 types (sensorimotor, behaviour, functional, effect, emotional, social)
+# but historical data contains variant spellings (behavior, behavioural,
+# behavioral, behavour, physical, etc.). 99.96% of rows use a canonical
+# value; this normalises the 0.04% of variants for clean cluster typing.
+CANONICAL_TYPES = {
+    "sensorimotor", "behaviour", "functional",
+    "effect", "emotional", "social",
+}
+
+_TYPE_NORMALISATION = {
+    # Variants of "behaviour" (the canonical form per the prompt)
+    "behavior": "behaviour",
+    "behavioral": "behaviour",
+    "behavioural": "behaviour",
+    "behavour": "behaviour",
+    # "physical" appears to be a legacy variant of "sensorimotor"
+    "physical": "sensorimotor",
+    # Everything else (temporal, spatial, structure, material, state, ...) → "other"
+}
+
+# Canonical ordering for deterministic tie-break when computing dominant_type
+# (mode of per-cluster type counts). Sensorimotor wins ties first, "other" last.
+_CANONICAL_ORDER = [
+    "sensorimotor", "behaviour", "functional",
+    "effect", "emotional", "social", "other",
+]
+_CANONICAL_ORDER_INDEX = {t: i for i, t in enumerate(_CANONICAL_ORDER)}
+
+
+def _canonical_type(raw: str | None) -> str:
+    """Map a raw property_type value to one of the 7 canonical M05 types.
+
+    Returns "other" for unknown/NULL/empty inputs. The "other" bucket
+    aggregates the long tail of low-frequency variant values from the
+    original LLM extraction.
+    """
+    if not raw:
+        return "other"
+    norm = _TYPE_NORMALISATION.get(raw, raw)
+    if norm in CANONICAL_TYPES:
+        return norm
+    return "other"
 
 
 @dataclass(frozen=True)
@@ -196,6 +241,9 @@ def snap_properties(
 
     stats: dict[str, int] = {"exact": 0, "morphological": 0, "embedding": 0, "dropped": 0}
     accumulated: dict[tuple[str, int], AccumulatedMatch] = {}
+    # M05: per-cluster property-type histogram, populated as each property
+    # snaps successfully. Mode (post-snap) → vocab_clusters.dominant_type.
+    cluster_type_counts: dict[int, Counter[str]] = {}
     # Per-reason drop counts (so we can log a breakdown without buffering records).
     drop_counts: dict[str, int] = {}
 
@@ -305,17 +353,18 @@ def snap_properties(
     try:
         # Pass 1 (Stages 1-2): stream synset-property cursor WITHOUT loading embedding blobs.
         # The blob column is ~1.2 KB per row; the full join is ~245k rows ≈ 294 MB if
-        # materialised. By projecting only (synset_id, property_id, text, salience) we
-        # keep peak memory in the low MBs and only carry the unmatched residue forward.
-        # Unmatched entries: (synset_id, property_id, text, salience)
-        unmatched: list[tuple[str, int, str, float]] = []
+        # materialised. By projecting only (synset_id, property_id, text, salience,
+        # property_type) we keep peak memory in the low MBs and only carry the
+        # unmatched residue forward.
+        # Unmatched entries: (synset_id, property_id, text, salience, property_type)
+        unmatched: list[tuple[str, int, str, float, str | None]] = []
         seen = 0
         pass1_cursor = conn.execute("""
-            SELECT sp.synset_id, sp.property_id, pv.text, sp.salience
+            SELECT sp.synset_id, sp.property_id, pv.text, sp.salience, sp.property_type
             FROM synset_properties sp
             JOIN property_vocabulary pv ON pv.property_id = sp.property_id
         """)
-        for sid, pid, prop_text, salience in pass1_cursor:
+        for sid, pid, prop_text, salience, prop_type in pass1_cursor:
             seen += 1
             if seen % 20000 == 0:
                 log.info(
@@ -330,6 +379,7 @@ def snap_properties(
                 vid = vocab_by_lemma[prop_lower]
                 cid = cluster_lookup.get(vid, vid)
                 _merge((sid, cid), vid, "exact", None, salience)
+                cluster_type_counts.setdefault(cid, Counter())[_canonical_type(prop_type)] += 1  # M05
                 stats["exact"] += 1
                 continue
 
@@ -340,6 +390,7 @@ def snap_properties(
                     vid = vocab_by_lemma[variant]
                     cid = cluster_lookup.get(vid, vid)
                     _merge((sid, cid), vid, "morphological", None, salience)
+                    cluster_type_counts.setdefault(cid, Counter())[_canonical_type(prop_type)] += 1  # M05
                     stats["morphological"] += 1
                     matched = True
                     break
@@ -347,7 +398,7 @@ def snap_properties(
                 continue
 
             # Defer to Pass 2 — stage 3 will fetch embeddings for residual property_ids only
-            unmatched.append((sid, pid, prop_text, salience))
+            unmatched.append((sid, pid, prop_text, salience, prop_type))
 
         total_links = seen
         log.info("Property links to snap: %d", total_links)
@@ -357,7 +408,7 @@ def snap_properties(
         # Embeddings are fetched ONCE per unique property_id via a temp-table join,
         # so blob memory scales with the unmatched residue, not with the full corpus.
         if unmatched and has_vocab_embeddings:
-            unique_pids = {pid for _, pid, _, _ in unmatched}
+            unique_pids = {pid for _, pid, _, _, _ in unmatched}
             emb_cache: dict[int, np.ndarray] = {}
             zero_norm_pids: set[int] = set()
 
@@ -387,7 +438,7 @@ def snap_properties(
             finally:
                 conn.execute("DROP TABLE IF EXISTS _snap_unmatched_pids")
 
-            for j, (sid, pid, prop_text, salience) in enumerate(unmatched):
+            for j, (sid, pid, prop_text, salience, prop_type) in enumerate(unmatched):
                 if (j + 1) % 2000 == 0:
                     log.info(
                         "Stage 3: %d/%d (matched=%d)",
@@ -418,6 +469,7 @@ def snap_properties(
                     best_vid = vocab_ids[best_idx]
                     best_cid = cluster_lookup.get(best_vid, best_vid)
                     _merge((sid, best_cid), best_vid, "embedding", best_score, salience)
+                    cluster_type_counts.setdefault(best_cid, Counter())[_canonical_type(prop_type)] += 1  # M05
                     stats["embedding"] += 1
                 else:
                     _record_drop({"text": prop_text, "synset_id": sid,
@@ -425,9 +477,43 @@ def snap_properties(
                                   "best_score": best_score})
         else:
             # No vocab embeddings (or no residue) — every unmatched entry is dropped
-            for sid, pid, prop_text, salience in unmatched:
+            for sid, pid, prop_text, salience, prop_type in unmatched:
                 _record_drop({"text": prop_text, "synset_id": sid,
                               "salience": salience, "reason": "no_embedding"})
+
+        # M05: compute and persist dominant_type per cluster from the per-cluster
+        # type counts accumulated during snap. Mode (most-frequent type) is the
+        # dominant. Ties are broken by the canonical-type ordering (sensorimotor
+        # first) so the result is deterministic across re-runs.
+        log.info("Computing dominant_type for %d clusters", len(cluster_type_counts))
+        type_updates: list[tuple[str, int]] = []
+        for cid, counts in cluster_type_counts.items():
+            if not counts:
+                continue
+            # Find the mode; ties resolved by _CANONICAL_ORDER index (lower wins).
+            best_type = max(
+                counts.items(),
+                key=lambda kv: (kv[1], -_CANONICAL_ORDER_INDEX[kv[0]]),
+            )[0]
+            type_updates.append((best_type, cid))
+        # Mirror the same narrow OperationalError guard used for the cluster
+        # SELECT above: when vocab_clusters is missing (first-run schemas,
+        # synthetic test fixtures) snap should still write
+        # synset_properties_curated and report stats. Any other variant
+        # (lock contention, disk-IO, schema drift) re-raises.
+        try:
+            conn.executemany(
+                "UPDATE vocab_clusters SET dominant_type = ? WHERE cluster_id = ?",
+                type_updates,
+            )
+            log.info("Wrote dominant_type for %d clusters", len(type_updates))
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc).lower():
+                raise
+            log.warning(
+                "vocab_clusters table missing (%s); skipping dominant_type write",
+                exc,
+            )
 
         inserts = [
             (sid, m.vocab_id, cid, m.snap_method, m.snap_score, m.salience_sum)

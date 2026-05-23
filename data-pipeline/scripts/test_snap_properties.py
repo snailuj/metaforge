@@ -53,7 +53,8 @@ def make_snap_db(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
@@ -63,9 +64,9 @@ def make_snap_db(tmp_path):
         INSERT INTO property_vocab_curated VALUES (3, 'vs3', 'luminous', 'a', 1);
 
         -- Clusters: warm(1) is singleton, cold(2) is singleton, luminous(3) is singleton
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
-        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
-        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1, NULL);
 
         -- Existing properties from enrichment (free-form)
         INSERT INTO property_vocabulary VALUES (10, 'warm', NULL, 0, 'pilot');
@@ -231,15 +232,16 @@ def test_snap_cluster_dedup(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
         -- "heavy" (id=1) and "weighty" (id=2) are in the same cluster (cluster_id=1)
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'heavy', 'a', 1);
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'weighty', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
-        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0, NULL);
 
         -- Synset 'abc' has both "heavy" and "weighty" as properties
         INSERT INTO property_vocabulary VALUES (10, 'heavy', NULL, 0, 'pilot');
@@ -304,12 +306,13 @@ def test_snap_morphological_participle(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
 
         -- Vocabulary has "flicker"
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'flicker', 'v', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
 
         -- Extracted property is "flickering" (VBG form)
         INSERT INTO property_vocabulary VALUES (10, 'flickering', NULL, 0, 'pilot');
@@ -375,14 +378,15 @@ def test_snap_embedding_match(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
 
         -- Vocabulary has "bright" with an embedding
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'bright', 'a', 1);
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'distant', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
-        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1, NULL);
     """)
 
     # "bright" vocab embedding
@@ -466,15 +470,16 @@ def test_snap_accumulates_salience_for_same_cluster(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
         -- "heavy" (id=1) and "weighty" (id=2) are in the same cluster (cluster_id=1)
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'heavy', 'a', 1);
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'weighty', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
-        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0, NULL);
 
         -- Synset 'abc' has "heavy" (salience 0.9) and "weighty" (salience 0.8)
         INSERT INTO property_vocabulary VALUES (10, 'heavy', NULL, 0, 'pilot');
@@ -542,13 +547,14 @@ def test_snap_salience_sum_default_for_single_match(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
         -- "warm" is a singleton cluster
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
 
         -- Synset 'abc' has "warm" with salience 0.85
         INSERT INTO property_vocabulary VALUES (10, 'warm', NULL, 0, 'pilot');
@@ -615,7 +621,8 @@ def test_snap_all_stages_integration(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
@@ -624,10 +631,10 @@ def test_snap_all_stages_integration(tmp_path):
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'flicker',  'v', 1);
         INSERT INTO property_vocab_curated VALUES (3, 'vs3', 'bright',   'a', 1);
         INSERT INTO property_vocab_curated VALUES (4, 'vs4', 'distant',  'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
-        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
-        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
-        INSERT INTO vocab_clusters VALUES (4, 4, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (4, 4, 1, 1, NULL);
     """)
 
     # Vocab embeddings (stage 3 needs these — only for bright/distant)
@@ -727,10 +734,11 @@ def test_snap_skips_jsonl_write_for_in_memory_db(tmp_path, caplog, monkeypatch):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
         -- 'unmatchable' -> drops at no_embedding stage.
         INSERT INTO property_vocabulary VALUES (10, 'unmatchable', NULL, 0, 'pilot');
         INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
@@ -862,7 +870,8 @@ def test_snap_vocab_by_lemma_lowest_vocab_id_wins_on_collision(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
@@ -871,8 +880,8 @@ def test_snap_vocab_by_lemma_lowest_vocab_id_wins_on_collision(tmp_path):
         -- vid=7 last. The fix is to ORDER BY vocab_id ASC so vid=3 wins.
         INSERT INTO property_vocab_curated VALUES (7, 'vs7', 'fast', 'v', 1);
         INSERT INTO property_vocab_curated VALUES (3, 'vs3', 'fast', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
-        INSERT INTO vocab_clusters VALUES (7, 7, 1, 1);
+        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (7, 7, 1, 1, NULL);
 
         INSERT INTO property_vocabulary VALUES (10, 'fast', NULL, 0, 'pilot');
         INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
@@ -941,15 +950,16 @@ def test_snap_stats_count_per_link_not_per_unique_key(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
         -- 'flicker' (vid=1) and 'sparkle' (vid=2) share cluster_id=1.
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'flicker', 'v', 1);
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'sparkle', 'v', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
-        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0, NULL);
 
         -- 'sparkle' (exact) and 'flickering' (morph) both land on (abc, 1).
         INSERT INTO property_vocabulary VALUES (10, 'flickering', NULL, 0, 'pilot');
@@ -1022,7 +1032,8 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
@@ -1035,8 +1046,8 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
         -- 'sparkle' (pid=11) hits the same accumulator key second.
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'flicker', 'v', 1);
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'sparkle', 'v', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
-        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0, NULL);
 
         INSERT INTO property_vocabulary VALUES (10, 'flickering', NULL, 0, 'pilot');
         INSERT INTO property_vocabulary VALUES (11, 'sparkle',    NULL, 0, 'pilot');
@@ -1145,11 +1156,12 @@ def test_snap_clamps_best_score_to_unit_range(tmp_path, monkeypatch):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
 
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'bright', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
     """)
     same_emb = _make_embedding(1.0)
     conn.execute(
@@ -1800,3 +1812,105 @@ def test_snap_dropped_fh_inner_close_failure_is_logged(tmp_path, caplog):
         "expected WARNING about the close-during-recovery failure; "
         f"got: {warning_messages}"
     )
+
+
+# ---------------------------------------------------------------------------
+# M05 S01: dominant_type propagation from snap_properties.py into vocab_clusters
+# ---------------------------------------------------------------------------
+
+
+def test_snap_populates_dominant_type_per_cluster(tmp_path):
+    """M05 S01: after snap, vocab_clusters.dominant_type should be the mode
+    of the property_type values that snapped into each cluster."""
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "snap_types.db"
+    conn = sqlite3.connect(str(db_path))
+    # Minimal schema setup. dominant_type column mirrors SCHEMA.sql so the
+    # production UPDATE inside snap_properties can target it.
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY);
+        CREATE TABLE lemmas (synset_id TEXT, lemma TEXT);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT,
+            embedding BLOB,
+            is_oov INTEGER DEFAULT 0,
+            source TEXT,
+            idf REAL
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT,
+            property_id INTEGER,
+            salience REAL,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT,
+            lemma TEXT NOT NULL,
+            pos TEXT,
+            polysemy INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id INTEGER PRIMARY KEY,
+            cluster_id INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton INTEGER NOT NULL DEFAULT 0,
+            dominant_type TEXT
+        );
+    """)
+    # Populate: vocab_id=1 ("hot"), cluster_id=1; 3 properties snap into
+    # cluster 1: 2 sensorimotor + 1 behaviour → dominant=sensorimotor.
+    # The lemma "hot" appears once in property_vocab_curated but is referenced
+    # by three distinct property_vocabulary rows (all text='hot') so each
+    # synset_properties row triggers an exact snap into cluster 1.
+    conn.execute("INSERT INTO synsets VALUES ('s1')")
+    conn.execute("INSERT INTO synsets VALUES ('s2')")
+    conn.execute("INSERT INTO synsets VALUES ('s3')")
+    conn.execute("INSERT INTO property_vocab_curated VALUES (1, 's1', 'hot', 'a', 1)")
+    conn.execute("INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, NULL)")
+    # property_vocabulary.text is UNIQUE in the production schema, so use a
+    # single property row referenced by multiple synset_properties — this
+    # still drives 3 distinct snap events into cluster 1 with the per-row
+    # property_type stored on synset_properties.
+    conn.execute(
+        "INSERT INTO property_vocabulary (property_id, text, source) "
+        "VALUES (10, 'hot', 'test')"
+    )
+    conn.execute(
+        "INSERT INTO synset_properties VALUES "
+        "('s1', 10, 0.9, 'sensorimotor', NULL), "
+        "('s2', 10, 0.8, 'sensorimotor', NULL), "
+        "('s3', 10, 0.7, 'behaviour', NULL)"
+    )
+    conn.commit()
+
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+
+        result = conn.execute(
+            "SELECT dominant_type FROM vocab_clusters WHERE cluster_id=1"
+        ).fetchone()
+        assert result[0] == "sensorimotor", (
+            f"expected sensorimotor, got {result[0]!r}"
+        )
+    finally:
+        conn.close()
+
+
+def test_snap_normalises_variant_type_spellings():
+    """M05 S01: variant spellings (behavior, behavioural, behavour) should all
+    canonicalise to 'behaviour' for dominant_type computation."""
+    from snap_properties import _canonical_type
+    assert _canonical_type("behavior") == "behaviour"
+    assert _canonical_type("behavioural") == "behaviour"
+    assert _canonical_type("behavioral") == "behaviour"
+    assert _canonical_type("behavour") == "behaviour"
+    assert _canonical_type("physical") == "sensorimotor"
+    assert _canonical_type("temporal") == "other"
+    assert _canonical_type(None) == "other"
+    assert _canonical_type("") == "other"
+    assert _canonical_type("sensorimotor") == "sensorimotor"

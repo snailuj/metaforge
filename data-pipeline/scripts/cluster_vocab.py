@@ -79,7 +79,10 @@ def cluster_vocab(
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT  -- M05: dominant property type for this cluster, populated by snap_properties.py
+                                   -- after all snapping completes. One of: sensorimotor, behaviour, functional,
+                                   -- effect, emotional, social, other. NULL until first snap-with-types run.
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
     """)
