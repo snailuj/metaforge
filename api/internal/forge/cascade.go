@@ -126,6 +126,29 @@ func (s CandidateSource) Valid() bool {
 	return false
 }
 
+// CandidateSources is the config-side enum: which generation paths to
+// run for each cascade request. Maps to METAFORGE_FORGE_CANDIDATES /
+// --candidate-sources. Different value set from CandidateSource — see
+// the per-row CandidateSource doc above.
+type CandidateSources string
+
+const (
+	SourcesCluster   CandidateSources = "cluster_only"
+	SourcesEmbedding CandidateSources = "embedding_only"
+	SourcesUnion     CandidateSources = "union"
+)
+
+// Valid reports whether s is one of the three known config modes.
+// CascadeConfig.Validate() consults this at startup so an invalid env
+// value fails loud instead of silently falling back to a default.
+func (s CandidateSources) Valid() bool {
+	switch s {
+	case SourcesCluster, SourcesEmbedding, SourcesUnion:
+		return true
+	}
+	return false
+}
+
 // CascadeConfig pins the cascade hyperparameters. Use DefaultCascadeConfig
 // for the production-blessed winner config.
 type CascadeConfig struct {

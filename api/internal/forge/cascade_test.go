@@ -226,3 +226,19 @@ func TestCandidateSource_ValidRejectsUnknown(t *testing.T) {
 		}
 	}
 }
+
+func TestCandidateSources_ValidRecognisesKnownModes(t *testing.T) {
+	for _, s := range []CandidateSources{SourcesCluster, SourcesEmbedding, SourcesUnion} {
+		if !s.Valid() {
+			t.Errorf("CandidateSources(%q).Valid() = false, want true", s)
+		}
+	}
+}
+
+func TestCandidateSources_ValidRejectsUnknown(t *testing.T) {
+	for _, s := range []CandidateSources{"", "cluster", "embedding", "both", "all"} {
+		if CandidateSources(s).Valid() {
+			t.Errorf("CandidateSources(%q).Valid() = true, want false", s)
+		}
+	}
+}
