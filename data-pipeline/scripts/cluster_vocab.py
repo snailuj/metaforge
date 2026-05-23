@@ -217,6 +217,19 @@ def cluster_vocab(
     print(f"  Clustered {len(vocab_ids_all)} vocab entries into {num_clusters} clusters "
           f"({singletons} singletons, largest={largest})")
 
+    # M05 operator nudge: the DROP TABLE / CREATE TABLE pair above wipes any
+    # previously-populated dominant_type values. snap_properties.py is the
+    # only writer for that column, so an operator who re-runs cluster_vocab
+    # without re-snapping will silently disable the M05 type-diversity bonus
+    # (vocab_clusters.dominant_type all-NULL → Go cascade_cache warm-up logs
+    # a benign-looking Warn and skips the bonus). Loud warning here keeps the
+    # signal visible at the moment the wipe happens.
+    log.warning(
+        "vocab_clusters rebuilt — all dominant_type values cleared. "
+        "Re-run snap_properties.py before restarting the API for the M05 "
+        "type-diversity bonus to work."
+    )
+
     return {
         "total_vocab": len(vocab_ids_all),
         "num_clusters": num_clusters,

@@ -1,4 +1,5 @@
 """Tests for cluster_vocab.py — synonym vocabulary clustering."""
+import logging
 import sqlite3
 import struct
 import sys
@@ -224,6 +225,40 @@ def test_cluster_vocab_create_includes_dominant_type(tmp_path):
 
     assert "dominant_type" in schema_sql, (
         f"vocab_clusters schema missing dominant_type column:\n{schema_sql}"
+    )
+
+
+def test_cluster_vocab_warns_about_dominant_type_wipe(tmp_path, caplog):
+    """cluster_vocab must emit a logging.warning after rebuild so the operator
+    knows vocab_clusters.dominant_type was cleared and that snap_properties.py
+    needs to be re-run before restarting the API.
+
+    Without this warning, an operator re-running cluster_vocab without re-snap
+    silently disables the M05 type-diversity bonus (dominant_type all-NULL).
+    """
+    from cluster_vocab import cluster_vocab
+
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    _make_cluster_db(conn)
+
+    conn.execute("INSERT INTO property_vocab_curated VALUES (1, 's1', 'lonely', 'a', 1)")
+    conn.execute("INSERT INTO lemma_embeddings VALUES ('lonely', ?)", (_make_embedding(1.0),))
+    conn.commit()
+
+    with caplog.at_level(logging.WARNING, logger="cluster_vocab"):
+        cluster_vocab(conn, threshold=0.8)
+    conn.close()
+
+    warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warning_records, "Expected at least one WARNING-level log record from cluster_vocab"
+
+    combined = "\n".join(r.getMessage() for r in warning_records)
+    assert "dominant_type" in combined, (
+        f"Warning message must mention dominant_type. Got:\n{combined}"
+    )
+    assert "snap_properties" in combined, (
+        f"Warning message must mention snap_properties (to nudge operator). Got:\n{combined}"
     )
 
 
