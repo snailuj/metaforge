@@ -317,29 +317,38 @@ func (p *cascadePipeline) score() (phaseOutcome, int, error) {
 			tier = forge.ClassifyTierCurated(c.SalienceSum, c.ContrastCount)
 			tierName = tier.String()
 		}
+		// M05 diagnostics — both fields ride together. When M05 ran
+		// (TypeDiversityBonus pointer non-nil) we allocate a *int for
+		// SharedTypesCount so a 0 distinct-types count still serialises
+		// to the wire. When M05 was dormant (Gamma=0 or ClusterTypes
+		// absent), TypeDiversityBonus is nil → leave SharedTypesCount
+		// nil too so both fields omit and the legacy wire shape is
+		// preserved.
+		var sharedTypesPtr *int
+		if res.TypeDiversityBonus != nil {
+			stc := res.SharedTypesCount
+			sharedTypesPtr = &stc
+		}
 		p.matches = append(p.matches, forge.Match{
-			SynsetID:         c.SynsetID,
-			Word:             c.Word,
-			Definition:       c.Definition,
-			SharedProperties: c.SharedProps,
-			OverlapCount:     int(c.SalienceSum),
-			SalienceSum:      c.SalienceSum,
-			Tier:             tier,
-			TierName:         tierName,
-			SourceSynsetID:   c.SourceSynsetID,
-			SourceDefinition: c.SourceDefinition,
-			SourcePOS:        c.SourcePOS,
-			FinalScore:       res.FinalScore,
-			CascadeStatus:    res.Status,
-			GatePassed:       res.GatePassed,
-			OrtonyScore:      res.OrtonyScore,
-			CosineDistance:   res.CosineDistance,
-			ReRankBonus:      res.ReRankBonus,
-			// M05 diagnostics — pointer + count propagate as-is from the
-			// scorer. Both stay zero/nil under the default Gamma=0 config
-			// so the wire contract is unchanged when M05 is dormant.
+			SynsetID:           c.SynsetID,
+			Word:               c.Word,
+			Definition:         c.Definition,
+			SharedProperties:   c.SharedProps,
+			OverlapCount:       int(c.SalienceSum),
+			SalienceSum:        c.SalienceSum,
+			Tier:               tier,
+			TierName:           tierName,
+			SourceSynsetID:     c.SourceSynsetID,
+			SourceDefinition:   c.SourceDefinition,
+			SourcePOS:          c.SourcePOS,
+			FinalScore:         res.FinalScore,
+			CascadeStatus:      res.Status,
+			GatePassed:         res.GatePassed,
+			OrtonyScore:        res.OrtonyScore,
+			CosineDistance:     res.CosineDistance,
+			ReRankBonus:        res.ReRankBonus,
 			TypeDiversityBonus: res.TypeDiversityBonus,
-			SharedTypesCount:   res.SharedTypesCount,
+			SharedTypesCount:   sharedTypesPtr,
 			Source:             c.Source,
 		})
 	}

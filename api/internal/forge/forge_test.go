@@ -87,8 +87,15 @@ func TestMatch_CascadeFieldsSerialiseWhenSet(t *testing.T) {
 func TestMatch_M05Fields_OmitemptyWhenZero(t *testing.T) {
 	// Pre-M05 / Gamma=0 wire contract: the two M05 diagnostic fields
 	// must NOT appear in the JSON when unset, so legacy consumers see
-	// the same JSON shape they always have.
+	// the same JSON shape they always have. Both fields are pointer
+	// types so an unset (nil) pointer omits cleanly via omitempty.
 	m := Match{SynsetID: "x", Word: "x", TierName: "strong"}
+	if m.TypeDiversityBonus != nil {
+		t.Errorf("expected TypeDiversityBonus nil on zero Match, got %v", *m.TypeDiversityBonus)
+	}
+	if m.SharedTypesCount != nil {
+		t.Errorf("expected SharedTypesCount nil on zero Match, got %v", *m.SharedTypesCount)
+	}
 	b, err := json.Marshal(m)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -107,10 +114,11 @@ func TestMatch_M05Fields_SerialiseWhenSet(t *testing.T) {
 	// can see the underlying bonus and distinct-type count — not just
 	// the lift effect on final_score.
 	tb := 0.4
+	stc := 3
 	m := Match{
 		SynsetID: "x", Word: "x", TierName: "strong",
 		TypeDiversityBonus: &tb,
-		SharedTypesCount:   3,
+		SharedTypesCount:   &stc,
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -121,6 +129,32 @@ func TestMatch_M05Fields_SerialiseWhenSet(t *testing.T) {
 		if !strings.Contains(s, f) {
 			t.Errorf("expected %q present, got %s", f, s)
 		}
+	}
+}
+
+func TestMatch_M05Fields_ZeroDistinct_BothEmitted(t *testing.T) {
+	// When M05 ran but found zero distinct discriminating types, both
+	// diagnostic fields must still emit (as 0) so operators can
+	// distinguish "M05 didn't run" (both omitted) from "M05 ran, found
+	// nothing" (both present as 0). With SharedTypesCount as plain int,
+	// `omitempty` would drop the 0 — pointer type lets us emit 0.
+	tb := 0.0
+	stc := 0
+	m := Match{
+		SynsetID: "x", Word: "x", TierName: "strong",
+		TypeDiversityBonus: &tb,
+		SharedTypesCount:   &stc,
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	s := string(b)
+	if !strings.Contains(s, `"type_diversity_bonus":0`) {
+		t.Errorf(`expected "type_diversity_bonus":0 in JSON, got %s`, s)
+	}
+	if !strings.Contains(s, `"shared_types_count":0`) {
+		t.Errorf(`expected "shared_types_count":0 in JSON, got %s`, s)
 	}
 }
 

@@ -137,7 +137,8 @@ func TestForgeSuggest_CascadeEnabled_GammaPositive_SurfacesM05Diagnostics(t *tes
 		if m.CascadeStatus != "scored" {
 			continue
 		}
-		if m.TypeDiversityBonus != nil && *m.TypeDiversityBonus > 0 && m.SharedTypesCount >= 2 {
+		if m.TypeDiversityBonus != nil && *m.TypeDiversityBonus > 0 &&
+			m.SharedTypesCount != nil && *m.SharedTypesCount >= 2 {
 			sawBonus = true
 			break
 		}
@@ -154,8 +155,12 @@ func TestForgeSuggest_CascadeEnabled_GammaPositive_SurfacesM05Diagnostics(t *tes
 			if m.TypeDiversityBonus != nil {
 				tb = fmt.Sprintf("%v", *m.TypeDiversityBonus)
 			}
-			summary = append(summary, fmt.Sprintf("{%s status=%s tb=%s stc=%d}",
-				m.Word, m.CascadeStatus, tb, m.SharedTypesCount))
+			stc := "nil"
+			if m.SharedTypesCount != nil {
+				stc = fmt.Sprintf("%d", *m.SharedTypesCount)
+			}
+			summary = append(summary, fmt.Sprintf("{%s status=%s tb=%s stc=%s}",
+				m.Word, m.CascadeStatus, tb, stc))
 		}
 		t.Fatalf("expected at least one scored match with type_diversity_bonus>0 and shared_types_count>=2; first rows: %v", summary)
 	}
