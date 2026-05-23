@@ -13,12 +13,20 @@ object per dropped property link with the schema:
 the canonical M05 type (sensorimotor/behaviour/functional/effect/emotional/
 social/other) so drop analyses can correlate loss against type.
 
+Drops are streamed to `snap_dropped.jsonl.tmp` during the run and atomic-renamed
+to `snap_dropped.jsonl` ONLY after the DB transaction commits. If anything
+between the first drop and commit raises, the canonical filename is never
+created — operators inspecting it after a crash will not mistake rolled-back
+drops for authoritative ones. The `.tmp` file is left in place so drops remain
+inspectable.
+
 Usage:
     python snap_properties.py --db PATH [--threshold 0.7]
 """
 import argparse
 import json
 import logging
+import os
 import sqlite3
 import struct
 import sys
@@ -259,10 +267,17 @@ def snap_properties(
     # Resolve DB path up front so we can open the dropped-records JSONL stream.
     # PRAGMA returns an empty string for ':memory:' connections — guard so we
     # don't silently dump a JSONL into the caller's cwd.
+    #
+    # We write drops to `snap_dropped.jsonl.tmp` during the run and atomic-rename
+    # to `snap_dropped.jsonl` only after `conn.commit()` succeeds (see below).
+    # This guarantees the canonical file never persists drops that the DB
+    # transaction rolled back.
     db_path_str = conn.execute("PRAGMA database_list").fetchone()[2]
     if db_path_str:
-        dropped_path: Path | None = Path(db_path_str).parent / "snap_dropped.jsonl"
+        final_dropped_path: Path | None = Path(db_path_str).parent / "snap_dropped.jsonl"
+        dropped_path: Path | None = Path(str(final_dropped_path) + ".tmp")
     else:
+        final_dropped_path = None
         dropped_path = None
         log.warning("skipping snap_dropped.jsonl: in-memory DB has no on-disk path")
 
@@ -558,6 +573,32 @@ def snap_properties(
         """)
         conn.commit()
 
+        # Atomic-rename the diagnostic JSONL only after commit succeeds. If
+        # commit (or anything earlier) raises, the canonical name never appears
+        # — operators can't mistake rolled-back drops for authoritative ones.
+        # The dropped_fh handle must be closed before rename on Windows; the
+        # finally clause below handles that, so we close-then-rename here too.
+        if final_dropped_path is not None and dropped_path is not None and dropped_path.exists():
+            if dropped_fh is not None:
+                try:
+                    dropped_fh.close()
+                except OSError as exc:
+                    log.warning(
+                        "failed to close snap_dropped.jsonl.tmp before rename: %s",
+                        exc,
+                    )
+                dropped_fh = None
+            try:
+                os.replace(dropped_path, final_dropped_path)
+            except OSError as exc:
+                log.warning(
+                    "failed to rename %s -> %s (%s: %s); .tmp left in place for inspection",
+                    dropped_path,
+                    final_dropped_path,
+                    type(exc).__name__,
+                    exc,
+                )
+
         total = sum(stats.values())
         log.info(
             "Snapped %d property links: exact=%d, morphological=%d, embedding=%d, dropped=%d",
@@ -589,7 +630,13 @@ def snap_properties(
             sum(drop_counts.values()),
             breakdown,
         )
-        if dropped_path is not None:
+        # After a successful commit the canonical file exists; if commit
+        # failed control never reaches here. Report the canonical path when
+        # the rename landed, fall back to the .tmp path otherwise (e.g.
+        # rename failed on a cross-device move).
+        if final_dropped_path is not None and final_dropped_path.exists():
+            log.info("Dropped properties written to %s", final_dropped_path)
+        elif dropped_path is not None and dropped_path.exists():
             log.info("Dropped properties written to %s", dropped_path)
 
     return stats

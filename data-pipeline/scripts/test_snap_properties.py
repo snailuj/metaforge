@@ -1367,7 +1367,7 @@ def test_snap_continues_when_dropped_jsonl_write_fails(tmp_path, caplog, monkeyp
     real_open = open
 
     def boom_open(path, mode="r", *a, **kw):
-        if str(path).endswith("snap_dropped.jsonl") and "w" in mode:
+        if str(path).endswith("snap_dropped.jsonl.tmp") and "w" in mode:
             raise PermissionError("simulated read-only filesystem")
         return real_open(path, mode, *a, **kw)
 
@@ -1505,7 +1505,7 @@ def test_snap_dropped_jsonl_handle_closed_on_mid_function_exception(tmp_path, mo
 
     def tracking_open(path, mode="r", *a, **kw):
         fh = real_open(path, mode, *a, **kw)
-        if str(path).endswith("snap_dropped.jsonl"):
+        if str(path).endswith("snap_dropped.jsonl.tmp"):
             opened_handles.append(fh)
         return fh
 
@@ -1679,7 +1679,7 @@ def test_snap_dropped_fh_close_failure_does_not_mask_original_exception(
 
     def wrapping_open(path, mode="r", *a, **kw):
         fh = real_open(path, mode, *a, **kw)
-        if str(path).endswith("snap_dropped.jsonl"):
+        if str(path).endswith("snap_dropped.jsonl.tmp"):
             return _CloseFailingFile(fh)
         return fh
 
@@ -1772,7 +1772,7 @@ def test_snap_dropped_fh_inner_close_failure_is_logged(tmp_path, caplog):
 
     def wrapping_open(path, mode="r", *a, **kw):
         fh = real_open(path, mode, *a, **kw)
-        if str(path).endswith("snap_dropped.jsonl"):
+        if str(path).endswith("snap_dropped.jsonl.tmp"):
             return _WriteAndCloseFailingFile(fh)
         return fh
 
@@ -2052,4 +2052,73 @@ def test_canonical_types_match_go_constant():
         f"Go TypeDiversityMaxDistinct={go_max_distinct} but "
         f"Python CANONICAL_TYPES has {len(CANONICAL_TYPES)} entries: "
         f"{sorted(CANONICAL_TYPES)}"
+    )
+
+
+def test_snap_dropped_jsonl_uses_atomic_rename_on_commit(tmp_path, monkeypatch):
+    """Drop records must be written to snap_dropped.jsonl.tmp during the run
+    and atomic-renamed to snap_dropped.jsonl ONLY after conn.commit() succeeds.
+
+    If commit raises (or anything between the drop emit and the commit raises),
+    the canonical filename must NOT exist — otherwise operators inspecting it
+    after a rollback would believe drops were authoritative when the DB
+    transaction was rolled back. The .tmp file should remain so the drops are
+    still inspectable.
+    """
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop
+
+    # Wrap conn so commit() raises after drops have streamed and indexes built.
+    class CommitFailingConn:
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def commit(self):
+            raise sqlite3.OperationalError("simulated commit failure")
+
+    proxy = CommitFailingConn(conn)
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="simulated commit failure"):
+            snap_properties(proxy, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    # Canonical file MUST NOT exist — rename only happens after commit.
+    assert not (tmp_path / "snap_dropped.jsonl").exists(), (
+        "snap_dropped.jsonl must not exist when commit fails — operators "
+        "would mistake rolled-back drops for authoritative ones"
+    )
+    # The .tmp file MUST exist with the drop records so they remain inspectable.
+    tmp_jsonl = tmp_path / "snap_dropped.jsonl.tmp"
+    assert tmp_jsonl.exists(), (
+        f"expected snap_dropped.jsonl.tmp to persist on commit failure so "
+        f"operators can inspect what would have been dropped; "
+        f"tmp_path contents: {list(tmp_path.iterdir())}"
+    )
+    # And it must contain the drop record(s) for xyzqwerty.
+    with open(tmp_jsonl) as f:
+        lines = [line for line in f if line.strip()]
+    assert lines, "expected at least one drop record in .tmp file"
+
+
+def test_snap_dropped_jsonl_renamed_on_success(tmp_path):
+    """On successful snap commit, snap_dropped.jsonl.tmp must be atomic-renamed
+    to snap_dropped.jsonl. The .tmp file must NOT remain behind."""
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    assert (tmp_path / "snap_dropped.jsonl").exists(), (
+        "expected canonical snap_dropped.jsonl after successful commit"
+    )
+    assert not (tmp_path / "snap_dropped.jsonl.tmp").exists(), (
+        "snap_dropped.jsonl.tmp must be renamed away on successful commit"
     )

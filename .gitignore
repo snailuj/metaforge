@@ -15,6 +15,7 @@ data-pipeline/output/checkpoint_*.json.pre-*
 # (e.g. docs(m05) gamma verdict) smuggled +45k regenerated lines into
 # unrelated commits.
 data-pipeline/output/snap_dropped.jsonl
+data-pipeline/output/snap_dropped.jsonl.tmp
 data-pipeline/output/*_results.json
 # Negation: re-include explicit "do not delete" sentinels (small text companion
 # files placed next to a snapshot the user wants protected from automated
