@@ -266,11 +266,13 @@ Lakoff cohort: 80 apt cross-domain pairs, 90 inapt within-domain pairs.
 | 2.00 | 0.4 | 0.85 | **+0.3193** (best cell) | 0.0 |
 | 1.00 | 0.5 | 0.75 | 0.0000 (M04 v2 best band) | 0.0 |
 
-**Monotone improvement in separation as γ rises.** Apt/inapt gap goes from -0.27 (apt scores below inapt) at γ=0 to +0.32 at γ=2. M05's core hypothesis — type-diversity carries cross-domain metaphor signal — is confirmed.
+**Monotone improvement in separation as γ rises.** Apt/inapt gap goes from -0.27 at γ=0 to +0.32 at γ=2. The trend is directionally consistent with M05's hypothesis (type-diversity carries cross-domain metaphor signal), but the underlying sample is thin — *the inapt distribution per cell collapsed to n=1 in the committed results* (most inapt vehicles failed to resolve via the API in this run; `apt_missing=64-67`, `inapt_missing=89-90` of 90). With n=1 on the inapt side, the separation metric is sensitive to which one inapt vehicle survived the API rather than to a real distributional difference. **The result is suggestive, not confirmatory.** Re-run with a broader resolving cohort (or relax the matcher so more inapt vehicles produce scores) before treating this as evidence sufficient to ratify a production γ value.
 
 Caveat: `aptness_rate=0` everywhere. Apt pairs do not yet clear the absolute aptness threshold (apt_score > inapt mean + σ). Bonus alone is insufficient to push apt pairs over the apt-classification line. Expected — Lakoff cohort is deliberately harder than the V2 baseline, and the bonus is correctly placed at the *ranking* level rather than the *absolute-score* level.
 
 Caveat #2: `embedding` and `both` columns are 0 across all cells. The M04 cosine-band path generates zero Lakoff cross-domain candidates — all hits in the sweep come from cluster overlap. The type bonus is therefore lifting cluster-overlap matches, not the cosine-band ones. M04 v2's β-bonus motivation (two-path agreement) gets no signal from this cohort either. Implication: future work should investigate why the cosine band does not surface Lakoff pairs even though it surfaces Forge candidates in the V2 baseline — likely the synset_centroids quality or the d_min floor.
+
+Caveat #3: The matcher / API resolution path drops most Lakoff vehicles (apt_missing 64-67 of 80; inapt_missing 89-90 of 90). Before the next γ-sweep, audit why so many cohort vehicles fail to score — likely concreteness-gate misses or no_properties short-circuits — and either fix the cohort (use vehicles that pass the gates) or fix the gates (if they're too strict for cross-domain mode).
 
 ### Default Gamma — escalate to operator
 
