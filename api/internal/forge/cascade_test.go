@@ -2,6 +2,7 @@ package forge
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -240,5 +241,50 @@ func TestCandidateSources_ValidRejectsUnknown(t *testing.T) {
 		if CandidateSources(s).Valid() {
 			t.Errorf("CandidateSources(%q).Valid() = true, want false", s)
 		}
+	}
+}
+
+func TestCascadeConfig_DefaultIsValid(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("DefaultCascadeConfig must validate: %v", err)
+	}
+	if cfg.CandidateSources != SourcesCluster {
+		t.Errorf("default CandidateSources: want %q (pre-sweep), got %q",
+			SourcesCluster, cfg.CandidateSources)
+	}
+	if cfg.EmbeddingDMin != 0.4 || cfg.EmbeddingDMax != 0.85 || cfg.EmbeddingTopK != 100 {
+		t.Errorf("default embedding knobs: got dMin=%v dMax=%v topK=%v",
+			cfg.EmbeddingDMin, cfg.EmbeddingDMax, cfg.EmbeddingTopK)
+	}
+}
+
+func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
+	base := DefaultCascadeConfig()
+
+	cases := []struct {
+		name string
+		mut  func(c *CascadeConfig)
+		want string
+	}{
+		{"unknown sources", func(c *CascadeConfig) { c.CandidateSources = "all" }, "CandidateSources"},
+		{"negative dMin", func(c *CascadeConfig) { c.EmbeddingDMin = -0.1 }, "EmbeddingDMin"},
+		{"dMin above 2", func(c *CascadeConfig) { c.EmbeddingDMin = 2.5 }, "EmbeddingDMin"},
+		{"dMax not above dMin", func(c *CascadeConfig) { c.EmbeddingDMax = c.EmbeddingDMin }, "EmbeddingDMax"},
+		{"topK zero", func(c *CascadeConfig) { c.EmbeddingTopK = 0 }, "EmbeddingTopK"},
+		{"topK negative", func(c *CascadeConfig) { c.EmbeddingTopK = -5 }, "EmbeddingTopK"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := base
+			tc.mut(&c)
+			err := c.Validate()
+			if err == nil {
+				t.Fatalf("want error mentioning %q, got nil", tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("want error containing %q, got %v", tc.want, err)
+			}
+		})
 	}
 }

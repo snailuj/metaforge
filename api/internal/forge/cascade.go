@@ -3,7 +3,10 @@
 // — divergences from the Python ground truth in the smoke crib are port bugs.
 package forge
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
 
 // JaccardSalience returns Σ min(pa[c],pb[c]) over shared keys divided by
 // Σ max(pa[c],pb[c]) over the union. Returns 0.0 for empty inputs or
@@ -156,17 +159,50 @@ type CascadeConfig struct {
 	Alpha                 float64
 	DCap                  float64
 	Composition           Composition
+
+	// M04 candidate-generation knobs.
+	CandidateSources CandidateSources // which paths to run
+	EmbeddingDMin    float64          // inclusive lower band on cosine distance
+	EmbeddingDMax    float64          // inclusive upper band
+	EmbeddingTopK    int              // cap on per-request embedding candidates
 }
 
 // DefaultCascadeConfig returns the production-blessed winner config from
-// the M03 Stage-2 sweep (separation +0.1779).
+// the M03 Stage-2 sweep (separation +0.1779) plus the pre-sweep M04
+// candidate-generation defaults. CandidateSources is SourcesCluster
+// (M03 behaviour) until the M04 sweep ratifies SourcesUnion.
 func DefaultCascadeConfig() CascadeConfig {
 	return CascadeConfig{
 		ConcretenessThreshold: 1.0,
 		Alpha:                 1.0,
 		DCap:                  0.77,
 		Composition:           CompositionAdditive,
+		CandidateSources:      SourcesCluster,
+		EmbeddingDMin:         0.4,
+		EmbeddingDMax:         0.85,
+		EmbeddingTopK:         100,
 	}
+}
+
+// Validate enforces invariants on CascadeConfig before the handler
+// accepts the config. Called at startup from main.go after env/flag
+// parsing so bad values fail loud instead of silently degrading the
+// scorer.
+func (c CascadeConfig) Validate() error {
+	if !c.CandidateSources.Valid() {
+		return fmt.Errorf("CandidateSources %q is not one of cluster_only|embedding_only|union", c.CandidateSources)
+	}
+	if c.EmbeddingDMin < 0.0 || c.EmbeddingDMin > 2.0 {
+		return fmt.Errorf("EmbeddingDMin %v out of range [0, 2]", c.EmbeddingDMin)
+	}
+	if c.EmbeddingDMax <= c.EmbeddingDMin || c.EmbeddingDMax > 2.0 {
+		return fmt.Errorf("EmbeddingDMax %v must be > EmbeddingDMin (%v) and ≤ 2.0",
+			c.EmbeddingDMax, c.EmbeddingDMin)
+	}
+	if c.EmbeddingTopK <= 0 {
+		return fmt.Errorf("EmbeddingTopK %d must be > 0", c.EmbeddingTopK)
+	}
+	return nil
 }
 
 // CascadeInputs bundles per-pair data for EvaluateCascadePair. Pointer
