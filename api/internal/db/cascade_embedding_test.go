@@ -1,7 +1,7 @@
 package db
 
 import (
-	"strings"
+	"errors"
 	"testing"
 
 	"github.com/snailuj/metaforge/internal/forge"
@@ -114,8 +114,7 @@ func TestGetForgeCascadeCandidatesByEmbedding_UnknownLemmaReturnsErrLemmaNotFoun
 	if err == nil {
 		t.Fatal("want ErrLemmaNotFound for unknown lemma, got nil")
 	}
-	if !strings.Contains(err.Error(), "lemma not found") && err.Error() != "" {
-		// Accept either ErrLemmaNotFound directly or wrapping with a "lemma not found" message.
-		// errors.Is check happens via Task 8 handler integration.
+	if !errors.Is(err, ErrLemmaNotFound) {
+		t.Fatalf("want ErrLemmaNotFound, got %v", err)
 	}
 }

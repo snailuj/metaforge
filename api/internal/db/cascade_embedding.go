@@ -75,9 +75,16 @@ type ForgeEmbeddingConfig struct {
 // definition/POS come from one batched synsets query.
 //
 // Returns ErrLemmaNotFound when the lemma has no curated source synset
-// (matches the cluster path's contract). Returns (nil, nil) when the
-// resolved topic synset has no centroid in the cache — defensive only;
-// 100% of enriched synsets have centroids by construction.
+// (matches the cluster path's contract). Returns (nil, nil) for two
+// distinct empty-result cases:
+//  1. the resolved topic synset has no centroid in the cache — defensive
+//     only; 100% of enriched synsets have centroids by construction.
+//     Differentiated via the slog.Debug "no topic centroid …" record.
+//  2. the cosine scan found no synsets inside [DMin, DMax] — a legitimate
+//     "no neighbours in band" outcome; tighten the band to fix.
+// Callers that need to distinguish the two should read the timing
+// record on cascade_embedding_query — Task 7 attaches the no_centroid
+// flag there.
 func GetForgeCascadeCandidatesByEmbedding(
 	database *sql.DB,
 	cache *CascadeCache,
@@ -142,12 +149,17 @@ func GetForgeCascadeCandidatesByEmbedding(
 	return out, nil
 }
 
-// resolvePrimaryCuratedSynset picks the topic synset for the embedding
-// path. Mirrors GetForgeCascadeCandidatesByLemma's source-synset rule:
-// the synset with the most curated property rows (a coarse stand-in
-// for the polysemy-ASC primary sense — see the SQL comment on the
-// correlated-COUNT cost in cascade.go). Returns ErrLemmaNotFound if
-// the lemma has no curated synset at all.
+// resolvePrimaryCuratedSynset picks the single primary-sense synset for
+// the embedding-path topic vector. The most-curated-rows-wins heuristic
+// is a coarse stand-in for polysemy-ASC (see the SQL comment on the
+// correlated-COUNT cost in cascade.go). This is INTENTIONALLY narrower
+// than GetForgeCascadeCandidatesByLemma, which iterates every sense the
+// lemma has. The asymmetry is acceptable in v1: the cosine band finds
+// neighbours of the central sense, while the cluster path still
+// produces candidates for niche senses via the structural CTE. Multi-
+// sense ANN candidate generation is parked as M04 v2 (see PIPELINE
+// backlog). Returns ErrLemmaNotFound when the lemma has no curated
+// synset at all.
 func resolvePrimaryCuratedSynset(database *sql.DB, lemma string) (string, error) {
 	var id string
 	err := database.QueryRow(`
