@@ -9,6 +9,7 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -19,6 +20,26 @@ import (
 	"github.com/snailuj/metaforge/internal/observe"
 )
 
+// phaseOutcome is the typed enumeration of cascade-request terminal
+// outcomes (plus the "continue" zero value). Every emit() and emitError()
+// call carries a phaseOutcome — typed string prevents typo drift across
+// the multiple emission sites and ensures handler_cascade_test.go's
+// JSON-literal outcome assertions remain stable.
+type phaseOutcome string
+
+const (
+	outcomeContinue          phaseOutcome = ""
+	outcomeLemmaNotFound     phaseOutcome = "lemma_not_found"
+	outcomeCandidatesError   phaseOutcome = "candidates_error"
+	outcomeEmbeddingError    phaseOutcome = "embedding_error"
+	outcomeBatchPropsError   phaseOutcome = "batch_props_error"
+	outcomeEmptyNoGatePass   phaseOutcome = "empty_no_gate_pass"
+	outcomeEmptyEncodeError  phaseOutcome = "empty_encode_error"
+	outcomeScored            phaseOutcome = "scored"
+	outcomeScoredEncodeError phaseOutcome = "scored_encode_error"
+	outcomeAbandonedNoEmit   phaseOutcome = "abandoned_no_emit"
+)
+
 // cascadePipeline orchestrates one /forge/suggest cascade request.
 // Each method advances the pipeline through one phase. The dispatcher
 // (handleSuggestCascade) wires them in order: fetch → score → respond.
@@ -26,9 +47,11 @@ import (
 // flows through one site, eliminating the paired stopTotal + slog.Info
 // duplication that accumulated across M04 review rounds.
 type cascadePipeline struct {
-	h     *Handler
-	word  string
-	limit int
+	database *sql.DB
+	cache    *db.CascadeCache
+	cfg      forge.CascadeConfig
+	word     string
+	limit    int
 
 	// fetch-phase state
 	cluster              []db.CascadeCandidate
@@ -89,7 +112,9 @@ func newCascadePipeline(h *Handler, word string, limit int) *cascadePipeline {
 	stopTotal := observe.Start("cascade_request_total")
 	slog.Debug("cascade request begin", "word", word, "limit", limit)
 	return &cascadePipeline{
-		h:         h,
+		database:  h.database,
+		cache:     h.cache,
+		cfg:       h.cascadeConf,
 		word:      word,
 		limit:     limit,
 		stopTotal: stopTotal,
@@ -105,7 +130,7 @@ func (p *cascadePipeline) close() {
 		return
 	}
 	p.closed = true
-	p.stopTotal("word", p.word, "outcome", "abandoned_no_emit")
+	p.stopTotal("word", p.word, "outcome", outcomeAbandonedNoEmit)
 	slog.Error("cascadePipeline closed without explicit emit — programming error",
 		"word", p.word)
 }
@@ -114,16 +139,16 @@ func (p *cascadePipeline) close() {
 // CandidateMode config, unions the results into p.candidates, and
 // returns (outcome, status, err). status==http.StatusOK means
 // "continue"; any other status means "respond with this error and stop".
-func (p *cascadePipeline) fetch() (string, int, error) {
+func (p *cascadePipeline) fetch() (phaseOutcome, int, error) {
 	var err error
-	if p.h.cascadeConf.Mode != forge.ModeEmbedding {
+	if p.cfg.Mode != forge.ModeEmbedding {
 		// Symmetric with the embedding-path stage timer below: only
 		// emit cascade_candidates_query when the cluster path actually
 		// runs. In embedding_only mode the cluster fetch is fully
 		// skipped — no stage timer, no zero-count log noise.
 		stopCand := observe.Start("cascade_candidates_query")
 		p.cluster, err = db.GetForgeCascadeCandidatesByLemma(
-			p.h.database, p.word, p.h.cascadeConf.ConcretenessThreshold, p.limit,
+			p.database, p.word, p.cfg.ConcretenessThreshold, p.limit,
 		)
 		stopCand("word", p.word, "count", len(p.cluster))
 	}
@@ -131,30 +156,32 @@ func (p *cascadePipeline) fetch() (string, int, error) {
 	// defer the 404 decision until after the embedding path runs.
 	if errors.Is(err, db.ErrLemmaNotFound) {
 		p.clusterLemmaNotFound = true
-		if p.h.cascadeConf.Mode == forge.ModeCluster {
-			return "lemma_not_found", http.StatusNotFound, err
+		if p.cfg.Mode == forge.ModeCluster {
+			return outcomeLemmaNotFound, http.StatusNotFound, err
 		}
 		// In union mode, defer 404 decision until after embedding path.
 	} else if err != nil {
 		slog.Error("cascade candidate fetch failed", "word", p.word, "err", err)
-		return "candidates_error", http.StatusInternalServerError, err
+		return outcomeCandidatesError, http.StatusInternalServerError, err
 	}
 
-	if p.h.cascadeConf.Mode != forge.ModeCluster {
+	if p.cfg.Mode != forge.ModeCluster {
 		stopEmb := observe.Start("cascade_embedding_query")
 		embCfg := db.ForgeEmbeddingConfig{
-			DMin: p.h.cascadeConf.EmbeddingDMin,
-			DMax: p.h.cascadeConf.EmbeddingDMax,
-			TopK: p.h.cascadeConf.EmbeddingTopK,
+			DMin: p.cfg.EmbeddingDMin,
+			DMax: p.cfg.EmbeddingDMax,
+			TopK: p.cfg.EmbeddingTopK,
 		}
-		p.embedding, err = db.GetForgeCascadeCandidatesByEmbedding(
-			p.h.database, p.h.cache, p.word, embCfg, &p.anomalies.embeddingDimMismatches,
+		var dimMismatches int
+		p.embedding, dimMismatches, err = db.GetForgeCascadeCandidatesByEmbedding(
+			p.database, p.cache, p.word, embCfg,
 		)
+		p.anomalies.embeddingDimMismatches += dimMismatches
 		stopEmb("word", p.word, "count", len(p.embedding))
 		if errors.Is(err, db.ErrLemmaNotFound) {
 			// Only 404 if cluster path also failed (or embedding-only).
-			if p.clusterLemmaNotFound || p.h.cascadeConf.Mode == forge.ModeEmbedding {
-				return "lemma_not_found", http.StatusNotFound, err
+			if p.clusterLemmaNotFound || p.cfg.Mode == forge.ModeEmbedding {
+				return outcomeLemmaNotFound, http.StatusNotFound, err
 			}
 			// D15: union mode + cluster-success + embedding-fetch-fail —
 			// embedding path is silently unavailable. Lift to the
@@ -164,8 +191,8 @@ func (p *cascadePipeline) fetch() (string, int, error) {
 			p.embedding = nil
 		} else if err != nil {
 			slog.Error("cascade embedding fetch failed", "word", p.word, "err", err)
-			return "embedding_error", http.StatusInternalServerError, err
-		} else if p.clusterLemmaNotFound && p.h.cascadeConf.Mode == forge.ModeUnion {
+			return outcomeEmbeddingError, http.StatusInternalServerError, err
+		} else if p.clusterLemmaNotFound && p.cfg.Mode == forge.ModeUnion {
 			// OWN-3 symmetric to D15: union mode + cluster ErrLemmaNotFound
 			// + embedding-fetch-success. Cluster path is silently
 			// unavailable for this lemma. Lift to the anomaly aggregator
@@ -179,13 +206,13 @@ func (p *cascadePipeline) fetch() (string, int, error) {
 	slog.Debug("cascade candidates assembled",
 		"word", p.word, "cluster", len(p.cluster), "embedding", len(p.embedding),
 		"after_union", len(p.candidates))
-	return "", http.StatusOK, nil
+	return outcomeContinue, http.StatusOK, nil
 }
 
 // score runs the batch props query and the scoring loop, populating
 // p.matches. Returns (outcome, status, err) with the same semantics as
 // fetch().
-func (p *cascadePipeline) score() (string, int, error) {
+func (p *cascadePipeline) score() (phaseOutcome, int, error) {
 	// Collect distinct synset_ids for one batch properties query.
 	idSet := make(map[string]struct{}, 2*len(p.candidates))
 	for _, c := range p.candidates {
@@ -197,11 +224,11 @@ func (p *cascadePipeline) score() (string, int, error) {
 		ids = append(ids, id)
 	}
 	stopProps := observe.Start("cascade_batch_props_query")
-	propsByID, err := db.GetSynsetClusterPropertiesBatch(p.h.database, ids)
+	propsByID, err := db.GetSynsetClusterPropertiesBatch(p.database, ids)
 	stopProps("word", p.word, "synset_ids", len(ids), "rows", len(propsByID))
 	if err != nil {
 		slog.Error("cascade batch properties fetch failed", "word", p.word, "err", err)
-		return "batch_props_error", http.StatusInternalServerError, err
+		return outcomeBatchPropsError, http.StatusInternalServerError, err
 	}
 	p.propsByID = propsByID
 	if len(propsByID) == 0 {
@@ -236,10 +263,10 @@ func (p *cascadePipeline) score() (string, int, error) {
 		// Concreteness from the in-memory cache — preserves the
 		// *float64 absence-signal contract EvaluateCascadePair expects.
 		var tConc, vConc *float64
-		if v, ok := p.h.cache.Concreteness[c.SourceSynsetID]; ok {
+		if v, ok := p.cache.Concreteness[c.SourceSynsetID]; ok {
 			tConc = &v
 		}
-		if v, ok := p.h.cache.Concreteness[c.SynsetID]; ok {
+		if v, ok := p.cache.Concreteness[c.SynsetID]; ok {
 			vConc = &v
 		}
 		// Cluster-path cache miss = SQL/cache divergence (Error).
@@ -253,8 +280,8 @@ func (p *cascadePipeline) score() (string, int, error) {
 				p.anomalies.embeddingConcretenessMisses++
 			}
 		}
-		topicCent := p.h.cache.Centroids[c.SourceSynsetID]
-		vehCent := p.h.cache.Centroids[c.SynsetID]
+		topicCent := p.cache.Centroids[c.SourceSynsetID]
+		vehCent := p.cache.Centroids[c.SynsetID]
 
 		res := forge.EvaluateCascadePair(forge.CascadeInputs{
 			TopicConcreteness:   tConc,
@@ -263,7 +290,7 @@ func (p *cascadePipeline) score() (string, int, error) {
 			VehicleProperties:   propsByID[c.SynsetID],
 			TopicCentroid:       topicCent,
 			VehicleCentroid:     vehCent,
-		}, p.h.cascadeConf)
+		}, p.cfg)
 
 		// SQL CTE already filtered gate_dropped + missing_concreteness,
 		// so the only attrition we can see here is no_properties.
@@ -321,7 +348,7 @@ func (p *cascadePipeline) score() (string, int, error) {
 	slog.Debug("cascade response ready",
 		"word", p.word, "candidates", len(p.candidates), "scored", len(p.matches),
 		"dropped_non_scored", droppedNonScored)
-	return "", http.StatusOK, nil
+	return outcomeContinue, http.StatusOK, nil
 }
 
 // respondEmpty writes the 200-OK empty-Suggestions response for the
@@ -333,11 +360,11 @@ func (p *cascadePipeline) respondEmpty(w http.ResponseWriter) {
 	stopEncode := observe.Start("cascade_response_encode")
 	encodeErr := json.NewEncoder(w).Encode(resp)
 	stopEncode("word", p.word, "suggestion_count", 0)
-	outcome := "empty_no_gate_pass"
+	outcome := outcomeEmptyNoGatePass
 	if encodeErr != nil {
 		slog.Error("failed to encode empty cascade suggest response",
 			"word", p.word, "err", encodeErr)
-		outcome = "empty_encode_error"
+		outcome = outcomeEmptyEncodeError
 	}
 	p.emit(outcome, "candidates", 0)
 }
@@ -351,11 +378,11 @@ func (p *cascadePipeline) respondScored(w http.ResponseWriter) {
 	stopEncode := observe.Start("cascade_response_encode")
 	encodeErr := json.NewEncoder(w).Encode(resp)
 	stopEncode("word", p.word, "suggestion_count", len(p.matches))
-	outcome := "scored"
+	outcome := outcomeScored
 	if encodeErr != nil {
 		slog.Error("failed to encode cascade suggest response",
 			"word", p.word, "err", encodeErr)
-		outcome = "scored_encode_error"
+		outcome = outcomeScoredEncodeError
 	}
 	p.emit(outcome,
 		"candidates", len(p.candidates),
@@ -371,7 +398,7 @@ func (p *cascadePipeline) respondScored(w http.ResponseWriter) {
 // slog.Error level before invoking emitError; this method owns only
 // the HTTP response shape and the terminal cascade_request_complete
 // signal, so it does not need the error value.
-func (p *cascadePipeline) emitError(w http.ResponseWriter, outcome string, status int) {
+func (p *cascadePipeline) emitError(w http.ResponseWriter, outcome phaseOutcome, status int) {
 	switch status {
 	case http.StatusNotFound:
 		http.Error(w, `{"error": "word not found or has no curated properties"}`, status)
@@ -386,7 +413,7 @@ func (p *cascadePipeline) emitError(w http.ResponseWriter, outcome string, statu
 // record with anomaly attrs + the call-site extras. DRY-ing this is
 // the heart of the D24 refactor — pre-refactor there were 6 paired
 // stopTotal + slog.Info sites with drifting attribute lists.
-func (p *cascadePipeline) emit(outcome string, extra ...any) {
+func (p *cascadePipeline) emit(outcome phaseOutcome, extra ...any) {
 	if p.closed {
 		// Defensive: never emit twice for one request.
 		return

@@ -129,28 +129,27 @@ type ForgeEmbeddingConfig struct {
 // record on cascade_embedding_query — Task 7 attaches the no_centroid
 // flag there.
 //
-// dimMismatches (nullable) accumulates the count of cosine-skipped
-// candidates (D19). Pass nil if the count is not needed.
+// The dimMismatches return is the per-call count of cosine-skipped
+// candidates (D19) — surfaces through the cascade anomaly aggregator.
+// Mirrors scanEmbeddingBand's return-tuple shape; error/early-return
+// paths return 0 for dimMismatches.
 func GetForgeCascadeCandidatesByEmbedding(
 	database *sql.DB,
 	cache *CascadeCache,
 	lemma string,
 	cfg ForgeEmbeddingConfig,
-	dimMismatches *int,
-) ([]CascadeCandidate, error) {
+) (candidates []CascadeCandidate, dimMismatches int, err error) {
 	topicID, err := resolvePrimaryCuratedSynset(database, lemma)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	siblings, err := resolveLemmaSiblingSynsets(database, lemma)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	topicCentroid := cache.Centroids[topicID]
 	hits, scanSkipped := scanEmbeddingBand(cache, topicCentroid, siblings, cfg.DMin, cfg.DMax, cfg.TopK)
-	if dimMismatches != nil {
-		*dimMismatches += scanSkipped
-	}
+	dimMismatches = scanSkipped
 	if hits == nil {
 		// Pipeline contract violation: the topic synset resolved to a
 		// curated row (cluster_only resolution succeeded) but has no
@@ -159,15 +158,15 @@ func GetForgeCascadeCandidatesByEmbedding(
 		// → handler falls back to cluster-only behaviour for this request.
 		slog.Warn("embedding path falls back: no topic centroid for curated synset",
 			"lemma", lemma, "synset", topicID)
-		return nil, nil
+		return nil, dimMismatches, nil
 	}
 	if len(hits) == 0 {
-		return nil, nil
+		return nil, dimMismatches, nil
 	}
 
 	topicRow, err := getSynsetRow(database, topicID)
 	if err != nil {
-		return nil, fmt.Errorf("topic synset row %s: %w", topicID, err)
+		return nil, dimMismatches, fmt.Errorf("topic synset row %s: %w", topicID, err)
 	}
 
 	targetIDs := make([]string, len(hits))
@@ -176,7 +175,7 @@ func GetForgeCascadeCandidatesByEmbedding(
 	}
 	targetRows, err := getSynsetRowsBatch(database, targetIDs)
 	if err != nil {
-		return nil, fmt.Errorf("target synsets batch: %w", err)
+		return nil, dimMismatches, fmt.Errorf("target synsets batch: %w", err)
 	}
 
 	out := make([]CascadeCandidate, 0, len(hits))
@@ -188,14 +187,21 @@ func GetForgeCascadeCandidatesByEmbedding(
 			slog.Error("embedding hit has no synsets row", "synset", h.synsetID)
 			continue
 		}
-		out = append(out, NewCascadeCandidate(
-			h.synsetID, row.lemma, row.pos, row.definition,
-			0, 0, nil,
-			topicID, topicRow.definition, topicRow.pos,
-			forge.SourceEmbedding,
-		))
+		out = append(out, NewCascadeCandidate(NewCascadeCandidateOpts{
+			SynsetID:         h.synsetID,
+			Word:             row.lemma,
+			POS:              row.pos,
+			Definition:       row.definition,
+			SalienceSum:      0,
+			ContrastCount:    0,
+			SharedProps:      nil,
+			SourceSynsetID:   topicID,
+			SourceDefinition: topicRow.definition,
+			SourcePOS:        topicRow.pos,
+			Source:           forge.SourceEmbedding,
+		}))
 	}
-	return out, nil
+	return out, dimMismatches, nil
 }
 
 // resolvePrimaryCuratedSynset picks the single primary-sense synset for

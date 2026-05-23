@@ -117,7 +117,7 @@ func TestGetForgeCascadeCandidatesByEmbedding_AnchorPairsSurface(t *testing.T) {
 	}
 
 	cfg := ForgeEmbeddingConfig{DMin: 0.0, DMax: 1.5, TopK: 200}
-	got, err := GetForgeCascadeCandidatesByEmbedding(database, cache, "anger", cfg, nil)
+	got, _, err := GetForgeCascadeCandidatesByEmbedding(database, cache, "anger", cfg)
 	if err != nil {
 		t.Fatalf("GetForgeCascadeCandidatesByEmbedding: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestGetForgeCascadeCandidatesByEmbedding_UnknownLemmaReturnsErrLemmaNotFoun
 	}
 
 	cfg := ForgeEmbeddingConfig{DMin: 0.0, DMax: 1.5, TopK: 10}
-	_, err = GetForgeCascadeCandidatesByEmbedding(database, cache, "zzznotarealword", cfg, nil)
+	_, _, err = GetForgeCascadeCandidatesByEmbedding(database, cache, "zzznotarealword", cfg)
 	if err == nil {
 		t.Fatal("want ErrLemmaNotFound for unknown lemma, got nil")
 	}

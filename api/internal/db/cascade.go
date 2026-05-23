@@ -74,36 +74,45 @@ type CascadeCandidate struct {
 	Source           forge.CandidateSource
 }
 
+// NewCascadeCandidateOpts groups the fields for NewCascadeCandidate so
+// callers use named-field literals at the call site. Eliminates the
+// positional-argument-swap class of bug for the 6 adjacent string
+// parameters (synset/lemma/pos/definition on both topic and target
+// sides).
+type NewCascadeCandidateOpts struct {
+	SynsetID         string
+	Word             string
+	POS              string
+	Definition       string
+	SalienceSum      float64
+	ContrastCount    int
+	SharedProps      []string
+	SourceSynsetID   string
+	SourceDefinition string
+	SourcePOS        string
+	Source           forge.CandidateSource
+}
+
 // NewCascadeCandidate is the validated constructor for CascadeCandidate.
-// It enforces the Source.Valid() invariant that downstream consumers
-// (handler scoring loop, union dedup, D4 tier-omit branch) depend on.
-// Panics on !source.Valid() — every generator MUST tag with a known
-// per-row source. Callers: GetForgeCascadeCandidatesByLemma (cluster
-// path), GetForgeCascadeCandidatesByEmbedding (embedding path), any
-// future generator.
-func NewCascadeCandidate(
-	synsetID, word, pos, definition string,
-	salienceSum float64,
-	contrastCount int,
-	sharedProps []string,
-	sourceSynsetID, sourceDefinition, sourcePOS string,
-	source forge.CandidateSource,
-) CascadeCandidate {
-	if !source.Valid() {
-		panic(fmt.Sprintf("NewCascadeCandidate: invalid Source %q for synset %s — generator must stamp a known per-row source", source, synsetID))
+// Panics on !source.Valid() — every generator MUST stamp a known
+// per-row source. See NewCascadeCandidateOpts for the field set;
+// always construct with named-field opts literals.
+func NewCascadeCandidate(o NewCascadeCandidateOpts) CascadeCandidate {
+	if !o.Source.Valid() {
+		panic(fmt.Sprintf("NewCascadeCandidate: invalid Source %q for synset %s — generator must stamp a known per-row source", o.Source, o.SynsetID))
 	}
 	return CascadeCandidate{
-		SynsetID:         synsetID,
-		Word:             word,
-		POS:              pos,
-		Definition:       definition,
-		SalienceSum:      salienceSum,
-		ContrastCount:    contrastCount,
-		SharedProps:      sharedProps,
-		SourceSynsetID:   sourceSynsetID,
-		SourceDefinition: sourceDefinition,
-		SourcePOS:        sourcePOS,
-		Source:           source,
+		SynsetID:         o.SynsetID,
+		Word:             o.Word,
+		POS:              o.POS,
+		Definition:       o.Definition,
+		SalienceSum:      o.SalienceSum,
+		ContrastCount:    o.ContrastCount,
+		SharedProps:      o.SharedProps,
+		SourceSynsetID:   o.SourceSynsetID,
+		SourceDefinition: o.SourceDefinition,
+		SourcePOS:        o.SourcePOS,
+		Source:           o.Source,
 	}
 }
 
@@ -247,12 +256,19 @@ func GetForgeCascadeCandidatesByLemma(
 		if sharedProps != "" {
 			splitShared = strings.Split(sharedProps, ",")
 		}
-		matches = append(matches, NewCascadeCandidate(
-			synsetID, word, pos, definition,
-			salienceSum, contrastCount, splitShared,
-			sourceSynsetID, sourceDefinition, sourcePOS,
-			forge.SourceCluster,
-		))
+		matches = append(matches, NewCascadeCandidate(NewCascadeCandidateOpts{
+			SynsetID:         synsetID,
+			Word:             word,
+			POS:              pos,
+			Definition:       definition,
+			SalienceSum:      salienceSum,
+			ContrastCount:    contrastCount,
+			SharedProps:      splitShared,
+			SourceSynsetID:   sourceSynsetID,
+			SourceDefinition: sourceDefinition,
+			SourcePOS:        sourcePOS,
+			Source:           forge.SourceCluster,
+		}))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("GetForgeCascadeCandidatesByLemma iterate: %w", err)
