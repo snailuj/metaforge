@@ -211,6 +211,100 @@ func TestLoadClusterTypes_LogsDivergenceWarning(t *testing.T) {
 	}
 }
 
+func TestLoadClusterTypes_NullThenNonNull_LogsDivergence(t *testing.T) {
+	// Case A divergence: first row dt=NULL writes "" into the map, then a
+	// later row carries a real dominant_type. The original guard
+	// ("existing != """) swallowed this as a benign upgrade; in reality
+	// it's still a pipeline contract violation (snap writes one
+	// dominant_type per cluster). Surface as Warn and accept the
+	// non-empty value as the recovered winner.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		// NULL first, then real value — order matters because the loader
+		// is row-order-sensitive.
+		`INSERT INTO vocab_clusters VALUES (1, 100, NULL)`,
+		`INSERT INTO vocab_clusters VALUES (1, 101, 'sensorimotor')`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	cache, err := LoadCascadeCache(database)
+	if err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "vocab_clusters.dominant_type divergence") {
+		t.Errorf("expected slog.Warn about NULL→non-NULL divergence; got:\n%s", logs)
+	}
+	// Prefer-non-empty recovery: the real value wins regardless of order.
+	if got := cache.ClusterTypes[1]; got != "sensorimotor" {
+		t.Errorf("cluster 1: want %q after NULL→non-NULL upgrade, got %q", "sensorimotor", got)
+	}
+}
+
+func TestLoadClusterTypes_NonNullThenNull_LogsDivergence_PreservesNonNull(t *testing.T) {
+	// Case B divergence (the worst silent failure): first row writes a
+	// real dominant_type, second row arrives as NULL and the original
+	// guard silently overwrote the real value with "". Surface as Warn
+	// AND preserve the non-empty value — losing real data to a stray
+	// NULL is the most expensive direction to fail.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (1, 101, NULL)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	cache, err := LoadCascadeCache(database)
+	if err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "vocab_clusters.dominant_type divergence") {
+		t.Errorf("expected slog.Warn about non-NULL→NULL divergence; got:\n%s", logs)
+	}
+	// Prefer-non-empty recovery: the original real value must survive
+	// the stray NULL — losing data here is the worst-case failure.
+	if got := cache.ClusterTypes[1]; got != "sensorimotor" {
+		t.Errorf("cluster 1: want %q preserved through NULL second row, got %q", "sensorimotor", got)
+	}
+}
+
 func TestLoadCascadeCache_AllNullDominantType_LogsWarn(t *testing.T) {
 	// M05 S02 readiness tripwire: if every vocab_clusters row has
 	// NULL dominant_type, the pipeline hasn't been re-run since the

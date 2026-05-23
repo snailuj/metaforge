@@ -216,18 +216,28 @@ func loadClusterTypes(database *sql.DB, dst map[int64]string) error {
 		}
 		// Defensive divergence check: snap_properties.py writes one
 		// dominant_type per cluster, so every row for the same cluster
-		// must carry the same value. A pipeline bug that diverged
-		// would otherwise be silently absorbed by last-write-wins —
-		// surface it instead.
-		if existing, ok := dst[id]; ok && existing != "" && dt.Valid && existing != dt.String {
-			slog.Warn("cascade cache: vocab_clusters.dominant_type divergence within cluster",
-				"cluster_id", id, "first_seen", existing, "new", dt.String)
-		}
+		// must carry the same canonical value (including "all NULL").
+		// Any disagreement — empty-vs-non-empty in either direction — is
+		// a pipeline contract violation that last-write-wins would
+		// otherwise silently absorb. Canonicalise the NullString to an
+		// incoming string and compare on the canonical pair so both
+		// Case A (NULL then real) and Case B (real then NULL) surface.
+		incoming := ""
 		if dt.Valid {
-			dst[id] = dt.String
-		} else {
-			dst[id] = ""
+			incoming = dt.String
 		}
+		if existing, ok := dst[id]; ok && existing != incoming {
+			slog.Warn("cascade cache: vocab_clusters.dominant_type divergence within cluster",
+				"cluster_id", id, "first_seen", existing, "new", incoming)
+			// Prefer-non-empty recovery: a real dominant_type beats ""
+			// regardless of arrival order. This rescues Case B (real
+			// value already in the map, NULL row arriving second) where
+			// last-write-wins would have destroyed real data.
+			if incoming == "" {
+				continue
+			}
+		}
+		dst[id] = incoming
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate cluster types: %w", err)
