@@ -6,7 +6,7 @@
 
 ## Deferrals Ledger
 
-### D1 — CandidateSource zero-value enforcement (constructor discipline)
+### D1 — CandidateSource zero-value enforcement (constructor discipline) ✗ SUPERSEDED-BY-FIX (M04 structural debt sweep — commits 05a7c9c1 + 3c73872e)
 - **Severity:** low
 - **Status:** active
 - **Raised by:** type-design-analyzer (TD-OWN-2)
@@ -86,7 +86,7 @@
 - **why_out_of_scope:** The "no such table" substring depends on go-sqlite3 driver text being stable. Not a new bug. Replacing with a startup-time table-existence probe is a wider DB-layer refactor.
 - **proposed_followup:** Bundle with D9.
 
-### D11 — `CandidateSources` / `CandidateSource` naming collision
+### D11 — `CandidateSources` / `CandidateSource` naming collision ✗ SUPERSEDED-BY-FIX (M04 structural debt sweep — commits 05a7c9c1 + 3c73872e)
 - **Severity:** cosmetic
 - **Status:** active
 - **Raised by:** type-design-analyzer (TD-OWN-7)
@@ -411,3 +411,69 @@ Per the code-review-loop skill's stop-nudge guidance and CLAUDE.md "Refactor mer
 
 Strategic call: the M04 milestone has more value-bearing work ahead (calibration sweep, verdict application, branch finish). Round 3 closes the review-loop gate; remaining deferrals are anchored in PIPELINE.md for downstream pickup.
 
+
+---
+
+## Post-Loop Structural Debt Sweep — 2026-05-23T15:00:00Z
+
+After the review loop terminated at Round 3, the operator flagged that the
+deferrals mechanism had been hijacked by excessive carry-forward — gnarly
+tech debt was being parked as "deferred" rather than fixed. A focused
+out-of-loop sweep landed the structurally significant deferrals before
+branch merge.
+
+### Deferrals closed by this sweep (all now `superseded-by-fix`)
+
+- **D1** — `CandidateSource` zero-value enforcement
+- **D11** — `CandidateSources` → `CandidateMode` naming collision
+- **D15** — Embedding-path-unavailable signal in union mode
+- **D19** — `scanEmbeddingBand` `ok==false` dim-mismatch counter
+- **D20** — `resolveLemmaSiblingSynsets` empty-result Error log
+- **D23** — Lift `cascadeAnomalies` to named type with `Attrs()` method
+- **D24** — `handleSuggestCascade` god-function refactor into `cascadePipeline`
+- **D26** — Unchecked type cast at `main.go:54`
+
+### Fixes landed (2 atomic commits)
+
+- **`05a7c9c1`** — `refactor(handler): extract cascadePipeline + lift cascadeAnomalies — closes D24/D15/D19/D20/D23`
+  - `handleSuggestCascade` collapsed 290 lines → 21-line thin orchestrator
+  - New `cascade_pipeline.go` (~350 lines): `cascadePipeline` type with `fetch / score / respondScored / respondEmpty / emitError / emit` methods
+  - `cascadeAnomalies` lifted from inline anon struct to named type with `Attrs()` helper
+  - 6 paired `stopTotal` + `slog.Info` emit sites collapsed into a single `emit()` call site
+  - New anomaly counters: `embeddingPathUnavailable bool` (D15), `embeddingDimMismatches int` (D19)
+  - `scanEmbeddingBand` returns `(hits, skipped)`; `GetForgeCascadeCandidatesByEmbedding` accepts `*int` accumulator
+  - `resolveLemmaSiblingSynsets` Error log on empty-after-primary-resolved (D20)
+
+- **`3c73872e`** — `refactor(forge,db,handler,cmd): type discipline — D1 + D11 + D26`
+  - `forge.NewCascadeCandidate` constructor panics on `!source.Valid()` (D1) — both generators now route through it
+  - Type `CandidateSources` → `CandidateMode`; constants `Sources*` → `Mode*` (D11) — wire format and operator-facing names unchanged
+  - `forge.ParseCandidateMode(string) (CandidateMode, error)` constructor at `main.go:54` (D26) — invalid env/flag values fail loud at the cast site
+
+### Test results
+Full `go test ./...` PASS across all 7 packages. All canary / backward-compat / observability tests green: classical-pair canary, cluster-only / embedding-only mode pins, latency budget (410ms < 750ms), Fix A unconditional outcome emission, Fix B source-branched aggregator, D4 embedding tier omission, D16 lemma case-insensitive, both startup tripwires.
+
+### Ledger state at sweep close
+
+| Status | Count | IDs |
+|---|---|---|
+| superseded-by-fix | 11 | D1, D4, D11, D12, D15, D16, D19, D20, D23, D24, D26 |
+| still-active | 16 | D2, D3, D5, D6, D7, D8, D9, D10, D13, D14, D17, D18, D21, D22, D25, D27 |
+
+The remaining 16 active deferrals are genuinely scoped (cosmetic / pre-existing /
+M05-bound / driver-stability) per the post-sweep operator audit. All anchored
+in `docs/roadmap/PIPELINE.md` under the compulsory M04 tech debt block.
+
+### Compulsory pre-M05 follow-ups (anchored in PIPELINE.md)
+
+The structural debt sweep is item (1) of the compulsory pre-M05 block. Two
+items remain:
+
+- **(2) code-review-loop skill upgrade** — adversarial deferral enforcement.
+  Touches `~/.claude/skills/code-review-loop/`. The deferral mechanism
+  needs a fresh adversarial subagent per `defer-out-of-scope` decision +
+  fix-now bias on line-calls + 2-round-survival re-justification.
+- **(3) Lakoff cross-domain eval cohort** — replaces MUNCH (paraphrase-style)
+  with the Lakoff & Johnson primary mappings + plausibility-rated inapt
+  controls. Re-run the M04 sweep against the new cohort.
+
+Both are anchored in PIPELINE.md as compulsory blockers for M05.
