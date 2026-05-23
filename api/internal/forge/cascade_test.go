@@ -210,3 +210,19 @@ func TestEvaluateCascadePair_FailOpenOnMissingCentroid(t *testing.T) {
 }
 
 func floatPtr(v float64) *float64 { return &v }
+
+func TestCandidateSource_ValidRecognisesKnownTags(t *testing.T) {
+	for _, s := range []CandidateSource{SourceCluster, SourceEmbedding, SourceBoth} {
+		if !s.Valid() {
+			t.Errorf("CandidateSource(%q).Valid() = false, want true", s)
+		}
+	}
+}
+
+func TestCandidateSource_ValidRejectsUnknown(t *testing.T) {
+	for _, s := range []CandidateSource{"", "neither", "cluster_only", "embedding_only"} {
+		if CandidateSource(s).Valid() {
+			t.Errorf("CandidateSource(%q).Valid() = true, want false", s)
+		}
+	}
+}

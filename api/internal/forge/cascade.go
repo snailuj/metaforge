@@ -101,6 +101,31 @@ const (
 	CompositionMultiplicative Composition = "multiplicative"
 )
 
+// CandidateSource tags a single candidate row with the generation path
+// that produced it. Distinct from CandidateSources (the config-side enum
+// that chooses which paths to run) — a `union` request can produce rows
+// tagged cluster, embedding, OR both. Purely diagnostic in M04 v1; a
+// future co-generation scoring bonus may key off SourceBoth.
+type CandidateSource string
+
+const (
+	SourceCluster   CandidateSource = "cluster"
+	SourceEmbedding CandidateSource = "embedding"
+	SourceBoth      CandidateSource = "both"
+)
+
+// Valid reports whether s is one of the three known per-row source tags.
+// Unknown values indicate a structural bug (untagged candidate, manual
+// JSON tampering); callers may use this on the boundary between trusted
+// internal code and untrusted inputs.
+func (s CandidateSource) Valid() bool {
+	switch s {
+	case SourceCluster, SourceEmbedding, SourceBoth:
+		return true
+	}
+	return false
+}
+
 // CascadeConfig pins the cascade hyperparameters. Use DefaultCascadeConfig
 // for the production-blessed winner config.
 type CascadeConfig struct {
