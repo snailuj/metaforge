@@ -1,0 +1,44 @@
+# M04 v2 calibration sweep — runs against the live Go API using the
+# Lakoff cross-domain metaphor cohort instead of MUNCH (which was
+# paraphrase-style and could not measure the M04 generation lift).
+#
+# The Lakoff cohort is curated from Lakoff & Johnson 1980 "Metaphors
+# We Live By" primary mappings: ANGER IS FIRE, TIME IS MONEY, ARGUMENT
+# IS WAR, IDEAS ARE PLANTS/SEEDS/LIGHT, THEORIES ARE BUILDINGS,
+# LOVE/LIFE IS A JOURNEY, MIND IS A MACHINE, KNOWLEDGE IS LIGHT, etc.
+# 80 apt pairs covering ~30 metaphor classes. 90 inapt pairs are
+# cross-domain (target/vehicle in different conceptual domains) but
+# selected to be implausible-as-metaphor — concrete objects that
+# bear no felicitous metaphorical relation to the abstract topic.
+#
+# Driven by data-pipeline/scripts/m04_sweep_runner.py — same harness
+# as the M04 v1 sweep; only the fixture paths change.
+
+name: m04v2_lakoff_band
+db: data-pipeline/output/lexicon_v2.db
+api_port_base: 9200             # offset from M04 v1's 9100 to avoid port collisions if both run
+api_binary: api/metaforge       # build with: go build -o api/metaforge ./api/cmd/metaforge
+pairs: data-pipeline/fixtures/lakoff_apt.jsonl       # 80 Lakoff classical metaphor pairs
+controls: data-pipeline/fixtures/lakoff_inapt.jsonl  # 90 cross-domain-but-implausible pairs
+limit: 100                      # /forge/suggest?limit=  — wider than M04 v1's 50 because
+                                # the canary showed classical pairs sit at high cosine ranks
+
+# Baseline reference — fixed cluster_only request. Cluster path won't
+# surface most cross-domain Lakoff pairs (that's M04's whole premise),
+# so the apt-rate here should be LOW. The interesting comparison is
+# between the union cells and this baseline.
+baseline:
+  candidate_sources: cluster_only
+
+variations:
+  # Same 3×3 grid as M04 v1 — preserves the calibration shape so the
+  # cohort change is the only variable.
+  - { name: dmin0.3_dmax0.75, candidate_sources: union, d_min: 0.3, d_max: 0.75, top_k: 200 }
+  - { name: dmin0.3_dmax0.85, candidate_sources: union, d_min: 0.3, d_max: 0.85, top_k: 200 }
+  - { name: dmin0.3_dmax0.95, candidate_sources: union, d_min: 0.3, d_max: 0.95, top_k: 200 }
+  - { name: dmin0.4_dmax0.75, candidate_sources: union, d_min: 0.4, d_max: 0.75, top_k: 200 }
+  - { name: dmin0.4_dmax0.85, candidate_sources: union, d_min: 0.4, d_max: 0.85, top_k: 200 }
+  - { name: dmin0.4_dmax0.95, candidate_sources: union, d_min: 0.4, d_max: 0.95, top_k: 200 }
+  - { name: dmin0.5_dmax0.75, candidate_sources: union, d_min: 0.5, d_max: 0.75, top_k: 200 }
+  - { name: dmin0.5_dmax0.85, candidate_sources: union, d_min: 0.5, d_max: 0.85, top_k: 200 }
+  - { name: dmin0.5_dmax0.95, candidate_sources: union, d_min: 0.5, d_max: 0.95, top_k: 200 }
