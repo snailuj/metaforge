@@ -445,7 +445,12 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 	// zero" (pointer set to 0.0, count reflects evaluation).
 	var typeBonus *float64
 	sharedTypesCount := 0
-	if cfg.Gamma > 0 && in.ClusterTypes != nil {
+	// Tighten the gate to len > 0 (was != nil): the CascadeInputs.ClusterTypes
+	// docstring promises a clean short-circuit for nil OR empty, and an
+	// empty non-nil map still entered the loop pre-fix, allocating the
+	// shared slice for an evaluation that TypeDiversityBonus would
+	// immediately reject on len(clusterTypes)==0.
+	if cfg.Gamma > 0 && len(in.ClusterTypes) > 0 {
 		shared := make([]int64, 0, len(in.TopicProperties))
 		for cid := range in.TopicProperties {
 			if _, dual := in.VehicleProperties[cid]; dual {

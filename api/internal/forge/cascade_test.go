@@ -619,3 +619,31 @@ func TestEvaluateCascadePair_GammaPositiveNoClusterTypesIsZero(t *testing.T) {
 		t.Errorf("nil ClusterTypes: TypeDiversityBonus should be nil, got %v", *res.TypeDiversityBonus)
 	}
 }
+
+func TestEvaluateCascadePair_EmptyClusterTypes_NoBonus(t *testing.T) {
+	// Doc on CascadeInputs.ClusterTypes promises that EvaluateCascadePair
+	// "skips the type-diversity bonus computation regardless of Gamma"
+	// when ClusterTypes is nil OR empty. A non-nil empty map must
+	// short-circuit cleanly: TypeDiversityBonus must stay nil (M05
+	// did not evaluate) and the function must not allocate a shared
+	// slice for an evaluation it can't perform.
+	cfg := DefaultCascadeConfig()
+	cfg.Gamma = 1.0
+	tConc := 3.0
+	vConc := 4.5
+	in := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        map[int64]string{}, // non-nil, empty
+	}
+	res := EvaluateCascadePair(in, cfg)
+	if res.TypeDiversityBonus != nil {
+		t.Errorf("empty ClusterTypes: TypeDiversityBonus should be nil (M05 short-circuited), got %v",
+			*res.TypeDiversityBonus)
+	}
+	if res.SharedTypesCount != 0 {
+		t.Errorf("empty ClusterTypes: SharedTypesCount should be 0, got %d", res.SharedTypesCount)
+	}
+}
