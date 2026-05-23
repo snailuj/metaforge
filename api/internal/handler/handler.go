@@ -352,14 +352,12 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 		return
 	}
 	if len(propsByID) == 0 {
-		// Anomaly: candidates were gate-passed (so the cascade tables are
-		// populated for these synsets) but NONE of them have curated
-		// properties. Most likely synset_properties_curated was truncated
-		// post-startup or schema drifted. Surface as Error so operators
-		// can spot the silent attrition; continue serving (response will
-		// be empty due to the no_properties filter below).
-		slog.Error("cascade batch properties returned empty for all candidates",
-			"word", word, "candidate_count", len(candidates))
+		// R4-D1: previously a per-request Error log; now aggregated
+		// onto cascade_request_total as empty_props_batch=true. The
+		// runtime tripwire on synset_properties_curated (Task 16) catches
+		// the truncation-at-startup case loudly; the in-flight case here
+		// stays observable via the timing attr.
+		anomalies.emptyPropsBatchFlag = true
 	}
 
 	var clusterOnly, embeddingOnly, bothPaths int
