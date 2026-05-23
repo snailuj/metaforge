@@ -1,0 +1,80 @@
+{"topic": "anger", "vehicle": "fire", "lakoff_class": "ANGER IS FIRE"}
+{"topic": "anger", "vehicle": "heat", "lakoff_class": "ANGER IS HEAT"}
+{"topic": "anger", "vehicle": "flame", "lakoff_class": "ANGER IS FIRE"}
+{"topic": "anger", "vehicle": "blaze", "lakoff_class": "ANGER IS FIRE"}
+{"topic": "anger", "vehicle": "explosion", "lakoff_class": "ANGER IS A HOT FLUID UNDER PRESSURE"}
+{"topic": "fury", "vehicle": "fire", "lakoff_class": "ANGER IS FIRE"}
+{"topic": "rage", "vehicle": "inferno", "lakoff_class": "ANGER IS FIRE"}
+{"topic": "rage", "vehicle": "storm", "lakoff_class": "EMOTIONS ARE WEATHER"}
+{"topic": "passion", "vehicle": "fire", "lakoff_class": "PASSION IS HEAT"}
+{"topic": "passion", "vehicle": "flame", "lakoff_class": "PASSION IS HEAT"}
+{"topic": "time", "vehicle": "money", "lakoff_class": "TIME IS MONEY"}
+{"topic": "time", "vehicle": "resource", "lakoff_class": "TIME IS A RESOURCE"}
+{"topic": "argument", "vehicle": "war", "lakoff_class": "ARGUMENT IS WAR"}
+{"topic": "argument", "vehicle": "battle", "lakoff_class": "ARGUMENT IS WAR"}
+{"topic": "argument", "vehicle": "combat", "lakoff_class": "ARGUMENT IS WAR"}
+{"topic": "debate", "vehicle": "war", "lakoff_class": "ARGUMENT IS WAR"}
+{"topic": "debate", "vehicle": "battle", "lakoff_class": "ARGUMENT IS WAR"}
+{"topic": "idea", "vehicle": "seed", "lakoff_class": "IDEAS ARE PLANTS"}
+{"topic": "idea", "vehicle": "fruit", "lakoff_class": "IDEAS ARE PLANTS"}
+{"topic": "idea", "vehicle": "light", "lakoff_class": "UNDERSTANDING IS SEEING"}
+{"topic": "idea", "vehicle": "spark", "lakoff_class": "IDEAS ARE FIRE"}
+{"topic": "idea", "vehicle": "food", "lakoff_class": "IDEAS ARE FOOD"}
+{"topic": "thought", "vehicle": "seed", "lakoff_class": "IDEAS ARE PLANTS"}
+{"topic": "thought", "vehicle": "thread", "lakoff_class": "IDEAS ARE THREADS"}
+{"topic": "theory", "vehicle": "building", "lakoff_class": "THEORIES ARE BUILDINGS"}
+{"topic": "theory", "vehicle": "foundation", "lakoff_class": "THEORIES ARE BUILDINGS"}
+{"topic": "theory", "vehicle": "structure", "lakoff_class": "THEORIES ARE BUILDINGS"}
+{"topic": "theory", "vehicle": "framework", "lakoff_class": "THEORIES ARE BUILDINGS"}
+{"topic": "love", "vehicle": "journey", "lakoff_class": "LOVE IS A JOURNEY"}
+{"topic": "love", "vehicle": "warmth", "lakoff_class": "AFFECTION IS WARMTH"}
+{"topic": "love", "vehicle": "fire", "lakoff_class": "LOVE IS FIRE"}
+{"topic": "love", "vehicle": "road", "lakoff_class": "LOVE IS A JOURNEY"}
+{"topic": "life", "vehicle": "journey", "lakoff_class": "LIFE IS A JOURNEY"}
+{"topic": "life", "vehicle": "road", "lakoff_class": "LIFE IS A JOURNEY"}
+{"topic": "life", "vehicle": "path", "lakoff_class": "LIFE IS A JOURNEY"}
+{"topic": "career", "vehicle": "ladder", "lakoff_class": "CAREER IS A PATH"}
+{"topic": "career", "vehicle": "journey", "lakoff_class": "CAREER IS A PATH"}
+{"topic": "mind", "vehicle": "machine", "lakoff_class": "MIND IS A MACHINE"}
+{"topic": "mind", "vehicle": "computer", "lakoff_class": "MIND IS A COMPUTER"}
+{"topic": "brain", "vehicle": "machine", "lakoff_class": "MIND IS A MACHINE"}
+{"topic": "brain", "vehicle": "computer", "lakoff_class": "MIND IS A COMPUTER"}
+{"topic": "knowledge", "vehicle": "light", "lakoff_class": "KNOWING IS SEEING"}
+{"topic": "truth", "vehicle": "hammer", "lakoff_class": "TRUTH IS A WEAPON"}
+{"topic": "truth", "vehicle": "light", "lakoff_class": "TRUTH IS LIGHT"}
+{"topic": "truth", "vehicle": "mirror", "lakoff_class": "TRUTH IS A MIRROR"}
+{"topic": "hate", "vehicle": "ice", "lakoff_class": "HATE IS COLD"}
+{"topic": "hate", "vehicle": "fire", "lakoff_class": "HATE IS FIRE"}
+{"topic": "indifference", "vehicle": "ice", "lakoff_class": "INDIFFERENCE IS COLD"}
+{"topic": "company", "vehicle": "tree", "lakoff_class": "ORGANISATIONS ARE PLANTS"}
+{"topic": "problem", "vehicle": "mountain", "lakoff_class": "PROBLEMS ARE OBSTACLES"}
+{"topic": "achievement", "vehicle": "summit", "lakoff_class": "SUCCESS IS UP"}
+{"topic": "achievement", "vehicle": "milestone", "lakoff_class": "PROGRESS IS A JOURNEY"}
+{"topic": "joy", "vehicle": "sunshine", "lakoff_class": "HAPPY IS BRIGHT"}
+{"topic": "joy", "vehicle": "light", "lakoff_class": "HAPPY IS BRIGHT"}
+{"topic": "memory", "vehicle": "treasure", "lakoff_class": "MEMORIES ARE VALUABLE OBJECTS"}
+{"topic": "memory", "vehicle": "photograph", "lakoff_class": "MEMORIES ARE IMAGES"}
+{"topic": "heart", "vehicle": "stone", "lakoff_class": "CRUELTY IS HARDNESS"}
+{"topic": "tongue", "vehicle": "knife", "lakoff_class": "WORDS ARE WEAPONS"}
+{"topic": "tongue", "vehicle": "sword", "lakoff_class": "WORDS ARE WEAPONS"}
+{"topic": "word", "vehicle": "weapon", "lakoff_class": "WORDS ARE WEAPONS"}
+{"topic": "voice", "vehicle": "thunder", "lakoff_class": "SOUND IS WEATHER"}
+{"topic": "silence", "vehicle": "wall", "lakoff_class": "SILENCE IS A BARRIER"}
+{"topic": "loneliness", "vehicle": "desert", "lakoff_class": "EMOTIONS ARE LANDSCAPES"}
+{"topic": "freedom", "vehicle": "bird", "lakoff_class": "FREEDOM IS FLIGHT"}
+{"topic": "soul", "vehicle": "flame", "lakoff_class": "SOUL IS FIRE"}
+{"topic": "death", "vehicle": "sleep", "lakoff_class": "DEATH IS SLEEP"}
+{"topic": "hope", "vehicle": "light", "lakoff_class": "HOPE IS LIGHT"}
+{"topic": "despair", "vehicle": "darkness", "lakoff_class": "DESPAIR IS DARKNESS"}
+{"topic": "ignorance", "vehicle": "darkness", "lakoff_class": "IGNORANCE IS DARKNESS"}
+{"topic": "doubt", "vehicle": "fog", "lakoff_class": "UNCERTAINTY IS FOG"}
+{"topic": "anxiety", "vehicle": "storm", "lakoff_class": "EMOTIONS ARE WEATHER"}
+{"topic": "depression", "vehicle": "pit", "lakoff_class": "SAD IS DOWN"}
+{"topic": "depression", "vehicle": "fog", "lakoff_class": "DEPRESSION IS A CLOUD"}
+{"topic": "fear", "vehicle": "darkness", "lakoff_class": "FEAR IS A DARK PLACE"}
+{"topic": "fear", "vehicle": "ice", "lakoff_class": "FEAR IS COLD"}
+{"topic": "courage", "vehicle": "fire", "lakoff_class": "COURAGE IS FIRE"}
+{"topic": "courage", "vehicle": "lion", "lakoff_class": "COURAGE IS A LION"}
+{"topic": "wisdom", "vehicle": "light", "lakoff_class": "WISDOM IS LIGHT"}
+{"topic": "experience", "vehicle": "teacher", "lakoff_class": "LIFE EVENTS ARE TEACHERS"}
+{"topic": "history", "vehicle": "river", "lakoff_class": "TIME IS A RIVER"}
