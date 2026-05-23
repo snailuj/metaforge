@@ -5,7 +5,11 @@
 package db
 
 import (
+	"database/sql"
+	"fmt"
+	"log/slog"
 	"sort"
+	"strings"
 
 	"github.com/snailuj/metaforge/internal/forge"
 )
@@ -52,4 +56,172 @@ func scanEmbeddingBand(cache *CascadeCache, topicSynsetID string, dMin, dMax flo
 		hits = hits[:topK]
 	}
 	return hits
+}
+
+// ForgeEmbeddingConfig is the per-call shape passed by the handler. We
+// keep it independent of forge.CascadeConfig so the embedding generator
+// has no compile-time dependency on the full cascade config struct.
+type ForgeEmbeddingConfig struct {
+	DMin float64
+	DMax float64
+	TopK int
+}
+
+// GetForgeCascadeCandidatesByEmbedding resolves the topic's primary
+// synset, reads its centroid from the cache, brute-force-scans every
+// other centroid for cosine distance ∈ [DMin, DMax], and returns the
+// TopK nearest as CascadeCandidate rows with Source=SourceEmbedding,
+// SalienceSum=0, ContrastCount=0, SharedProps=nil. Target-side
+// definition/POS come from one batched synsets query.
+//
+// Returns ErrLemmaNotFound when the lemma has no curated source synset
+// (matches the cluster path's contract). Returns (nil, nil) when the
+// resolved topic synset has no centroid in the cache — defensive only;
+// 100% of enriched synsets have centroids by construction.
+func GetForgeCascadeCandidatesByEmbedding(
+	database *sql.DB,
+	cache *CascadeCache,
+	lemma string,
+	cfg ForgeEmbeddingConfig,
+) ([]CascadeCandidate, error) {
+	topicID, err := resolvePrimaryCuratedSynset(database, lemma)
+	if err != nil {
+		return nil, err
+	}
+
+	hits := scanEmbeddingBand(cache, topicID, cfg.DMin, cfg.DMax, cfg.TopK)
+	if hits == nil {
+		// Topic resolved but no centroid in the cache. Pipeline contract
+		// says every enriched synset has a centroid, so this is rare —
+		// log Debug and return (nil, nil) so the handler falls back to
+		// cluster-only behaviour for this request.
+		slog.Debug("no topic centroid for embedding scan", "lemma", lemma, "synset", topicID)
+		return nil, nil
+	}
+	if len(hits) == 0 {
+		return nil, nil
+	}
+
+	topicRow, err := getSynsetRow(database, topicID)
+	if err != nil {
+		return nil, fmt.Errorf("topic synset row %s: %w", topicID, err)
+	}
+
+	targetIDs := make([]string, len(hits))
+	for i, h := range hits {
+		targetIDs[i] = h.synsetID
+	}
+	targetRows, err := getSynsetRowsBatch(database, targetIDs)
+	if err != nil {
+		return nil, fmt.Errorf("target synsets batch: %w", err)
+	}
+
+	out := make([]CascadeCandidate, 0, len(hits))
+	for _, h := range hits {
+		row, ok := targetRows[h.synsetID]
+		if !ok {
+			// Centroid present in cache but synset row missing — pipeline
+			// contract violation; skip the candidate rather than crash.
+			slog.Error("embedding hit has no synsets row", "synset", h.synsetID)
+			continue
+		}
+		out = append(out, CascadeCandidate{
+			SynsetID:         h.synsetID,
+			Word:             row.lemma,
+			POS:              row.pos,
+			Definition:       row.definition,
+			SalienceSum:      0,
+			ContrastCount:    0,
+			SharedProps:      nil,
+			SourceSynsetID:   topicID,
+			SourceDefinition: topicRow.definition,
+			SourcePOS:        topicRow.pos,
+			Source:           forge.SourceEmbedding,
+		})
+	}
+	return out, nil
+}
+
+// resolvePrimaryCuratedSynset picks the topic synset for the embedding
+// path. Mirrors GetForgeCascadeCandidatesByLemma's source-synset rule:
+// the synset with the most curated property rows (a coarse stand-in
+// for the polysemy-ASC primary sense — see the SQL comment on the
+// correlated-COUNT cost in cascade.go). Returns ErrLemmaNotFound if
+// the lemma has no curated synset at all.
+func resolvePrimaryCuratedSynset(database *sql.DB, lemma string) (string, error) {
+	var id string
+	err := database.QueryRow(`
+		SELECT l.synset_id
+		FROM lemmas l
+		JOIN synset_properties_curated spc ON spc.synset_id = l.synset_id
+		WHERE l.lemma = ?
+		GROUP BY l.synset_id
+		ORDER BY COUNT(*) DESC
+		LIMIT 1
+	`, lemma).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("%w: %s", ErrLemmaNotFound, lemma)
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolvePrimaryCuratedSynset(%q): %w", lemma, err)
+	}
+	return id, nil
+}
+
+// synsetRow is the minimal projection we need on the embedding path —
+// definition, POS, and the polysemy-ASC primary lemma for display.
+type synsetRow struct {
+	pos        string
+	definition string
+	lemma      string
+}
+
+func getSynsetRow(database *sql.DB, id string) (synsetRow, error) {
+	var r synsetRow
+	err := database.QueryRow(`
+		SELECT s.pos, s.definition,
+		       (SELECT lemma FROM lemmas WHERE synset_id = s.synset_id ORDER BY lemma LIMIT 1) as lemma
+		FROM synsets s WHERE s.synset_id = ?
+	`, id).Scan(&r.pos, &r.definition, &r.lemma)
+	if err != nil {
+		return r, err
+	}
+	return r, nil
+}
+
+// getSynsetRowsBatch fetches POS/definition/primary-lemma for many
+// synset ids in one IN-clause query. Returns a map id→row; missing
+// ids are absent from the result map.
+func getSynsetRowsBatch(database *sql.DB, ids []string) (map[string]synsetRow, error) {
+	out := make(map[string]synsetRow, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	q := `
+		SELECT s.synset_id, s.pos, s.definition,
+		       (SELECT lemma FROM lemmas WHERE synset_id = s.synset_id ORDER BY lemma LIMIT 1) as lemma
+		FROM synsets s WHERE s.synset_id IN (` + strings.Join(placeholders, ",") + `)`
+	rows, err := database.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("getSynsetRowsBatch query: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var r synsetRow
+		if err := rows.Scan(&id, &r.pos, &r.definition, &r.lemma); err != nil {
+			return nil, fmt.Errorf("scan synset row: %w", err)
+		}
+		out[id] = r
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate synset rows: %w", err)
+	}
+	return out, nil
 }
