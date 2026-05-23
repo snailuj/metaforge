@@ -2055,6 +2055,106 @@ def test_canonical_types_match_go_constant():
     )
 
 
+def _apply_schema_vocab_clusters(conn):
+    """Apply the vocab_clusters DDL from SCHEMA.sql to the given connection.
+
+    SCHEMA.sql is the canonical source for the CHECK constraint on
+    vocab_clusters.dominant_type. The runtime path is exercised by
+    cluster_vocab.cluster_vocab(), which mirrors the same CHECK.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    schema_sql = (repo_root / "data-pipeline/SCHEMA.sql").read_text()
+    # Extract just the vocab_clusters CREATE TABLE statement (terminated by ';').
+    import re
+    m = re.search(
+        r"CREATE TABLE IF NOT EXISTS vocab_clusters\s*\([^;]+\);",
+        schema_sql,
+        flags=re.DOTALL,
+    )
+    assert m, "Could not locate vocab_clusters DDL in SCHEMA.sql"
+    conn.executescript(m.group(0))
+
+
+def test_dominant_type_check_rejects_bad_value():
+    """vocab_clusters.dominant_type must reject non-canonical values.
+
+    Closes the rename-drift gap: previously the column was bare TEXT,
+    so a typo or US-spelling regression ('behavior' vs 'behaviour')
+    could persist silently and break the M05 type-diversity bonus.
+    """
+    conn = sqlite3.connect(":memory:")
+    try:
+        _apply_schema_vocab_clusters(conn)
+
+        # Bogus value is rejected
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO vocab_clusters "
+                "(vocab_id, cluster_id, is_representative, is_singleton, dominant_type) "
+                "VALUES (1, 1, 1, 1, 'bogus')"
+            )
+
+        # US spelling 'behavior' is rejected — canonical form is 'behaviour'
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO vocab_clusters "
+                "(vocab_id, cluster_id, is_representative, is_singleton, dominant_type) "
+                "VALUES (2, 2, 1, 1, 'behavior')"
+            )
+
+        # Canonical values and NULL are accepted
+        conn.execute(
+            "INSERT INTO vocab_clusters "
+            "(vocab_id, cluster_id, is_representative, is_singleton, dominant_type) "
+            "VALUES (3, 3, 1, 1, 'sensorimotor')"
+        )
+        conn.execute(
+            "INSERT INTO vocab_clusters "
+            "(vocab_id, cluster_id, is_representative, is_singleton, dominant_type) "
+            "VALUES (4, 4, 1, 1, NULL)"
+        )
+        conn.execute(
+            "INSERT INTO vocab_clusters "
+            "(vocab_id, cluster_id, is_representative, is_singleton, dominant_type) "
+            "VALUES (5, 5, 1, 1, 'other')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_schema_check_matches_canonical_set():
+    """SCHEMA.sql's CHECK clause must match CANONICAL_TYPES | {'other'}.
+
+    Catches rename drift: if CANONICAL_TYPES changes ('behaviour' →
+    'behavior') without updating SCHEMA.sql's CHECK, this test fails.
+    The 'other' bucket is emitted by _canonical_type for unknown
+    inputs, so it must be in the CHECK set even though it is not in
+    CANONICAL_TYPES.
+    """
+    import re
+    from snap_properties import CANONICAL_TYPES
+
+    repo_root = Path(__file__).resolve().parents[2]
+    schema_sql = (repo_root / "data-pipeline/SCHEMA.sql").read_text()
+    m = re.search(
+        r"dominant_type\s+TEXT\s+CHECK\s*\(\s*dominant_type\s+IS\s+NULL\s+OR\s+dominant_type\s+IN\s*\(([^)]+)\)\s*\)",
+        schema_sql,
+        flags=re.IGNORECASE,
+    )
+    assert m, (
+        "Could not find dominant_type CHECK clause in SCHEMA.sql — "
+        "expected `dominant_type TEXT CHECK (dominant_type IS NULL OR "
+        "dominant_type IN (...))`"
+    )
+    quoted = set(re.findall(r"'([^']+)'", m.group(1)))
+    expected = CANONICAL_TYPES | {"other"}
+    assert quoted == expected, (
+        f"SCHEMA.sql CHECK set {sorted(quoted)} != "
+        f"CANONICAL_TYPES | {{'other'}} = {sorted(expected)}"
+    )
+
+
 def test_snap_dropped_jsonl_uses_atomic_rename_on_commit(tmp_path, monkeypatch):
     """Drop records must be written to snap_dropped.jsonl.tmp during the run
     and atomic-renamed to snap_dropped.jsonl ONLY after conn.commit() succeeds.
