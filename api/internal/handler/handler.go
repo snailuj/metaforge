@@ -353,6 +353,18 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 			"word", word, "candidate_count", len(candidates))
 	}
 
+	var clusterOnly, embeddingOnly, bothPaths int
+	for _, c := range candidates {
+		switch c.Source {
+		case forge.SourceCluster:
+			clusterOnly++
+		case forge.SourceEmbedding:
+			embeddingOnly++
+		case forge.SourceBoth:
+			bothPaths++
+		}
+	}
+
 	stopScore := observe.Start("cascade_scoring_loop")
 	var droppedNonScored int
 	matches := make([]forge.Match, 0, len(candidates))
@@ -415,6 +427,7 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 			OrtonyScore:      res.OrtonyScore,
 			CosineDistance:   res.CosineDistance,
 			ReRankBonus:      res.ReRankBonus,
+			Source:           c.Source,
 		})
 	}
 
@@ -438,7 +451,14 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 		slog.Error("failed to encode cascade suggest response", "word", word, "err", encodeErr)
 		outcome = "scored_encode_error"
 	}
-	stopTotal("word", word, "outcome", outcome, "candidates", len(candidates), "scored_count", len(matches))
+	stopTotal("word", word,
+		"outcome", outcome,
+		"candidates", len(candidates),
+		"scored_count", len(matches),
+		"cluster_only", clusterOnly,
+		"embedding_only", embeddingOnly,
+		"both_paths", bothPaths,
+	)
 }
 
 func sortByFinalScore(matches []forge.Match) {

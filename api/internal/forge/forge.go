@@ -80,6 +80,10 @@ type Match struct {
 	OrtonyScore    *float64      `json:"ortony_score,omitempty"`
 	CosineDistance *float64      `json:"cosine_distance,omitempty"`
 	ReRankBonus    *float64      `json:"re_rank_bonus,omitempty"`
+
+	// M04 generation diagnostic. Empty string ("") on the legacy path,
+	// since CandidateSource only gets set by the cascade handler.
+	Source CandidateSource `json:"source,omitempty"`
 }
 
 // Alpha is the tuneable weight for the cross-domain distance bonus.
