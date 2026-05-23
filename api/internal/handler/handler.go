@@ -251,6 +251,11 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 	stopTotal := observe.Start("cascade_request_total")
 	slog.Debug("cascade request begin", "word", word, "limit", limit)
 
+	anomalies := struct {
+		concretenessCacheMisses int
+		emptyPropsBatchFlag     bool
+	}{}
+
 	var (
 		cluster []db.CascadeCandidate
 		err     error
@@ -389,8 +394,7 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 		// DB was rewritten under us between cache load and the request.
 		// Error level so operators see the signal.
 		if tConc == nil || vConc == nil {
-			slog.Error("cascade candidate concreteness missing from cache despite SQL filter",
-				"source", c.SourceSynsetID, "target", c.SynsetID)
+			anomalies.concretenessCacheMisses++
 		}
 		topicCent := h.cache.Centroids[c.SourceSynsetID] // nil-safe: zero value is nil
 		vehCent := h.cache.Centroids[c.SynsetID]
@@ -437,6 +441,13 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 
 	stopScore("word", word, "scored", len(matches), "dropped_non_scored", droppedNonScored)
 
+	if anomalies.concretenessCacheMisses > 0 {
+		slog.Error("cascade concreteness cache divergence",
+			"word", word,
+			"miss_count", anomalies.concretenessCacheMisses,
+			"candidate_count", len(candidates))
+	}
+
 	stopSort := observe.Start("cascade_sort")
 	sortByFinalScore(matches)
 	stopSort("word", word, "matches", len(matches))
@@ -462,6 +473,8 @@ func (h *Handler) handleSuggestCascade(w http.ResponseWriter, word string, limit
 		"cluster_only", clusterOnly,
 		"embedding_only", embeddingOnly,
 		"both_paths", bothPaths,
+		"concreteness_cache_misses", anomalies.concretenessCacheMisses,
+		"empty_props_batch", anomalies.emptyPropsBatchFlag,
 	)
 }
 

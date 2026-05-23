@@ -644,3 +644,35 @@ func TestCascadeUnion_LatencyBudget(t *testing.T) {
 	}
 	t.Logf("union-mode anger limit=50 elapsed: %v", elapsed)
 }
+
+// TestCascade_AggregatesConcretenessCacheMisses_NoPerCandidateSpam pins
+// the R1-D4 fix: per-candidate concreteness cache-miss spam must be
+// replaced by a single aggregate Error log post-loop plus a count attr
+// on cascade_request_total. We can't easily force a real cache divergence
+// against the test DB, so this test asserts the steady-state contract:
+// under a healthy cache the per-candidate Error log MUST NOT fire even
+// once during a normal request. (Direct positive verification of the
+// aggregator path requires a fixture that diverges cache from SQL — see
+// Task 16 for the runtime tripwire which closes that gap.)
+func TestCascade_AggregatesConcretenessCacheMisses_NoPerCandidateSpam(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=50", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(buf.String(), "cascade candidate concreteness missing from cache despite SQL filter") {
+		t.Errorf("per-candidate concreteness Error log must not fire on healthy data:\n%s", buf.String())
+	}
+}
