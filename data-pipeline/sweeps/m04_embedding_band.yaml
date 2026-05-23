@@ -12,9 +12,13 @@ name: m04_embedding_band
 db: data-pipeline/output/lexicon_v2.db
 api_port_base: 9100             # cells use 9100, 9101, … sequentially
 api_binary: api/metaforge       # build with: go build -o api/metaforge ./api/cmd/metaforge
-pairs: data-pipeline/fixtures/munch_apt.jsonl
-controls: data-pipeline/fixtures/munch_inapt.jsonl
+pairs: data-pipeline/fixtures/munch_apt_sample200.jsonl       # 200-pair shuffled subsample of munch_apt.jsonl (10,261 lines original)
+controls: data-pipeline/fixtures/munch_inapt_sample200.jsonl  # 200-pair shuffled subsample of munch_inapt.jsonl (1,447 lines original)
 limit: 50                       # /forge/suggest?limit=
+# Subsampling rationale: full MUNCH × 10 cells × ~500ms per request ≈ 16h.
+# 400 pairs × 10 cells ≈ 33 min — enough power to rank cells, fast enough
+# to complete in one session. The driver itself doesn't honour sample_*
+# YAML keys (Task 19 verbatim); subsampling is via fixture-path swap.
 
 # Baseline reference — fixed cluster_only request to recompute the floor
 # under whatever DB the runner sees. Drift in this number signals a DB
