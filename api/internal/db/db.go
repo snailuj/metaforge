@@ -265,13 +265,13 @@ func GetForgeMatchesCuratedByLemma(database *sql.DB, lemma string, limit int) ([
 		       -- Mirrors the PR1.1 fix on the cascade path; alphabetical-first
 		       -- chosen for the same perf reasons documented in cascade.go
 		       -- (polysemy-ASC ordering costs ~16× on broad-coverage lemmas).
-		       -- Perf note: lemmas has PRIMARY KEY (lemma, synset_id) with
-		       -- no dedicated synset_id index, so SQLite executes this as
-		       -- a SCAN of sqlite_autoindex_lemmas_1 per outer row (see
-		       -- EXPLAIN QUERY PLAN). Bounded by LIMIT ? — fine at <=200
-		       -- but would benefit from idx_lemmas_synset_id when M04
-		       -- broadens the candidate pool. Tracked in the Pipeline
-		       -- Architectural Review backlog (schema-change-management).
+		       -- Perf-critical: depends on idx_lemmas_synset_id (added
+		       -- 2026-05-23 to SCHEMA.sql) for the per-row SEARCH plan.
+		       -- Without that index SQLite scans the entire lemmas table
+		       -- (~185k rows) per result row and broad-coverage lemmas
+		       -- like 'anger' take 3-4s instead of ~350ms. Production
+		       -- DBs predating that schema need a one-line CREATE INDEX
+		       -- migration before this query path is usable.
 		       (SELECT lemma FROM lemmas WHERE synset_id = bs.target_id ORDER BY lemma LIMIT 1) as lemma,
 		       bs.salience_sum,
 		       COALESCE(bc.contrast_count, 0) as contrast_count,

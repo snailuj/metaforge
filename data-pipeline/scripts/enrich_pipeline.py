@@ -55,6 +55,14 @@ def _ensure_v2_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (lemma, synset_id)
         )
     """)
+
+    # idx_lemmas_synset_id is required for the cascade /forge/suggest
+    # correlated subquery `SELECT lemma FROM lemmas WHERE synset_id = ?`.
+    # Without it SQLite scans all ~185k lemmas per result row and broad
+    # queries (`anger`, `idea`) take 3-4s instead of ~350ms. Added to
+    # SCHEMA.sql 2026-05-23; this migration covers DBs that predate it.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_lemmas_synset_id ON lemmas(synset_id)")
+
     conn.commit()
 
 
