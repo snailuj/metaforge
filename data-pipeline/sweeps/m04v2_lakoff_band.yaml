@@ -15,6 +15,8 @@
 # as the M04 v1 sweep; only the fixture paths change.
 
 name: m04v2_lakoff_band
+axis: embedding-band            # M04 ratify / two-path verdict framing applies (band sweep)
+verdict_title: M04 v2 Lakoff Band Calibration
 db: data-pipeline/output/lexicon_v2.db
 api_port_base: 9200             # offset from M04 v1's 9100 to avoid port collisions if both run
 api_binary: api/metaforge       # build with: go build -o api/metaforge ./api/cmd/metaforge

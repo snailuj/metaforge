@@ -9,6 +9,8 @@
 # the variation, then queries /forge/suggest for the MUNCH cohort.
 
 name: m04_embedding_band
+axis: embedding-band            # selects M04 ratify / two-path verdict framing
+verdict_title: M04 Embedding-Band Calibration
 db: data-pipeline/output/lexicon_v2.db
 api_port_base: 9100             # cells use 9100, 9101, … sequentially
 api_binary: api/metaforge       # build with: go build -o api/metaforge ./api/cmd/metaforge

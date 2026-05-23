@@ -51,9 +51,16 @@ class CellResult:
     apt_missing: int = 0
     inapt_missing: int = 0
     source_mix: dict[str, int] = field(default_factory=lambda: {"cluster": 0, "embedding": 0, "both": 0})
+    # Derived metrics — populated by ``finalise_metrics`` before serialisation
+    # so that ``dataclasses.asdict`` exposes them in the JSON output.
+    # ``None`` means "not yet computed"; callers should call
+    # ``finalise_metrics()`` after the score lists are fully populated.
+    # The accessors below treat ``None`` as a signal to recompute on the
+    # fly, which keeps ad-hoc use (e.g. tests, REPL) ergonomic.
+    aptness_rate: float | None = None
+    separation_score: float | None = None
 
-    @property
-    def aptness_rate(self) -> float:
+    def _compute_aptness_rate(self) -> float:
         if not self.apt_scores:
             return 0.0
         # statistics.quantiles requires >=2 data points; Lakoff cohort
@@ -65,11 +72,34 @@ class CellResult:
         threshold = statistics.quantiles(self.inapt_scores, n=20)[18]  # 95th percentile
         return sum(1 for s in self.apt_scores if s > threshold) / len(self.apt_scores)
 
-    @property
-    def separation_score(self) -> float:
+    def _compute_separation_score(self) -> float:
         if not self.apt_scores or not self.inapt_scores:
             return 0.0
         return statistics.mean(self.apt_scores) - statistics.mean(self.inapt_scores)
+
+    def finalise_metrics(self) -> None:
+        """Populate stored derived-metric fields from raw score lists.
+
+        Idempotent — safe to call multiple times. Must be invoked before
+        ``dataclasses.asdict`` if the JSON output is expected to carry
+        aptness_rate and separation_score.
+        """
+        self.aptness_rate = self._compute_aptness_rate()
+        self.separation_score = self._compute_separation_score()
+
+    def __getattribute__(self, name: str):  # noqa: D401 — small convenience layer
+        # Lazy recompute: when callers read aptness_rate / separation_score
+        # before ``finalise_metrics`` has run, recompute on the fly so the
+        # accessors remain ergonomic for tests / REPL. Once finalised the
+        # stored float is returned verbatim.
+        if name in ("aptness_rate", "separation_score"):
+            stored = object.__getattribute__(self, name)
+            if stored is None:
+                if name == "aptness_rate":
+                    return object.__getattribute__(self, "_compute_aptness_rate")()
+                return object.__getattribute__(self, "_compute_separation_score")()
+            return stored
+        return object.__getattribute__(self, name)
 
 
 def load_pairs(path: Path) -> list[tuple[str, str]]:
@@ -219,15 +249,53 @@ def evaluate_cell(
             result.inapt_scores.append(fs)
     finally:
         stop_api(proc)
+    # Snapshot derived metrics onto the dataclass fields so downstream
+    # asdict() serialisation includes them in the JSON output.
+    result.finalise_metrics()
     return result
 
 
-def write_verdict(results: list[CellResult], baseline: CellResult, verdict_path: Path) -> None:
+def write_verdict(
+    results: list[CellResult],
+    baseline: CellResult,
+    verdict_path: Path,
+    cfg: dict | None = None,
+) -> None:
+    """Emit the verdict markdown for a sweep run.
+
+    Title and tail-section content are parametrised by the sweep config so the
+    runner can be reused across milestones. ``cfg`` keys honoured:
+
+    * ``name`` — sweep identifier (used as default title prefix)
+    * ``verdict_title`` — optional explicit title (overrides ``name``)
+    * ``axis`` — when ``"embedding-band"`` the original M04 "ratify SourcesUnion"
+      recommendation and "Two-Path Correlation" section are emitted. Any other
+      value (or omission) yields a neutral best-cell summary suitable for
+      gamma sweeps and similar axis-agnostic studies.
+
+    Backwards-compatible: omitting ``cfg`` falls back to the legacy M04
+    Embedding-Band title and tail sections.
+    """
+    cfg = cfg or {}
+    name = cfg.get("name")
+    verdict_title = cfg.get("verdict_title")
+    axis = cfg.get("axis")
+
+    if verdict_title:
+        title = f"# {verdict_title} Verdict"
+    elif name:
+        title = f"# {name} Verdict"
+    else:
+        # Legacy fallback — preserves behaviour for any caller that hasn't
+        # been migrated to pass cfg through. New callers should always pass cfg.
+        title = "# M04 Embedding-Band Calibration Verdict"
+        axis = axis or "embedding-band"
+
     best = max(results, key=lambda r: r.separation_score)
     lines = [
-        "# M04 Embedding-Band Calibration Verdict",
+        title,
         "",
-        f"_Baseline (cluster_only): separation_score = {baseline.separation_score:.4f}, "
+        f"_Baseline ({baseline.candidate_sources}): separation_score = {baseline.separation_score:.4f}, "
         f"aptness_rate = {baseline.aptness_rate:.4f}_",
         "",
         "## Results Grid",
@@ -242,25 +310,45 @@ def write_verdict(results: list[CellResult], baseline: CellResult, verdict_path:
             f"{r.source_mix['embedding']} | {r.source_mix['both']} | "
             f"{r.apt_missing} | {r.inapt_missing} |"
         )
+
     lines += [
         "",
         f"## Best Cell: `{best.name}`",
-        f"- d_min = {best.d_min}, d_max = {best.d_max}",
+        f"- d_min = {best.d_min}, d_max = {best.d_max}, gamma = {best.gamma}",
         f"- separation_score = **{best.separation_score:.4f}**",
         f"- aptness_rate = {best.aptness_rate:.4f}",
-        f"- vs baseline ({baseline.separation_score:.4f}): "
-        + ("**non-regressive — ratify** `SourcesUnion` as default with this band"
-           if best.separation_score >= baseline.separation_score
-           else "**regression — keep `SourcesCluster` default**, document follow-up sweep"),
-        "",
-        "## Two-Path Correlation (v2 β-bonus signal)",
-        "",
-        "Per cell, the `both` column counts apt pairs that were generated by BOTH the cluster",
-        "and embedding paths. A high both-count under high aptness suggests two-path agreement",
-        "correlates with aptness — i.e. a co-generation bonus β·1{both} may be worth adding in",
-        "M04 v2. A low both-count under high aptness means the embedding path is the marginal",
-        "contributor and a β-bonus would not help.",
     ]
+
+    if axis == "embedding-band":
+        # M04-specific framing: the sweep's purpose is to ratify the
+        # SourcesUnion default with a non-regressive embedding band.
+        lines.append(
+            f"- vs baseline ({baseline.separation_score:.4f}): "
+            + ("**non-regressive — ratify** `SourcesUnion` as default with this band"
+               if best.separation_score >= baseline.separation_score
+               else "**regression — keep `SourcesCluster` default**, document follow-up sweep")
+        )
+        lines += [
+            "",
+            "## Two-Path Correlation (v2 β-bonus signal)",
+            "",
+            "Per cell, the `both` column counts apt pairs that were generated by BOTH the cluster",
+            "and embedding paths. A high both-count under high aptness suggests two-path agreement",
+            "correlates with aptness — i.e. a co-generation bonus β·1{both} may be worth adding in",
+            "M04 v2. A low both-count under high aptness means the embedding path is the marginal",
+            "contributor and a β-bonus would not help.",
+        ]
+    else:
+        # Axis-agnostic framing: report best cell's delta vs baseline neutrally,
+        # without naming any code default. Suitable for γ-sweeps and any future
+        # sweep whose axis doesn't map to a SourcesUnion ratification decision.
+        delta = best.separation_score - baseline.separation_score
+        verdict_word = "non-regressive" if delta >= 0 else "regression"
+        lines.append(
+            f"- vs baseline ({baseline.separation_score:.4f}): "
+            f"Δ separation_score = {delta:+.4f} ({verdict_word})"
+        )
+
     verdict_path.write_text("\n".join(lines) + "\n")
 
 
@@ -328,7 +416,7 @@ def main(argv: list[str] | None = None) -> int:
         "baseline": asdict(baseline),
         "results": [asdict(r) for r in results],
     }, indent=2))
-    write_verdict(results, baseline, args.verdict)
+    write_verdict(results, baseline, args.verdict, cfg=cfg)
     print(f"\nWrote {args.output} and {args.verdict}")
     return 0
 
