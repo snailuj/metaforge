@@ -337,6 +337,9 @@ func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
 		{"negative dCap", func(c *CascadeConfig) { c.DCap = -1 }, "DCap"},
 		{"NaN concreteness threshold", func(c *CascadeConfig) { c.ConcretenessThreshold = math.NaN() }, "ConcretenessThreshold"},
 		{"topK above ceiling", func(c *CascadeConfig) { c.EmbeddingTopK = EmbeddingTopKCeiling + 1 }, "EmbeddingTopK"},
+		{"negative gamma", func(c *CascadeConfig) { c.Gamma = -0.1 }, "Gamma"},
+		{"NaN gamma", func(c *CascadeConfig) { c.Gamma = math.NaN() }, "Gamma"},
+		{"Inf gamma", func(c *CascadeConfig) { c.Gamma = math.Inf(1) }, "Gamma"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -350,5 +353,155 @@ func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
 				t.Errorf("want error containing %q, got %v", tc.want, err)
 			}
 		})
+	}
+}
+
+func TestTypeDiversityBonus_EmptyInputsReturnZero(t *testing.T) {
+	b, n := TypeDiversityBonus(nil, nil)
+	if b != 0 || n != 0 {
+		t.Errorf("nil inputs: want (0,0), got (%v,%v)", b, n)
+	}
+	b, n = TypeDiversityBonus([]int64{1, 2}, nil)
+	if b != 0 || n != 0 {
+		t.Errorf("nil types map: want (0,0), got (%v,%v)", b, n)
+	}
+	b, n = TypeDiversityBonus(nil, map[int64]string{1: "sensorimotor"})
+	if b != 0 || n != 0 {
+		t.Errorf("nil shared: want (0,0), got (%v,%v)", b, n)
+	}
+}
+
+func TestTypeDiversityBonus_SingleTypeReturnsZero(t *testing.T) {
+	shared := []int64{1, 2, 3}
+	types := map[int64]string{1: "sensorimotor", 2: "sensorimotor", 3: "sensorimotor"}
+	b, n := TypeDiversityBonus(shared, types)
+	if b != 0 {
+		t.Errorf("single type bonus: want 0, got %v", b)
+	}
+	if n != 1 {
+		t.Errorf("distinct count: want 1, got %d", n)
+	}
+}
+
+func TestTypeDiversityBonus_TwoTypesNormalisedToFifth(t *testing.T) {
+	shared := []int64{1, 2}
+	types := map[int64]string{1: "sensorimotor", 2: "behaviour"}
+	b, n := TypeDiversityBonus(shared, types)
+	want := 1.0 / 5.0 // (2-1)/(6-1)
+	if math.Abs(b-want) > 1e-9 {
+		t.Errorf("two-type bonus: want %v, got %v", want, b)
+	}
+	if n != 2 {
+		t.Errorf("distinct count: want 2, got %d", n)
+	}
+}
+
+func TestTypeDiversityBonus_AllSixTypesGivesOne(t *testing.T) {
+	shared := []int64{1, 2, 3, 4, 5, 6}
+	types := map[int64]string{
+		1: "sensorimotor", 2: "behaviour", 3: "functional",
+		4: "effect", 5: "emotional", 6: "social",
+	}
+	b, n := TypeDiversityBonus(shared, types)
+	if math.Abs(b-1.0) > 1e-9 {
+		t.Errorf("six-type bonus: want 1.0, got %v", b)
+	}
+	if n != 6 {
+		t.Errorf("distinct count: want 6, got %d", n)
+	}
+}
+
+func TestTypeDiversityBonus_OtherAndEmptyExcluded(t *testing.T) {
+	// "other" and empty strings don't count as distinct types — they're
+	// the M04 v2 audit's normalisation residue, not a discriminating signal.
+	shared := []int64{1, 2, 3, 4}
+	types := map[int64]string{
+		1: "sensorimotor", 2: "other", 3: "", 4: "behaviour",
+	}
+	b, n := TypeDiversityBonus(shared, types)
+	want := 1.0 / 5.0 // only 2 canonical: sensorimotor + behaviour
+	if math.Abs(b-want) > 1e-9 {
+		t.Errorf("with other/empty: want %v, got %v", want, b)
+	}
+	if n != 2 {
+		t.Errorf("distinct count: want 2, got %d", n)
+	}
+}
+
+func TestEvaluateCascadePair_GammaZeroSkipsTypeBonus(t *testing.T) {
+	// M05 must be a no-op when Gamma=0 (default).
+	cfg := DefaultCascadeConfig()
+	cfg.Gamma = 0.0
+	tConc := 3.0
+	vConc := 4.5
+	in := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        map[int64]string{1: "sensorimotor", 2: "behaviour"},
+	}
+	res := EvaluateCascadePair(in, cfg)
+	if res.TypeDiversityBonus != nil {
+		t.Errorf("Gamma=0: TypeDiversityBonus should be nil, got %v", *res.TypeDiversityBonus)
+	}
+	if res.SharedTypesCount != 0 {
+		t.Errorf("Gamma=0: SharedTypesCount should be 0 (M03/M04 short-circuit), got %d", res.SharedTypesCount)
+	}
+}
+
+func TestEvaluateCascadePair_GammaPositiveLiftsFinalScore(t *testing.T) {
+	// Same inputs as Gamma=0 but with Gamma=1.0 — final_score should
+	// increase by (gamma * type_diversity_bonus) = (1.0 * 0.2) = 0.2.
+	cfg := DefaultCascadeConfig()
+	cfg.Gamma = 0.0
+	tConc := 3.0
+	vConc := 4.5
+	in := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        map[int64]string{1: "sensorimotor", 2: "behaviour"},
+	}
+	baseline := EvaluateCascadePair(in, cfg)
+
+	cfg.Gamma = 1.0
+	with := EvaluateCascadePair(in, cfg)
+
+	if baseline.FinalScore == nil || with.FinalScore == nil {
+		t.Fatalf("FinalScore unexpectedly nil: baseline=%v with=%v", baseline.FinalScore, with.FinalScore)
+	}
+	delta := *with.FinalScore - *baseline.FinalScore
+	want := 1.0 * (1.0 / 5.0) // gamma * normalised distinct-type count
+	if math.Abs(delta-want) > 1e-9 {
+		t.Errorf("Gamma=1 lift: want delta=%v, got %v (baseline=%v with=%v)",
+			want, delta, *baseline.FinalScore, *with.FinalScore)
+	}
+	if with.TypeDiversityBonus == nil {
+		t.Errorf("with Gamma>0: TypeDiversityBonus should be set")
+	}
+	if with.SharedTypesCount != 2 {
+		t.Errorf("SharedTypesCount: want 2, got %d", with.SharedTypesCount)
+	}
+}
+
+func TestEvaluateCascadePair_GammaPositiveNoClusterTypesIsZero(t *testing.T) {
+	// If ClusterTypes is nil (pre-M05 DB), the bonus is suppressed even
+	// with Gamma>0 — the function returns the M03/M04 score unchanged.
+	cfg := DefaultCascadeConfig()
+	cfg.Gamma = 1.0
+	tConc := 3.0
+	vConc := 4.5
+	in := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        nil,
+	}
+	res := EvaluateCascadePair(in, cfg)
+	if res.TypeDiversityBonus != nil {
+		t.Errorf("nil ClusterTypes: TypeDiversityBonus should be nil, got %v", *res.TypeDiversityBonus)
 	}
 }

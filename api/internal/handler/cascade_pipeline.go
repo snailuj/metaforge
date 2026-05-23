@@ -259,11 +259,11 @@ func (p *cascadePipeline) score() (phaseOutcome, int, error) {
 	stopScore := observe.Start("cascade_scoring_loop")
 	var droppedNonScored int
 	p.matches = make([]forge.Match, 0, len(p.candidates))
-	// M05 S02: p.cache.ClusterTypes (cluster_id → dominant_type) is now
-	// loaded at startup and available here. S03 will pass it through
-	// CascadeInputs alongside the shared-cluster list so
-	// EvaluateCascadePair can compute the type-diversity bonus. Not
-	// wired through yet — this slice is plumbing only.
+	// M05 S03: ClusterTypes (cluster_id → dominant_type) threads into
+	// CascadeInputs so EvaluateCascadePair computes the type-diversity
+	// bonus over shared clusters. Gamma=0 by default → M03/M04 scoring
+	// math is unchanged until the γ-sweep verdict picks a non-zero
+	// weight.
 	for _, c := range p.candidates {
 		// Concreteness from the in-memory cache — preserves the
 		// *float64 absence-signal contract EvaluateCascadePair expects.
@@ -295,6 +295,7 @@ func (p *cascadePipeline) score() (phaseOutcome, int, error) {
 			VehicleProperties:   propsByID[c.SynsetID],
 			TopicCentroid:       topicCent,
 			VehicleCentroid:     vehCent,
+			ClusterTypes:        p.cache.ClusterTypes,
 		}, p.cfg)
 
 		// SQL CTE already filtered gate_dropped + missing_concreteness,

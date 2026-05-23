@@ -217,6 +217,12 @@ type CascadeConfig struct {
 	EmbeddingDMin float64       // inclusive lower band on cosine distance
 	EmbeddingDMax float64       // inclusive upper band; must satisfy DMax > DMin
 	EmbeddingTopK int           // cap on per-request embedding candidates
+
+	// M05 type-aligned scoring.
+	Gamma float64 // weight on the type-diversity bonus in EvaluateCascadePair.
+	// 0 disables M05 (M03/M04 behaviour preserved). Calibration sweep on
+	// the Lakoff cohort picks the production value. Composition with the
+	// existing additive cascade: final = ortony + Alpha·cosBonus + Gamma·typeBonus
 }
 
 // DefaultCascadeConfig returns the production-blessed winner config from
@@ -233,6 +239,7 @@ func DefaultCascadeConfig() CascadeConfig {
 		EmbeddingDMin:         0.4,
 		EmbeddingDMax:         0.85,
 		EmbeddingTopK:         100,
+		Gamma:                 0.0, // M05 off by default until the γ-sweep verdict
 	}
 }
 
@@ -279,6 +286,9 @@ func (c CascadeConfig) Validate() error {
 		return fmt.Errorf("EmbeddingTopK %d exceeds ceiling %d (SQLite IN-clause variable limit safety)",
 			c.EmbeddingTopK, EmbeddingTopKCeiling)
 	}
+	if c.Gamma < 0 || math.IsNaN(c.Gamma) || math.IsInf(c.Gamma, 0) {
+		return fmt.Errorf("Gamma %v must be ≥ 0 and finite", c.Gamma)
+	}
 	return nil
 }
 
@@ -293,6 +303,14 @@ type CascadeInputs struct {
 	VehicleProperties   map[int64]float64
 	TopicCentroid       []float32
 	VehicleCentroid     []float32
+
+	// M05: cluster_id → dominant_type lookup, populated by the handler
+	// from db.CascadeCache.ClusterTypes. Optional — when nil or empty,
+	// EvaluateCascadePair skips the type-diversity bonus computation
+	// regardless of Gamma. Empty-string values for a cluster_id mean
+	// "type unknown" (pre-M05 DB with NULL dominant_type, or empty
+	// cluster); these contribute zero to distinct-type count.
+	ClusterTypes map[int64]string
 }
 
 // CascadeResult mirrors the Python CascadeResult — pointer fields are nil
@@ -304,6 +322,53 @@ type CascadeResult struct {
 	CosineDistance *float64
 	ReRankBonus    *float64
 	Status         CascadeStatus
+
+	// M05 diagnostics — set only when Gamma > 0 and ClusterTypes was provided.
+	TypeDiversityBonus *float64 // [0, 1] — (distinct_types - 1) / 5, clamped at 0
+	SharedTypesCount   int      // 0..7 — number of distinct canonical types in the overlap
+}
+
+// TypeDiversityMaxDistinct is the canonical count of distinct property
+// types used to normalise the type-diversity bonus to [0, 1]. The M04 v2
+// audit confirms the LLM enrichment produces 6 canonical types
+// (sensorimotor, behaviour, functional, effect, emotional, social). The
+// "other" bucket exists for normalisation residue (~0.04% of rows) but
+// is not counted as a distinct discriminating type — a metaphor whose
+// shared overlap is one canonical type plus "other" is still
+// effectively mono-typed.
+const TypeDiversityMaxDistinct = 6
+
+// TypeDiversityBonus returns the normalised distinct-type count over a
+// shared cluster set. Inputs:
+//
+//   - shared: cluster_ids that appear in both topic and vehicle property
+//     maps (the M03 jaccard intersection). May be empty.
+//   - clusterTypes: cluster_id → dominant_type lookup. Missing entries
+//     and empty-string values count as "unknown" and contribute zero.
+//
+// Returns (bonus ∈ [0, 1], distinctTypes ∈ [0, 6]) where bonus is
+// `max(0, distinctTypes-1) / (TypeDiversityMaxDistinct-1)`. The
+// 'minus 1' encodes the M05 hypothesis that any single shared type is
+// expected (random within-domain overlap) and the discrimination signal
+// starts at 2 distinct types.
+func TypeDiversityBonus(shared []int64, clusterTypes map[int64]string) (float64, int) {
+	if len(shared) == 0 || len(clusterTypes) == 0 {
+		return 0.0, 0
+	}
+	seen := make(map[string]struct{}, len(shared))
+	for _, cid := range shared {
+		t, ok := clusterTypes[cid]
+		if !ok || t == "" || t == "other" {
+			continue
+		}
+		seen[t] = struct{}{}
+	}
+	distinct := len(seen)
+	if distinct < 2 {
+		return 0.0, distinct
+	}
+	denom := float64(TypeDiversityMaxDistinct - 1)
+	return float64(distinct-1) / denom, distinct
 }
 
 // EvaluateCascadePair runs the three-stage cascade. Never panics on
@@ -344,12 +409,34 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 		}
 	}
 
+	// M05 type-diversity bonus. Composition is additive (mirrors the
+	// production-winner additive cascade) and Gamma=0 by default so the
+	// scoring math reduces to M03/M04 exactly when M05 is disabled.
+	var typeBonus *float64
+	sharedTypesCount := 0
+	if cfg.Gamma > 0 && in.ClusterTypes != nil {
+		shared := make([]int64, 0, len(in.TopicProperties))
+		for cid := range in.TopicProperties {
+			if _, dual := in.VehicleProperties[cid]; dual {
+				shared = append(shared, cid)
+			}
+		}
+		tb, distinct := TypeDiversityBonus(shared, in.ClusterTypes)
+		sharedTypesCount = distinct
+		if tb > 0 {
+			typeBonus = &tb
+			final = final + cfg.Gamma*tb
+		}
+	}
+
 	return CascadeResult{
-		FinalScore:     &final,
-		GatePassed:     true,
-		OrtonyScore:    &ortony,
-		CosineDistance: cosDist,
-		ReRankBonus:    bonus,
-		Status:         CascadeStatusScored,
+		FinalScore:         &final,
+		GatePassed:         true,
+		OrtonyScore:        &ortony,
+		CosineDistance:     cosDist,
+		ReRankBonus:        bonus,
+		Status:             CascadeStatusScored,
+		TypeDiversityBonus: typeBonus,
+		SharedTypesCount:   sharedTypesCount,
 	}
 }

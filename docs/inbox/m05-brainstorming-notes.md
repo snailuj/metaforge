@@ -231,3 +231,24 @@ Landed on `m05/type-aligned`. `db.CascadeCache` gains a `ClusterTypes map[int64]
 Wire-up only — `cascadePipeline.score()` doesn't read `p.cache.ClusterTypes` yet. That's S03.
 
 Tests: positive load test in `cascade_cache_test.go`, two synthetic-schema handler tests updated to include the new column. Full Go suite PASS.
+
+---
+
+## S03 progress — 2026-05-23
+
+Landed on `m05/type-aligned`. The cascade scorer now computes a type-diversity bonus over shared clusters when `Gamma > 0` AND `ClusterTypes` is provided.
+
+Key shapes:
+- `CascadeConfig.Gamma float64` — weight; default 0.0 (M03/M04 behaviour preserved).
+- `CascadeInputs.ClusterTypes map[int64]string` — optional; nil disables M05 even with Gamma>0.
+- `CascadeResult.TypeDiversityBonus *float64` + `SharedTypesCount int` — diagnostics, set only when bonus fires.
+- Helper `TypeDiversityBonus(shared, types) (bonus, distinct)` — `max(0, distinct-1) / (TypeDiversityMaxDistinct-1)` where `TypeDiversityMaxDistinct = 6`. `"other"` and `""` types are excluded from distinct count (not discriminating signal per the M04 v2 audit).
+
+Composition: additive `final = ortony + Alpha·cosBonus + Gamma·typeBonus`. Decision 3/A.
+
+Pipeline plumbing: `cascadePipeline.score()` now passes `p.cache.ClusterTypes` into `CascadeInputs`. No change to the JSON wire shape since `TypeDiversityBonus` and `SharedTypesCount` are not (yet) plumbed onto `forge.Match`. Adding them is straightforward when the UI lands — current omission keeps the wire contract identical for legacy/cascade consumers.
+
+Tests added: TypeDiversityBonus 5-case unit coverage (empty/single/two-types/all-six/other-excluded), EvaluateCascadePair 3-case (Gamma=0 short-circuit / Gamma=1 lift / nil-ClusterTypes-with-Gamma>0 no-op), Validate gamma guards (negative/NaN/Inf).
+
+Outstanding for S04:
+- Live DB has `dominant_type = NULL` — must re-run snap before the γ-sweep can produce signal. ~5-30min on the test DB. Will run as part of S04 setup.
