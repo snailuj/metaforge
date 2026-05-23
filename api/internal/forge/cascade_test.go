@@ -337,9 +337,9 @@ func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
 		{"negative dCap", func(c *CascadeConfig) { c.DCap = -1 }, "DCap"},
 		{"NaN concreteness threshold", func(c *CascadeConfig) { c.ConcretenessThreshold = math.NaN() }, "ConcretenessThreshold"},
 		{"topK above ceiling", func(c *CascadeConfig) { c.EmbeddingTopK = EmbeddingTopKCeiling + 1 }, "EmbeddingTopK"},
-		{"negative gamma", func(c *CascadeConfig) { c.Gamma = -0.1 }, "Gamma"},
-		{"NaN gamma", func(c *CascadeConfig) { c.Gamma = math.NaN() }, "Gamma"},
-		{"Inf gamma", func(c *CascadeConfig) { c.Gamma = math.Inf(1) }, "Gamma"},
+		{"negative gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight(-0.1) }, "Gamma"},
+		{"NaN gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight(math.NaN()) }, "Gamma"},
+		{"Inf gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight(math.Inf(1)) }, "Gamma"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -372,6 +372,51 @@ func TestCascadeConfig_Validate_RejectsGammaWithMultiplicative(t *testing.T) {
 	}
 	if !strings.Contains(msg, "multiplicative") && !strings.Contains(msg, "Multiplicative") {
 		t.Errorf("error must mention multiplicative composition, got %v", msg)
+	}
+}
+
+func TestNewGamma_RejectsNegativeNaNInf(t *testing.T) {
+	// NewGamma is the operator-boundary cast for the γ env/flag value.
+	// A GammaWeight value is proof of validity at construction —
+	// negative, NaN, and ±Inf raw inputs must error rather than producing
+	// an invalid newtype that only Validate() would catch later.
+	cases := []struct {
+		name string
+		in   float64
+	}{
+		{"negative", -0.1},
+		{"NaN", math.NaN()},
+		{"PosInf", math.Inf(1)},
+		{"NegInf", math.Inf(-1)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("NewGamma(%v) panicked: %v", tc.in, r)
+				}
+			}()
+			_, err := NewGamma(tc.in)
+			if err == nil {
+				t.Fatalf("NewGamma(%v) want error, got nil", tc.in)
+			}
+		})
+	}
+}
+
+func TestNewGamma_AcceptsZeroAndPositive(t *testing.T) {
+	// Zero (M05 disabled) and any finite positive weight are valid.
+	cases := []float64{0, 0.5, 2.0, 1e9}
+	for _, v := range cases {
+		t.Run("", func(t *testing.T) {
+			g, err := NewGamma(v)
+			if err != nil {
+				t.Fatalf("NewGamma(%v) unexpected error: %v", v, err)
+			}
+			if float64(g) != v {
+				t.Errorf("NewGamma(%v) round-trip: got %v", v, float64(g))
+			}
+		})
 	}
 }
 

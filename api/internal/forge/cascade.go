@@ -204,6 +204,25 @@ func ParseCandidateMode(s string) (CandidateMode, error) {
 	return m, nil
 }
 
+// GammaWeight is the M05 type-diversity-bonus weight on EvaluateCascadePair.
+// The defined type makes operator-supplied env/flag values a
+// validation-gated boundary cast (NewGamma) rather than a bare float64
+// mutation — mirrors the ParseCandidateMode / Composition.Valid pattern.
+// CascadeConfig.Validate() remains the second line of defence for
+// post-construction mutation.
+type GammaWeight float64
+
+// NewGamma constructs a validated GammaWeight from a raw float64. Returns
+// an error for negative, NaN, or ±Inf inputs. Use this at the operator
+// entry point (env/flag boundary) so an invalid value fails loud at the
+// cast site, not via downstream CascadeConfig.Validate().
+func NewGamma(v float64) (GammaWeight, error) {
+	if v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, fmt.Errorf("Gamma %v must be ≥ 0 and finite", v)
+	}
+	return GammaWeight(v), nil
+}
+
 // CascadeConfig pins the cascade hyperparameters. Use DefaultCascadeConfig
 // for the production-blessed winner config.
 type CascadeConfig struct {
@@ -219,7 +238,7 @@ type CascadeConfig struct {
 	EmbeddingTopK int           // cap on per-request embedding candidates
 
 	// M05 type-aligned scoring.
-	Gamma float64 // weight on the type-diversity bonus in EvaluateCascadePair.
+	Gamma GammaWeight // weight on the type-diversity bonus in EvaluateCascadePair.
 	// 0 disables M05 (M03/M04 behaviour preserved). Calibration sweep on
 	// the Lakoff cohort picks the production value. Composition with the
 	// existing additive cascade: final = ortony + Alpha·cosBonus + Gamma·typeBonus
@@ -286,7 +305,7 @@ func (c CascadeConfig) Validate() error {
 		return fmt.Errorf("EmbeddingTopK %d exceeds ceiling %d (SQLite IN-clause variable limit safety)",
 			c.EmbeddingTopK, EmbeddingTopKCeiling)
 	}
-	if c.Gamma < 0 || math.IsNaN(c.Gamma) || math.IsInf(c.Gamma, 0) {
+	if c.Gamma < 0 || math.IsNaN(float64(c.Gamma)) || math.IsInf(float64(c.Gamma), 0) {
 		return fmt.Errorf("Gamma %v must be ≥ 0 and finite", c.Gamma)
 	}
 	// γ-sweep only ratified the additive shape `final = ortony + Alpha·cosBonus
@@ -437,7 +456,7 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 		sharedTypesCount = distinct
 		typeBonus = &tb
 		if tb > 0 {
-			final = final + cfg.Gamma*tb
+			final = final + float64(cfg.Gamma)*tb
 		}
 	}
 

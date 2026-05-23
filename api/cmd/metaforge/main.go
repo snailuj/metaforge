@@ -61,7 +61,11 @@ func main() {
 	cascadeCfg.EmbeddingDMin = *embDMin
 	cascadeCfg.EmbeddingDMax = *embDMax
 	cascadeCfg.EmbeddingTopK = *embTopK
-	cascadeCfg.Gamma = *gamma
+	g, err := forge.NewGamma(*gamma)
+	if err != nil {
+		log.Fatalf("invalid --gamma value: %v", err)
+	}
+	cascadeCfg.Gamma = g
 	if err := h.WithCascadeConfig(cascadeCfg); err != nil {
 		log.Fatalf("cascade config: %v", err)
 	}
