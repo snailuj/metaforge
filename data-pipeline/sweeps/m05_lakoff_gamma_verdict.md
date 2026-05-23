@@ -1,5 +1,13 @@
 # M05 Lakoff γ-Sweep Verdict
 
+> **⚠️ Read this caveat before quoting any number below.**
+>
+> This grid was regenerated against a DB state where almost no cohort vehicles resolved through the API (`apt_miss ≈ 71–80 / 80`, `inapt_miss = 90 / 90` across every cell). Every cell collapses to `separation_score = 0.0000` because **no inapt pair returned a score for the metric to discriminate against**. The numbers below are not evidence γ has no effect — they are evidence the cohort did not survive the gate/resolution path on this DB state.
+>
+> The earlier substantive γ-sweep numbers cited elsewhere in the milestone (e.g. `docs/inbox/m05-brainstorming-notes.md:260–269`, showing `separation_score` moving monotonically from -0.2695 at γ=0 to +0.3193 at γ=2) were produced on a different DB state. Treat the brainstorming notes' table as the authoritative directional signal **with the n=1 inapt caveat recorded alongside it** (single inapt survivor → metric is sensitive to which one survived, not to real distributional difference).
+>
+> Before ratifying any production γ value, the cohort/gate resolution failure must be diagnosed: instrument the sweep driver to tag each drop with its cause (vehicle not in vocab / concreteness gate / no properties / no overlap) so the gap can be interpreted. See `docs/inbox/m05-brainstorming-notes.md` Caveat #3.
+
 _Baseline (cluster_only): separation_score = 0.0000, aptness_rate = 0.0000_
 
 ## Results Grid
