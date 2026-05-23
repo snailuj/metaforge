@@ -6,11 +6,26 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Active
 
-_(none — M03-S05 + the M03-pre-M04 deferrals branch merged 2026-05-22; M04 promoted to Next.)_
+_(none — M04 v1 implementation + 3-round code-review loop + calibration sweep complete on `m04/cosine-candidate-gen` 2026-05-23; awaiting merge.)_
 
 ## Next
 
-- **M04 — Cosine-Sim Candidate Generation** *(promoted to Next 2026-05-21 on M03-S05 close)* — add an ANN index over `synset_centroids` so the Forge can surface cross-domain candidates that share no curated cluster (anger→fire, idea→light, time→money). M03's cascade re-rank already discriminates these; M03-S05 smoke testing confirmed the Go endpoint can't currently expose them — they're filtered out by the cluster-overlap candidate CTE before scoring. M04 unions ANN-band candidates with the existing cluster-overlap set; cascade re-ranks across both. Same infrastructure feeds The Bridge's embedding-prefilter A*.
+- **M04 v2 — Cross-domain eval cohort + sweep re-run** *(promoted 2026-05-23 on M04 v1 sweep close)* — the M04 v1 calibration sweep over MUNCH (200 apt + 200 inapt subsample) found all 9 `(d_min, d_max)` cells identical to baseline (`separation_score=0.0258, aptness_rate=0.3333`). Root cause: MUNCH is paraphrase-style metaphors (`approach`→`direction`) — not the cross-domain pairs M04 is designed to surface. 97% of MUNCH pairs don't resolve at all through the API at `limit=50`. The cosine-band path IS working (canary `TestCascadeUnion_ClassicalPairsSurface_AsCandidates` pins anger→fire / idea→light / time→money / truth→hammer surfacing as candidates), but MUNCH simply cannot measure that surface. **v2 deliverable:** construct a Lakoff-classics cohort (cross-domain pairs + plausibility-rated inapt controls) and re-run the sweep harness against THAT. Sweep YAML + driver from M04 v1 are reusable; only the fixture changes. Verdict: [`m04_embedding_band_verdict.md`](../../data-pipeline/sweeps/m04_embedding_band_verdict.md).
+  - Operator decision (recorded in verdict): keep `SourcesCluster` as production default; users opt into union/embedding via `METAFORGE_FORGE_CANDIDATES` env var or `--candidate-sources` CLI flag.
+  - **M04 v1 shipped value:** binary generation lift confirmed (canary test); CLI/env knobs wired; observability counters (cluster vs embedding source mix, anomaly aggregator, unconditional cascade outcome logging); type discipline tightened (CandidateSource / CandidateSources / Composition.Valid + extended CascadeConfig.Validate); deterministic TopK (stable sort); sibling-sense exclusion; latency hot-path optimised (precomputed topic norm).
+  - **Active M04 deferrals (24 — see `docs/superpowers/review-logs/2026-05-23-m04-cosine-candidate-gen-review.md`):**
+    - **D5** — cluster-wins-on-conflict drops embedding-path topic synset; semantic correctness gap → M05 type-aligned scoring or `SourceBoth`-keyed dual-distance.
+    - **D14** — production p99 latency budget (~500ms target) — Fix D shipped, re-measure under v2 sweep cohort.
+    - **D24** — `handleSuggestCascade` god-function refactor into `cascadePipeline` type; flagged by catch-fixing-forwards (handler.go touched in 3+ review runs). **Binding pre-M05 constraint.**
+    - **D1 / D2 / D11 / D26** — Source-tag constructor discipline + `CandidateSources` naming sweep; bundle as one "type-discipline" commit before M05.
+    - **D3 / D17** — `ForgeEmbeddingConfig` consolidation + `EmbeddingTopK` naming + `getSynsetRow` polysemy-ASC comment.
+    - **D9 / D10 / D13** — DB error-handling hygiene sweep (`errors.Is`, SQLite version probe).
+    - **D15 / D19 / D20 / D23** — observability gap closures (`embedding_path_unavailable` flag, dim-mismatch counter, sibling-resolver empty log, lift `cascadeAnomalies` to named type).
+    - **D6** — multi-sense ANN candidate generation (M04 follow-up — see legacy entry below).
+    - **D7 / D8 / D18 / D21 / D22 / D25 / D27** — minor doc/test/observability lifts; bundle.
+    - Full ledger at `docs/superpowers/review-logs/2026-05-23-m04-cosine-candidate-gen-review.md` (16 active + 3 superseded).
+
+- **M04 v1 — Cosine-Sim Candidate Generation** *(promoted to Next 2026-05-21; v1 implementation complete 2026-05-23 on `m04/cosine-candidate-gen`)* — original M04 description below for archival reference. v1 ships the cosine-band candidate generator unioning with cluster-overlap path; the eval-cohort question is what v2 must answer.
   - Why before type-alignment: optimising the *scoring* of a candidate set that systematically excludes apt cross-domain pairs is peak diminishing returns. Broadening the set first delivers the eval-cohort lift; M05 type-alignment then sharpens that richer set.
   - Detail doc: [`M04-cosine-candidate-gen-roadmap.md`](M04-cosine-candidate-gen-roadmap.md)
   - Depends on: M03 (done)
