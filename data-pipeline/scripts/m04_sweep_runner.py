@@ -30,7 +30,8 @@ import statistics
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field, asdict
+import dataclasses
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
@@ -111,6 +112,24 @@ class CellResult:
         """
         self._aptness_rate = self._compute_aptness_rate()
         self._separation_score = self._compute_separation_score()
+
+    def to_dict(self) -> dict:
+        """Serialise to JSON-friendly dict with public key names.
+
+        Calls finalise_metrics() to snapshot computed metrics before
+        serialisation. Keys are the public names (``aptness_rate``,
+        ``separation_score``) not the internal underscore-prefixed fields —
+        preserves wire compat with historical sweep result JSONs that
+        predate the R2 @property refactor.
+        """
+        self.finalise_metrics()
+        d = dataclasses.asdict(self)
+        # Rewrite underscore-prefixed keys to their public names.
+        if "_aptness_rate" in d:
+            d["aptness_rate"] = d.pop("_aptness_rate")
+        if "_separation_score" in d:
+            d["separation_score"] = d.pop("_separation_score")
+        return d
 
 
 def load_pairs(path: Path) -> list[tuple[str, str]]:
@@ -424,8 +443,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {r.name}: sep={r.separation_score:.4f} apt_rate={r.aptness_rate:.4f}")
 
     args.output.write_text(json.dumps({
-        "baseline": asdict(baseline),
-        "results": [asdict(r) for r in results],
+        "baseline": baseline.to_dict(),
+        "results": [r.to_dict() for r in results],
     }, indent=2))
     write_verdict(results, baseline, args.verdict, cfg=cfg)
     print(f"\nWrote {args.output} and {args.verdict}")

@@ -109,6 +109,30 @@ def test_cell_result_property_accessors_still_work() -> None:
     assert cell.separation_score == pytest.approx(0.4, abs=1e-9)
 
 
+def test_cell_result_to_dict_uses_public_key_names() -> None:
+    """to_dict() must emit the historical public JSON keys (aptness_rate,
+    separation_score) rather than the underscore-prefixed dataclass fields.
+
+    The R2 refactor (commit 16692031) replaced a __getattribute__ override
+    with @property accessors and underscore-prefixed backing fields. As a
+    side-effect, dataclasses.asdict() began serialising the underscore
+    names — silently breaking wire compat with historical sweep-result
+    JSONs. to_dict() restores the public-name contract and finalises
+    metrics so callers don't have to remember.
+    """
+    cell = _make_cell("test", apt=[0.5, 0.6, 0.7], inapt=[0.1, 0.2, 0.3, 0.4])
+
+    d = cell.to_dict()
+
+    assert "aptness_rate" in d, "public key 'aptness_rate' missing from to_dict()"
+    assert "separation_score" in d, "public key 'separation_score' missing from to_dict()"
+    assert "_aptness_rate" not in d, "underscore-prefixed key leaked into to_dict()"
+    assert "_separation_score" not in d, "underscore-prefixed key leaked into to_dict()"
+    # Sanity — separation = mean(apt) - mean(inapt) = 0.6 - 0.25 = 0.35
+    assert d["separation_score"] == pytest.approx(0.35, abs=1e-9)
+    assert isinstance(d["aptness_rate"], float)
+
+
 def test_cell_result_property_accessor_recomputes_when_unfinalised() -> None:
     """The @property accessor for aptness_rate / separation_score must
     recompute on the fly when the backing stored field is None — this
