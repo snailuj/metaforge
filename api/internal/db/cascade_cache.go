@@ -44,7 +44,12 @@ func LoadCascadeCache(database *sql.DB) (*CascadeCache, error) {
 	cache := &CascadeCache{
 		Concreteness: make(map[string]float64, 80000),
 		Centroids:    make(map[string][]float32, 40000),
-		ClusterTypes: make(map[int64]string, 5000),
+		// Cluster count on the live DB sits in the same band as the
+		// centroid count (~35-50k vocab_clusters rows feeding the same
+		// cluster space). Size the map to match Centroids so the
+		// per-row writes in loadClusterTypes don't trigger repeated
+		// rehashes on snap-with-types runs.
+		ClusterTypes: make(map[int64]string, 40000),
 	}
 
 	stopConc := observe.Start("cascade_cache_load_concreteness")
