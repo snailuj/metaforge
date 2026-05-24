@@ -260,6 +260,27 @@ type CascadeConfig struct {
 // the M03 Stage-2 sweep (separation +0.1779) plus the pre-sweep M04
 // candidate-generation defaults. Mode is ModeCluster (M03 behaviour)
 // until the M04 sweep ratifies ModeUnion.
+//
+// Gamma is ratified at 1.0 by the M05 Phase 2 Lakoff γ-sweep
+// (2026-05-24). With pre-flight diagnostics confirming 100% of the
+// cohort is data-resolvable and limit=10000 eliminating ranking-cutoff
+// confound, the sweep produced a clean monotone signal:
+//
+//   γ=0.00 → separation=-0.2546   γ=0.50 → -0.1230
+//   γ=0.25 → separation=-0.1888   γ=1.00 → +0.0086
+//                                 γ=2.00 → +0.2717
+//
+// γ=1.0 brings the apt cohort to parity with the inapt survivors
+// (separation ≈ 0) — the conservative "turn the signal on" choice.
+// γ=2.0 scores higher in the sweep but the magnitude rides on n=1
+// inapt and would overweight one design dimension across the broader
+// thesaurus traffic that does not share the Lakoff cohort's
+// cross-domain bias. See data-pipeline/sweeps/m05_lakoff_gamma_phase2_verdict.md.
+//
+// In-package direct GammaWeight{} construction is idiomatic here: 1.0
+// is a compile-time-known valid literal, and NewGamma exists to guard
+// the *operator entry point* (env/flag boundary), not in-package
+// production defaults.
 func DefaultCascadeConfig() CascadeConfig {
 	return CascadeConfig{
 		ConcretenessThreshold: 1.0,
@@ -270,9 +291,7 @@ func DefaultCascadeConfig() CascadeConfig {
 		EmbeddingDMin:         0.4,
 		EmbeddingDMax:         0.85,
 		EmbeddingTopK:         100,
-		// Gamma is the zero value GammaWeight{} (v=0): M05 off by default
-		// until the γ-sweep verdict. Construction via NewGamma is reserved
-		// for operator-supplied env/flag values at the main.go boundary.
+		Gamma:                 GammaWeight{v: 1.0},
 	}
 }
 

@@ -395,22 +395,51 @@ func TestCascadeConfig_Validate_RejectsGammaWithMultiplicative(t *testing.T) {
 }
 
 func TestGammaWeight_ZeroValueIsValidAndZero(t *testing.T) {
-	// DefaultCascadeConfig relies on the GammaWeight zero value
-	// representing "M05 dormant" (v=0). The struct-wrap change means
-	// the zero value is GammaWeight{} rather than GammaWeight(0); pin
-	// the contract so a future refactor (e.g. adding a "constructed via
-	// NewGamma" sentinel field) can't silently break the dormant default.
+	// Independent of DefaultCascadeConfig: the zero-value GammaWeight{}
+	// must represent "M05 dormant" (v=0) and pass Validate. The struct-wrap
+	// change means the zero value is GammaWeight{} rather than GammaWeight(0);
+	// pin the contract so a future refactor (e.g. adding a "constructed via
+	// NewGamma" sentinel field) can't silently break the dormant default
+	// path that the env-unset branch in main.go relies on.
 	var g GammaWeight
 	if g.Value() != 0 {
 		t.Errorf("zero-value GammaWeight: want Value()==0, got %v", g.Value())
 	}
+	dormant := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Alpha:                 1.0,
+		DCap:                  0.77,
+		Composition:           CompositionAdditive,
+		Mode:                  ModeCluster,
+		EmbeddingDMin:         0.4,
+		EmbeddingDMax:         0.85,
+		EmbeddingTopK:         100,
+		// Gamma left as the zero value — M05 dormant path.
+	}
+	if dormant.Gamma.Value() != 0 {
+		t.Errorf("zero-value Gamma in CascadeConfig: want Value()==0, got %v",
+			dormant.Gamma.Value())
+	}
+	if err := dormant.Validate(); err != nil {
+		t.Errorf("CascadeConfig must validate with zero-value Gamma: %v", err)
+	}
+}
+
+func TestDefaultCascadeConfig_GammaRatifiedAtOne(t *testing.T) {
+	// M05 Phase 2 Lakoff γ-sweep (2026-05-24) ratified Gamma=1.0 as the
+	// production default. The sweep showed a monotone separation_score
+	// lift across γ ∈ {0, 0.25, 0.5, 1, 2} on the Lakoff cohort. γ=1
+	// brings apt cohort to parity with the inapt survivors (separation
+	// crosses zero from -0.25 → +0.01); γ=2 scores best but rides on
+	// n=1 inapt and overweights one dimension across general thesaurus
+	// traffic. See data-pipeline/sweeps/m05_lakoff_gamma_phase2_verdict.md.
 	cfg := DefaultCascadeConfig()
-	if cfg.Gamma.Value() != 0 {
-		t.Errorf("DefaultCascadeConfig.Gamma: want Value()==0 (M05 dormant), got %v",
+	if cfg.Gamma.Value() != 1.0 {
+		t.Errorf("DefaultCascadeConfig.Gamma: want Value()==1.0 (M05 ratified), got %v",
 			cfg.Gamma.Value())
 	}
 	if err := cfg.Validate(); err != nil {
-		t.Errorf("DefaultCascadeConfig must validate with zero-value Gamma: %v", err)
+		t.Errorf("DefaultCascadeConfig must validate with ratified Gamma: %v", err)
 	}
 }
 

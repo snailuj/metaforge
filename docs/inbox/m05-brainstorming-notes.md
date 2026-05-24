@@ -2,6 +2,8 @@
 
 *Captured 2026-05-23 while the M04 v2 Lakoff sweep runs. Not yet a design — these are the inputs and open questions for the operator brainstorming session.*
 
+> **Update 2026-05-24 — γ ratified at 1.0.** The γ-sweep notes below were written before the Phase 2 instrumentation landed. The authoritative verdict is now `data-pipeline/sweeps/m05_lakoff_gamma_verdict.md`, produced with `m05_cohort_diagnose.py` pre-flight diagnostics + `limit=10000` removing the ranking-cutoff confound. Headline: monotone separation lift from -0.25 at γ=0 to +0.27 at γ=2; γ=1.0 ratified (parity choice). The n=1 inapt caveat below remains valid for magnitude; the directional trend is now robust across 5 γ values. `aptness_rate=0` is also unchanged — γ moves ranks, not absolute scores.
+
 ## PIPELINE.md summary (one line)
 > M05 — Type-Aligned Structural Matching *(renumbered from M04 on 2026-05-21)* — preserve property types during snap, type-diversity bonus in scoring. Lightweight approximation of SME isomorphic subgraph matching using data the pipeline already extracts.
 

@@ -52,7 +52,12 @@ func main() {
 	// string is operationally indistinguishable from malformed input
 	// — both should fail loud rather than silently degrade to Gamma=0
 	// while the operator believes they have cleared the var.
-	gammaDefault := 0.0
+	//
+	// gammaDefault sources from forge.DefaultCascadeConfig() so the
+	// ratified production default (M05 Phase 2 sweep, 2026-05-24:
+	// Gamma=1.0) flows from a single source of truth. Hardcoding 0.0
+	// here would silently override the ratification.
+	gammaDefault := forge.DefaultCascadeConfig().Gamma.Value()
 	if envGamma, set := os.LookupEnv("METAFORGE_FORGE_GAMMA"); set {
 		v, err := strconv.ParseFloat(envGamma, 64)
 		if err != nil {
@@ -61,7 +66,7 @@ func main() {
 		gammaDefault = v
 	}
 	gamma := flag.Float64("gamma", gammaDefault,
-		"M05 type-diversity bonus weight (additive into final_score). 0 disables M05 — production default until γ-sweep verdict.")
+		"M05 type-diversity bonus weight (additive into final_score). 0 disables M05.")
 	flag.Parse()
 
 	observe.Init(*cascadeTiming)
