@@ -16,12 +16,14 @@
 |------|--------|----------------|
 | `data-pipeline/scripts/metaphor_spike_1a.py` | **Create** | Runner: topics → prompts → API calls → JSONL → cascade scores → report |
 | `data-pipeline/scripts/test_metaphor_spike_1a.py` | **Create** | Pytest unit tests for every pure function in the runner |
-| `data-pipeline/output/metaphor_spike_apt_haiku.jsonl` | Generated | Haiku apt LLM output (one JSON object per line) |
-| `data-pipeline/output/metaphor_spike_apt_sonnet.jsonl` | Generated | Sonnet apt LLM output |
-| `data-pipeline/output/metaphor_spike_inapt_haiku.jsonl` | Generated | Haiku inapt LLM output |
-| `data-pipeline/output/metaphor_spike_inapt_sonnet.jsonl` | Generated | Sonnet inapt LLM output |
-| `data-pipeline/output/metaphor_spike_scores.jsonl` | Generated | Per-(topic, vehicle) cascade score rows |
-| `data-pipeline/output/metaphor_spike_scoring.md` | Generated | Aggregate gate-check metrics + manual eyeball scratchpad |
+| `data-pipeline/output/metaphor_spike_apt_haiku_phase1a_<YYYYMMDDTHHMMSS>.jsonl` | Generated | Haiku apt LLM output (one JSON object per line) |
+| `data-pipeline/output/metaphor_spike_apt_sonnet_phase1a_<YYYYMMDDTHHMMSS>.jsonl` | Generated | Sonnet apt LLM output |
+| `data-pipeline/output/metaphor_spike_inapt_haiku_phase1a_<YYYYMMDDTHHMMSS>.jsonl` | Generated | Haiku inapt LLM output |
+| `data-pipeline/output/metaphor_spike_inapt_sonnet_phase1a_<YYYYMMDDTHHMMSS>.jsonl` | Generated | Sonnet inapt LLM output |
+| `data-pipeline/output/metaphor_spike_scores_phase1a_<YYYYMMDDTHHMMSS>.jsonl` | Generated | Per-(topic, vehicle) cascade score rows |
+| `data-pipeline/output/metaphor_spike_scoring_phase1a_<YYYYMMDDTHHMMSS>.md` | Generated | Aggregate gate-check metrics + manual eyeball scratchpad |
+
+**Output-file naming convention** mirrors the existing `enrichment_<tag>_<model>_v<ver>_<YYYYMMDD>.json` pattern. Every spike run produces a fresh set of timestamp-keyed files (the runner computes `<YYYYMMDDTHHMMSS>` at start). Old runs are never overwritten — operator commits the outputs to git after each run, keeping a permanent record of each spike invocation.
 
 No existing files are modified. The runner is a standalone spike script — it imports only from `lib/claude_client.py` and `data-pipeline/scripts/evaluate_cascade.py`.
 
@@ -132,13 +134,13 @@ Usage:
         --db data-pipeline/output/lexicon_v2.db \\
         --output-dir data-pipeline/output
 
-Outputs (written to --output-dir):
-    metaphor_spike_apt_haiku.jsonl
-    metaphor_spike_apt_sonnet.jsonl
-    metaphor_spike_inapt_haiku.jsonl
-    metaphor_spike_inapt_sonnet.jsonl
-    metaphor_spike_scores.jsonl
-    metaphor_spike_scoring.md
+Outputs (written to --output-dir; <TS> = YYYYMMDDTHHMMSS run timestamp):
+    metaphor_spike_apt_haiku_phase1a_<TS>.jsonl
+    metaphor_spike_apt_sonnet_phase1a_<TS>.jsonl
+    metaphor_spike_inapt_haiku_phase1a_<TS>.jsonl
+    metaphor_spike_inapt_sonnet_phase1a_<TS>.jsonl
+    metaphor_spike_scores_phase1a_<TS>.jsonl
+    metaphor_spike_scoring_phase1a_<TS>.md
 """
 from __future__ import annotations
 
@@ -515,6 +517,7 @@ import json
 import logging
 import sqlite3
 import argparse
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -1455,8 +1458,10 @@ from claude_client import prompt_json, ClaudeError
 def run_spike(db_path: Path, output_dir: Path) -> None:
     """Run the Phase 1a spike: 20 LLM calls + cascade scoring + report.
 
-    Idempotent by output file: if the JSONL files already exist the
-    runner overwrites them (truncates on open). Re-run safely.
+    Every run produces a fresh set of timestamp-keyed output files
+    (YYYYMMDDTHHMMSS computed at run start). Old runs are never
+    overwritten — operator commits each run's outputs to git for a
+    permanent record.
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -1465,21 +1470,37 @@ def run_spike(db_path: Path, output_dir: Path) -> None:
 
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
-    # Output file paths — one JSONL per (model, prompt_type) combination
-    output_paths: dict[tuple[str, str], Path] = {
-        (MODEL_HAIKU, "apt"):    output_dir / "metaphor_spike_apt_haiku.jsonl",
-        (MODEL_SONNET, "apt"):   output_dir / "metaphor_spike_apt_sonnet.jsonl",
-        (MODEL_HAIKU, "inapt"):  output_dir / "metaphor_spike_inapt_haiku.jsonl",
-        (MODEL_SONNET, "inapt"): output_dir / "metaphor_spike_inapt_sonnet.jsonl",
-    }
-    scores_path = output_dir / "metaphor_spike_scores.jsonl"
-    report_path = output_dir / "metaphor_spike_scoring.md"
+    # Timestamp suffix for this run — used in every output filename.
+    # Matches the existing enrichment naming convention
+    # (enrichment_<tag>_<model>_v<ver>_<YYYYMMDD>.json) but with
+    # second-level precision so same-day re-runs don't collide.
+    run_ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+    log.info("run_timestamp=%s", run_ts)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Truncate output files before the run so a re-run gives clean data.
-    for p in list(output_paths.values()) + [scores_path]:
-        p.write_text("")
+    # Output file paths — one JSONL per (model, prompt_type) combination,
+    # all stamped with the run timestamp.
+    def _path(stem: str) -> Path:
+        return output_dir / f"metaphor_spike_{stem}_phase1a_{run_ts}.jsonl"
+
+    output_paths: dict[tuple[str, str], Path] = {
+        (MODEL_HAIKU, "apt"):    _path("apt_haiku"),
+        (MODEL_SONNET, "apt"):   _path("apt_sonnet"),
+        (MODEL_HAIKU, "inapt"):  _path("inapt_haiku"),
+        (MODEL_SONNET, "inapt"): _path("inapt_sonnet"),
+    }
+    scores_path = _path("scores")
+    report_path = output_dir / f"metaphor_spike_scoring_phase1a_{run_ts}.md"
+
+    # No truncation needed — every run gets fresh timestamp-stamped files.
+    # Guard against accidental same-second collisions (extremely rare):
+    for p in list(output_paths.values()) + [scores_path, report_path]:
+        if p.exists():
+            raise FileExistsError(
+                f"Output file already exists: {p} — same-second re-run detected. "
+                f"Wait one second and re-invoke."
+            )
 
     # Accumulate per-(model, prompt_type) validation results for metrics
     apt_validations: dict[str, list[AptValidation]] = {m: [] for m in MODELS}
@@ -1779,3 +1800,38 @@ No TBD, TODO, or "implement later" strings found. All code blocks are complete.
 - `total_apt_concepts` in Task 6 is a `dict[str, list[str]]` keyed by model — correctly accessed as `total_apt_concepts[model]`.
 
 All types are consistent.
+
+---
+
+## Post-Execution Operator Steps
+
+These steps are NOT part of the implementation plan above (which only builds the runner). They describe what the operator does after the plan ships, when they actually invoke the spike.
+
+1. **Run the spike.**
+
+   ```bash
+   cd /home/agent/projects/metaforge
+   source data-pipeline/.venv/bin/activate
+   python data-pipeline/scripts/metaphor_spike_1a.py \
+       --db data-pipeline/output/lexicon_v2.db \
+       --output-dir data-pipeline/output
+   ```
+
+   The runner logs the run timestamp at start (e.g. `run_timestamp=20260524T143015`). Note it — every output file from this invocation will carry that suffix.
+
+2. **Review the scoring report.** Open `data-pipeline/output/metaphor_spike_scoring_phase1a_<TS>.md`. Check against Phase 1a gates from the spike doc:
+   - JSON parseability ≥80% per model
+   - Schema compliance ≥80% per model
+   - Single-word concept compliance ≥90% per model
+   - Concept snap-rate against `lemmas` ≥80% per model
+
+3. **Commit the outputs to git.** All six output files for this run land in `data-pipeline/output/` with the timestamp suffix. Commit them together so each run has a permanent record:
+
+   ```bash
+   git add data-pipeline/output/metaphor_spike_*_phase1a_<TS>.*
+   git commit -m "spike(phase-1a): metaphor-enrichment dual-model run <TS>"
+   ```
+
+   Re-runs accumulate as separate commits — never overwrites, always additive. Same-second collision is guarded against by a `FileExistsError`.
+
+4. **Decide on Phase 1b** based on the gate results. If gates pass on at least Sonnet, promote to Phase 1b (separate plan, separate funding ask). If both models fail, the spike doc covers the fallback paths (prompt re-shape, hybrid Haiku-draft → Sonnet-refine, or full abandonment).
