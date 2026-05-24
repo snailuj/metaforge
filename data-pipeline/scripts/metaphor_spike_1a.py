@@ -28,6 +28,7 @@ import json
 import logging
 import sqlite3
 import argparse
+from contextlib import closing
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
@@ -737,162 +738,160 @@ def run_spike(db_path: Path, output_dir: Path) -> None:
     if not db_path.exists():
         raise FileNotFoundError(f"DB not found: {db_path}")
 
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as conn:
+        # Timestamp suffix for this run — used in every output filename.
+        # Matches the existing enrichment naming convention
+        # (enrichment_<tag>_<model>_v<ver>_<YYYYMMDD>.json) but with
+        # second-level precision so same-day re-runs don't collide.
+        run_ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+        log.info("run_timestamp=%s", run_ts)
 
-    # Timestamp suffix for this run — used in every output filename.
-    # Matches the existing enrichment naming convention
-    # (enrichment_<tag>_<model>_v<ver>_<YYYYMMDD>.json) but with
-    # second-level precision so same-day re-runs don't collide.
-    run_ts = datetime.now().strftime("%Y%m%dT%H%M%S")
-    log.info("run_timestamp=%s", run_ts)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+        # Output file paths — one JSONL per (model, prompt_type) combination,
+        # all stamped with the run timestamp.
+        def _path(stem: str) -> Path:
+            return output_dir / f"metaphor_spike_{stem}_phase1a_{run_ts}.jsonl"
 
-    # Output file paths — one JSONL per (model, prompt_type) combination,
-    # all stamped with the run timestamp.
-    def _path(stem: str) -> Path:
-        return output_dir / f"metaphor_spike_{stem}_phase1a_{run_ts}.jsonl"
+        output_paths: dict[tuple[str, str], Path] = {
+            (MODEL_HAIKU, "apt"):    _path("apt_haiku"),
+            (MODEL_SONNET, "apt"):   _path("apt_sonnet"),
+            (MODEL_HAIKU, "inapt"):  _path("inapt_haiku"),
+            (MODEL_SONNET, "inapt"): _path("inapt_sonnet"),
+        }
+        scores_path = _path("scores")
+        report_path = output_dir / f"metaphor_spike_scoring_phase1a_{run_ts}.md"
 
-    output_paths: dict[tuple[str, str], Path] = {
-        (MODEL_HAIKU, "apt"):    _path("apt_haiku"),
-        (MODEL_SONNET, "apt"):   _path("apt_sonnet"),
-        (MODEL_HAIKU, "inapt"):  _path("inapt_haiku"),
-        (MODEL_SONNET, "inapt"): _path("inapt_sonnet"),
-    }
-    scores_path = _path("scores")
-    report_path = output_dir / f"metaphor_spike_scoring_phase1a_{run_ts}.md"
-
-    # No truncation needed — every run gets fresh timestamp-stamped files.
-    # Guard against accidental same-second collisions (extremely rare):
-    for p in list(output_paths.values()) + [scores_path, report_path]:
-        if p.exists():
-            raise FileExistsError(
-                f"Output file already exists: {p} — same-second re-run detected. "
-                f"Wait one second and re-invoke."
-            )
-
-    # Accumulate per-(model, prompt_type) validation results for metrics
-    apt_validations: dict[str, list[AptValidation]] = {m: [] for m in MODELS}
-    inapt_validations: dict[str, list[InaptValidation]] = {m: [] for m in MODELS}
-    all_scored_vehicles: list[ScoredVehicle] = []
-    all_concept_violations: list[str] = []
-    all_unsnapped: list[str] = []
-
-    total_apt_concepts: dict[str, list[str]] = {m: [] for m in MODELS}
-
-    for topic in TOPICS:
-        word = topic["word"]
-        gloss = topic["gloss"]
-        log.info("topic: %s", word)
-
-        for model in MODELS:
-            # --- Apt call ---------------------------------------------------
-            apt_prompt = build_apt_prompt(word, gloss)
-            log.info("  model=%s  prompt=apt", model)
-            try:
-                raw_apt = prompt_json(apt_prompt, model=model, expect=dict)
-                # Attach gloss locally for human inspection (not echoed by LLM)
-                raw_apt["_gloss"] = gloss
-                write_jsonl_line(output_paths[(model, "apt")], raw_apt)
-                v_apt = validate_apt_response(raw_apt)
-            except ClaudeError as e:
-                log.warning("apt call failed model=%s topic=%s: %s", model, word, e)
-                raw_apt = {"topic": word, "metaphors": [], "_error": str(e)}
-                write_jsonl_line(output_paths[(model, "apt")], raw_apt)
-                v_apt = AptValidation(
-                    schema_ok=False,
-                    n_vehicles=0,
-                    n_concepts=0,
-                    n_single_word_concepts=0,
-                    concept_violations=[],
-                    schema_errors=[f"parse_failure: {e}"],
+        # No truncation needed — every run gets fresh timestamp-stamped files.
+        # Guard against accidental same-second collisions (extremely rare):
+        for p in list(output_paths.values()) + [scores_path, report_path]:
+            if p.exists():
+                raise FileExistsError(
+                    f"Output file already exists: {p} — same-second re-run detected. "
+                    f"Wait one second and re-invoke."
                 )
 
-            apt_validations[model].append(v_apt)
-            all_concept_violations.extend(v_apt.concept_violations)
-            total_apt_concepts[model].extend(
-                sf["concept"]
-                for m_entry in raw_apt.get("metaphors", [])
-                if isinstance(m_entry, dict)
-                for sf in m_entry.get("shared_features", [])
-                if isinstance(sf, dict) and isinstance(sf.get("concept"), str)
-            )
+        # Accumulate per-(model, prompt_type) validation results for metrics
+        apt_validations: dict[str, list[AptValidation]] = {m: [] for m in MODELS}
+        inapt_validations: dict[str, list[InaptValidation]] = {m: [] for m in MODELS}
+        all_scored_vehicles: list[ScoredVehicle] = []
+        all_concept_violations: list[str] = []
+        all_unsnapped: list[str] = []
 
-            # Score apt vehicles through the cascade
-            if v_apt.schema_ok:
-                scored = score_apt_vehicles(conn, raw_apt, PRODUCTION_CASCADE_CONFIG)
-                all_scored_vehicles.extend(scored)
-                for sv in scored:
-                    write_jsonl_line(scores_path, {
-                        "topic": sv.topic,
-                        "vehicle": sv.vehicle,
-                        "model": model,
-                        "synset_topic": sv.synset_topic,
-                        "synset_vehicle": sv.synset_vehicle,
-                        "cascade_status": sv.cascade_status,
-                        "final_score": sv.final_score,
-                        "gate_passed": sv.gate_passed,
-                    })
+        total_apt_concepts: dict[str, list[str]] = {m: [] for m in MODELS}
 
-            # --- Inapt call -------------------------------------------------
-            inapt_prompt = build_inapt_prompt(word, gloss)
-            log.info("  model=%s  prompt=inapt", model)
-            try:
-                raw_inapt = prompt_json(inapt_prompt, model=model, expect=dict)
-                raw_inapt["_gloss"] = gloss
-                write_jsonl_line(output_paths[(model, "inapt")], raw_inapt)
-                v_inapt = validate_inapt_response(raw_inapt)
-            except ClaudeError as e:
-                log.warning("inapt call failed model=%s topic=%s: %s", model, word, e)
-                raw_inapt = {"topic": word, "inapt_metaphors": [], "_error": str(e)}
-                write_jsonl_line(output_paths[(model, "inapt")], raw_inapt)
-                v_inapt = InaptValidation(
-                    schema_ok=False,
-                    n_vehicles=0,
-                    schema_errors=[f"parse_failure: {e}"],
-                )
-            inapt_validations[model].append(v_inapt)
+        for topic in TOPICS:
+            word = topic["word"]
+            gloss = topic["gloss"]
+            log.info("topic: %s", word)
 
-    # --- Aggregate metrics per model ----------------------------------------
-    apt_metrics: list[GateMetrics] = []
-    inapt_metrics: list[GateMetrics] = []
-
-    for model in MODELS:
-        snap = check_concept_snap_rate(conn, total_apt_concepts[model])
-        all_unsnapped.extend(snap.unsnapped)
-
-        apt_metrics.append(
-            compute_gate_metrics(
-                apt_validations[model], snap, model=model, prompt_type="apt"
-            )
-        )
-        inapt_snap = ConceptSnapResult(
-            n_concepts=0, n_snapped=0, snap_rate=0.0, unsnapped=[]
-        )
-        inapt_metrics.append(
-            compute_gate_metrics(
-                # InaptValidation → coerce to AptValidation shape for the
-                # shared aggregator. Only parse_ok_rate and schema_ok_rate
-                # are meaningful for inapt.
-                [
-                    AptValidation(
-                        schema_ok=v.schema_ok,
-                        n_vehicles=v.n_vehicles,
+            for model in MODELS:
+                # --- Apt call ---------------------------------------------------
+                apt_prompt = build_apt_prompt(word, gloss)
+                log.info("  model=%s  prompt=apt", model)
+                try:
+                    raw_apt = prompt_json(apt_prompt, model=model, expect=dict)
+                    # Attach gloss locally for human inspection (not echoed by LLM)
+                    raw_apt["_gloss"] = gloss
+                    write_jsonl_line(output_paths[(model, "apt")], raw_apt)
+                    v_apt = validate_apt_response(raw_apt)
+                except ClaudeError as e:
+                    log.warning("apt call failed model=%s topic=%s: %s", model, word, e)
+                    raw_apt = {"topic": word, "metaphors": [], "_error": str(e)}
+                    write_jsonl_line(output_paths[(model, "apt")], raw_apt)
+                    v_apt = AptValidation(
+                        schema_ok=False,
+                        n_vehicles=0,
                         n_concepts=0,
                         n_single_word_concepts=0,
                         concept_violations=[],
-                        schema_errors=v.schema_errors,
+                        schema_errors=[f"parse_failure: {e}"],
                     )
-                    for v in inapt_validations[model]
-                ],
-                inapt_snap,
-                model=model,
-                prompt_type="inapt",
+
+                apt_validations[model].append(v_apt)
+                all_concept_violations.extend(v_apt.concept_violations)
+                total_apt_concepts[model].extend(
+                    sf["concept"]
+                    for m_entry in raw_apt.get("metaphors", [])
+                    if isinstance(m_entry, dict)
+                    for sf in m_entry.get("shared_features", [])
+                    if isinstance(sf, dict) and isinstance(sf.get("concept"), str)
+                )
+
+                # Score apt vehicles through the cascade
+                if v_apt.schema_ok:
+                    scored = score_apt_vehicles(conn, raw_apt, PRODUCTION_CASCADE_CONFIG)
+                    all_scored_vehicles.extend(scored)
+                    for sv in scored:
+                        write_jsonl_line(scores_path, {
+                            "topic": sv.topic,
+                            "vehicle": sv.vehicle,
+                            "model": model,
+                            "synset_topic": sv.synset_topic,
+                            "synset_vehicle": sv.synset_vehicle,
+                            "cascade_status": sv.cascade_status,
+                            "final_score": sv.final_score,
+                            "gate_passed": sv.gate_passed,
+                        })
+
+                # --- Inapt call -------------------------------------------------
+                inapt_prompt = build_inapt_prompt(word, gloss)
+                log.info("  model=%s  prompt=inapt", model)
+                try:
+                    raw_inapt = prompt_json(inapt_prompt, model=model, expect=dict)
+                    raw_inapt["_gloss"] = gloss
+                    write_jsonl_line(output_paths[(model, "inapt")], raw_inapt)
+                    v_inapt = validate_inapt_response(raw_inapt)
+                except ClaudeError as e:
+                    log.warning("inapt call failed model=%s topic=%s: %s", model, word, e)
+                    raw_inapt = {"topic": word, "inapt_metaphors": [], "_error": str(e)}
+                    write_jsonl_line(output_paths[(model, "inapt")], raw_inapt)
+                    v_inapt = InaptValidation(
+                        schema_ok=False,
+                        n_vehicles=0,
+                        schema_errors=[f"parse_failure: {e}"],
+                    )
+                inapt_validations[model].append(v_inapt)
+
+        # --- Aggregate metrics per model ----------------------------------------
+        apt_metrics: list[GateMetrics] = []
+        inapt_metrics: list[GateMetrics] = []
+
+        for model in MODELS:
+            snap = check_concept_snap_rate(conn, total_apt_concepts[model])
+            all_unsnapped.extend(snap.unsnapped)
+
+            apt_metrics.append(
+                compute_gate_metrics(
+                    apt_validations[model], snap, model=model, prompt_type="apt"
+                )
             )
-        )
+            inapt_snap = ConceptSnapResult(
+                n_concepts=0, n_snapped=0, snap_rate=0.0, unsnapped=[]
+            )
+            inapt_metrics.append(
+                compute_gate_metrics(
+                    # InaptValidation → coerce to AptValidation shape for the
+                    # shared aggregator. Only parse_ok_rate and schema_ok_rate
+                    # are meaningful for inapt.
+                    [
+                        AptValidation(
+                            schema_ok=v.schema_ok,
+                            n_vehicles=v.n_vehicles,
+                            n_concepts=0,
+                            n_single_word_concepts=0,
+                            concept_violations=[],
+                            schema_errors=v.schema_errors,
+                        )
+                        for v in inapt_validations[model]
+                    ],
+                    inapt_snap,
+                    model=model,
+                    prompt_type="inapt",
+                )
+            )
 
-    conn.close()
-
+    # write_report uses no conn; runs after the DB connection is released.
     write_report(
         report_path,
         apt_metrics,
