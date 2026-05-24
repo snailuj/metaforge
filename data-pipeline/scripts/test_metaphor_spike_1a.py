@@ -4,6 +4,7 @@ Uses no DB and no LLM calls. Every test is pure-function.
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -23,6 +24,10 @@ from metaphor_spike_1a import (
     InaptValidation,
     check_concept_snap_rate,
     ConceptSnapResult,
+    write_jsonl_line,
+    score_apt_vehicles,
+    ScoredVehicle,
+    PRODUCTION_CASCADE_CONFIG,
 )
 
 
@@ -282,3 +287,113 @@ def test_concept_snap_case_insensitive():
     result = check_concept_snap_rate(conn, ["HEAT", "Heat"])
     assert result.n_concepts == 1  # dedup collapses to "heat"
     assert result.n_snapped == 1
+
+
+def test_write_jsonl_line(tmp_path):
+    out = tmp_path / "out.jsonl"
+    write_jsonl_line(out, {"topic": "anger", "vehicle": "fire"})
+    write_jsonl_line(out, {"topic": "anger", "vehicle": "storm"})
+    lines = out.read_text().strip().splitlines()
+    assert len(lines) == 2
+    assert json.loads(lines[0]) == {"topic": "anger", "vehicle": "fire"}
+    assert json.loads(lines[1]) == {"topic": "anger", "vehicle": "storm"}
+
+
+def test_write_jsonl_line_creates_parent(tmp_path):
+    out = tmp_path / "subdir" / "out.jsonl"
+    write_jsonl_line(out, {"x": 1})
+    assert out.exists()
+
+
+def _make_cascade_db() -> sqlite3.Connection:
+    """Minimal schema for cascade scoring. Includes all tables the cascade
+    and lookup_primary_synset touch."""
+    conn = sqlite3.connect(":memory:")
+    conn.executescript("""
+        CREATE TABLE lemmas (
+            lemma TEXT NOT NULL,
+            synset_id TEXT NOT NULL,
+            PRIMARY KEY (lemma, synset_id)
+        );
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            lemma TEXT NOT NULL,
+            polysemy INTEGER NOT NULL DEFAULT 1,
+            synset_id TEXT NOT NULL
+        );
+        CREATE TABLE synset_concreteness (
+            synset_id TEXT PRIMARY KEY,
+            score REAL NOT NULL,
+            source TEXT NOT NULL
+        );
+        CREATE TABLE synset_properties_curated (
+            synset_id   TEXT NOT NULL,
+            vocab_id    INTEGER NOT NULL,
+            cluster_id  INTEGER NOT NULL,
+            snap_method TEXT NOT NULL,
+            snap_score  REAL,
+            salience_sum REAL NOT NULL DEFAULT 1.0,
+            PRIMARY KEY (synset_id, cluster_id)
+        );
+        CREATE TABLE property_vocabulary (
+            vocab_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL,
+            cluster_id INTEGER NOT NULL DEFAULT 0
+        );
+    """)
+    # topic: grief (abstract, low concreteness)
+    conn.execute("INSERT INTO lemmas VALUES ('grief', 'syn-grief')")
+    conn.execute("INSERT INTO property_vocab_curated VALUES (1, 'grief', 1, 'syn-grief')")
+    conn.execute("INSERT INTO synset_concreteness VALUES ('syn-grief', 1.5, 'test')")
+    # vehicle: storm (concrete, higher concreteness)
+    conn.execute("INSERT INTO lemmas VALUES ('storm', 'syn-storm')")
+    conn.execute("INSERT INTO property_vocab_curated VALUES (2, 'storm', 1, 'syn-storm')")
+    conn.execute("INSERT INTO synset_concreteness VALUES ('syn-storm', 4.5, 'test')")
+    # Give both synsets a shared property so Ortony finds overlap
+    conn.execute("INSERT INTO property_vocabulary VALUES (10, 'intense', 0)")
+    conn.execute("INSERT INTO synset_properties_curated VALUES ('syn-grief', 10, 0, 'exact', 1.0, 0.9)")
+    conn.execute("INSERT INTO synset_properties_curated VALUES ('syn-storm', 10, 0, 'exact', 1.0, 0.9)")
+    conn.commit()
+    return conn
+
+
+def test_score_apt_vehicles_scored_pair():
+    conn = _make_cascade_db()
+    apt_response = {
+        "topic": "grief",
+        "metaphors": [
+            {
+                "vehicle": "storm",
+                "shared_features": [{"dimension": "emotional", "concept": "intensity"}],
+                "confidence": 0.85,
+            }
+        ],
+    }
+    scored = score_apt_vehicles(conn, apt_response, PRODUCTION_CASCADE_CONFIG)
+    assert len(scored) == 1
+    sv = scored[0]
+    assert sv.topic == "grief"
+    assert sv.vehicle == "storm"
+    # Status must be one of the CascadeStatus literals
+    assert sv.cascade_status in ("scored", "gate_dropped", "no_properties",
+                                  "missing_concreteness", "unresolved")
+    assert isinstance(sv.cascade_status, str)
+
+
+def test_score_apt_vehicles_unknown_vehicle():
+    """Vehicle not in lemmas → unresolved, still returns a row."""
+    conn = _make_cascade_db()
+    apt_response = {
+        "topic": "grief",
+        "metaphors": [
+            {
+                "vehicle": "notaword99xyz",
+                "shared_features": [{"dimension": "emotional", "concept": "loss"}],
+                "confidence": 0.5,
+            }
+        ],
+    }
+    scored = score_apt_vehicles(conn, apt_response, PRODUCTION_CASCADE_CONFIG)
+    assert len(scored) == 1
+    assert scored[0].cascade_status == "unresolved"
+    assert scored[0].final_score is None

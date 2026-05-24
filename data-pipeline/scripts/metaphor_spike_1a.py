@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import json
 import logging
@@ -30,6 +31,9 @@ import argparse
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
+
+from evaluate_cascade import evaluate_cascade_pair, CascadeConfig
+from evaluate_aptness import lookup_primary_synset
 
 log = logging.getLogger(__name__)
 
@@ -409,3 +413,92 @@ def check_concept_snap_rate(
         snap_rate=len(snapped) / n if n else 0.0,
         unsnapped=unsnapped,
     )
+
+
+# Production-blessed cascade config from M03 — gate=1.0, alpha=1.0, additive.
+# Documented in docs/memory/m03_cascade_winner_config.md.
+PRODUCTION_CASCADE_CONFIG = CascadeConfig(
+    concreteness_threshold=1.0,
+    ortony_scoring="jaccard_salience",
+    alpha=1.0,
+    composition="additive",
+)
+
+
+@dataclass
+class ScoredVehicle:
+    """Cascade score result for one (topic, vehicle) pair from an apt response."""
+    topic: str
+    vehicle: str
+    synset_topic: Optional[str]
+    synset_vehicle: Optional[str]
+    cascade_status: str   # CascadeStatus literal
+    final_score: Optional[float]
+    gate_passed: bool
+
+
+def write_jsonl_line(path: Path, obj: dict) -> None:
+    """Append one JSON object as a newline to path.
+
+    Creates parent directories if absent.
+    Thread-safety: this runner is single-threaded; no locking needed.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+
+def score_apt_vehicles(
+    conn: sqlite3.Connection,
+    apt_response: dict,
+    config: CascadeConfig,
+) -> list[ScoredVehicle]:
+    """Score each vehicle in an apt response through the cascade.
+
+    Returns one ScoredVehicle per metaphor entry in the response.
+    Vehicles that cannot be resolved to a synset_id receive status
+    "unresolved" — they are returned (not dropped) so the caller can
+    track attrition.
+    """
+    topic_word = apt_response.get("topic", "")
+    metaphors = apt_response.get("metaphors", [])
+
+    sid_topic = lookup_primary_synset(conn, topic_word)
+    results: list[ScoredVehicle] = []
+
+    for m in metaphors:
+        if not isinstance(m, dict):
+            continue
+        vehicle_word = m.get("vehicle", "")
+        if not isinstance(vehicle_word, str):
+            vehicle_word = ""
+        sid_vehicle = lookup_primary_synset(conn, vehicle_word)
+
+        if sid_topic is None or sid_vehicle is None:
+            results.append(
+                ScoredVehicle(
+                    topic=topic_word,
+                    vehicle=vehicle_word,
+                    synset_topic=sid_topic,
+                    synset_vehicle=sid_vehicle,
+                    cascade_status="unresolved",
+                    final_score=None,
+                    gate_passed=False,
+                )
+            )
+            continue
+
+        cr = evaluate_cascade_pair(conn, sid_topic, sid_vehicle, config)
+        results.append(
+            ScoredVehicle(
+                topic=topic_word,
+                vehicle=vehicle_word,
+                synset_topic=sid_topic,
+                synset_vehicle=sid_vehicle,
+                cascade_status=cr.status,
+                final_score=cr.final_score,
+                gate_passed=cr.gate_passed,
+            )
+        )
+
+    return results
