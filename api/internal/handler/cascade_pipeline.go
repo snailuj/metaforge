@@ -259,6 +259,11 @@ func (p *cascadePipeline) score() (phaseOutcome, int, error) {
 	stopScore := observe.Start("cascade_scoring_loop")
 	var droppedNonScored int
 	p.matches = make([]forge.Match, 0, len(p.candidates))
+	// M05 S03: ClusterTypes (cluster_id → dominant_type) threads into
+	// CascadeInputs so EvaluateCascadePair computes the type-diversity
+	// bonus over shared clusters. Gamma=0 by default → M03/M04 scoring
+	// math is unchanged until the γ-sweep verdict picks a non-zero
+	// weight.
 	for _, c := range p.candidates {
 		// Concreteness from the in-memory cache — preserves the
 		// *float64 absence-signal contract EvaluateCascadePair expects.
@@ -290,6 +295,7 @@ func (p *cascadePipeline) score() (phaseOutcome, int, error) {
 			VehicleProperties:   propsByID[c.SynsetID],
 			TopicCentroid:       topicCent,
 			VehicleCentroid:     vehCent,
+			ClusterTypes:        p.cache.ClusterTypes,
 		}, p.cfg)
 
 		// SQL CTE already filtered gate_dropped + missing_concreteness,
@@ -311,25 +317,39 @@ func (p *cascadePipeline) score() (phaseOutcome, int, error) {
 			tier = forge.ClassifyTierCurated(c.SalienceSum, c.ContrastCount)
 			tierName = tier.String()
 		}
+		// M05 diagnostics — both fields ride together. When M05 ran
+		// (TypeDiversityBonus pointer non-nil) we allocate a *int for
+		// SharedTypesCount so a 0 distinct-types count still serialises
+		// to the wire. When M05 was dormant (Gamma=0 or ClusterTypes
+		// absent), TypeDiversityBonus is nil → leave SharedTypesCount
+		// nil too so both fields omit and the legacy wire shape is
+		// preserved.
+		var sharedTypesPtr *int
+		if res.TypeDiversityBonus != nil {
+			stc := res.SharedTypesCount
+			sharedTypesPtr = &stc
+		}
 		p.matches = append(p.matches, forge.Match{
-			SynsetID:         c.SynsetID,
-			Word:             c.Word,
-			Definition:       c.Definition,
-			SharedProperties: c.SharedProps,
-			OverlapCount:     int(c.SalienceSum),
-			SalienceSum:      c.SalienceSum,
-			Tier:             tier,
-			TierName:         tierName,
-			SourceSynsetID:   c.SourceSynsetID,
-			SourceDefinition: c.SourceDefinition,
-			SourcePOS:        c.SourcePOS,
-			FinalScore:       res.FinalScore,
-			CascadeStatus:    res.Status,
-			GatePassed:       res.GatePassed,
-			OrtonyScore:      res.OrtonyScore,
-			CosineDistance:   res.CosineDistance,
-			ReRankBonus:      res.ReRankBonus,
-			Source:           c.Source,
+			SynsetID:           c.SynsetID,
+			Word:               c.Word,
+			Definition:         c.Definition,
+			SharedProperties:   c.SharedProps,
+			OverlapCount:       int(c.SalienceSum),
+			SalienceSum:        c.SalienceSum,
+			Tier:               tier,
+			TierName:           tierName,
+			SourceSynsetID:     c.SourceSynsetID,
+			SourceDefinition:   c.SourceDefinition,
+			SourcePOS:          c.SourcePOS,
+			FinalScore:         res.FinalScore,
+			CascadeStatus:      res.Status,
+			GatePassed:         res.GatePassed,
+			OrtonyScore:        res.OrtonyScore,
+			CosineDistance:     res.CosineDistance,
+			ReRankBonus:        res.ReRankBonus,
+			TypeDiversityBonus: res.TypeDiversityBonus,
+			SharedTypesCount:   sharedTypesPtr,
+			Source:             c.Source,
 		})
 	}
 	stopScore("word", p.word, "scored", len(p.matches), "dropped_non_scored", droppedNonScored)

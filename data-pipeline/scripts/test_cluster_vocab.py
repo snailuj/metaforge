@@ -1,4 +1,5 @@
 """Tests for cluster_vocab.py — synonym vocabulary clustering."""
+import logging
 import sqlite3
 import struct
 import sys
@@ -193,6 +194,72 @@ def test_no_embeddings_all_singletons(tmp_path):
     assert rows[1][2] == 1
 
     assert stats["singletons"] == 2
+
+
+def test_cluster_vocab_create_includes_dominant_type(tmp_path):
+    """cluster_vocab must create vocab_clusters with the dominant_type column.
+
+    Regression guard: snap_properties.py writes vocab_clusters.dominant_type
+    after a snap-with-types run, and the Go cascade_cache warms up from it.
+    If cluster_vocab is re-run after a snap run (legal but uncommon ordering),
+    the CREATE TABLE must still include the column — otherwise the column is
+    silently dropped and the deployed warm-up logs a Warn.
+    """
+    from cluster_vocab import cluster_vocab
+
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    _make_cluster_db(conn)
+
+    # Minimal data so cluster_vocab runs to completion
+    conn.execute("INSERT INTO property_vocab_curated VALUES (1, 's1', 'solo', 'a', 1)")
+    conn.execute("INSERT INTO lemma_embeddings VALUES ('solo', ?)", (_make_embedding(1.0),))
+    conn.commit()
+
+    cluster_vocab(conn, threshold=0.8)
+
+    schema_sql = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name='vocab_clusters'"
+    ).fetchone()[0]
+    conn.close()
+
+    assert "dominant_type" in schema_sql, (
+        f"vocab_clusters schema missing dominant_type column:\n{schema_sql}"
+    )
+
+
+def test_cluster_vocab_warns_about_dominant_type_wipe(tmp_path, caplog):
+    """cluster_vocab must emit a logging.warning after rebuild so the operator
+    knows vocab_clusters.dominant_type was cleared and that snap_properties.py
+    needs to be re-run before restarting the API.
+
+    Without this warning, an operator re-running cluster_vocab without re-snap
+    silently disables the M05 type-diversity bonus (dominant_type all-NULL).
+    """
+    from cluster_vocab import cluster_vocab
+
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    _make_cluster_db(conn)
+
+    conn.execute("INSERT INTO property_vocab_curated VALUES (1, 's1', 'lonely', 'a', 1)")
+    conn.execute("INSERT INTO lemma_embeddings VALUES ('lonely', ?)", (_make_embedding(1.0),))
+    conn.commit()
+
+    with caplog.at_level(logging.WARNING, logger="cluster_vocab"):
+        cluster_vocab(conn, threshold=0.8)
+    conn.close()
+
+    warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warning_records, "Expected at least one WARNING-level log record from cluster_vocab"
+
+    combined = "\n".join(r.getMessage() for r in warning_records)
+    assert "dominant_type" in combined, (
+        f"Warning message must mention dominant_type. Got:\n{combined}"
+    )
+    assert "snap_properties" in combined, (
+        f"Warning message must mention snap_properties (to nudge operator). Got:\n{combined}"
+    )
 
 
 def test_threshold_boundary(tmp_path):

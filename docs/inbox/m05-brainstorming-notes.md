@@ -2,6 +2,8 @@
 
 *Captured 2026-05-23 while the M04 v2 Lakoff sweep runs. Not yet a design — these are the inputs and open questions for the operator brainstorming session.*
 
+> **Update 2026-05-24 — γ ratified at 1.0.** The γ-sweep notes below were written before the Phase 2 instrumentation landed. The authoritative verdict is now `data-pipeline/sweeps/m05_lakoff_gamma_verdict.md`, produced with `m05_cohort_diagnose.py` pre-flight diagnostics + `limit=10000` removing the ranking-cutoff confound. Headline: monotone separation lift from -0.25 at γ=0 to +0.27 at γ=2; γ=1.0 ratified (parity choice). The n=1 inapt caveat below remains valid for magnitude; the directional trend is now robust across 5 γ values. `aptness_rate=0` is also unchanged — γ moves ranks, not absolute scores.
+
 ## PIPELINE.md summary (one line)
 > M05 — Type-Aligned Structural Matching *(renumbered from M04 on 2026-05-21)* — preserve property types during snap, type-diversity bonus in scoring. Lightweight approximation of SME isomorphic subgraph matching using data the pipeline already extracts.
 
@@ -205,3 +207,83 @@ The audit reverses one of my early hypotheses. Type-diversity must be measured o
 | 5. Type-noise cleanup | **Fold into S01 (5-line CASE WHEN during snap)** | High (audit shows 0.04% noise) |
 
 The single most consequential operator decision is **whether the M05 hypothesis is right at all** — i.e. whether the discrimination between apt and inapt cross-domain metaphors actually lives in the "distinct types in shared overlap" dimension. The audit suggests it might, but only running the sweep will tell. I'd recommend a short prototype: implement S01+S02+S03 with the lean recommendations, run a γ sweep against Lakoff, and only escalate if the verdict shows no separation lift.
+
+---
+
+## Progress
+
+### S01 — snap preserves property type per cluster (landed 2026-05-23)
+
+Schema + snap change only; no behaviour shift in cascade scorer yet.
+
+- Added `dominant_type TEXT` column to `vocab_clusters` (SCHEMA.sql + `cluster_vocab.py` CREATE TABLE block). NULL until a snap run with type-tracking populates it; backward compatible with pre-M05 DBs.
+- `snap_properties.py` now threads `synset_properties.property_type` through Pass 1 (exact + morphological) and Pass 2 (embedding), accumulating per-cluster type counts via `collections.Counter`.
+- Added `_canonical_type()` helper that folds variant spellings (`behavior`, `behavioural`, `behavoural`, `behavour` → `behaviour`; `physical` → `sensorimotor`) into the 6 LLM-prompt-declared canonical types plus a catch-all `other` bucket for low-frequency residue (~0.04% of rows per the M04 v2 audit).
+- After Pass 2 completes, snap writes the per-cluster mode (with deterministic tie-break by canonical-type ordering — sensorimotor wins first, other wins last) into `vocab_clusters.dominant_type` via a single `executemany` UPDATE. Missing-table case is handled with the same narrow `OperationalError` guard used for the existing vocab_clusters SELECT.
+- Tests: `test_snap_populates_dominant_type_per_cluster` covers the happy path (2 sensorimotor + 1 behaviour → dominant=sensorimotor); `test_snap_normalises_variant_type_spellings` covers `_canonical_type` cases (variants, unknowns, NULL, empty). Existing snap tests updated to add `dominant_type TEXT` column + `NULL` value to inline fixtures. Full data-pipeline suite (664 tests) green.
+
+S02 will plumb dominant_type into the cascade DB reads alongside shared cluster_ids. S03 will use it in `EvaluateCascadePair` for the type-diversity bonus.
+
+---
+
+## S02 progress — 2026-05-23
+
+Landed on `m05/type-aligned`. `db.CascadeCache` gains a `ClusterTypes map[int64]string` field loaded via `loadClusterTypes` at startup. Pre-M05 DBs (with `dominant_type IS NULL` across all rows) trigger a `slog.Warn` at cache-load time: "vocab_clusters loaded but dominant_type is NULL for every row — pipeline needs snap_properties.py re-run for M05 type-aware scoring". Startup does NOT block on this — the cascade remains serviceable without type signal; M03/M04 scoring math is unchanged this slice.
+
+Wire-up only — `cascadePipeline.score()` doesn't read `p.cache.ClusterTypes` yet. That's S03.
+
+Tests: positive load test in `cascade_cache_test.go`, two synthetic-schema handler tests updated to include the new column. Full Go suite PASS.
+
+---
+
+## S03 progress — 2026-05-23
+
+Landed on `m05/type-aligned`. The cascade scorer now computes a type-diversity bonus over shared clusters when `Gamma > 0` AND `ClusterTypes` is provided.
+
+Key shapes:
+- `CascadeConfig.Gamma float64` — weight; default 0.0 (M03/M04 behaviour preserved).
+- `CascadeInputs.ClusterTypes map[int64]string` — optional; nil disables M05 even with Gamma>0.
+- `CascadeResult.TypeDiversityBonus *float64` + `SharedTypesCount int` — diagnostics, set only when bonus fires.
+- Helper `TypeDiversityBonus(shared, types) (bonus, distinct)` — `max(0, distinct-1) / (TypeDiversityMaxDistinct-1)` where `TypeDiversityMaxDistinct = 6`. `"other"` and `""` types are excluded from distinct count (not discriminating signal per the M04 v2 audit).
+
+Composition: additive `final = ortony + Alpha·cosBonus + Gamma·typeBonus`. Decision 3/A.
+
+Pipeline plumbing: `cascadePipeline.score()` now passes `p.cache.ClusterTypes` into `CascadeInputs`. No change to the JSON wire shape since `TypeDiversityBonus` and `SharedTypesCount` are not (yet) plumbed onto `forge.Match`. Adding them is straightforward when the UI lands — current omission keeps the wire contract identical for legacy/cascade consumers.
+
+Tests added: TypeDiversityBonus 5-case unit coverage (empty/single/two-types/all-six/other-excluded), EvaluateCascadePair 3-case (Gamma=0 short-circuit / Gamma=1 lift / nil-ClusterTypes-with-Gamma>0 no-op), Validate gamma guards (negative/NaN/Inf).
+
+Outstanding for S04:
+- Live DB has `dominant_type = NULL` — must re-run snap before the γ-sweep can produce signal. ~5-30min on the test DB. Will run as part of S04 setup.
+
+## S04 progress — 2026-05-23 (γ-sweep complete)
+
+Lakoff cohort: 80 apt cross-domain pairs, 90 inapt within-domain pairs.
+
+| γ | d_min | d_max | separation | apt_rate |
+|---|------:|------:|-----------:|---------:|
+| 0.00 | 0.4 | 0.85 | **-0.2695** (baseline, type bonus off) | 0.0 |
+| 0.25 | 0.4 | 0.85 | -0.2046 | 0.0 |
+| 0.50 | 0.4 | 0.85 | -0.1154 | 0.0 |
+| 1.00 | 0.4 | 0.85 | **+0.0384** (first positive separation) | 0.0 |
+| 2.00 | 0.4 | 0.85 | **+0.3193** (best cell) | 0.0 |
+| 1.00 | 0.5 | 0.75 | 0.0000 (M04 v2 best band) | 0.0 |
+
+**Monotone improvement in separation as γ rises.** Apt/inapt gap goes from -0.27 at γ=0 to +0.32 at γ=2. The trend is directionally consistent with M05's hypothesis (type-diversity carries cross-domain metaphor signal), but the underlying sample is thin — *the inapt distribution per cell collapsed to n=1 in the committed results* (most inapt vehicles failed to resolve via the API in this run; `apt_missing=64-67`, `inapt_missing=89-90` of 90). With n=1 on the inapt side, the separation metric is sensitive to which one inapt vehicle survived the API rather than to a real distributional difference. **The result is suggestive, not confirmatory.** Re-run with a broader resolving cohort (or relax the matcher so more inapt vehicles produce scores) before treating this as evidence sufficient to ratify a production γ value.
+
+Caveat: `aptness_rate=0` everywhere. Apt pairs do not yet clear the absolute aptness threshold (apt_score > inapt mean + σ). Bonus alone is insufficient to push apt pairs over the apt-classification line. Expected — Lakoff cohort is deliberately harder than the V2 baseline, and the bonus is correctly placed at the *ranking* level rather than the *absolute-score* level.
+
+Caveat #2: `embedding` and `both` columns are 0 across all cells. The M04 cosine-band path generates zero Lakoff cross-domain candidates — all hits in the sweep come from cluster overlap. The type bonus is therefore lifting cluster-overlap matches, not the cosine-band ones. M04 v2's β-bonus motivation (two-path agreement) gets no signal from this cohort either. Implication: future work should investigate why the cosine band does not surface Lakoff pairs even though it surfaces Forge candidates in the V2 baseline — likely the synset_centroids quality or the d_min floor.
+
+Caveat #3: The matcher / API resolution path drops most Lakoff vehicles (apt_missing 64-67 of 80; inapt_missing 89-90 of 90). Before the next γ-sweep, audit why so many cohort vehicles fail to score — likely concreteness-gate misses or no_properties short-circuits — and either fix the cohort (use vehicles that pass the gates) or fix the gates (if they're too strict for cross-domain mode).
+
+### Default Gamma — escalate to operator
+
+Three defensible choices:
+1. **γ=0.0 (status quo)** — M05 ships dormant. Operators flip via `METAFORGE_FORGE_GAMMA` env after ratifying this verdict. *Safest: no production default flip without operator sign-off.*
+2. **γ=1.0 (conservative)** — first cell with positive separation. Matches Alpha=1.0 convention. Mild separation lift, no absolute aptness gain.
+3. **γ=2.0 (aggressive)** — strongest separation, but type bonus weight exceeds Ortony weight (which sits in [0, 1]); risks over-rewarding type diversity at expense of property-overlap quality.
+
+**Default chosen (this branch): γ=0.0** — code lands dormant. Production deployment can flip via env. The choice between option 2 and option 3 is a brainstorming-grade design decision that should be operator-ratified before becoming a code default.
+
+Verdict file: `data-pipeline/sweeps/m05_lakoff_gamma_verdict.md`
+Results: `data-pipeline/output/m05_lakoff_gamma_results.json`

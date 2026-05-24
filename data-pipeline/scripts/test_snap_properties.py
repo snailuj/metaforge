@@ -53,7 +53,8 @@ def make_snap_db(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
@@ -63,9 +64,9 @@ def make_snap_db(tmp_path):
         INSERT INTO property_vocab_curated VALUES (3, 'vs3', 'luminous', 'a', 1);
 
         -- Clusters: warm(1) is singleton, cold(2) is singleton, luminous(3) is singleton
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
-        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
-        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1, NULL);
 
         -- Existing properties from enrichment (free-form)
         INSERT INTO property_vocabulary VALUES (10, 'warm', NULL, 0, 'pilot');
@@ -231,15 +232,16 @@ def test_snap_cluster_dedup(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
         -- "heavy" (id=1) and "weighty" (id=2) are in the same cluster (cluster_id=1)
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'heavy', 'a', 1);
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'weighty', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
-        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0, NULL);
 
         -- Synset 'abc' has both "heavy" and "weighty" as properties
         INSERT INTO property_vocabulary VALUES (10, 'heavy', NULL, 0, 'pilot');
@@ -304,12 +306,13 @@ def test_snap_morphological_participle(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
 
         -- Vocabulary has "flicker"
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'flicker', 'v', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
 
         -- Extracted property is "flickering" (VBG form)
         INSERT INTO property_vocabulary VALUES (10, 'flickering', NULL, 0, 'pilot');
@@ -375,14 +378,15 @@ def test_snap_embedding_match(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
 
         -- Vocabulary has "bright" with an embedding
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'bright', 'a', 1);
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'distant', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
-        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1, NULL);
     """)
 
     # "bright" vocab embedding
@@ -466,15 +470,16 @@ def test_snap_accumulates_salience_for_same_cluster(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
         -- "heavy" (id=1) and "weighty" (id=2) are in the same cluster (cluster_id=1)
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'heavy', 'a', 1);
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'weighty', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
-        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0, NULL);
 
         -- Synset 'abc' has "heavy" (salience 0.9) and "weighty" (salience 0.8)
         INSERT INTO property_vocabulary VALUES (10, 'heavy', NULL, 0, 'pilot');
@@ -542,13 +547,14 @@ def test_snap_salience_sum_default_for_single_match(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
         -- "warm" is a singleton cluster
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
 
         -- Synset 'abc' has "warm" with salience 0.85
         INSERT INTO property_vocabulary VALUES (10, 'warm', NULL, 0, 'pilot');
@@ -615,7 +621,8 @@ def test_snap_all_stages_integration(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
@@ -624,10 +631,10 @@ def test_snap_all_stages_integration(tmp_path):
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'flicker',  'v', 1);
         INSERT INTO property_vocab_curated VALUES (3, 'vs3', 'bright',   'a', 1);
         INSERT INTO property_vocab_curated VALUES (4, 'vs4', 'distant',  'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
-        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1);
-        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
-        INSERT INTO vocab_clusters VALUES (4, 4, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (4, 4, 1, 1, NULL);
     """)
 
     # Vocab embeddings (stage 3 needs these — only for bright/distant)
@@ -727,10 +734,11 @@ def test_snap_skips_jsonl_write_for_in_memory_db(tmp_path, caplog, monkeypatch):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
         -- 'unmatchable' -> drops at no_embedding stage.
         INSERT INTO property_vocabulary VALUES (10, 'unmatchable', NULL, 0, 'pilot');
         INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
@@ -862,7 +870,8 @@ def test_snap_vocab_by_lemma_lowest_vocab_id_wins_on_collision(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
@@ -871,8 +880,8 @@ def test_snap_vocab_by_lemma_lowest_vocab_id_wins_on_collision(tmp_path):
         -- vid=7 last. The fix is to ORDER BY vocab_id ASC so vid=3 wins.
         INSERT INTO property_vocab_curated VALUES (7, 'vs7', 'fast', 'v', 1);
         INSERT INTO property_vocab_curated VALUES (3, 'vs3', 'fast', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1);
-        INSERT INTO vocab_clusters VALUES (7, 7, 1, 1);
+        INSERT INTO vocab_clusters VALUES (3, 3, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (7, 7, 1, 1, NULL);
 
         INSERT INTO property_vocabulary VALUES (10, 'fast', NULL, 0, 'pilot');
         INSERT INTO synset_properties VALUES ('abc', 10, 1.0, NULL, NULL);
@@ -941,15 +950,16 @@ def test_snap_stats_count_per_link_not_per_unique_key(tmp_path):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
         -- 'flicker' (vid=1) and 'sparkle' (vid=2) share cluster_id=1.
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'flicker', 'v', 1);
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'sparkle', 'v', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
-        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0, NULL);
 
         -- 'sparkle' (exact) and 'flickering' (morph) both land on (abc, 1).
         INSERT INTO property_vocabulary VALUES (10, 'flickering', NULL, 0, 'pilot');
@@ -1022,7 +1032,8 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
 
@@ -1035,8 +1046,8 @@ def test_snap_accumulator_upgrades_method_when_higher_quality_match_arrives_late
         -- 'sparkle' (pid=11) hits the same accumulator key second.
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'flicker', 'v', 1);
         INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'sparkle', 'v', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0);
-        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 1, 0, 0, NULL);
 
         INSERT INTO property_vocabulary VALUES (10, 'flickering', NULL, 0, 'pilot');
         INSERT INTO property_vocabulary VALUES (11, 'sparkle',    NULL, 0, 'pilot');
@@ -1145,11 +1156,12 @@ def test_snap_clamps_best_score_to_unit_range(tmp_path, monkeypatch):
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
         );
 
         INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'bright', 'a', 1);
-        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
     """)
     same_emb = _make_embedding(1.0)
     conn.execute(
@@ -1355,7 +1367,7 @@ def test_snap_continues_when_dropped_jsonl_write_fails(tmp_path, caplog, monkeyp
     real_open = open
 
     def boom_open(path, mode="r", *a, **kw):
-        if str(path).endswith("snap_dropped.jsonl") and "w" in mode:
+        if str(path).endswith("snap_dropped.jsonl.tmp") and "w" in mode:
             raise PermissionError("simulated read-only filesystem")
         return real_open(path, mode, *a, **kw)
 
@@ -1493,7 +1505,7 @@ def test_snap_dropped_jsonl_handle_closed_on_mid_function_exception(tmp_path, mo
 
     def tracking_open(path, mode="r", *a, **kw):
         fh = real_open(path, mode, *a, **kw)
-        if str(path).endswith("snap_dropped.jsonl"):
+        if str(path).endswith("snap_dropped.jsonl.tmp"):
             opened_handles.append(fh)
         return fh
 
@@ -1667,7 +1679,7 @@ def test_snap_dropped_fh_close_failure_does_not_mask_original_exception(
 
     def wrapping_open(path, mode="r", *a, **kw):
         fh = real_open(path, mode, *a, **kw)
-        if str(path).endswith("snap_dropped.jsonl"):
+        if str(path).endswith("snap_dropped.jsonl.tmp"):
             return _CloseFailingFile(fh)
         return fh
 
@@ -1760,7 +1772,7 @@ def test_snap_dropped_fh_inner_close_failure_is_logged(tmp_path, caplog):
 
     def wrapping_open(path, mode="r", *a, **kw):
         fh = real_open(path, mode, *a, **kw)
-        if str(path).endswith("snap_dropped.jsonl"):
+        if str(path).endswith("snap_dropped.jsonl.tmp"):
             return _WriteAndCloseFailingFile(fh)
         return fh
 
@@ -1799,4 +1811,719 @@ def test_snap_dropped_fh_inner_close_failure_is_logged(tmp_path, caplog):
     ), (
         "expected WARNING about the close-during-recovery failure; "
         f"got: {warning_messages}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# M05 S01: dominant_type propagation from snap_properties.py into vocab_clusters
+# ---------------------------------------------------------------------------
+
+
+def test_snap_populates_dominant_type_per_cluster(tmp_path):
+    """M05 S01: after snap, vocab_clusters.dominant_type should be the mode
+    of the property_type values that snapped into each cluster."""
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "snap_types.db"
+    conn = sqlite3.connect(str(db_path))
+    # Minimal schema setup. dominant_type column mirrors SCHEMA.sql so the
+    # production UPDATE inside snap_properties can target it.
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY);
+        CREATE TABLE lemmas (synset_id TEXT, lemma TEXT);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT,
+            embedding BLOB,
+            is_oov INTEGER DEFAULT 0,
+            source TEXT,
+            idf REAL
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT,
+            property_id INTEGER,
+            salience REAL,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT,
+            lemma TEXT NOT NULL,
+            pos TEXT,
+            polysemy INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id INTEGER PRIMARY KEY,
+            cluster_id INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton INTEGER NOT NULL DEFAULT 0,
+            dominant_type TEXT
+        );
+    """)
+    # Populate: vocab_id=1 ("hot"), cluster_id=1; 3 properties snap into
+    # cluster 1: 2 sensorimotor + 1 behaviour → dominant=sensorimotor.
+    # The lemma "hot" appears once in property_vocab_curated but is referenced
+    # by three distinct property_vocabulary rows (all text='hot') so each
+    # synset_properties row triggers an exact snap into cluster 1.
+    conn.execute("INSERT INTO synsets VALUES ('s1')")
+    conn.execute("INSERT INTO synsets VALUES ('s2')")
+    conn.execute("INSERT INTO synsets VALUES ('s3')")
+    conn.execute("INSERT INTO property_vocab_curated VALUES (1, 's1', 'hot', 'a', 1)")
+    conn.execute("INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, NULL)")
+    # property_vocabulary.text is UNIQUE in the production schema, so use a
+    # single property row referenced by multiple synset_properties — this
+    # still drives 3 distinct snap events into cluster 1 with the per-row
+    # property_type stored on synset_properties.
+    conn.execute(
+        "INSERT INTO property_vocabulary (property_id, text, source) "
+        "VALUES (10, 'hot', 'test')"
+    )
+    conn.execute(
+        "INSERT INTO synset_properties VALUES "
+        "('s1', 10, 0.9, 'sensorimotor', NULL), "
+        "('s2', 10, 0.8, 'sensorimotor', NULL), "
+        "('s3', 10, 0.7, 'behaviour', NULL)"
+    )
+    conn.commit()
+
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+
+        result = conn.execute(
+            "SELECT dominant_type FROM vocab_clusters WHERE cluster_id=1"
+        ).fetchone()
+        assert result[0] == "sensorimotor", (
+            f"expected sensorimotor, got {result[0]!r}"
+        )
+    finally:
+        conn.close()
+
+
+def test_dropped_records_carry_property_type(tmp_path):
+    """Each line of snap_dropped.jsonl must carry the source property_type
+    so post-hoc drop analysis can correlate loss against the 7 canonical
+    M05 types. Without this, the drop stream is type-blind."""
+    import json as _json
+
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)
+    # The fixture's drop candidate is 'xyzqwerty' on synset 'abc'. Stamp a
+    # property_type on that row so the drop record can echo it back.
+    conn.execute(
+        "UPDATE synset_properties SET property_type='emotional' "
+        "WHERE property_id=13"
+    )
+    conn.commit()
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    jsonl_path = tmp_path / "snap_dropped.jsonl"
+    assert jsonl_path.exists()
+    with open(jsonl_path) as f:
+        records = [_json.loads(line) for line in f if line.strip()]
+
+    assert any(
+        r.get("property_type") == "emotional" for r in records
+    ), (
+        "expected at least one drop record with property_type='emotional'; "
+        f"got: {records}"
+    )
+
+
+def test_snap_dominant_type_is_idempotent_under_re_snap(tmp_path):
+    """A standalone re-snap (CLAUDE.md operation #3) must NULL stale
+    dominant_type values for clusters that have no matches in the current run.
+    Without this, dominant_type drifts: a cluster that had matches in run N
+    but none in run N+1 would retain the stale type from N."""
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "resnap.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT,
+            embedding BLOB,
+            is_oov INTEGER DEFAULT 0,
+            source TEXT
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT,
+            property_id INTEGER,
+            salience REAL,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT,
+            lemma TEXT NOT NULL,
+            pos TEXT,
+            polysemy INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id INTEGER PRIMARY KEY,
+            cluster_id INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton INTEGER NOT NULL DEFAULT 0,
+            dominant_type TEXT
+        );
+    """)
+    # Two clusters: A (cluster_id=1, lemma 'hot') will receive a snap match
+    # this run with type 'emotional'; B (cluster_id=2, lemma 'cold') will
+    # not. Pre-populate BOTH clusters' dominant_type with a stale value
+    # ('sensorimotor') simulating a previous run's output.
+    conn.execute("INSERT INTO synsets VALUES ('s1')")
+    conn.execute("INSERT INTO property_vocab_curated VALUES (1, 's1', 'hot', 'a', 1)")
+    conn.execute("INSERT INTO property_vocab_curated VALUES (2, 's2', 'cold', 'a', 1)")
+    conn.execute(
+        "INSERT INTO vocab_clusters VALUES (1, 1, 1, 0, 'sensorimotor')"
+    )
+    conn.execute(
+        "INSERT INTO vocab_clusters VALUES (2, 2, 1, 0, 'sensorimotor')"
+    )
+    conn.execute(
+        "INSERT INTO property_vocabulary (property_id, text, source) "
+        "VALUES (10, 'hot', 'test')"
+    )
+    conn.execute(
+        "INSERT INTO synset_properties VALUES "
+        "('s1', 10, 0.9, 'emotional', NULL)"
+    )
+    conn.commit()
+
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+
+        result_a = conn.execute(
+            "SELECT dominant_type FROM vocab_clusters WHERE cluster_id=1"
+        ).fetchone()
+        result_b = conn.execute(
+            "SELECT dominant_type FROM vocab_clusters WHERE cluster_id=2"
+        ).fetchone()
+        assert result_a[0] == "emotional", (
+            f"cluster A snapped 'emotional' this run, got {result_a[0]!r}"
+        )
+        assert result_b[0] is None, (
+            "cluster B had no matches this run — stale 'sensorimotor' must be "
+            f"cleared to NULL, got {result_b[0]!r}"
+        )
+    finally:
+        conn.close()
+
+
+def test_snap_normalises_variant_type_spellings():
+    """M05 S01: variant spellings (behavior, behavioural, behavour) should all
+    canonicalise to 'behaviour' for dominant_type computation."""
+    from snap_properties import _canonical_type
+    assert _canonical_type("behavior") == "behaviour"
+    assert _canonical_type("behavioural") == "behaviour"
+    assert _canonical_type("behavioral") == "behaviour"
+    assert _canonical_type("behavour") == "behaviour"
+    assert _canonical_type("physical") == "sensorimotor"
+    assert _canonical_type("temporal") == "other"
+    assert _canonical_type(None) == "other"
+    assert _canonical_type("") == "other"
+    assert _canonical_type("sensorimotor") == "sensorimotor"
+
+
+def test_canonical_types_match_go_constant():
+    """Python CANONICAL_TYPES count must equal Go TypeDiversityMaxDistinct.
+
+    These constants are coupled across languages: the Go scorer's
+    bonus denominator is (TypeDiversityMaxDistinct - 1). Drift between
+    them silently rescales the M05 type-diversity bonus.
+    """
+    import re
+    from snap_properties import CANONICAL_TYPES
+    repo_root = Path(__file__).resolve().parents[2]
+    cascade_go = (repo_root / "api/internal/forge/cascade.go").read_text()
+    m = re.search(r"TypeDiversityMaxDistinct\s*=\s*(\d+)", cascade_go)
+    assert m, "Could not find TypeDiversityMaxDistinct in cascade.go"
+    go_max_distinct = int(m.group(1))
+    assert go_max_distinct == len(CANONICAL_TYPES), (
+        f"Go TypeDiversityMaxDistinct={go_max_distinct} but "
+        f"Python CANONICAL_TYPES has {len(CANONICAL_TYPES)} entries: "
+        f"{sorted(CANONICAL_TYPES)}"
+    )
+
+
+def _apply_schema_vocab_clusters(conn):
+    """Apply the vocab_clusters DDL from SCHEMA.sql to the given connection.
+
+    SCHEMA.sql is the canonical source for the CHECK constraint on
+    vocab_clusters.dominant_type. The runtime path is exercised by
+    cluster_vocab.cluster_vocab(), which mirrors the same CHECK.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    schema_sql = (repo_root / "data-pipeline/SCHEMA.sql").read_text()
+    # Extract just the vocab_clusters CREATE TABLE statement (terminated by ';').
+    import re
+    m = re.search(
+        r"CREATE TABLE IF NOT EXISTS vocab_clusters\s*\([^;]+\);",
+        schema_sql,
+        flags=re.DOTALL,
+    )
+    assert m, "Could not locate vocab_clusters DDL in SCHEMA.sql"
+    conn.executescript(m.group(0))
+
+
+def test_dominant_type_check_rejects_bad_value():
+    """vocab_clusters.dominant_type must reject non-canonical values.
+
+    Closes the rename-drift gap: previously the column was bare TEXT,
+    so a typo or US-spelling regression ('behavior' vs 'behaviour')
+    could persist silently and break the M05 type-diversity bonus.
+    """
+    conn = sqlite3.connect(":memory:")
+    try:
+        _apply_schema_vocab_clusters(conn)
+
+        # Bogus value is rejected
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO vocab_clusters "
+                "(vocab_id, cluster_id, is_representative, is_singleton, dominant_type) "
+                "VALUES (1, 1, 1, 1, 'bogus')"
+            )
+
+        # US spelling 'behavior' is rejected — canonical form is 'behaviour'
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO vocab_clusters "
+                "(vocab_id, cluster_id, is_representative, is_singleton, dominant_type) "
+                "VALUES (2, 2, 1, 1, 'behavior')"
+            )
+
+        # Canonical values and NULL are accepted
+        conn.execute(
+            "INSERT INTO vocab_clusters "
+            "(vocab_id, cluster_id, is_representative, is_singleton, dominant_type) "
+            "VALUES (3, 3, 1, 1, 'sensorimotor')"
+        )
+        conn.execute(
+            "INSERT INTO vocab_clusters "
+            "(vocab_id, cluster_id, is_representative, is_singleton, dominant_type) "
+            "VALUES (4, 4, 1, 1, NULL)"
+        )
+        conn.execute(
+            "INSERT INTO vocab_clusters "
+            "(vocab_id, cluster_id, is_representative, is_singleton, dominant_type) "
+            "VALUES (5, 5, 1, 1, 'other')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_schema_check_matches_canonical_set():
+    """SCHEMA.sql's CHECK clause must match CANONICAL_TYPES | {'other'}.
+
+    Catches rename drift: if CANONICAL_TYPES changes ('behaviour' →
+    'behavior') without updating SCHEMA.sql's CHECK, this test fails.
+    The 'other' bucket is emitted by _canonical_type for unknown
+    inputs, so it must be in the CHECK set even though it is not in
+    CANONICAL_TYPES.
+    """
+    import re
+    from snap_properties import CANONICAL_TYPES
+
+    repo_root = Path(__file__).resolve().parents[2]
+    schema_sql = (repo_root / "data-pipeline/SCHEMA.sql").read_text()
+    m = re.search(
+        r"dominant_type\s+TEXT\s+CHECK\s*\(\s*dominant_type\s+IS\s+NULL\s+OR\s+dominant_type\s+IN\s*\(([^)]+)\)\s*\)",
+        schema_sql,
+        flags=re.IGNORECASE,
+    )
+    assert m, (
+        "Could not find dominant_type CHECK clause in SCHEMA.sql — "
+        "expected `dominant_type TEXT CHECK (dominant_type IS NULL OR "
+        "dominant_type IN (...))`"
+    )
+    quoted = set(re.findall(r"'([^']+)'", m.group(1)))
+    expected = CANONICAL_TYPES | {"other"}
+    assert quoted == expected, (
+        f"SCHEMA.sql CHECK set {sorted(quoted)} != "
+        f"CANONICAL_TYPES | {{'other'}} = {sorted(expected)}"
+    )
+
+
+def test_cluster_vocab_check_matches_schema():
+    """cluster_vocab.py runtime DDL must mirror SCHEMA.sql's CHECK clause.
+
+    SCHEMA.sql and cluster_vocab.py independently declare the same
+    dominant_type CHECK constraint. If someone updates SCHEMA.sql and
+    CANONICAL_TYPES but forgets cluster_vocab.py, the runtime-rebuilt
+    vocab_clusters table will silently drift from the canonical schema.
+    This test pins them together.
+    """
+    import re
+
+    repo_root = Path(__file__).resolve().parents[2]
+    schema_sql = (repo_root / "data-pipeline/SCHEMA.sql").read_text()
+    cluster_vocab = (repo_root / "data-pipeline/scripts/cluster_vocab.py").read_text()
+
+    def extract_check_set(text: str) -> set[str] | None:
+        m = re.search(
+            r"dominant_type\s+TEXT\s+CHECK\s*\(\s*dominant_type\s+IS\s+NULL\s+OR\s+dominant_type\s+IN\s*\(([^)]+)\)\s*\)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if not m:
+            return None
+        return set(re.findall(r"'([^']+)'", m.group(1)))
+
+    schema_set = extract_check_set(schema_sql)
+    runtime_set = extract_check_set(cluster_vocab)
+
+    assert schema_set is not None, "SCHEMA.sql missing dominant_type CHECK clause"
+    assert runtime_set is not None, "cluster_vocab.py missing dominant_type CHECK clause"
+    assert schema_set == runtime_set, (
+        f"CHECK clause drift between SCHEMA.sql and cluster_vocab.py:\n"
+        f"  SCHEMA.sql:       {sorted(schema_set)}\n"
+        f"  cluster_vocab.py: {sorted(runtime_set)}"
+    )
+
+
+def test_snap_dropped_jsonl_uses_atomic_rename_on_commit(tmp_path, monkeypatch):
+    """Drop records must be written to snap_dropped.jsonl.tmp during the run
+    and atomic-renamed to snap_dropped.jsonl ONLY after conn.commit() succeeds.
+
+    If commit raises (or anything between the drop emit and the commit raises),
+    the canonical filename must NOT exist — otherwise operators inspecting it
+    after a rollback would believe drops were authoritative when the DB
+    transaction was rolled back. The .tmp file should remain so the drops are
+    still inspectable.
+    """
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop
+
+    # Wrap conn so commit() raises after drops have streamed and indexes built.
+    class CommitFailingConn:
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def commit(self):
+            raise sqlite3.OperationalError("simulated commit failure")
+
+    proxy = CommitFailingConn(conn)
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="simulated commit failure"):
+            snap_properties(proxy, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    # Canonical file MUST NOT exist — rename only happens after commit.
+    assert not (tmp_path / "snap_dropped.jsonl").exists(), (
+        "snap_dropped.jsonl must not exist when commit fails — operators "
+        "would mistake rolled-back drops for authoritative ones"
+    )
+    # The .tmp file MUST exist with the drop records so they remain inspectable.
+    tmp_jsonl = tmp_path / "snap_dropped.jsonl.tmp"
+    assert tmp_jsonl.exists(), (
+        f"expected snap_dropped.jsonl.tmp to persist on commit failure so "
+        f"operators can inspect what would have been dropped; "
+        f"tmp_path contents: {list(tmp_path.iterdir())}"
+    )
+    # And it must contain the drop record(s) for xyzqwerty.
+    with open(tmp_jsonl) as f:
+        lines = [line for line in f if line.strip()]
+    assert lines, "expected at least one drop record in .tmp file"
+
+
+def test_snap_dropped_jsonl_renamed_on_success(tmp_path):
+    """On successful snap commit, snap_dropped.jsonl.tmp must be atomic-renamed
+    to snap_dropped.jsonl. The .tmp file must NOT remain behind."""
+    from snap_properties import snap_properties
+
+    db_path, conn = make_snap_db(tmp_path)  # 'xyzqwerty' triggers a drop
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    assert (tmp_path / "snap_dropped.jsonl").exists(), (
+        "expected canonical snap_dropped.jsonl after successful commit"
+    )
+    assert not (tmp_path / "snap_dropped.jsonl.tmp").exists(), (
+        "snap_dropped.jsonl.tmp must be renamed away on successful commit"
+    )
+
+
+def _make_zero_drop_db(tmp_path):
+    """Create a snap fixture where every property exact-matches the vocab.
+
+    Used to pin behaviour when THIS run records no drops — so any
+    snap_dropped.jsonl.tmp present on disk must be a leftover from a
+    prior crashed run, not data this run produced.
+    """
+    db_path = tmp_path / "zero_drop.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT NOT NULL,
+            lemma TEXT NOT NULL,
+            pos TEXT NOT NULL,
+            polysemy INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'pilot'
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            salience REAL NOT NULL DEFAULT 1.0,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id         INTEGER PRIMARY KEY,
+            cluster_id       INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT
+        );
+
+        INSERT INTO property_vocab_curated VALUES (1, 'vs1', 'warm', 'a', 1);
+        INSERT INTO property_vocab_curated VALUES (2, 'vs2', 'cold', 'a', 1);
+        INSERT INTO vocab_clusters VALUES (1, 1, 1, 1, NULL);
+        INSERT INTO vocab_clusters VALUES (2, 2, 1, 1, NULL);
+
+        -- Every property text is an exact-match for the vocab → zero drops.
+        INSERT INTO property_vocabulary VALUES (10, 'warm', NULL, 0, 'pilot');
+        INSERT INTO property_vocabulary VALUES (11, 'cold', NULL, 0, 'pilot');
+        INSERT INTO synset_properties VALUES ('s1', 10, 1.0, 'sensorimotor', NULL);
+        INSERT INTO synset_properties VALUES ('s1', 11, 1.0, 'sensorimotor', NULL);
+    """)
+    conn.commit()
+    return db_path, conn
+
+
+def test_snap_unlinks_orphan_tmp_at_start(tmp_path):
+    """Pre-existing snap_dropped.jsonl.tmp from a prior crashed run must be
+    unlinked at the start of snap_properties. When THIS run has zero drops,
+    neither the canonical nor the .tmp file should exist after the run —
+    the orphan is not this run's data and must not be promoted to canonical
+    by the atomic-rename branch.
+    """
+    from snap_properties import snap_properties
+
+    # Pre-create an orphan .tmp from an imaginary prior crashed run.
+    orphan = tmp_path / "snap_dropped.jsonl.tmp"
+    orphan.write_text('{"text": "orphan", "synset_id": "x", "reason": "crash"}\n')
+    assert orphan.exists()
+
+    db_path, conn = _make_zero_drop_db(tmp_path)
+    try:
+        stats = snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    # Sanity: this run actually had zero drops.
+    assert stats["dropped"] == 0, (
+        f"fixture invariant broken: expected zero drops, got {stats}"
+    )
+
+    # The orphan .tmp must have been unlinked at start.
+    assert not (tmp_path / "snap_dropped.jsonl.tmp").exists(), (
+        "expected orphan snap_dropped.jsonl.tmp to be unlinked at the start "
+        "of snap_properties — pre-existing .tmp is not this run's data"
+    )
+    # And because this run wrote no drops, the rename must NOT have fired.
+    assert not (tmp_path / "snap_dropped.jsonl").exists(), (
+        "snap_dropped.jsonl must not exist when this run produced zero drops "
+        "— the rename branch must be gated on a sentinel set only when THIS "
+        "run actually wrote to .tmp"
+    )
+
+
+def test_snap_does_not_promote_orphan_with_no_drops(tmp_path):
+    """A pre-existing orphan snap_dropped.jsonl.tmp must not be silently
+    promoted to canonical snap_dropped.jsonl when this run produces zero
+    drops. Verified by content — the canonical file (if it exists at all)
+    must not contain the orphan's text.
+    """
+    from snap_properties import snap_properties
+
+    orphan_payload = '{"text": "orphan", "synset_id": "x", "reason": "crash"}\n'
+    orphan = tmp_path / "snap_dropped.jsonl.tmp"
+    orphan.write_text(orphan_payload)
+
+    db_path, conn = _make_zero_drop_db(tmp_path)
+    try:
+        snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    canonical = tmp_path / "snap_dropped.jsonl"
+    if canonical.exists():
+        contents = canonical.read_text()
+        assert "orphan" not in contents, (
+            f"canonical snap_dropped.jsonl inherited orphan content from a "
+            f"prior crashed run's .tmp; got: {contents!r}"
+        )
+
+
+def test_canonical_type_buckets_distinguish_null_unknown_explicit_other(
+    tmp_path, caplog
+):
+    """_canonical_type silently collapses three pipeline-health states into
+    a single 'other' bucket on the JSONL drop stream:
+
+      1. NULL/empty property_type — enricher didn't classify (data gap)
+      2. Unknown variant string — canonicalisation table needs an entry (drift)
+      3. Explicit 'other' from the LLM — real property, doesn't fit categories
+
+    Snap must emit a per-bucket breakdown in the end-of-snap summary log so
+    operators can distinguish these three operationally distinct states
+    without having to recover information jq can no longer see (the JSONL
+    stores the canonicalised value, not the raw one).
+    """
+    import logging
+    import re
+
+    from snap_properties import snap_properties
+
+    db_path = tmp_path / "buckets.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE synsets (synset_id TEXT PRIMARY KEY);
+        CREATE TABLE property_vocabulary (
+            property_id INTEGER PRIMARY KEY,
+            text TEXT UNIQUE,
+            embedding BLOB,
+            is_oov INTEGER DEFAULT 0,
+            source TEXT
+        );
+        CREATE TABLE synset_properties (
+            synset_id TEXT,
+            property_id INTEGER,
+            salience REAL,
+            property_type TEXT,
+            relation TEXT,
+            PRIMARY KEY (synset_id, property_id)
+        );
+        CREATE TABLE property_vocab_curated (
+            vocab_id INTEGER PRIMARY KEY,
+            synset_id TEXT,
+            lemma TEXT NOT NULL,
+            pos TEXT,
+            polysemy INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE vocab_clusters (
+            vocab_id INTEGER PRIMARY KEY,
+            cluster_id INTEGER NOT NULL,
+            is_representative INTEGER NOT NULL DEFAULT 0,
+            is_singleton INTEGER NOT NULL DEFAULT 0,
+            dominant_type TEXT
+        );
+    """)
+    # Six distinct lemma + property pairs, each snapping via exact match into
+    # its own cluster. The property_type on each synset_properties row drives
+    # which bucket _canonical_type records.
+    rows = [
+        # (synset_id, vocab_id, lemma, property_id, property_text, property_type)
+        ("s1", 1, "alpha", 10, "alpha", None),                       # null
+        ("s2", 2, "beta", 11, "beta", ""),                           # null
+        ("s3", 3, "gamma", 12, "gamma", "sensorimotor"),             # canonical
+        ("s4", 4, "delta", 13, "delta", "behavior"),                 # normalised
+        ("s5", 5, "epsilon", 14, "epsilon", "qzqz_unknown_variant"), # unknown_variant
+        ("s6", 6, "zeta", 15, "zeta", "other"),                      # explicit_other
+    ]
+    for sid, vid, lemma, pid, ptext, ptype in rows:
+        conn.execute("INSERT INTO synsets VALUES (?)", (sid,))
+        conn.execute(
+            "INSERT INTO property_vocab_curated VALUES (?, ?, ?, 'a', 1)",
+            (vid, sid, lemma),
+        )
+        conn.execute(
+            "INSERT INTO vocab_clusters VALUES (?, ?, 1, 0, NULL)",
+            (vid, vid),
+        )
+        conn.execute(
+            "INSERT INTO property_vocabulary (property_id, text, source) "
+            "VALUES (?, ?, 'test')",
+            (pid, ptext),
+        )
+        conn.execute(
+            "INSERT INTO synset_properties VALUES (?, ?, 1.0, ?, NULL)",
+            (sid, pid, ptype),
+        )
+    conn.commit()
+
+    # Capture both INFO (routine breakdown) and WARNING (raised if unknown
+    # variants are seen — canonicalisation-table drift signal).
+    try:
+        with caplog.at_level(logging.INFO, logger="snap_properties"):
+            snap_properties(conn, embedding_threshold=0.7)
+    finally:
+        conn.close()
+
+    bucket_messages = [
+        r.message for r in caplog.records
+        if "canonical_type buckets" in r.message
+    ]
+    assert bucket_messages, (
+        "expected a 'canonical_type buckets' summary log line; "
+        f"got messages: {[r.message for r in caplog.records]}"
+    )
+
+    # Parse the dict-rendered counts from the summary line. The log emits
+    # something like "Snap canonical_type buckets: {'null': 2, 'canonical': 1, ...}"
+    counts: dict[str, int] = {}
+    for name in (
+        "null",
+        "canonical",
+        "normalised",
+        "explicit_other",
+        "unknown_variant",
+    ):
+        m = re.search(rf"'{name}':\s*(\d+)", bucket_messages[-1])
+        if m:
+            counts[name] = int(m.group(1))
+
+    assert counts.get("null") == 2, (
+        f"expected null bucket=2 (None + empty string), got {counts}"
+    )
+    assert counts.get("canonical") == 1, (
+        f"expected canonical bucket=1 (sensorimotor), got {counts}"
+    )
+    assert counts.get("normalised") == 1, (
+        f"expected normalised bucket=1 (behavior → behaviour), got {counts}"
+    )
+    assert counts.get("unknown_variant") == 1, (
+        f"expected unknown_variant bucket=1 (qzqz_unknown_variant), got {counts}"
+    )
+    assert counts.get("explicit_other") == 1, (
+        f"expected explicit_other bucket=1 ('other' from LLM), got {counts}"
+    )
+
+    # unknown_variant > 0 must escalate to WARNING — canonicalisation-table
+    # drift is the only bucket that demands operator action (add an entry to
+    # _TYPE_NORMALISATION). Other buckets are routine.
+    warning_messages = [
+        r.message for r in caplog.records
+        if r.levelno == logging.WARNING and "canonical_type" in r.message
+    ]
+    assert warning_messages, (
+        "unknown_variant > 0 must surface as a WARNING so operators see "
+        "canonicalisation-table drift; got only INFO logs"
     )

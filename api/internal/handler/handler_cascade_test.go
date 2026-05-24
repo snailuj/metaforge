@@ -82,6 +82,102 @@ func TestForgeSuggest_CascadeEnabled_PopulatesCascadeFields(t *testing.T) {
 	}
 }
 
+func TestForgeSuggest_CascadeEnabled_GammaPositive_SurfacesM05Diagnostics(t *testing.T) {
+	// M05 wire-boundary test: when Gamma>0 and the loaded CascadeCache
+	// has typed clusters, the scored-response Match rows must carry
+	// type_diversity_bonus + shared_types_count so operators tuning
+	// Gamma see the bonus and distinct-type count, not just the
+	// downstream lift on final_score.
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	// Activate M05 on the in-memory handler config. WithCascadeConfig
+	// runs the same Validate() path that startup uses, so Gamma=1.0 +
+	// additive composition is exercised exactly as production would.
+	cfg := h.cascadeConf
+	g, gerr := forge.NewGamma(1.0)
+	if gerr != nil {
+		t.Fatalf("forge.NewGamma(1.0): %v", gerr)
+	}
+	cfg.Gamma = g
+	if err := h.WithCascadeConfig(cfg); err != nil {
+		t.Fatalf("WithCascadeConfig Gamma=1.0: %v", err)
+	}
+
+	// Force-inject distinct canonical types onto existing clusters so the
+	// M05 type-diversity bonus surfaces regardless of whether
+	// snap_properties.py has been re-run on this test DB. We rotate
+	// through canonical types deterministically so distinct >= 2 for any
+	// pair with >= 2 shared clusters. Mutation is per-test (h.cache is
+	// instance-scoped) and isolates this wire-contract assertion from
+	// snap_properties.py state — the t.Skip branch that previously fired
+	// here silently greened the only handler-level assertion locking the
+	// cache → CascadeInputs.ClusterTypes → EvaluateCascadePair wire.
+	canonicals := []string{
+		"sensorimotor", "behaviour", "functional",
+		"effect", "emotional", "social",
+	}
+	i := 0
+	for cid := range h.cache.ClusterTypes {
+		h.cache.ClusterTypes[cid] = canonicals[i%len(canonicals)]
+		i++
+		if i >= 20 {
+			break // enough to guarantee shared distinct types in any candidate set
+		}
+	}
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=anger&limit=50", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d: %s", w.Code, w.Body.String())
+	}
+	var resp SuggestResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// At least one scored row must surface a positive bonus + ≥2
+	// distinct shared types. 'anger' is the same emotion-rich fixture
+	// used by the rest of the cascade suite, so its candidates routinely
+	// share multiple property types (emotional + behaviour + functional).
+	sawBonus := false
+	for _, m := range resp.Suggestions {
+		if m.CascadeStatus != "scored" {
+			continue
+		}
+		if m.TypeDiversityBonus != nil && *m.TypeDiversityBonus > 0 &&
+			m.SharedTypesCount != nil && *m.SharedTypesCount >= 2 {
+			sawBonus = true
+			break
+		}
+	}
+	if !sawBonus {
+		// Dump a compact diagnostic so a failure here points at the
+		// likely root cause (wire wiring vs underlying scorer).
+		summary := make([]string, 0, len(resp.Suggestions))
+		for i, m := range resp.Suggestions {
+			if i >= 5 {
+				break
+			}
+			tb := "nil"
+			if m.TypeDiversityBonus != nil {
+				tb = fmt.Sprintf("%v", *m.TypeDiversityBonus)
+			}
+			stc := "nil"
+			if m.SharedTypesCount != nil {
+				stc = fmt.Sprintf("%d", *m.SharedTypesCount)
+			}
+			summary = append(summary, fmt.Sprintf("{%s status=%s tb=%s stc=%s}",
+				m.Word, m.CascadeStatus, tb, stc))
+		}
+		t.Fatalf("expected at least one scored match with type_diversity_bonus>0 and shared_types_count>=2; first rows: %v", summary)
+	}
+}
+
 func TestForgeSuggest_CascadeEnabled_RankedByFinalScore(t *testing.T) {
 	h, err := NewHandlerWithCascade(testDBPath, true)
 	if err != nil {
@@ -179,7 +275,7 @@ func TestNewHandlerWithCascade_EmptyCascadeTables_FailsLoud(t *testing.T) {
 		`CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, lemma TEXT NOT NULL)`,
 		`CREATE TABLE frequencies (lemma TEXT, count INTEGER)`,
 		`CREATE TABLE cluster_antonyms (cluster_id_a INTEGER, cluster_id_b INTEGER)`,
-		`CREATE TABLE vocab_clusters (cluster_id INTEGER PRIMARY KEY, lemma TEXT)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER PRIMARY KEY, lemma TEXT, dominant_type TEXT)`,
 		`CREATE TABLE lemma_embeddings (lemma TEXT, embedding BLOB)`,
 		// Both cascade tables exist but are empty:
 		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
@@ -732,7 +828,7 @@ func TestNewHandlerWithCascade_EmptyCuratedProps_FailsLoud(t *testing.T) {
 		`CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, lemma TEXT NOT NULL)`,
 		`CREATE TABLE frequencies (lemma TEXT, count INTEGER)`,
 		`CREATE TABLE cluster_antonyms (cluster_id_a INTEGER, cluster_id_b INTEGER)`,
-		`CREATE TABLE vocab_clusters (cluster_id INTEGER PRIMARY KEY, lemma TEXT)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER PRIMARY KEY, lemma TEXT, dominant_type TEXT)`,
 		`CREATE TABLE lemma_embeddings (lemma TEXT, embedding BLOB)`,
 		// Cascade tables populated with one row each (need a row so the
 		// existing existence-AND-row check passes for them).

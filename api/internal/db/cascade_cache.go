@@ -23,6 +23,14 @@ import (
 type CascadeCache struct {
 	Concreteness map[string]float64
 	Centroids    map[string][]float32
+	// ClusterTypes maps cluster_id → canonical dominant type string
+	// (sensorimotor, behaviour, functional, effect, emotional, social,
+	// other) populated by snap_properties.py on the M05 schema. Empty
+	// string means dominant_type IS NULL for that cluster — either a
+	// pre-M05 DB or an empty cluster. The scorer treats "unknown type"
+	// identically across both cases. Lifecycle mirrors Concreteness /
+	// Centroids: loaded once at handler startup, read-only thereafter.
+	ClusterTypes map[int64]string
 }
 
 // LoadCascadeCache reads both static cascade tables into memory in one
@@ -36,6 +44,12 @@ func LoadCascadeCache(database *sql.DB) (*CascadeCache, error) {
 	cache := &CascadeCache{
 		Concreteness: make(map[string]float64, 80000),
 		Centroids:    make(map[string][]float32, 40000),
+		// Cluster count on the live DB sits in the same band as the
+		// centroid count (~35-50k vocab_clusters rows feeding the same
+		// cluster space). Size the map to match Centroids so the
+		// per-row writes in loadClusterTypes don't trigger repeated
+		// rehashes on snap-with-types runs.
+		ClusterTypes: make(map[int64]string, 40000),
 	}
 
 	stopConc := observe.Start("cascade_cache_load_concreteness")
@@ -54,10 +68,61 @@ func LoadCascadeCache(database *sql.DB) (*CascadeCache, error) {
 	}
 	stopCent("rows", len(cache.Centroids))
 
-	stopTotal("concreteness_rows", len(cache.Concreteness), "centroid_rows", len(cache.Centroids))
+	stopTypes := observe.Start("cascade_cache_load_cluster_types")
+	if err := loadClusterTypes(database, cache.ClusterTypes); err != nil {
+		stopTypes("rows", len(cache.ClusterTypes), "err", err.Error())
+		stopTotal("phase", "cluster_types", "err", err.Error())
+		return nil, err
+	}
+	stopTypes("rows", len(cache.ClusterTypes))
+
+	// Surface M05 pipeline readiness. Two counters with distinct semantics:
+	//   - typedClusters: dominant_type != "" — coverage of the snap pipeline.
+	//   - discriminatingClusters: dominant_type != "" AND != "other" — clusters
+	//     that actually contribute to forge.TypeDiversityBonus's distinct-count.
+	// Both matter: typedClusters tracks pipeline completeness (drives the
+	// "needs snap_properties.py re-run" Warn), discriminatingClusters tracks
+	// the scorer's effective input. A DB heavy in "other"-typed clusters
+	// would log typedClusters=N untyped_pct=0 yet produce zero bonus on
+	// every pair — keep the two signals aligned with the scorer at
+	// forge/cascade.go:TypeDiversityBonus.
+	typedClusters := 0
+	discriminatingClusters := 0
+	for _, t := range cache.ClusterTypes {
+		if t != "" {
+			typedClusters++
+			if t != "other" {
+				discriminatingClusters++
+			}
+		}
+	}
+	if len(cache.ClusterTypes) > 0 && typedClusters == 0 {
+		slog.Warn("cascade cache: vocab_clusters loaded but dominant_type is NULL for every row — pipeline needs snap_properties.py re-run for M05 type-aware scoring",
+			"cluster_rows", len(cache.ClusterTypes))
+	} else if len(cache.ClusterTypes) > 0 {
+		slog.Info("cascade cache: cluster types loaded",
+			"cluster_rows", len(cache.ClusterTypes),
+			"typed_clusters", typedClusters,
+			"discriminating_clusters", discriminatingClusters,
+			"untyped_pct", float64(len(cache.ClusterTypes)-typedClusters)/float64(len(cache.ClusterTypes))*100,
+			"non_discriminating_pct", float64(len(cache.ClusterTypes)-discriminatingClusters)/float64(len(cache.ClusterTypes))*100)
+		// Operator-actionable signal: typed but never discriminating means
+		// snap collapsed every cluster to "other". TypeDiversityBonus will
+		// silently return 0 for every pair scored against this cache.
+		if typedClusters > 0 && discriminatingClusters == 0 {
+			slog.Warn("cascade cache: every typed cluster has dominant_type=\"other\" — TypeDiversityBonus will yield 0 on every pair; inspect snap canonical_type buckets and the enrichment property_type distribution",
+				"cluster_rows", len(cache.ClusterTypes),
+				"typed_clusters", typedClusters)
+		}
+	}
+
+	stopTotal("concreteness_rows", len(cache.Concreteness),
+		"centroid_rows", len(cache.Centroids),
+		"cluster_type_rows", len(cache.ClusterTypes))
 	slog.Info("cascade cache loaded",
 		"concreteness_rows", len(cache.Concreteness),
 		"centroid_rows", len(cache.Centroids),
+		"cluster_type_rows", len(cache.ClusterTypes),
 	)
 	return cache, nil
 }
@@ -133,6 +198,102 @@ func loadCentroids(database *sql.DB, dst map[string][]float32) error {
 			"malformed_count", malformed,
 			"loaded_count", len(dst),
 		)
+	}
+	return nil
+}
+
+// loadClusterTypes populates dst with cluster_id → dominant_type for the
+// M05 type-diversity bonus (consumed by EvaluateCascadePair in S03).
+//
+// vocab_clusters has one row per vocab_id (PK is vocab_id); cluster_id
+// is non-unique (~5-7 vocab_ids per cluster on average), so the
+// (cluster_id, dominant_type) projection writes the same tuple once per
+// cluster member. Idempotent by construction — snap_properties.py
+// writes one dominant_type per cluster via an UPDATE, so every row for
+// the same cluster carries the same dominant_type. SELECT DISTINCT
+// would save a few map writes but obscures the contract; the simpler
+// form wins.
+//
+// dominant_type is nullable for pre-M05 DBs and for empty clusters.
+// Store the canonical zero value ("") in both cases so the scorer can
+// treat "unknown type" identically.
+func loadClusterTypes(database *sql.DB, dst map[int64]string) error {
+	rows, err := database.Query("SELECT cluster_id, dominant_type FROM vocab_clusters")
+	if err != nil {
+		return fmt.Errorf("load cluster types: %w", err)
+	}
+	defer rows.Close()
+
+	// Bounded divergence reporting: a pathological pipeline bug could
+	// emit divergence on every row (~35k+ on the live DB). Cap the
+	// per-row Warn at maxWarns and emit a single summary Error at the
+	// end so observability survives the flood without losing the signal.
+	const maxWarns = 10
+	divergences := 0
+	for rows.Next() {
+		var id int64
+		var dt sql.NullString
+		if err := rows.Scan(&id, &dt); err != nil {
+			// Same rationale as concreteness — first scan failure is
+			// structural, escalate.
+			return fmt.Errorf("scan cluster type row: %w", err)
+		}
+		// Defensive divergence check: snap_properties.py writes one
+		// dominant_type per cluster, so every row for the same cluster
+		// must carry the same canonical value (including "all NULL").
+		// Any disagreement is a pipeline contract violation that
+		// last-write-wins would silently absorb. Canonicalise the
+		// NullString to an incoming string and resolve the three
+		// divergence cases explicitly so the recovery policy is
+		// deterministic across SQL row order:
+		//   A) real → NULL: keep existing (prefer-non-empty).
+		//   B) NULL → real: overwrite "" with real value (prefer-non-empty).
+		//   C) non-empty disagreement: keep first-seen (first-write-wins).
+		// All three increment the divergence counter so the flood-limit
+		// summary covers them uniformly.
+		incoming := ""
+		if dt.Valid {
+			incoming = dt.String
+		}
+		if existing, ok := dst[id]; ok && existing != incoming {
+			divergences++
+			if divergences <= maxWarns {
+				slog.Warn("cascade cache: vocab_clusters.dominant_type divergence within cluster",
+					"cluster_id", id, "first_seen", existing, "new", incoming)
+			}
+			if incoming == "" {
+				// Case A: real → NULL. Keep existing.
+				continue
+			}
+			if existing != "" {
+				// Case C: non-empty disagreement. Keep first-seen so
+				// the cache is deterministic across SQL row order —
+				// cascade scoring must not flip between re-runs.
+				continue
+			}
+			// Case B: existing == "", incoming non-empty. Fall through
+			// to overwrite the empty sentinel with the real value.
+		}
+		dst[id] = incoming
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate cluster types: %w", err)
+	}
+	// Any non-zero divergence is a pipeline contract violation — snap
+	// writes one dominant_type per cluster, so disagreement within a
+	// cluster means data is wrong somewhere. Always emit a summary Error
+	// so operators alerting on Error level catch the signal regardless
+	// of whether the flood cap fired. Carry warns_emitted + suppressed
+	// only when the tail was actually suppressed; below the cap every
+	// divergence already has its own Warn line.
+	if divergences > maxWarns {
+		slog.Error("cascade cache: vocab_clusters.dominant_type divergence flood — pipeline contract broken",
+			"total_divergences", divergences,
+			"warns_emitted", maxWarns,
+			"suppressed", divergences-maxWarns)
+	} else if divergences > 0 {
+		slog.Error("cascade cache: vocab_clusters.dominant_type divergence — pipeline contract broken",
+			"total_divergences", divergences)
 	}
 	return nil
 }

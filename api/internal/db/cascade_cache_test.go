@@ -1,7 +1,9 @@
 package db
 
 import (
+	"bytes"
 	"database/sql"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -89,6 +91,9 @@ func TestLoadCascadeCache_MalformedAndZeroBlobCentroidsExcluded(t *testing.T) {
 		`INSERT INTO synset_centroids VALUES ('zero-blob-synset', X'', 0)`,
 		// One wrong-dimension BLOB row (4 bytes instead of 1200).
 		`INSERT INTO synset_centroids VALUES ('wrong-dim-synset', X'01020304', 1)`,
+		// vocab_clusters needs to exist for LoadCascadeCache (M05 S02).
+		// Empty table is fine — the loader handles zero rows gracefully.
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
 	}
 	for _, stmt := range setup {
 		if _, err := database.Exec(stmt); err != nil {
@@ -111,4 +116,510 @@ func TestLoadCascadeCache_MalformedAndZeroBlobCentroidsExcluded(t *testing.T) {
 func openMemoryDB(t *testing.T) (*sql.DB, error) {
 	t.Helper()
 	return sql.Open("sqlite3", ":memory:")
+}
+
+func TestLoadClusterTypes_PopulatesMapWithCanonicalTypesAndEmptyForNull(t *testing.T) {
+	// M05 S02: vocab_clusters.dominant_type is the per-cluster mode
+	// over property types (sensorimotor / behaviour / functional /
+	// effect / emotional / social / other) populated by snap. NULL
+	// values must come back as empty string so the scorer can treat
+	// "unknown type" uniformly.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		// Two rows for cluster 1 (mirrors live shape — vocab_clusters
+		// repeats cluster_id per vocab member; dominant_type repeats).
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (1, 101, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (2, 200, 'behaviour')`,
+		`INSERT INTO vocab_clusters VALUES (3, 300, NULL)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	dst := make(map[int64]string, 4)
+	if err := loadClusterTypes(database, dst); err != nil {
+		t.Fatalf("loadClusterTypes: %v", err)
+	}
+
+	if got := dst[1]; got != "sensorimotor" {
+		t.Errorf("cluster 1: want %q, got %q", "sensorimotor", got)
+	}
+	if got := dst[2]; got != "behaviour" {
+		t.Errorf("cluster 2: want %q, got %q", "behaviour", got)
+	}
+	// NULL row must come back as empty string sentinel.
+	got, ok := dst[3]
+	if !ok {
+		t.Error("cluster 3 (NULL) should be present with empty string value")
+	}
+	if got != "" {
+		t.Errorf("cluster 3: want empty string (NULL sentinel), got %q", got)
+	}
+}
+
+func TestLoadClusterTypes_LogsDivergenceWarning(t *testing.T) {
+	// Defensive tripwire: a pipeline bug that wrote diverging
+	// dominant_type values for two rows of the same cluster_id would
+	// otherwise be silently absorbed by last-write-wins on the map.
+	// loadClusterTypes must log a slog.Warn the first time it observes
+	// a non-empty existing value that differs from the incoming one.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		// Two rows for cluster 1 with diverging non-NULL dominant_type
+		// — a pipeline contract violation that the loader must surface.
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (1, 101, 'behaviour')`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "vocab_clusters.dominant_type divergence") {
+		t.Errorf("expected slog.Warn about dominant_type divergence; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `"level":"WARN"`) {
+		t.Errorf("expected WARN level; got:\n%s", logs)
+	}
+}
+
+func TestLoadClusterTypes_DivergenceFlood_RateLimited(t *testing.T) {
+	// Log-flood defence: a pathological pipeline bug could write
+	// divergent dominant_type on every row (~35k+ on live DBs). Emitting
+	// a full Warn per row would drown observability. The loader caps
+	// Warn at the first 10 divergences and follows up with a single
+	// slog.Error summarising the total count beyond the cap.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+	// 25 clusters each with a non-NULL→divergent-non-NULL pair → 25
+	// divergence events. Cap is 10, so we expect 10 WARN + 1 ERROR.
+	for i := 1; i <= 25; i++ {
+		if _, err := database.Exec(
+			`INSERT INTO vocab_clusters VALUES (?, ?, 'sensorimotor')`, i, i*10); err != nil {
+			t.Fatalf("seed sensorimotor row %d: %v", i, err)
+		}
+		if _, err := database.Exec(
+			`INSERT INTO vocab_clusters VALUES (?, ?, 'behaviour')`, i, i*10+1); err != nil {
+			t.Fatalf("seed behaviour row %d: %v", i, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	warnCount := strings.Count(logs, `"level":"WARN","msg":"cascade cache: vocab_clusters.dominant_type divergence`)
+	if warnCount > 10 {
+		t.Errorf("expected at most 10 divergence WARN messages, got %d:\n%s", warnCount, logs)
+	}
+	if warnCount < 10 {
+		t.Errorf("expected exactly 10 divergence WARN messages (cap), got %d:\n%s", warnCount, logs)
+	}
+	// Single summary ERROR for the tail beyond the cap (15 of 25).
+	errCount := strings.Count(logs, `"level":"ERROR","msg":"cascade cache: vocab_clusters.dominant_type divergence flood`)
+	if errCount != 1 {
+		t.Errorf("expected exactly 1 summary ERROR for flood tail, got %d:\n%s", errCount, logs)
+	}
+}
+
+func TestLoadClusterTypes_DivergenceUnderCap_StillEmitsSummaryError(t *testing.T) {
+	// R3.PR.SFH O2: when divergences > 0 but <= maxWarns (10), the loader
+	// was emitting per-row Warns with NO summary Error. Operators
+	// alerting on Error level would miss a non-flood contract violation
+	// entirely. Any non-zero divergence count must produce exactly one
+	// summary Error so log-level alerting catches the signal regardless
+	// of magnitude.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+	// 3 clusters, each with a divergent pair — under the cap of 10 so
+	// every divergence gets its own Warn AND the summary Error must
+	// still fire.
+	for i := 1; i <= 3; i++ {
+		if _, err := database.Exec(
+			`INSERT INTO vocab_clusters VALUES (?, ?, 'sensorimotor')`, i, i*10); err != nil {
+			t.Fatalf("seed sensorimotor row %d: %v", i, err)
+		}
+		if _, err := database.Exec(
+			`INSERT INTO vocab_clusters VALUES (?, ?, 'behaviour')`, i, i*10+1); err != nil {
+			t.Fatalf("seed behaviour row %d: %v", i, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	warnCount := strings.Count(logs, `"level":"WARN","msg":"cascade cache: vocab_clusters.dominant_type divergence`)
+	if warnCount != 3 {
+		t.Errorf("expected exactly 3 divergence WARN messages (one per divergence under cap), got %d:\n%s",
+			warnCount, logs)
+	}
+	// The critical assertion: any non-zero divergence count must emit a
+	// summary Error so operators alerting on Error level catch the
+	// contract violation regardless of whether the flood cap fired.
+	errCount := strings.Count(logs, `"level":"ERROR"`)
+	if errCount != 1 {
+		t.Errorf("expected exactly 1 summary ERROR for any non-zero divergence count, got %d:\n%s",
+			errCount, logs)
+	}
+	if !strings.Contains(logs, `"total_divergences":3`) {
+		t.Errorf("expected summary ERROR to carry total_divergences=3; got:\n%s", logs)
+	}
+}
+
+func TestLoadClusterTypes_NullThenNonNull_LogsDivergence(t *testing.T) {
+	// Case A divergence: first row dt=NULL writes "" into the map, then a
+	// later row carries a real dominant_type. The original guard
+	// ("existing != """) swallowed this as a benign upgrade; in reality
+	// it's still a pipeline contract violation (snap writes one
+	// dominant_type per cluster). Surface as Warn and accept the
+	// non-empty value as the recovered winner.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		// NULL first, then real value — order matters because the loader
+		// is row-order-sensitive.
+		`INSERT INTO vocab_clusters VALUES (1, 100, NULL)`,
+		`INSERT INTO vocab_clusters VALUES (1, 101, 'sensorimotor')`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	cache, err := LoadCascadeCache(database)
+	if err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "vocab_clusters.dominant_type divergence") {
+		t.Errorf("expected slog.Warn about NULL→non-NULL divergence; got:\n%s", logs)
+	}
+	// Prefer-non-empty recovery: the real value wins regardless of order.
+	if got := cache.ClusterTypes[1]; got != "sensorimotor" {
+		t.Errorf("cluster 1: want %q after NULL→non-NULL upgrade, got %q", "sensorimotor", got)
+	}
+}
+
+func TestLoadClusterTypes_NonNullThenNull_LogsDivergence_PreservesNonNull(t *testing.T) {
+	// Case B divergence (the worst silent failure): first row writes a
+	// real dominant_type, second row arrives as NULL and the original
+	// guard silently overwrote the real value with "". Surface as Warn
+	// AND preserve the non-empty value — losing real data to a stray
+	// NULL is the most expensive direction to fail.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (1, 101, NULL)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	cache, err := LoadCascadeCache(database)
+	if err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "vocab_clusters.dominant_type divergence") {
+		t.Errorf("expected slog.Warn about non-NULL→NULL divergence; got:\n%s", logs)
+	}
+	// Prefer-non-empty recovery: the original real value must survive
+	// the stray NULL — losing data here is the worst-case failure.
+	if got := cache.ClusterTypes[1]; got != "sensorimotor" {
+		t.Errorf("cluster 1: want %q preserved through NULL second row, got %q", "sensorimotor", got)
+	}
+}
+
+func TestLoadClusterTypes_NonEmptyDivergence_KeepsFirstSeen(t *testing.T) {
+	// Case C divergence (R3 reviewer-flagged determinism gap): two rows
+	// for the same cluster_id carry different non-empty dominant_type
+	// values (e.g. row 1 "sensorimotor", row 2 "behaviour"). The R2
+	// prefer-non-empty fix handled the NULL/real asymmetry but left this
+	// case at last-write-wins — cascade scoring then becomes dependent
+	// on SQL row order, which is non-deterministic across re-runs. Fix:
+	// keep the first-seen non-empty value and Warn on the disagreement,
+	// so the cache is deterministic regardless of row order.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		// Two rows for cluster 1 with two distinct non-empty values.
+		// Order matters: row 1 establishes the first-seen winner.
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (1, 101, 'behaviour')`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	cache, err := LoadCascadeCache(database)
+	if err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "vocab_clusters.dominant_type divergence") {
+		t.Errorf("expected slog.Warn about non-empty divergence; got:\n%s", logs)
+	}
+	// First-write-wins for non-empty disagreement: deterministic across
+	// re-runs regardless of which SQL row order the storage engine picks.
+	if got := cache.ClusterTypes[1]; got != "sensorimotor" {
+		t.Errorf("cluster 1: want %q (first-seen kept), got %q", "sensorimotor", got)
+	}
+}
+
+func TestLoadCascadeCache_AllNullDominantType_LogsWarn(t *testing.T) {
+	// M05 S02 readiness tripwire: if every vocab_clusters row has
+	// NULL dominant_type, the pipeline hasn't been re-run since the
+	// S01 snap change. Log a single slog.Warn at startup so the
+	// missing-state is visible — does NOT block startup (cascade
+	// remains serviceable; type-diversity bonus simply degrades).
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`INSERT INTO synset_concreteness VALUES ('s-1', 3.0, 'test')`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		`INSERT INTO vocab_clusters VALUES (1, 100, NULL)`,
+		`INSERT INTO vocab_clusters VALUES (2, 200, NULL)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, "vocab_clusters loaded but dominant_type is NULL") {
+		t.Errorf("expected slog.Warn about all-NULL dominant_type; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `"level":"WARN"`) {
+		t.Errorf("expected WARN level; got:\n%s", logs)
+	}
+}
+
+func TestLoadCascadeCache_AllOtherDominantType_LogsWarn(t *testing.T) {
+	// R4 type-design finding: typed_clusters at startup must align with
+	// the scorer's discriminating-types definition (TypeDiversityBonus
+	// excludes both "" AND "other"). A DB where every cluster's
+	// dominant_type is "other" would log typed_clusters=N untyped_pct=0
+	// and look healthy, yet TypeDiversityBonus would silently return 0
+	// on every pair. Surface this with an operator-actionable Warn.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`INSERT INTO synset_concreteness VALUES ('s-1', 3.0, 'test')`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'other')`,
+		`INSERT INTO vocab_clusters VALUES (2, 200, 'other')`,
+		`INSERT INTO vocab_clusters VALUES (3, 300, 'other')`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	if !strings.Contains(logs, `"discriminating_clusters":0`) {
+		t.Errorf("expected discriminating_clusters=0 in Info log; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `"typed_clusters":3`) {
+		t.Errorf("expected typed_clusters=3 in Info log; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, "every typed cluster has dominant_type=\\\"other\\\"") {
+		t.Errorf("expected Warn about all-\"other\" typed clusters; got:\n%s", logs)
+	}
+}
+
+func TestLoadCascadeCache_MixedDominantType_LogsDiscriminatingCount(t *testing.T) {
+	// R4 type-design pinning: discriminating_clusters counts clusters
+	// with dominant_type set AND not equal to "other". Mixed-input
+	// regression guard so future "other"-bucket changes don't drift the
+	// signal away from TypeDiversityBonus's exclusion rule.
+	database, err := openMemoryDB(t)
+	if err != nil {
+		t.Fatalf("openMemoryDB: %v", err)
+	}
+	defer database.Close()
+
+	setup := []string{
+		`CREATE TABLE synset_concreteness (synset_id TEXT PRIMARY KEY, score REAL, source TEXT)`,
+		`INSERT INTO synset_concreteness VALUES ('s-1', 3.0, 'test')`,
+		`CREATE TABLE synset_centroids (synset_id TEXT PRIMARY KEY, centroid BLOB, property_count INTEGER)`,
+		`CREATE TABLE vocab_clusters (cluster_id INTEGER, vocab_id INTEGER, dominant_type TEXT)`,
+		`INSERT INTO vocab_clusters VALUES (1, 100, 'sensorimotor')`,
+		`INSERT INTO vocab_clusters VALUES (2, 200, 'behaviour')`,
+		`INSERT INTO vocab_clusters VALUES (3, 300, 'other')`,
+		`INSERT INTO vocab_clusters VALUES (4, 400, NULL)`,
+	}
+	for _, stmt := range setup {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("setup stmt %q: %v", stmt, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer slog.SetDefault(prev)
+
+	if _, err := LoadCascadeCache(database); err != nil {
+		t.Fatalf("LoadCascadeCache: %v", err)
+	}
+
+	logs := buf.String()
+	// typed = sensorimotor + behaviour + other = 3
+	// discriminating = sensorimotor + behaviour = 2 (excludes "other" and NULL)
+	if !strings.Contains(logs, `"typed_clusters":3`) {
+		t.Errorf("expected typed_clusters=3; got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `"discriminating_clusters":2`) {
+		t.Errorf("expected discriminating_clusters=2; got:\n%s", logs)
+	}
+	// All-"other" Warn must NOT fire — we have discriminating clusters.
+	if strings.Contains(logs, "every typed cluster has dominant_type") {
+		t.Errorf("must not emit all-other Warn when discriminating clusters exist; got:\n%s", logs)
+	}
 }

@@ -81,6 +81,17 @@ type Match struct {
 	CosineDistance *float64      `json:"cosine_distance,omitempty"`
 	ReRankBonus    *float64      `json:"re_rank_bonus,omitempty"`
 
+	// M05 type-aligned scoring diagnostics. Populated only when the
+	// cascade ran with Gamma>0 AND cluster types were available. Both
+	// fields are pointer types so omitempty drops them cleanly when
+	// M05 was dormant — and crucially so that a 0-valued result (M05
+	// ran, found zero distinct types) still serialises as 0 instead of
+	// being silently dropped. Operators reading the wire need to
+	// distinguish "M05 didn't run" (both nil → both omitted) from
+	// "M05 ran, found nothing" (both ptrs set, both serialise as 0).
+	TypeDiversityBonus *float64 `json:"type_diversity_bonus,omitempty"`
+	SharedTypesCount   *int     `json:"shared_types_count,omitempty"`
+
 	// M04 generation diagnostic. Empty string ("") on the legacy path,
 	// since CandidateSource only gets set by the cascade handler.
 	Source CandidateSource `json:"candidate_source,omitempty"`

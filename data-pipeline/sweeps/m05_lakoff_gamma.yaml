@@ -1,0 +1,47 @@
+# M05 γ-sweep — varies the type-diversity bonus weight against the
+# Lakoff cohort. Tests M05's hypothesis that classical cross-domain
+# metaphors share clusters spanning multiple property types, while
+# inapt cross-domain pairs do not.
+#
+# Composition: union mode (so the cosine path generates candidates
+# the cluster path misses) + the existing M03 winner cascade
+# (concreteness gate=1.0, alpha=1.0, dcap=0.77, additive). Gamma
+# is the only varying axis. A non-zero gamma value that lifts
+# separation_score vs gamma=0 validates the M05 hypothesis.
+#
+# Prerequisite: snap_properties.py must have been re-run on the
+# target DB after M05 S01 landed — otherwise vocab_clusters.dominant_type
+# is NULL for every row and the type-diversity bonus contributes zero
+# regardless of gamma.
+
+name: m05_lakoff_gamma
+axis: gamma                     # selects axis-agnostic verdict framing (no SourcesUnion ratify wording)
+verdict_title: M05 Lakoff γ-Sweep
+db: data-pipeline/output/lexicon_v2.db
+api_port_base: 9300             # offset from M04 sweeps to avoid port collisions
+api_binary: api/metaforge       # rebuild with: go build -o api/metaforge ./api/cmd/metaforge
+pairs: data-pipeline/fixtures/lakoff_apt.jsonl
+controls: data-pipeline/fixtures/lakoff_inapt.jsonl
+# Phase 2 (2026-05-23): bumped from 100 → 10000 so ranking-cutoff drops
+# cannot masquerade as candidate-gen filtering. Every cohort vehicle
+# that makes it through gate + candidate-gen + scoring will surface in
+# the suggestion list regardless of where it ranks. Cost is moderate —
+# /forge/suggest pages the result set internally and the sweep
+# computes its own metrics from the response.
+limit: 10000
+
+# Baseline: M03 cluster-only (no embedding, gamma=0). Re-confirms the
+# Lakoff floor under the current snap state — separation = 0 expected.
+baseline:
+  candidate_sources: cluster_only
+
+variations:
+  # gamma=0 control: union mode with M05 OFF. Should match M04 v2 result.
+  - { name: gamma0.00_dmax0.85, candidate_sources: union, d_min: 0.4, d_max: 0.85, top_k: 200, gamma: 0.0 }
+  # gamma sweep at the M04 v1 default band:
+  - { name: gamma0.25_dmax0.85, candidate_sources: union, d_min: 0.4, d_max: 0.85, top_k: 200, gamma: 0.25 }
+  - { name: gamma0.50_dmax0.85, candidate_sources: union, d_min: 0.4, d_max: 0.85, top_k: 200, gamma: 0.5 }
+  - { name: gamma1.00_dmax0.85, candidate_sources: union, d_min: 0.4, d_max: 0.85, top_k: 200, gamma: 1.0 }
+  - { name: gamma2.00_dmax0.85, candidate_sources: union, d_min: 0.4, d_max: 0.85, top_k: 200, gamma: 2.0 }
+  # gamma=1 at the M04 v2 best cell band (dmin=0.5, dmax=0.75) for cross-validation:
+  - { name: gamma1.00_dmax0.75, candidate_sources: union, d_min: 0.5, d_max: 0.75, top_k: 200, gamma: 1.0 }

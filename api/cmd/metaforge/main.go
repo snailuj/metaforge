@@ -39,6 +39,34 @@ func main() {
 	embTopK := flag.Int("embedding-top-k",
 		envInt("METAFORGE_FORGE_EMB_TOPK", 100),
 		"Cap on embedding candidates per request")
+	// Gamma needs a stricter parse than envFloat's Warn-and-default
+	// behaviour: a malformed value silently falling back to 0.0 would
+	// disable M05 while the operator believes it is set — defeating the
+	// whole NewGamma boundary cast. Parse the env var explicitly and
+	// log.Fatalf on malformed input, then thread the validated value as
+	// the flag default.
+	//
+	// R3.PR.SFH O4: use LookupEnv to distinguish "set to empty"
+	// (METAFORGE_FORGE_GAMMA= in a shell — operator clearing a stale
+	// value) from "not set" (no env var at all). An explicit empty
+	// string is operationally indistinguishable from malformed input
+	// — both should fail loud rather than silently degrade to Gamma=0
+	// while the operator believes they have cleared the var.
+	//
+	// gammaDefault sources from forge.DefaultCascadeConfig() so the
+	// ratified production default (M05 Phase 2 sweep, 2026-05-24:
+	// Gamma=1.0) flows from a single source of truth. Hardcoding 0.0
+	// here would silently override the ratification.
+	gammaDefault := forge.DefaultCascadeConfig().Gamma.Value()
+	if envGamma, set := os.LookupEnv("METAFORGE_FORGE_GAMMA"); set {
+		v, err := strconv.ParseFloat(envGamma, 64)
+		if err != nil {
+			log.Fatalf("METAFORGE_FORGE_GAMMA is malformed (%q): %v", envGamma, err)
+		}
+		gammaDefault = v
+	}
+	gamma := flag.Float64("gamma", gammaDefault,
+		"M05 type-diversity bonus weight (additive into final_score). 0 disables M05.")
 	flag.Parse()
 
 	observe.Init(*cascadeTiming)
@@ -59,6 +87,11 @@ func main() {
 	cascadeCfg.EmbeddingDMin = *embDMin
 	cascadeCfg.EmbeddingDMax = *embDMax
 	cascadeCfg.EmbeddingTopK = *embTopK
+	g, err := forge.NewGamma(*gamma)
+	if err != nil {
+		log.Fatalf("invalid --gamma value: %v", err)
+	}
+	cascadeCfg.Gamma = g
 	if err := h.WithCascadeConfig(cascadeCfg); err != nil {
 		log.Fatalf("cascade config: %v", err)
 	}
@@ -82,7 +115,8 @@ func main() {
 		"addr", addr, "db", *dbPath, "strings", *stringsDir, "cors", *corsOrigin,
 		"cascade", *cascade, "cascade_timing", *cascadeTiming,
 		"candidate_sources", *candidateSources,
-		"emb_dmin", *embDMin, "emb_dmax", *embDMax, "emb_topk", *embTopK)
+		"emb_dmin", *embDMin, "emb_dmax", *embDMax, "emb_topk", *embTopK,
+		"forge_gamma", *gamma)
 
 	srv := &http.Server{
 		Addr:         addr,

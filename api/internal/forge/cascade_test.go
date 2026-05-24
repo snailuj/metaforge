@@ -6,6 +6,21 @@ import (
 	"testing"
 )
 
+// mustGamma is a test helper that constructs a GammaWeight via NewGamma
+// or fails the test on construction error. Use this in place of the
+// pre-struct-wrap `cfg.Gamma = 1.0` assignment idiom — the unexported
+// field on GammaWeight forbids direct literal assignment, forcing all
+// test-side construction through the same validated boundary as
+// production main.go.
+func mustGamma(t *testing.T, v float64) GammaWeight {
+	t.Helper()
+	g, err := NewGamma(v)
+	if err != nil {
+		t.Fatalf("mustGamma(%v): %v", v, err)
+	}
+	return g
+}
+
 func TestJaccardSalience_PerfectOverlap(t *testing.T) {
 	a := map[int64]float64{1: 1.0, 2: 1.0}
 	b := map[int64]float64{1: 1.0, 2: 1.0}
@@ -337,6 +352,13 @@ func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
 		{"negative dCap", func(c *CascadeConfig) { c.DCap = -1 }, "DCap"},
 		{"NaN concreteness threshold", func(c *CascadeConfig) { c.ConcretenessThreshold = math.NaN() }, "ConcretenessThreshold"},
 		{"topK above ceiling", func(c *CascadeConfig) { c.EmbeddingTopK = EmbeddingTopKCeiling + 1 }, "EmbeddingTopK"},
+		// Direct struct-literal construction is the ONLY way to forge an
+		// invalid GammaWeight now (same-package only). These three rows
+		// exercise the defence-in-depth Validate branch — the same branch
+		// that future deserialisation paths would rely on.
+		{"negative gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight{v: -0.1} }, "Gamma"},
+		{"NaN gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight{v: math.NaN()} }, "Gamma"},
+		{"Inf gamma", func(c *CascadeConfig) { c.Gamma = GammaWeight{v: math.Inf(1)} }, "Gamma"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -350,5 +372,346 @@ func TestCascadeConfig_ValidateRejectsBadFields(t *testing.T) {
 				t.Errorf("want error containing %q, got %v", tc.want, err)
 			}
 		})
+	}
+}
+
+func TestCascadeConfig_Validate_RejectsGammaWithMultiplicative(t *testing.T) {
+	// γ-sweep only validated additive composition. Gamma>0 combined with
+	// multiplicative yields an untested score shape — fail loud at startup.
+	cfg := DefaultCascadeConfig()
+	cfg.Composition = CompositionMultiplicative
+	cfg.Gamma = mustGamma(t, 0.5)
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("want error for Gamma>0 + CompositionMultiplicative, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "Gamma") {
+		t.Errorf("error must mention Gamma, got %v", msg)
+	}
+	if !strings.Contains(msg, "multiplicative") && !strings.Contains(msg, "Multiplicative") {
+		t.Errorf("error must mention multiplicative composition, got %v", msg)
+	}
+}
+
+func TestGammaWeight_ZeroValueIsValidAndZero(t *testing.T) {
+	// Independent of DefaultCascadeConfig: the zero-value GammaWeight{}
+	// must represent "M05 dormant" (v=0) and pass Validate. The struct-wrap
+	// change means the zero value is GammaWeight{} rather than GammaWeight(0);
+	// pin the contract so a future refactor (e.g. adding a "constructed via
+	// NewGamma" sentinel field) can't silently break the dormant default
+	// path that the env-unset branch in main.go relies on.
+	var g GammaWeight
+	if g.Value() != 0 {
+		t.Errorf("zero-value GammaWeight: want Value()==0, got %v", g.Value())
+	}
+	dormant := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Alpha:                 1.0,
+		DCap:                  0.77,
+		Composition:           CompositionAdditive,
+		Mode:                  ModeCluster,
+		EmbeddingDMin:         0.4,
+		EmbeddingDMax:         0.85,
+		EmbeddingTopK:         100,
+		// Gamma left as the zero value — M05 dormant path.
+	}
+	if dormant.Gamma.Value() != 0 {
+		t.Errorf("zero-value Gamma in CascadeConfig: want Value()==0, got %v",
+			dormant.Gamma.Value())
+	}
+	if err := dormant.Validate(); err != nil {
+		t.Errorf("CascadeConfig must validate with zero-value Gamma: %v", err)
+	}
+}
+
+func TestDefaultCascadeConfig_GammaRatifiedAtOne(t *testing.T) {
+	// M05 Phase 2 Lakoff γ-sweep (2026-05-24) ratified Gamma=1.0 as the
+	// production default. The sweep showed a monotone separation_score
+	// lift across γ ∈ {0, 0.25, 0.5, 1, 2} on the Lakoff cohort. γ=1
+	// brings apt cohort to parity with the inapt survivors (separation
+	// crosses zero from -0.25 → +0.01); γ=2 scores best but rides on
+	// n=1 inapt and overweights one dimension across general thesaurus
+	// traffic. See data-pipeline/sweeps/m05_lakoff_gamma_phase2_verdict.md.
+	cfg := DefaultCascadeConfig()
+	if cfg.Gamma.Value() != 1.0 {
+		t.Errorf("DefaultCascadeConfig.Gamma: want Value()==1.0 (M05 ratified), got %v",
+			cfg.Gamma.Value())
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("DefaultCascadeConfig must validate with ratified Gamma: %v", err)
+	}
+}
+
+func TestNewGamma_RejectsNegativeNaNInf(t *testing.T) {
+	// NewGamma is the operator-boundary cast for the γ env/flag value.
+	// A GammaWeight value is proof of validity at construction —
+	// negative, NaN, and ±Inf raw inputs must error rather than producing
+	// an invalid newtype that only Validate() would catch later.
+	cases := []struct {
+		name string
+		in   float64
+	}{
+		{"negative", -0.1},
+		{"NaN", math.NaN()},
+		{"PosInf", math.Inf(1)},
+		{"NegInf", math.Inf(-1)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("NewGamma(%v) panicked: %v", tc.in, r)
+				}
+			}()
+			_, err := NewGamma(tc.in)
+			if err == nil {
+				t.Fatalf("NewGamma(%v) want error, got nil", tc.in)
+			}
+		})
+	}
+}
+
+func TestNewGamma_AcceptsZeroAndPositive(t *testing.T) {
+	// Zero (M05 disabled) and any finite positive weight are valid.
+	cases := []float64{0, 0.5, 2.0, 1e9}
+	for _, v := range cases {
+		t.Run("", func(t *testing.T) {
+			g, err := NewGamma(v)
+			if err != nil {
+				t.Fatalf("NewGamma(%v) unexpected error: %v", v, err)
+			}
+			if g.Value() != v {
+				t.Errorf("NewGamma(%v) round-trip: got %v", v, g.Value())
+			}
+		})
+	}
+}
+
+func TestTypeDiversityBonus_EmptyInputsReturnZero(t *testing.T) {
+	b, n := TypeDiversityBonus(nil, nil)
+	if b != 0 || n != 0 {
+		t.Errorf("nil inputs: want (0,0), got (%v,%v)", b, n)
+	}
+	b, n = TypeDiversityBonus([]int64{1, 2}, nil)
+	if b != 0 || n != 0 {
+		t.Errorf("nil types map: want (0,0), got (%v,%v)", b, n)
+	}
+	b, n = TypeDiversityBonus(nil, map[int64]string{1: "sensorimotor"})
+	if b != 0 || n != 0 {
+		t.Errorf("nil shared: want (0,0), got (%v,%v)", b, n)
+	}
+}
+
+func TestTypeDiversityBonus_SingleTypeReturnsZero(t *testing.T) {
+	shared := []int64{1, 2, 3}
+	types := map[int64]string{1: "sensorimotor", 2: "sensorimotor", 3: "sensorimotor"}
+	b, n := TypeDiversityBonus(shared, types)
+	if b != 0 {
+		t.Errorf("single type bonus: want 0, got %v", b)
+	}
+	if n != 1 {
+		t.Errorf("distinct count: want 1, got %d", n)
+	}
+}
+
+func TestTypeDiversityBonus_TwoTypesNormalisedToFifth(t *testing.T) {
+	shared := []int64{1, 2}
+	types := map[int64]string{1: "sensorimotor", 2: "behaviour"}
+	b, n := TypeDiversityBonus(shared, types)
+	want := 1.0 / 5.0 // (2-1)/(6-1)
+	if math.Abs(b-want) > 1e-9 {
+		t.Errorf("two-type bonus: want %v, got %v", want, b)
+	}
+	if n != 2 {
+		t.Errorf("distinct count: want 2, got %d", n)
+	}
+}
+
+func TestTypeDiversityBonus_AllSixTypesGivesOne(t *testing.T) {
+	shared := []int64{1, 2, 3, 4, 5, 6}
+	types := map[int64]string{
+		1: "sensorimotor", 2: "behaviour", 3: "functional",
+		4: "effect", 5: "emotional", 6: "social",
+	}
+	b, n := TypeDiversityBonus(shared, types)
+	if math.Abs(b-1.0) > 1e-9 {
+		t.Errorf("six-type bonus: want 1.0, got %v", b)
+	}
+	if n != 6 {
+		t.Errorf("distinct count: want 6, got %d", n)
+	}
+}
+
+func TestTypeDiversityBonus_OtherAndEmptyExcluded(t *testing.T) {
+	// "other" and empty strings don't count as distinct types — they're
+	// the M04 v2 audit's normalisation residue, not a discriminating signal.
+	shared := []int64{1, 2, 3, 4}
+	types := map[int64]string{
+		1: "sensorimotor", 2: "other", 3: "", 4: "behaviour",
+	}
+	b, n := TypeDiversityBonus(shared, types)
+	want := 1.0 / 5.0 // only 2 canonical: sensorimotor + behaviour
+	if math.Abs(b-want) > 1e-9 {
+		t.Errorf("with other/empty: want %v, got %v", want, b)
+	}
+	if n != 2 {
+		t.Errorf("distinct count: want 2, got %d", n)
+	}
+}
+
+func TestEvaluateCascadePair_GammaZeroSkipsTypeBonus(t *testing.T) {
+	// M05 must be a no-op when Gamma=0 (default).
+	cfg := DefaultCascadeConfig()
+	cfg.Gamma = mustGamma(t, 0.0)
+	tConc := 3.0
+	vConc := 4.5
+	in := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        map[int64]string{1: "sensorimotor", 2: "behaviour"},
+	}
+	res := EvaluateCascadePair(in, cfg)
+	if res.TypeDiversityBonus != nil {
+		t.Errorf("Gamma=0: TypeDiversityBonus should be nil, got %v", *res.TypeDiversityBonus)
+	}
+	if res.SharedTypesCount != 0 {
+		t.Errorf("Gamma=0: SharedTypesCount should be 0 (M03/M04 short-circuit), got %d", res.SharedTypesCount)
+	}
+}
+
+func TestEvaluateCascadePair_GammaPositiveLiftsFinalScore(t *testing.T) {
+	// Same inputs as Gamma=0 but with Gamma=1.0 — final_score should
+	// increase by (gamma * type_diversity_bonus) = (1.0 * 0.2) = 0.2.
+	cfg := DefaultCascadeConfig()
+	cfg.Gamma = mustGamma(t, 0.0)
+	tConc := 3.0
+	vConc := 4.5
+	in := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        map[int64]string{1: "sensorimotor", 2: "behaviour"},
+	}
+	baseline := EvaluateCascadePair(in, cfg)
+
+	cfg.Gamma = mustGamma(t, 1.0)
+	with := EvaluateCascadePair(in, cfg)
+
+	if baseline.FinalScore == nil || with.FinalScore == nil {
+		t.Fatalf("FinalScore unexpectedly nil: baseline=%v with=%v", baseline.FinalScore, with.FinalScore)
+	}
+	delta := *with.FinalScore - *baseline.FinalScore
+	want := 1.0 * (1.0 / 5.0) // gamma * normalised distinct-type count
+	if math.Abs(delta-want) > 1e-9 {
+		t.Errorf("Gamma=1 lift: want delta=%v, got %v (baseline=%v with=%v)",
+			want, delta, *baseline.FinalScore, *with.FinalScore)
+	}
+	if with.TypeDiversityBonus == nil {
+		t.Errorf("with Gamma>0: TypeDiversityBonus should be set")
+	}
+	if with.SharedTypesCount != 2 {
+		t.Errorf("SharedTypesCount: want 2, got %d", with.SharedTypesCount)
+	}
+}
+
+func TestEvaluateCascadePair_GammaPositive_ZeroDistinctTypes_DiagnosticsConsistent(t *testing.T) {
+	// When M05 evaluates a pair but the shared overlap yields <2 distinct
+	// canonical types (single type, or only "other"/unknown), the two
+	// diagnostic fields must agree on "M05 evaluated this pair":
+	// TypeDiversityBonus pointer set (to 0.0) AND SharedTypesCount reflects
+	// the count from that evaluation. Prior behaviour left the pointer nil
+	// (because `if tb > 0`) but populated SharedTypesCount — readers had no
+	// way to distinguish "M05 didn't run" from "M05 ran and scored zero".
+	cfg := DefaultCascadeConfig()
+	cfg.Gamma = mustGamma(t, 1.0)
+	tConc := 3.0
+	vConc := 4.5
+
+	// Case 1: single distinct type in overlap → distinct=1, bonus=0.
+	in1 := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        map[int64]string{1: "sensorimotor", 2: "sensorimotor"},
+	}
+	res1 := EvaluateCascadePair(in1, cfg)
+	if res1.TypeDiversityBonus == nil {
+		t.Errorf("single-type overlap: TypeDiversityBonus pointer must be set when M05 ran (got nil)")
+	} else if *res1.TypeDiversityBonus != 0.0 {
+		t.Errorf("single-type overlap: bonus value should be 0.0, got %v", *res1.TypeDiversityBonus)
+	}
+	if res1.SharedTypesCount != 1 {
+		t.Errorf("single-type overlap: SharedTypesCount want 1, got %d", res1.SharedTypesCount)
+	}
+
+	// Case 2: zero discriminating types ("other" + unknown) → distinct=0.
+	in2 := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        map[int64]string{1: "other", 2: ""},
+	}
+	res2 := EvaluateCascadePair(in2, cfg)
+	if res2.TypeDiversityBonus == nil {
+		t.Errorf("zero-discriminating overlap: TypeDiversityBonus pointer must be set when M05 ran (got nil)")
+	} else if *res2.TypeDiversityBonus != 0.0 {
+		t.Errorf("zero-discriminating overlap: bonus value should be 0.0, got %v", *res2.TypeDiversityBonus)
+	}
+	if res2.SharedTypesCount != 0 {
+		t.Errorf("zero-discriminating overlap: SharedTypesCount want 0, got %d", res2.SharedTypesCount)
+	}
+}
+
+func TestEvaluateCascadePair_GammaPositiveNoClusterTypesIsZero(t *testing.T) {
+	// If ClusterTypes is nil (pre-M05 DB), the bonus is suppressed even
+	// with Gamma>0 — the function returns the M03/M04 score unchanged.
+	cfg := DefaultCascadeConfig()
+	cfg.Gamma = mustGamma(t, 1.0)
+	tConc := 3.0
+	vConc := 4.5
+	in := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        nil,
+	}
+	res := EvaluateCascadePair(in, cfg)
+	if res.TypeDiversityBonus != nil {
+		t.Errorf("nil ClusterTypes: TypeDiversityBonus should be nil, got %v", *res.TypeDiversityBonus)
+	}
+}
+
+func TestEvaluateCascadePair_EmptyClusterTypes_NoBonus(t *testing.T) {
+	// Doc on CascadeInputs.ClusterTypes promises that EvaluateCascadePair
+	// "skips the type-diversity bonus computation regardless of Gamma"
+	// when ClusterTypes is nil OR empty. A non-nil empty map must
+	// short-circuit cleanly: TypeDiversityBonus must stay nil (M05
+	// did not evaluate) and the function must not allocate a shared
+	// slice for an evaluation it can't perform.
+	cfg := DefaultCascadeConfig()
+	cfg.Gamma = mustGamma(t, 1.0)
+	tConc := 3.0
+	vConc := 4.5
+	in := CascadeInputs{
+		TopicConcreteness:   &tConc,
+		VehicleConcreteness: &vConc,
+		TopicProperties:     map[int64]float64{1: 0.9, 2: 0.8},
+		VehicleProperties:   map[int64]float64{1: 0.7, 2: 0.6},
+		ClusterTypes:        map[int64]string{}, // non-nil, empty
+	}
+	res := EvaluateCascadePair(in, cfg)
+	if res.TypeDiversityBonus != nil {
+		t.Errorf("empty ClusterTypes: TypeDiversityBonus should be nil (M05 short-circuited), got %v",
+			*res.TypeDiversityBonus)
+	}
+	if res.SharedTypesCount != 0 {
+		t.Errorf("empty ClusterTypes: SharedTypesCount should be 0, got %d", res.SharedTypesCount)
 	}
 }

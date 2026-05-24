@@ -6,15 +6,31 @@ Three-stage cascade:
   3. Embedding top-1 — cosine similarity above threshold (numpy-vectorised)
   4. Drop — no match found
 
+Diagnostic drop stream (`snap_dropped.jsonl` next to the DB) emits one JSON
+object per dropped property link with the schema:
+    {"text", "synset_id", "salience", "property_type", "reason", ["best_score"]}
+`best_score` is present only for `below_threshold` rows. `property_type` is
+the canonical M05 type (sensorimotor/behaviour/functional/effect/emotional/
+social/other) so drop analyses can correlate loss against type.
+
+Drops are streamed to `snap_dropped.jsonl.tmp` during the run and atomic-renamed
+to `snap_dropped.jsonl` ONLY after the DB transaction commits. If anything
+between the first drop and commit raises, the canonical filename is never
+created — operators inspecting it after a crash will not mistake rolled-back
+drops for authoritative ones. The `.tmp` file is left in place so drops remain
+inspectable.
+
 Usage:
     python snap_properties.py --db PATH [--threshold 0.7]
 """
 import argparse
 import json
 import logging
+import os
 import sqlite3
 import struct
 import sys
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -32,6 +48,89 @@ log = logging.getLogger(__name__)
 # properties resolve to the same (synset_id, cluster_id).
 SnapMethod = Literal["exact", "morphological", "embedding"]
 _METHOD_RANK: dict[SnapMethod, int] = {"exact": 3, "morphological": 2, "embedding": 1}
+
+# Canonical M05 property-type set. The LLM enrichment prompt declares
+# 6 types (sensorimotor, behaviour, functional, effect, emotional, social)
+# but historical data contains variant spellings (behavior, behavioural,
+# behavioral, behavour, physical, etc.). 99.96% of rows use a canonical
+# value; this normalises the 0.04% of variants for clean cluster typing.
+CANONICAL_TYPES = {
+    "sensorimotor", "behaviour", "functional",
+    "effect", "emotional", "social",
+}
+
+_TYPE_NORMALISATION = {
+    # Variants of "behaviour" (the canonical form per the prompt)
+    "behavior": "behaviour",
+    "behavioral": "behaviour",
+    "behavioural": "behaviour",
+    "behavour": "behaviour",
+    # "physical" appears to be a legacy variant of "sensorimotor"
+    "physical": "sensorimotor",
+    # Everything else (temporal, spatial, structure, material, state, ...) → "other"
+}
+
+# Canonical ordering for deterministic tie-break when computing dominant_type
+# (mode of per-cluster type counts). Sensorimotor wins ties first, "other" last.
+_CANONICAL_ORDER = [
+    "sensorimotor", "behaviour", "functional",
+    "effect", "emotional", "social", "other",
+]
+_CANONICAL_ORDER_INDEX = {t: i for i, t in enumerate(_CANONICAL_ORDER)}
+
+
+def _canonical_type(
+    raw: str | None,
+    buckets: Counter[str] | None = None,
+) -> str:
+    """Map a raw property_type value to one of the 7 canonical M05 types.
+
+    Returns "other" for unknown/NULL/empty inputs. The "other" bucket
+    aggregates the long tail of low-frequency variant values from the
+    original LLM extraction.
+
+    When `buckets` is supplied, increments one of five mutually-exclusive
+    bucket counters that distinguish operationally-distinct paths to the
+    canonical value — observability for the otherwise-silent grouping that
+    the JSONL drop stream cannot recover (it stores the canonicalised
+    value, not the raw one):
+
+      * "null"            — raw was None or empty (enricher data gap)
+      * "canonical"       — raw was already a canonical type (clean path)
+      * "normalised"      — raw was a variant in _TYPE_NORMALISATION (rewrite)
+      * "explicit_other"  — raw was literally "other" (LLM declared misc)
+      * "unknown_variant" — raw was non-empty, non-canonical, not in
+                            _TYPE_NORMALISATION and not "other" (drift —
+                            canonicalisation table needs an entry).
+    """
+    if not raw:
+        if buckets is not None:
+            buckets["null"] += 1
+        return "other"
+    if raw in CANONICAL_TYPES:
+        if buckets is not None:
+            buckets["canonical"] += 1
+        return raw
+    if raw in _TYPE_NORMALISATION:
+        norm = _TYPE_NORMALISATION[raw]
+        if buckets is not None:
+            buckets["normalised"] += 1
+        # Defence-in-depth: every value in _TYPE_NORMALISATION must map to
+        # a canonical type. If a future edit breaks that invariant we want
+        # to escalate, not silently fall through.
+        if norm not in CANONICAL_TYPES:
+            raise ValueError(
+                f"_TYPE_NORMALISATION[{raw!r}] = {norm!r} is not in "
+                f"CANONICAL_TYPES; canonicalisation table is inconsistent"
+            )
+        return norm
+    if raw == "other":
+        if buckets is not None:
+            buckets["explicit_other"] += 1
+        return "other"
+    if buckets is not None:
+        buckets["unknown_variant"] += 1
+    return "other"
 
 
 @dataclass(frozen=True)
@@ -196,31 +295,89 @@ def snap_properties(
 
     stats: dict[str, int] = {"exact": 0, "morphological": 0, "embedding": 0, "dropped": 0}
     accumulated: dict[tuple[str, int], AccumulatedMatch] = {}
+    # M05: per-cluster property-type histogram, populated as each property
+    # snaps successfully. Mode (post-snap) → vocab_clusters.dominant_type.
+    # defaultdict(Counter) avoids ~245k throwaway Counter() constructions
+    # vs setdefault(cid, Counter()) which eagerly evaluates every iteration.
+    cluster_type_counts: defaultdict[int, Counter[str]] = defaultdict(Counter)
     # Per-reason drop counts (so we can log a breakdown without buffering records).
     drop_counts: dict[str, int] = {}
+    # Per-bucket canonical_type counts. Every _canonical_type() call passes
+    # this Counter so the end-of-snap summary can distinguish the five
+    # operationally-distinct paths through canonicalisation (null vs
+    # canonical vs normalised vs explicit_other vs unknown_variant). The
+    # committed JSONL writes the canonicalised value, so this is the only
+    # post-hoc trace of which bucket each input fell into.
+    canonical_type_buckets: Counter[str] = Counter()
 
     # Resolve DB path up front so we can open the dropped-records JSONL stream.
     # PRAGMA returns an empty string for ':memory:' connections — guard so we
     # don't silently dump a JSONL into the caller's cwd.
+    #
+    # We write drops to `snap_dropped.jsonl.tmp` during the run and atomic-rename
+    # to `snap_dropped.jsonl` only after `conn.commit()` succeeds (see below).
+    # This guarantees the canonical file never persists drops that the DB
+    # transaction rolled back.
     db_path_str = conn.execute("PRAGMA database_list").fetchone()[2]
     if db_path_str:
-        dropped_path: Path | None = Path(db_path_str).parent / "snap_dropped.jsonl"
+        final_dropped_path: Path | None = Path(db_path_str).parent / "snap_dropped.jsonl"
+        dropped_path: Path | None = Path(str(final_dropped_path) + ".tmp")
     else:
+        final_dropped_path = None
         dropped_path = None
         log.warning("skipping snap_dropped.jsonl: in-memory DB has no on-disk path")
+
+    # Unlink any pre-existing .tmp left behind by a prior crashed run. An
+    # orphan .tmp is NOT this run's data; without this clean-slate step the
+    # atomic-rename branch at commit-success would silently promote the orphan
+    # to canonical whenever this run records zero drops (the rename used to
+    # gate on dropped_path.exists() alone, which cannot tell "this run's .tmp"
+    # apart from "a prior crash's .tmp").
+    if dropped_path is not None and dropped_path.exists():
+        try:
+            dropped_path.unlink()
+            log.warning(
+                "unlinked pre-existing %s — orphan from a prior crashed run, "
+                "not this run's data",
+                dropped_path,
+            )
+        except OSError as exc:
+            # Diagnostic stream is best-effort; if we can't clean up, log and
+            # disable JSONL writes so we can't accidentally append to or rename
+            # the orphan further along.
+            log.warning(
+                "failed to unlink orphan %s (%s: %s); disabling snap_dropped "
+                "JSONL stream for this run to avoid promoting stale data",
+                dropped_path,
+                type(exc).__name__,
+                exc,
+            )
+            dropped_path = None
+            final_dropped_path = None
 
     # Lazy open: only create the file if at least one drop occurs. The handle is
     # opened on first drop inside _record_drop and closed by the finally clause
     # below — this guarantees no leak even if Pass 2, executemany, executescript,
     # or commit raises mid-stage.
     dropped_fh = None
+    # Sentinel: True iff THIS run successfully opened .tmp for writing at least
+    # once. The atomic-rename at commit-success gates on this flag, not on
+    # dropped_path.exists() — a successful run with zero drops must not promote
+    # anything, even if (defence-in-depth) an orphan reappeared between the
+    # unlink above and the rename below.
+    we_wrote_to_tmp = False
 
-    def _record_drop(record: dict) -> None:
+    def _record_drop(record: dict, property_type: str | None) -> None:
         """Stream one drop record to JSONL and bump per-reason counter.
 
         Streaming caps memory at V2 scale (~50MB if buffered as a list). Each
         record is one self-contained line, so jq/grep work without loading the
         whole file.
+
+        `property_type` is canonicalised and injected into the JSONL row so
+        post-hoc drop analyses can correlate loss against M05 type buckets.
+        Kept as a dedicated parameter (not folded into the record dict at the
+        call site) so no future caller can silently omit it.
 
         Drops are diagnostic-only — if open() or write() fails (PermissionError,
         ENOSPC, etc.) OR json.dumps() fails (TypeError/ValueError on a
@@ -228,14 +385,21 @@ def snap_properties(
         WARNING, disable further JSONL writes, and let the canonical snap stage
         continue. Mirrors the in-memory-DB guard.
         """
-        nonlocal dropped_fh, dropped_path
+        nonlocal dropped_fh, dropped_path, we_wrote_to_tmp
         stats["dropped"] += 1
         drop_counts[record["reason"]] = drop_counts.get(record["reason"], 0) + 1
+        record["property_type"] = _canonical_type(
+            property_type, canonical_type_buckets
+        )
         if dropped_path is None:
             return
         try:
             if dropped_fh is None:
                 dropped_fh = open(dropped_path, "w")
+                # Sentinel flip: this run now owns the .tmp file. Only flips
+                # AFTER open() succeeds so a failed open doesn't falsely
+                # authorise a later rename.
+                we_wrote_to_tmp = True
             dropped_fh.write(json.dumps(record) + "\n")
         except (OSError, TypeError, ValueError) as exc:
             log.warning(
@@ -305,17 +469,18 @@ def snap_properties(
     try:
         # Pass 1 (Stages 1-2): stream synset-property cursor WITHOUT loading embedding blobs.
         # The blob column is ~1.2 KB per row; the full join is ~245k rows ≈ 294 MB if
-        # materialised. By projecting only (synset_id, property_id, text, salience) we
-        # keep peak memory in the low MBs and only carry the unmatched residue forward.
-        # Unmatched entries: (synset_id, property_id, text, salience)
-        unmatched: list[tuple[str, int, str, float]] = []
+        # materialised. By projecting only (synset_id, property_id, text, salience,
+        # property_type) we keep peak memory in the low MBs and only carry the
+        # unmatched residue forward.
+        # Unmatched entries: (synset_id, property_id, text, salience, property_type)
+        unmatched: list[tuple[str, int, str, float, str | None]] = []
         seen = 0
         pass1_cursor = conn.execute("""
-            SELECT sp.synset_id, sp.property_id, pv.text, sp.salience
+            SELECT sp.synset_id, sp.property_id, pv.text, sp.salience, sp.property_type
             FROM synset_properties sp
             JOIN property_vocabulary pv ON pv.property_id = sp.property_id
         """)
-        for sid, pid, prop_text, salience in pass1_cursor:
+        for sid, pid, prop_text, salience, prop_type in pass1_cursor:
             seen += 1
             if seen % 20000 == 0:
                 log.info(
@@ -330,6 +495,9 @@ def snap_properties(
                 vid = vocab_by_lemma[prop_lower]
                 cid = cluster_lookup.get(vid, vid)
                 _merge((sid, cid), vid, "exact", None, salience)
+                cluster_type_counts[cid][
+                    _canonical_type(prop_type, canonical_type_buckets)
+                ] += 1  # M05
                 stats["exact"] += 1
                 continue
 
@@ -340,6 +508,9 @@ def snap_properties(
                     vid = vocab_by_lemma[variant]
                     cid = cluster_lookup.get(vid, vid)
                     _merge((sid, cid), vid, "morphological", None, salience)
+                    cluster_type_counts[cid][
+                        _canonical_type(prop_type, canonical_type_buckets)
+                    ] += 1  # M05
                     stats["morphological"] += 1
                     matched = True
                     break
@@ -347,7 +518,7 @@ def snap_properties(
                 continue
 
             # Defer to Pass 2 — stage 3 will fetch embeddings for residual property_ids only
-            unmatched.append((sid, pid, prop_text, salience))
+            unmatched.append((sid, pid, prop_text, salience, prop_type))
 
         total_links = seen
         log.info("Property links to snap: %d", total_links)
@@ -357,7 +528,7 @@ def snap_properties(
         # Embeddings are fetched ONCE per unique property_id via a temp-table join,
         # so blob memory scales with the unmatched residue, not with the full corpus.
         if unmatched and has_vocab_embeddings:
-            unique_pids = {pid for _, pid, _, _ in unmatched}
+            unique_pids = {pid for _, pid, _, _, _ in unmatched}
             emb_cache: dict[int, np.ndarray] = {}
             zero_norm_pids: set[int] = set()
 
@@ -387,7 +558,7 @@ def snap_properties(
             finally:
                 conn.execute("DROP TABLE IF EXISTS _snap_unmatched_pids")
 
-            for j, (sid, pid, prop_text, salience) in enumerate(unmatched):
+            for j, (sid, pid, prop_text, salience, prop_type) in enumerate(unmatched):
                 if (j + 1) % 2000 == 0:
                     log.info(
                         "Stage 3: %d/%d (matched=%d)",
@@ -396,13 +567,15 @@ def snap_properties(
 
                 if pid in zero_norm_pids:
                     _record_drop({"text": prop_text, "synset_id": sid,
-                                  "salience": salience, "reason": "zero_norm"})
+                                  "salience": salience, "reason": "zero_norm"},
+                                 prop_type)
                     continue
 
                 vec = emb_cache.get(pid)
                 if vec is None:
                     _record_drop({"text": prop_text, "synset_id": sid,
-                                  "salience": salience, "reason": "no_embedding"})
+                                  "salience": salience, "reason": "no_embedding"},
+                                 prop_type)
                     continue
 
                 # Cosine similarities via single matrix-vector multiply.
@@ -418,16 +591,60 @@ def snap_properties(
                     best_vid = vocab_ids[best_idx]
                     best_cid = cluster_lookup.get(best_vid, best_vid)
                     _merge((sid, best_cid), best_vid, "embedding", best_score, salience)
+                    cluster_type_counts[best_cid][
+                        _canonical_type(prop_type, canonical_type_buckets)
+                    ] += 1  # M05
                     stats["embedding"] += 1
                 else:
                     _record_drop({"text": prop_text, "synset_id": sid,
                                   "salience": salience, "reason": "below_threshold",
-                                  "best_score": best_score})
+                                  "best_score": best_score},
+                                 prop_type)
         else:
             # No vocab embeddings (or no residue) — every unmatched entry is dropped
-            for sid, pid, prop_text, salience in unmatched:
+            for sid, pid, prop_text, salience, prop_type in unmatched:
                 _record_drop({"text": prop_text, "synset_id": sid,
-                              "salience": salience, "reason": "no_embedding"})
+                              "salience": salience, "reason": "no_embedding"},
+                             prop_type)
+
+        # M05: compute and persist dominant_type per cluster from the per-cluster
+        # type counts accumulated during snap. Mode (most-frequent type) is the
+        # dominant. Ties are broken by the canonical-type ordering (sensorimotor
+        # first) so the result is deterministic across re-runs.
+        log.info("Computing dominant_type for %d clusters", len(cluster_type_counts))
+        type_updates: list[tuple[str, int]] = []
+        for cid, counts in cluster_type_counts.items():
+            if not counts:
+                continue
+            # Find the mode; ties resolved by _CANONICAL_ORDER index (lower wins).
+            best_type = max(
+                counts.items(),
+                key=lambda kv: (kv[1], -_CANONICAL_ORDER_INDEX[kv[0]]),
+            )[0]
+            type_updates.append((best_type, cid))
+        # Mirror the same narrow OperationalError guard used for the cluster
+        # SELECT above: when vocab_clusters is missing (first-run schemas,
+        # synthetic test fixtures) snap should still write
+        # synset_properties_curated and report stats. Any other variant
+        # (lock contention, disk-IO, schema drift) re-raises.
+        try:
+            # Idempotency: clear ALL prior dominant_type values before writing
+            # the new mode set. A standalone re-snap that has no matches for a
+            # cluster must leave dominant_type IS NULL, not the stale value
+            # from a previous run.
+            conn.execute("UPDATE vocab_clusters SET dominant_type = NULL")
+            conn.executemany(
+                "UPDATE vocab_clusters SET dominant_type = ? WHERE cluster_id = ?",
+                type_updates,
+            )
+            log.info("Wrote dominant_type for %d clusters", len(type_updates))
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc).lower():
+                raise
+            log.warning(
+                "vocab_clusters table missing (%s); skipping dominant_type write",
+                exc,
+            )
 
         inserts = [
             (sid, m.vocab_id, cid, m.snap_method, m.snap_score, m.salience_sum)
@@ -447,6 +664,41 @@ def snap_properties(
             CREATE INDEX IF NOT EXISTS idx_spc_cluster ON synset_properties_curated(cluster_id);
         """)
         conn.commit()
+
+        # Atomic-rename the diagnostic JSONL only after commit succeeds. If
+        # commit (or anything earlier) raises, the canonical name never appears
+        # — operators can't mistake rolled-back drops for authoritative ones.
+        # Gate on `we_wrote_to_tmp` (set true only when THIS run successfully
+        # opened .tmp), not on dropped_path.exists() — the latter cannot tell
+        # this run's data apart from a prior crashed run's orphan, and would
+        # silently promote stale data on a zero-drop run.
+        # The dropped_fh handle must be closed before rename on Windows; the
+        # finally clause below handles that, so we close-then-rename here too.
+        if (
+            we_wrote_to_tmp
+            and final_dropped_path is not None
+            and dropped_path is not None
+            and dropped_path.exists()
+        ):
+            if dropped_fh is not None:
+                try:
+                    dropped_fh.close()
+                except OSError as exc:
+                    log.warning(
+                        "failed to close snap_dropped.jsonl.tmp before rename: %s",
+                        exc,
+                    )
+                dropped_fh = None
+            try:
+                os.replace(dropped_path, final_dropped_path)
+            except OSError as exc:
+                log.warning(
+                    "failed to rename %s -> %s (%s: %s); .tmp left in place for inspection",
+                    dropped_path,
+                    final_dropped_path,
+                    type(exc).__name__,
+                    exc,
+                )
 
         total = sum(stats.values())
         log.info(
@@ -479,8 +731,31 @@ def snap_properties(
             sum(drop_counts.values()),
             breakdown,
         )
-        if dropped_path is not None:
+        # After a successful commit the canonical file exists; if commit
+        # failed control never reaches here. Report the canonical path when
+        # the rename landed, fall back to the .tmp path otherwise (e.g.
+        # rename failed on a cross-device move).
+        if final_dropped_path is not None and final_dropped_path.exists():
+            log.info("Dropped properties written to %s", final_dropped_path)
+        elif dropped_path is not None and dropped_path.exists():
             log.info("Dropped properties written to %s", dropped_path)
+
+    # Per-bucket canonical_type breakdown — emits even when there are no
+    # drops, because snap-matched rows also pass through _canonical_type
+    # and operators need the trace either way. Promote to WARNING when
+    # unknown_variant > 0: that's the only bucket that signals
+    # canonicalisation-table drift and demands an entry be added to
+    # _TYPE_NORMALISATION (the rest are routine).
+    if canonical_type_buckets:
+        breakdown_dict = dict(canonical_type_buckets)
+        if canonical_type_buckets.get("unknown_variant", 0) > 0:
+            log.warning(
+                "Snap canonical_type buckets: %s (unknown_variant > 0 — add "
+                "missing entries to _TYPE_NORMALISATION or fix the enricher)",
+                breakdown_dict,
+            )
+        else:
+            log.info("Snap canonical_type buckets: %s", breakdown_dict)
 
     return stats
 

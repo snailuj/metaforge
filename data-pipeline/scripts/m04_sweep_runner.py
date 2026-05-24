@@ -30,7 +30,8 @@ import statistics
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field, asdict
+import dataclasses
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
@@ -45,14 +46,31 @@ class CellResult:
     d_min: float | None
     d_max: float | None
     top_k: int | None
+    gamma: float | None = None
     apt_scores: list[float] = field(default_factory=list)
     inapt_scores: list[float] = field(default_factory=list)
     apt_missing: int = 0
     inapt_missing: int = 0
     source_mix: dict[str, int] = field(default_factory=lambda: {"cluster": 0, "embedding": 0, "both": 0})
+    # Per-cause drop attribution (Phase 2). Keyed by the bucket name from
+    # m05_cohort_diagnose.py's pre-flight ledger or the synthetic
+    # ``api_filtered_or_no_overlap`` bucket for pairs that were pre-flight
+    # clean but the API still didn't return them. Optional — empty when
+    # the sweep was run without --diagnostics.
+    apt_drop_buckets: dict[str, int] = field(default_factory=dict)
+    inapt_drop_buckets: dict[str, int] = field(default_factory=dict)
+    # Derived metrics — populated by ``finalise_metrics`` before serialisation
+    # so that ``dataclasses.asdict`` exposes them in the JSON output.
+    # ``None`` means "not yet computed"; the @property accessors below treat
+    # ``None`` as a signal to recompute on the fly, which keeps ad-hoc use
+    # (e.g. tests, REPL) ergonomic without forcing callers to remember
+    # ``finalise_metrics()``. Note: ``dataclasses.asdict`` serialises the
+    # underscore-prefixed *fields*, not the @property values, so
+    # ``finalise_metrics()`` is still required before serialising.
+    _aptness_rate: float | None = None
+    _separation_score: float | None = None
 
-    @property
-    def aptness_rate(self) -> float:
+    def _compute_aptness_rate(self) -> float:
         if not self.apt_scores:
             return 0.0
         # statistics.quantiles requires >=2 data points; Lakoff cohort
@@ -64,11 +82,61 @@ class CellResult:
         threshold = statistics.quantiles(self.inapt_scores, n=20)[18]  # 95th percentile
         return sum(1 for s in self.apt_scores if s > threshold) / len(self.apt_scores)
 
-    @property
-    def separation_score(self) -> float:
+    def _compute_separation_score(self) -> float:
         if not self.apt_scores or not self.inapt_scores:
             return 0.0
         return statistics.mean(self.apt_scores) - statistics.mean(self.inapt_scores)
+
+    @property
+    def aptness_rate(self) -> float:
+        """Return the stored aptness_rate, or recompute on the fly if unset.
+
+        After ``finalise_metrics()`` runs, this returns the snapshot verbatim.
+        Before then, it recomputes from ``apt_scores`` / ``inapt_scores`` so
+        ad-hoc access (tests, REPL) works without needing to finalise first.
+        """
+        if self._aptness_rate is None:
+            return self._compute_aptness_rate()
+        return self._aptness_rate
+
+    @property
+    def separation_score(self) -> float:
+        """Return the stored separation_score, or recompute on the fly if unset.
+
+        After ``finalise_metrics()`` runs, this returns the snapshot verbatim.
+        """
+        if self._separation_score is None:
+            return self._compute_separation_score()
+        return self._separation_score
+
+    def finalise_metrics(self) -> None:
+        """Snapshot derived-metric fields from raw score lists.
+
+        Idempotent — safe to call multiple times. Must be invoked before
+        ``dataclasses.asdict`` if the JSON output is expected to carry
+        aptness_rate and separation_score (asdict serialises the stored
+        fields, not the @property accessors).
+        """
+        self._aptness_rate = self._compute_aptness_rate()
+        self._separation_score = self._compute_separation_score()
+
+    def to_dict(self) -> dict:
+        """Serialise to JSON-friendly dict with public key names.
+
+        Calls finalise_metrics() to snapshot computed metrics before
+        serialisation. Keys are the public names (``aptness_rate``,
+        ``separation_score``) not the internal underscore-prefixed fields —
+        preserves wire compat with historical sweep result JSONs that
+        predate the R2 @property refactor.
+        """
+        self.finalise_metrics()
+        d = dataclasses.asdict(self)
+        # Rewrite underscore-prefixed keys to their public names.
+        if "_aptness_rate" in d:
+            d["aptness_rate"] = d.pop("_aptness_rate")
+        if "_separation_score" in d:
+            d["separation_score"] = d.pop("_separation_score")
+        return d
 
 
 def load_pairs(path: Path) -> list[tuple[str, str]]:
@@ -131,11 +199,17 @@ def fetch_suggestions(base_url: str, topic: str, limit: int) -> dict[str, tuple[
     """
     try:
         r = requests.get(f"{base_url}/forge/suggest", params={"word": topic, "limit": limit}, timeout=10)
-    except requests.RequestException:
+    except requests.RequestException as e:
+        print(f"  WARN fetch_suggestions: topic={topic!r} request failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         return None
     if r.status_code != 200:
+        print(f"  WARN fetch_suggestions: topic={topic!r} status={r.status_code} body={r.text[:200]!r}", file=sys.stderr, flush=True)
         return None
-    body = r.json()
+    try:
+        body = r.json()
+    except ValueError as e:
+        print(f"  WARN fetch_suggestions: topic={topic!r} non-JSON response: {e}; body={r.text[:200]!r}", file=sys.stderr, flush=True)
+        return None
     out: dict[str, tuple[float | None, str | None]] = {}
     for s in body.get("suggestions", []):
         word = s.get("word")
@@ -169,18 +243,55 @@ def score_pair_cached(
     return None, None
 
 
+def _attribute_drop(topic: str, vehicle: str, preflight: dict | None) -> str:
+    """Return the Phase 2 drop bucket for a (topic, vehicle) pair.
+
+    - If a pre-flight ledger is supplied and the pair maps to a non-clean
+      bucket, return that bucket name verbatim.
+    - Otherwise the pre-flight was clean (or no ledger was supplied), so
+      the drop happened inside the API — bucket it as
+      ``api_filtered_or_no_overlap`` (the real gate-level signal).
+    """
+    if preflight is None:
+        return "api_filtered_or_no_overlap"
+    key = (topic, vehicle)
+    bucket = preflight.get(key)
+    if bucket is None or bucket == "preflight_clean":
+        return "api_filtered_or_no_overlap"
+    return bucket
+
+
+def load_preflight(path: Path) -> dict[str, dict[tuple[str, str], str]]:
+    """Read the diagnostics JSON written by m05_cohort_diagnose.py into a
+    lookup ``{"apt": {(topic, vehicle): bucket}, "inapt": {...}}``.
+
+    Cohort-side keys (``apt`` / ``inapt``) match how the sweep runner
+    splits its pairs. Missing keys downstream are treated the same as
+    "preflight_clean" — the api_filtered bucket — so a partial ledger
+    degrades gracefully.
+    """
+    payload = json.loads(path.read_text())
+    out: dict[str, dict[tuple[str, str], str]] = {"apt": {}, "inapt": {}}
+    for cohort in ("apt", "inapt"):
+        for entry in payload.get(cohort, {}).get("pair_diagnostics", []):
+            out[cohort][(entry["topic"], entry["vehicle"])] = entry["attribution"]
+    return out
+
+
 def evaluate_cell(
     name: str,
     candidate_sources: str,
     d_min: float | None,
     d_max: float | None,
     top_k: int | None,
+    gamma: float | None,
     binary: str,
     db: Path,
     port: int,
     apt_pairs: list[tuple[str, str]],
     inapt_pairs: list[tuple[str, str]],
     limit: int,
+    preflight: dict[str, dict[tuple[str, str], str]] | None = None,
 ) -> CellResult:
     env = {"METAFORGE_FORGE_CANDIDATES": candidate_sources}
     if d_min is not None:
@@ -189,9 +300,13 @@ def evaluate_cell(
         env["METAFORGE_FORGE_EMB_DMAX"] = str(d_max)
     if top_k is not None:
         env["METAFORGE_FORGE_EMB_TOPK"] = str(top_k)
+    if gamma is not None:
+        env["METAFORGE_FORGE_GAMMA"] = str(gamma)
 
     result = CellResult(name=name, candidate_sources=candidate_sources,
-                        d_min=d_min, d_max=d_max, top_k=top_k)
+                        d_min=d_min, d_max=d_max, top_k=top_k, gamma=gamma)
+    apt_pre = (preflight or {}).get("apt")
+    inapt_pre = (preflight or {}).get("inapt")
     proc = start_api(binary, db, port, env)
     try:
         base_url = f"http://127.0.0.1:{port}"
@@ -203,6 +318,8 @@ def evaluate_cell(
             fs, src = score_pair_cached(cache, base_url, topic, vehicle, limit)
             if fs is None:
                 result.apt_missing += 1
+                bucket = _attribute_drop(topic, vehicle, apt_pre)
+                result.apt_drop_buckets[bucket] = result.apt_drop_buckets.get(bucket, 0) + 1
                 continue
             result.apt_scores.append(fs)
             if src in result.source_mix:
@@ -211,52 +328,153 @@ def evaluate_cell(
             fs, _ = score_pair_cached(cache, base_url, topic, vehicle, limit)
             if fs is None:
                 result.inapt_missing += 1
+                bucket = _attribute_drop(topic, vehicle, inapt_pre)
+                result.inapt_drop_buckets[bucket] = result.inapt_drop_buckets.get(bucket, 0) + 1
                 continue
             result.inapt_scores.append(fs)
     finally:
         stop_api(proc)
+    # Snapshot derived metrics onto the dataclass fields so downstream
+    # asdict() serialisation includes them in the JSON output.
+    result.finalise_metrics()
     return result
 
 
-def write_verdict(results: list[CellResult], baseline: CellResult, verdict_path: Path) -> None:
+def write_verdict(
+    results: list[CellResult],
+    baseline: CellResult,
+    verdict_path: Path,
+    cfg: dict | None = None,
+) -> None:
+    """Emit the verdict markdown for a sweep run.
+
+    Title and tail-section content are parametrised by the sweep config so the
+    runner can be reused across milestones. ``cfg`` keys honoured:
+
+    * ``name`` — sweep identifier (used as default title prefix)
+    * ``verdict_title`` — optional explicit title (overrides ``name``)
+    * ``axis`` — when ``"embedding-band"`` the original M04 "ratify SourcesUnion"
+      recommendation and "Two-Path Correlation" section are emitted. Any other
+      value (or omission) yields a neutral best-cell summary suitable for
+      gamma sweeps and similar axis-agnostic studies.
+
+    Backwards-compatible: omitting ``cfg`` falls back to the legacy M04
+    Embedding-Band title and tail sections.
+    """
+    cfg = cfg or {}
+    name = cfg.get("name")
+    verdict_title = cfg.get("verdict_title")
+    axis = cfg.get("axis")
+
+    if verdict_title:
+        title = f"# {verdict_title} Verdict"
+    elif name:
+        title = f"# {name} Verdict"
+    else:
+        # Legacy fallback — preserves behaviour for any caller that hasn't
+        # been migrated to pass cfg through. New callers should always pass cfg.
+        title = "# M04 Embedding-Band Calibration Verdict"
+        axis = axis or "embedding-band"
+
     best = max(results, key=lambda r: r.separation_score)
     lines = [
-        "# M04 Embedding-Band Calibration Verdict",
+        title,
         "",
-        f"_Baseline (cluster_only): separation_score = {baseline.separation_score:.4f}, "
+        f"_Baseline ({baseline.candidate_sources}): separation_score = {baseline.separation_score:.4f}, "
         f"aptness_rate = {baseline.aptness_rate:.4f}_",
         "",
         "## Results Grid",
         "",
-        "| Cell | d_min | d_max | separation_score | aptness_rate | cluster | embedding | both | apt_miss | inapt_miss |",
-        "|------|------:|------:|-----------------:|-------------:|--------:|----------:|-----:|---------:|-----------:|",
+        "| Cell | d_min | d_max | gamma | separation_score | aptness_rate | cluster | embedding | both | apt_miss | inapt_miss |",
+        "|------|------:|------:|------:|-----------------:|-------------:|--------:|----------:|-----:|---------:|-----------:|",
     ]
     for r in sorted(results, key=lambda r: -r.separation_score):
         lines.append(
-            f"| {r.name} | {r.d_min} | {r.d_max} | {r.separation_score:.4f} | "
+            f"| {r.name} | {r.d_min} | {r.d_max} | {r.gamma} | {r.separation_score:.4f} | "
             f"{r.aptness_rate:.4f} | {r.source_mix['cluster']} | "
             f"{r.source_mix['embedding']} | {r.source_mix['both']} | "
             f"{r.apt_missing} | {r.inapt_missing} |"
         )
+
     lines += [
         "",
         f"## Best Cell: `{best.name}`",
-        f"- d_min = {best.d_min}, d_max = {best.d_max}",
+        f"- d_min = {best.d_min}, d_max = {best.d_max}, gamma = {best.gamma}",
         f"- separation_score = **{best.separation_score:.4f}**",
         f"- aptness_rate = {best.aptness_rate:.4f}",
-        f"- vs baseline ({baseline.separation_score:.4f}): "
-        + ("**non-regressive — ratify** `SourcesUnion` as default with this band"
-           if best.separation_score >= baseline.separation_score
-           else "**regression — keep `SourcesCluster` default**, document follow-up sweep"),
-        "",
-        "## Two-Path Correlation (v2 β-bonus signal)",
-        "",
-        "Per cell, the `both` column counts apt pairs that were generated by BOTH the cluster",
-        "and embedding paths. A high both-count under high aptness suggests two-path agreement",
-        "correlates with aptness — i.e. a co-generation bonus β·1{both} may be worth adding in",
-        "M04 v2. A low both-count under high aptness means the embedding path is the marginal",
-        "contributor and a β-bonus would not help.",
     ]
+
+    if axis == "embedding-band":
+        # M04-specific framing: the sweep's purpose is to ratify the
+        # SourcesUnion default with a non-regressive embedding band.
+        lines.append(
+            f"- vs baseline ({baseline.separation_score:.4f}): "
+            + ("**non-regressive — ratify** `SourcesUnion` as default with this band"
+               if best.separation_score >= baseline.separation_score
+               else "**regression — keep `SourcesCluster` default**, document follow-up sweep")
+        )
+        lines += [
+            "",
+            "## Two-Path Correlation (v2 β-bonus signal)",
+            "",
+            "Per cell, the `both` column counts apt pairs that were generated by BOTH the cluster",
+            "and embedding paths. A high both-count under high aptness suggests two-path agreement",
+            "correlates with aptness — i.e. a co-generation bonus β·1{both} may be worth adding in",
+            "M04 v2. A low both-count under high aptness means the embedding path is the marginal",
+            "contributor and a β-bonus would not help.",
+        ]
+    else:
+        # Axis-agnostic framing: report best cell's delta vs baseline neutrally,
+        # without naming any code default. Suitable for γ-sweeps and any future
+        # sweep whose axis doesn't map to a SourcesUnion ratification decision.
+        delta = best.separation_score - baseline.separation_score
+        verdict_word = "non-regressive" if delta >= 0 else "regression"
+        lines.append(
+            f"- vs baseline ({baseline.separation_score:.4f}): "
+            f"Δ separation_score = {delta:+.4f} ({verdict_word})"
+        )
+
+    # Phase 2 surface: if any cell has bucketed drops, emit a per-cell
+    # breakdown. Conditional so legacy sweeps run without --diagnostics
+    # produce the same verdict shape they always have.
+    has_buckets = any(r.apt_drop_buckets or r.inapt_drop_buckets for r in results)
+    if has_buckets:
+        bucket_keys: set[str] = set()
+        for r in results:
+            bucket_keys.update(r.apt_drop_buckets.keys())
+            bucket_keys.update(r.inapt_drop_buckets.keys())
+        # Stable column order: api_filtered_or_no_overlap first (it's the
+        # real-signal bucket the operator reads first), then the rest in
+        # alphabetical order so cross-run diffs stay readable.
+        ordered_buckets = ["api_filtered_or_no_overlap"] + sorted(
+            b for b in bucket_keys if b != "api_filtered_or_no_overlap"
+        )
+        lines += [
+            "",
+            "## Drop Attribution (per-cause breakdown)",
+            "",
+            "_Pre-flight diagnostics loaded — each apt/inapt drop is attributed to a typed bucket._",
+            "_Bucket meanings: `api_filtered_or_no_overlap` = pre-flight clean, the API still didn't_",
+            "_surface this vehicle (the real candidate-gen / no-overlap signal); `pre_topic_*` /_",
+            "_`pre_vehicle_*` = pre-flight blocked at the named layer (data not in DB)._",
+            "",
+        ]
+        # Apt drops table
+        header = "| Cell | " + " | ".join(f"apt:{b}" for b in ordered_buckets) + " |"
+        sep = "|------|" + "|".join("---:" for _ in ordered_buckets) + "|"
+        lines += [header, sep]
+        for r in sorted(results, key=lambda r: -r.separation_score):
+            cells = " | ".join(str(r.apt_drop_buckets.get(b, 0)) for b in ordered_buckets)
+            lines.append(f"| {r.name} | {cells} |")
+        lines += [""]
+        # Inapt drops table
+        header = "| Cell | " + " | ".join(f"inapt:{b}" for b in ordered_buckets) + " |"
+        sep = "|------|" + "|".join("---:" for _ in ordered_buckets) + "|"
+        lines += [header, sep]
+        for r in sorted(results, key=lambda r: -r.separation_score):
+            cells = " | ".join(str(r.inapt_drop_buckets.get(b, 0)) for b in ordered_buckets)
+            lines.append(f"| {r.name} | {cells} |")
+
     verdict_path.write_text("\n".join(lines) + "\n")
 
 
@@ -265,6 +483,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--verdict", type=Path, required=True)
+    p.add_argument(
+        "--diagnostics",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to a pre-flight diagnostics JSON produced by "
+            "m05_cohort_diagnose.py. When supplied, each post-API drop is "
+            "attributed to a typed bucket (pre_topic_*, pre_vehicle_*, or "
+            "api_filtered_or_no_overlap) on CellResult.apt_drop_buckets and "
+            "inapt_drop_buckets, and the verdict markdown surfaces the "
+            "breakdown per cell."
+        ),
+    )
     args = p.parse_args(argv)
 
     cfg = yaml.safe_load(args.config.read_text())
@@ -295,13 +526,28 @@ def main(argv: list[str] | None = None) -> int:
         inapt_pairs = rng.sample(inapt_pairs, int(sample_inapt))
     print(f"Cohort: apt={len(apt_pairs)} pairs, inapt={len(inapt_pairs)} pairs", flush=True)
 
+    preflight: dict[str, dict[tuple[str, str], str]] | None = None
+    if args.diagnostics is not None:
+        if not args.diagnostics.exists():
+            print(f"ERROR: --diagnostics path not found: {args.diagnostics}", file=sys.stderr)
+            return 2
+        preflight = load_preflight(args.diagnostics)
+        n_apt_pre = len(preflight.get("apt", {}))
+        n_inapt_pre = len(preflight.get("inapt", {}))
+        print(
+            f"Pre-flight ledger loaded: apt={n_apt_pre} entries, inapt={n_inapt_pre} entries — "
+            "drops will be attributed per-cause",
+            flush=True,
+        )
+
     baseline_cfg = cfg["baseline"]
     baseline = evaluate_cell(
         "baseline_cluster_only",
         candidate_sources=baseline_cfg["candidate_sources"],
-        d_min=None, d_max=None, top_k=None,
+        d_min=None, d_max=None, top_k=None, gamma=None,
         binary=binary, db=db, port=port_base,
         apt_pairs=apt_pairs, inapt_pairs=inapt_pairs, limit=limit,
+        preflight=preflight,
     )
 
     results: list[CellResult] = []
@@ -313,17 +559,19 @@ def main(argv: list[str] | None = None) -> int:
             d_min=var.get("d_min"),
             d_max=var.get("d_max"),
             top_k=var.get("top_k"),
+            gamma=var.get("gamma"),
             binary=binary, db=db, port=port,
             apt_pairs=apt_pairs, inapt_pairs=inapt_pairs, limit=limit,
+            preflight=preflight,
         )
         results.append(r)
         print(f"  {r.name}: sep={r.separation_score:.4f} apt_rate={r.aptness_rate:.4f}")
 
     args.output.write_text(json.dumps({
-        "baseline": asdict(baseline),
-        "results": [asdict(r) for r in results],
+        "baseline": baseline.to_dict(),
+        "results": [r.to_dict() for r in results],
     }, indent=2))
-    write_verdict(results, baseline, args.verdict)
+    write_verdict(results, baseline, args.verdict, cfg=cfg)
     print(f"\nWrote {args.output} and {args.verdict}")
     return 0
 

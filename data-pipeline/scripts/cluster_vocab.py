@@ -79,7 +79,13 @@ def cluster_vocab(
             vocab_id         INTEGER PRIMARY KEY,
             cluster_id       INTEGER NOT NULL,
             is_representative INTEGER NOT NULL DEFAULT 0,
-            is_singleton     INTEGER NOT NULL DEFAULT 0
+            is_singleton     INTEGER NOT NULL DEFAULT 0,
+            dominant_type    TEXT CHECK (dominant_type IS NULL OR dominant_type IN
+                ('sensorimotor', 'behaviour', 'functional', 'effect',
+                 'emotional', 'social', 'other'))
+                                   -- M05: dominant property type for this cluster, populated by snap_properties.py
+                                   -- after all snapping completes. One of: sensorimotor, behaviour, functional,
+                                   -- effect, emotional, social, other. NULL until first snap-with-types run.
         );
         CREATE INDEX idx_vc_cluster ON vocab_clusters(cluster_id);
     """)
@@ -213,6 +219,19 @@ def cluster_vocab(
 
     print(f"  Clustered {len(vocab_ids_all)} vocab entries into {num_clusters} clusters "
           f"({singletons} singletons, largest={largest})")
+
+    # M05 operator nudge: the DROP TABLE / CREATE TABLE pair above wipes any
+    # previously-populated dominant_type values. snap_properties.py is the
+    # only writer for that column, so an operator who re-runs cluster_vocab
+    # without re-snapping will silently disable the M05 type-diversity bonus
+    # (vocab_clusters.dominant_type all-NULL → Go cascade_cache warm-up logs
+    # a benign-looking Warn and skips the bonus). Loud warning here keeps the
+    # signal visible at the moment the wipe happens.
+    log.warning(
+        "vocab_clusters rebuilt — all dominant_type values cleared. "
+        "Re-run snap_properties.py before restarting the API for the M05 "
+        "type-diversity bonus to work."
+    )
 
     return {
         "total_vocab": len(vocab_ids_all),
