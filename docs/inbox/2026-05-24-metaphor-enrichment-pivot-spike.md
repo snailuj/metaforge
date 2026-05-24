@@ -32,11 +32,13 @@ Generate, per synset, a small JSON graph of metaphor vehicles + structured share
 1. **Haiku vs Sonnet.** Can Haiku 4.5 hold the JSON schema *and* maintain quality? Cost difference is roughly an order of magnitude — pivots-worth depends on this answer.
 2. **Concept normalisation.** LLM will emit "heat", "hot", "heated" interchangeably across runs. Light stemming + a controlled vocab pass post-snap? Or accept the noise on v1?
 3. **Polysemy at snap — vehicles.** Word "fire" maps to multiple synset_ids (noun: combustion / firearm / dismissal). Same sense-disambiguation problem property snap already solves — confirm the existing snap algorithm handles this without modification.
-4. **Polysemy inside `shared_features` concepts.** Same problem one level deeper. "heat" inside `{"dimension":"sensorimotor","concept":"heat"}` is itself polysemous (temperature / pressure / sexual attraction / intensity-of-feeling). Per-concept inline gloss is impractical — token cost balloons and the LLM struggles with gloss-consistency across many concepts in one response. Two viable paths:
-   - **Path A (production-shaped):** constrain concepts to single common-English lemmas, snap downstream through the same `lemmas → synset_id` path the vehicles use. Bridge nodes become synset_ids — queryable like vehicles. Production-shaped.
-   - **Path B (spike-shaped):** accept free phrases, learn from what the LLM actually emits. Stem / lowercase / edit-distance cluster post-hoc. Less disciplined but the diagnostic value of "what shapes does the LLM naturally land on?" is high. Whether concepts cluster into a small lexicon or sprawl unmanageably will shape the production prompt.
+4. **Polysemy inside `shared_features` concepts.** Same problem one level deeper. "heat" inside `{"dimension":"sensorimotor","concept":"heat"}` is itself polysemous (temperature / pressure / sexual attraction / intensity-of-feeling). Per-concept inline gloss is impractical — token cost balloons and the LLM struggles with gloss-consistency across many concepts in one response.
 
-   **Decision for this spike: Path B.** The Phase 1a small-validation run is explicitly designed to surface this — the resulting concept distribution becomes input to the Phase 2 prompt tightening.
+   **Decision for this spike: Path A from Phase 1a.** The apt prompt explicitly constrains concepts to single common English words so they can be programmatically snapped to dictionary entries downstream via the same `lemmas → synset_id` path used for vehicles. Sense disambiguation falls out of snap (property-based tiebreaker; bridge nodes become synset_ids — queryable like vehicles).
+
+   Phase 1a diagnostic shifts accordingly: not "what shapes does the LLM emit?" but "**does the LLM comply with the single-word constraint, and at what snap rate do those single words resolve against the `lemmas` table?**" Compliance failure here is a prompt-engineering bug we'd rather catch on 5 topics than 200.
+
+   Rationale for promoting Path A: snappability is foundational, not a Phase 2 polish item. Past experience with the Haiku property-enrichment prompt confirmed the model defaults to multi-word phrases unless very explicitly steered away — the same drift would compound here if left to "learn from emission."
 5. **Cost ceiling.** ~35k synsets × N output tokens × per-call cost. Need a real number before commit.
 
 ## Resolved during brainstorm 2026-05-24
@@ -48,7 +50,7 @@ Generate, per synset, a small JSON graph of metaphor vehicles + structured share
 - **Phasing:** spike runs in three gated phases — 1a small validation (5 topics, 20 calls), 1b full 20-topic spike (80 calls), Phase 2 cohort scale-up (~400 calls). Each phase operator-gated against the next. Operator funds 1a first; 1b only on 1a pass; Phase 2 only on 1b pass.
 - **Score-as-we-go:** every (topic, vehicle) pair is scored through the cascade in the same batch it's generated. First-look calibration signal builds live across phases. Diagnostic axis: per-`inapt_reason_type` discrimination breakdown reveals which failure modes the cascade catches vs misses — the calibration evidence M05 currently lacks.
 - **Gloss in output rejected.** Topic gloss is sent in input but NOT echoed in output (wasted tokens). Runner attaches gloss locally at writeback for human inspection.
-- **Concept disambiguation inside `shared_features`** flagged as a real polysemy concern one level deeper than vehicle disambiguation. Per-concept gloss rejected as token-prohibitive. Spike uses Path B (free phrases, learn from emission); production prompt will use Path A (constrain concepts to lemmas, snap to synset_ids) once Phase 1a tells us what shapes the LLM naturally lands on. See open-questions item #4.
+- **Concept disambiguation inside `shared_features`** flagged as a real polysemy concern one level deeper than vehicle disambiguation. Per-concept gloss rejected as token-prohibitive. **Spike adopts Path A from Phase 1a, not Phase 2:** concepts constrained to single common English words in the apt prompt so they're reliably snappable to dictionary entries downstream. Prior experience with the Haiku property-enrichment prompt showed the model defaults to multi-word phrases unless explicitly steered — same drift would compound here if left to "learn from emission." Phase 1a diagnostic now includes single-word compliance rate and snap-rate against `lemmas`. See open-questions item #4.
 
 ## Prompt — apt (current draft)
 
@@ -72,7 +74,20 @@ QUALITY CRITERIA (every entry must satisfy):
    usage (e.g. "leg of a table").
 
 Each shared_feature pairs a dimension with a specific concept that
-both topic and vehicle exhibit. Keep concepts as short noun phrases.
+both topic and vehicle exhibit.
+
+CONCEPT FORMAT (CRITICAL): Each "concept" value MUST be a SINGLE
+common English word (noun, gerund, or adjective). NOT a phrase. NOT
+a list. NOT a comma-separated string. NOT a sentence fragment.
+These concepts are programmatically resolved to dictionary entries
+downstream, so they MUST exist as standalone words.
+
+GOOD: heat, spreading, destruction, intensity, taming, eruption
+BAD:  "must be tamed", "spent saved wasted", "clears air after",
+      "pressure builds invisibly then erupts"
+
+If a single word cannot capture what you mean, split it into
+multiple shared_feature entries.
 
 If fewer than 3 strong metaphors exist, return only the strong ones.
 
@@ -85,38 +100,40 @@ Output: {"topic":"anger","metaphors":[
   {"vehicle":"fire","shared_features":[
     {"dimension":"sensorimotor","concept":"heat"},
     {"dimension":"behaviour","concept":"spreading"},
-    {"dimension":"behaviour","concept":"consuming"},
+    {"dimension":"behaviour","concept":"consumption"},
     {"dimension":"effect","concept":"destruction"},
     {"dimension":"emotional","concept":"intensity"}],"confidence":0.95},
   {"vehicle":"storm","shared_features":[
-    {"dimension":"behaviour","concept":"builds then breaks"},
+    {"dimension":"behaviour","concept":"buildup"},
+    {"dimension":"behaviour","concept":"release"},
     {"dimension":"sensorimotor","concept":"turbulence"},
-    {"dimension":"effect","concept":"damage"},
-    {"dimension":"social","concept":"clears air after"}],"confidence":0.85},
+    {"dimension":"effect","concept":"damage"}],"confidence":0.85},
   {"vehicle":"volcano","shared_features":[
-    {"dimension":"behaviour","concept":"pressure builds invisibly then erupts"},
+    {"dimension":"behaviour","concept":"pressure"},
+    {"dimension":"behaviour","concept":"eruption"},
     {"dimension":"sensorimotor","concept":"heat"},
-    {"dimension":"emotional","concept":"explosive release"}],"confidence":0.85},
+    {"dimension":"emotional","concept":"release"}],"confidence":0.85},
   {"vehicle":"beast","shared_features":[
-    {"dimension":"behaviour","concept":"must be tamed"},
-    {"dimension":"functional","concept":"external agent within self"},
-    {"dimension":"social","concept":"feared, primal"}],"confidence":0.7}]}
+    {"dimension":"behaviour","concept":"taming"},
+    {"dimension":"functional","concept":"agency"},
+    {"dimension":"social","concept":"fear"}],"confidence":0.7}]}
 
 EXAMPLE
 Input: time (an indefinite period as a continuum)
 Output: {"topic":"time","metaphors":[
   {"vehicle":"money","shared_features":[
-    {"dimension":"functional","concept":"spent, saved, wasted"},
-    {"dimension":"social","concept":"budgeted, owed"},
-    {"dimension":"behaviour","concept":"tracked carefully"}],"confidence":0.95},
+    {"dimension":"functional","concept":"spending"},
+    {"dimension":"functional","concept":"saving"},
+    {"dimension":"social","concept":"budgeting"},
+    {"dimension":"behaviour","concept":"tracking"}],"confidence":0.95},
   {"vehicle":"river","shared_features":[
-    {"dimension":"behaviour","concept":"flows one direction"},
-    {"dimension":"sensorimotor","concept":"continuous motion"},
-    {"dimension":"effect","concept":"carries things away"}],"confidence":0.9},
+    {"dimension":"behaviour","concept":"flowing"},
+    {"dimension":"sensorimotor","concept":"motion"},
+    {"dimension":"effect","concept":"erosion"}],"confidence":0.9},
   {"vehicle":"thief","shared_features":[
-    {"dimension":"behaviour","concept":"takes without consent"},
-    {"dimension":"effect","concept":"loss noticed late"},
-    {"dimension":"emotional","concept":"lamented"}],"confidence":0.75}]}
+    {"dimension":"behaviour","concept":"taking"},
+    {"dimension":"effect","concept":"loss"},
+    {"dimension":"emotional","concept":"grief"}],"confidence":0.75}]}
 
 Input: <TOPIC> (<GLOSS>)
 Output:
@@ -236,6 +253,8 @@ The spike phases gate at each step so we never spend on a phase whose predecesso
 - **Gate to Phase 1b:**
   - JSON parseability ≥80% per model
   - Schema compliance ≥80% per model
+  - **Single-word concept compliance ≥90% per model** (every `concept` value is a single dictionary word). Drift below this threshold means the apt prompt needs more steering before scaling.
+  - **Concept snap-rate ≥80% per model** (concepts resolve to at least one `synset_id` via the `lemmas` table). Below this means the LLM is inventing concepts that aren't in our lexicon, and the bridge-node plumbing won't work.
   - Manual eyeball quality pass acceptable on at least the Sonnet output (Haiku failures here would re-shape the prompt before scaling)
 
 ### Phase 1b — full 20-topic spike (operator-gated promotion from 1a)
