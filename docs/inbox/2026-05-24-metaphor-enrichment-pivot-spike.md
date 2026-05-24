@@ -31,8 +31,13 @@ Generate, per synset, a small JSON graph of metaphor vehicles + structured share
 
 1. **Haiku vs Sonnet.** Can Haiku 4.5 hold the JSON schema *and* maintain quality? Cost difference is roughly an order of magnitude — pivots-worth depends on this answer.
 2. **Concept normalisation.** LLM will emit "heat", "hot", "heated" interchangeably across runs. Light stemming + a controlled vocab pass post-snap? Or accept the noise on v1?
-3. **Polysemy at snap.** Word "fire" maps to multiple synset_ids (noun: combustion / firearm / dismissal). Same sense-disambiguation problem property snap already solves — confirm the existing snap algorithm handles this without modification.
-4. **Cost ceiling.** ~35k synsets × N output tokens × per-call cost. Need a real number before commit.
+3. **Polysemy at snap — vehicles.** Word "fire" maps to multiple synset_ids (noun: combustion / firearm / dismissal). Same sense-disambiguation problem property snap already solves — confirm the existing snap algorithm handles this without modification.
+4. **Polysemy inside `shared_features` concepts.** Same problem one level deeper. "heat" inside `{"dimension":"sensorimotor","concept":"heat"}` is itself polysemous (temperature / pressure / sexual attraction / intensity-of-feeling). Per-concept inline gloss is impractical — token cost balloons and the LLM struggles with gloss-consistency across many concepts in one response. Two viable paths:
+   - **Path A (production-shaped):** constrain concepts to single common-English lemmas, snap downstream through the same `lemmas → synset_id` path the vehicles use. Bridge nodes become synset_ids — queryable like vehicles. Production-shaped.
+   - **Path B (spike-shaped):** accept free phrases, learn from what the LLM actually emits. Stem / lowercase / edit-distance cluster post-hoc. Less disciplined but the diagnostic value of "what shapes does the LLM naturally land on?" is high. Whether concepts cluster into a small lexicon or sprawl unmanageably will shape the production prompt.
+
+   **Decision for this spike: Path B.** The Phase 1a small-validation run is explicitly designed to surface this — the resulting concept distribution becomes input to the Phase 2 prompt tightening.
+5. **Cost ceiling.** ~35k synsets × N output tokens × per-call cost. Need a real number before commit.
 
 ## Resolved during brainstorm 2026-05-24
 
@@ -42,6 +47,8 @@ Generate, per synset, a small JSON graph of metaphor vehicles + structured share
 - **Inapt cohort generation:** option (b) — dedicated "plausible-but-wrong" prompt with structured JSON output. Closed-vocabulary `inapt_reason_type` tag + free-text `explanation` per vehicle. Cross-shuffle (option c) deferred to volume-scaling phase; same-prompt inapt (option a) rejected for triviality bias.
 - **Phasing:** spike runs in three gated phases — 1a small validation (5 topics, 20 calls), 1b full 20-topic spike (80 calls), Phase 2 cohort scale-up (~400 calls). Each phase operator-gated against the next. Operator funds 1a first; 1b only on 1a pass; Phase 2 only on 1b pass.
 - **Score-as-we-go:** every (topic, vehicle) pair is scored through the cascade in the same batch it's generated. First-look calibration signal builds live across phases. Diagnostic axis: per-`inapt_reason_type` discrimination breakdown reveals which failure modes the cascade catches vs misses — the calibration evidence M05 currently lacks.
+- **Gloss in output rejected.** Topic gloss is sent in input but NOT echoed in output (wasted tokens). Runner attaches gloss locally at writeback for human inspection.
+- **Concept disambiguation inside `shared_features`** flagged as a real polysemy concern one level deeper than vehicle disambiguation. Per-concept gloss rejected as token-prohibitive. Spike uses Path B (free phrases, learn from emission); production prompt will use Path A (constrain concepts to lemmas, snap to synset_ids) once Phase 1a tells us what shapes the LLM naturally lands on. See open-questions item #4.
 
 ## Prompt — apt (current draft)
 
@@ -69,12 +76,12 @@ both topic and vehicle exhibit. Keep concepts as short noun phrases.
 
 If fewer than 3 strong metaphors exist, return only the strong ones.
 
-OUTPUT (JSON only, no markdown, no preamble):
+OUTPUT (JSON only, no markdown, no preamble). DO NOT echo the input gloss in the output — runner attaches it locally:
 {"topic":"<word>","metaphors":[{"vehicle":"<word>","shared_features":[{"dimension":"<dim>","concept":"<concept>"}],"confidence":<0.0-1.0>}]}
 
 EXAMPLE
 Input: anger (a strong feeling of displeasure)
-Output: {"topic":"anger","gloss":"a strong feeling of displeasure","metaphors":[
+Output: {"topic":"anger","metaphors":[
   {"vehicle":"fire","shared_features":[
     {"dimension":"sensorimotor","concept":"heat"},
     {"dimension":"behaviour","concept":"spreading"},
@@ -97,7 +104,7 @@ Output: {"topic":"anger","gloss":"a strong feeling of displeasure","metaphors":[
 
 EXAMPLE
 Input: time (an indefinite period as a continuum)
-Output: {"topic":"time","gloss":"an indefinite period as a continuum","metaphors":[
+Output: {"topic":"time","metaphors":[
   {"vehicle":"money","shared_features":[
     {"dimension":"functional","concept":"spent, saved, wasted"},
     {"dimension":"social","concept":"budgeted, owed"},
@@ -146,19 +153,19 @@ FAILURE MODES (closed vocabulary — pick exactly one per vehicle):
 - synonym_or_hypernym: vehicle is a kind-of / part-of /
   contained-in the topic. anger→emotion, fire→combustion.
 
-OUTPUT (JSON only, no markdown, no preamble):
-{"topic":"<word>","gloss":"<gloss>","inapt_metaphors":[{"vehicle":"<word>","inapt_reason_type":"<tag>","explanation":"<text>"}]}
+OUTPUT (JSON only, no markdown, no preamble). DO NOT echo the input gloss in the output — runner attaches it locally:
+{"topic":"<word>","inapt_metaphors":[{"vehicle":"<word>","inapt_reason_type":"<tag>","explanation":"<text>"}]}
 
 EXAMPLE
 Input: anger (a strong feeling of displeasure)
-Output: {"topic":"anger","gloss":"a strong feeling of displeasure","inapt_metaphors":[
+Output: {"topic":"anger","inapt_metaphors":[
   {"vehicle":"calendar","inapt_reason_type":"single_dimension","explanation":"shares only the functional dimension of time-tracking; no sensorimotor, emotional, or behavioural resonance"},
   {"vehicle":"fury","inapt_reason_type":"same_domain","explanation":"near-synonym in the emotion domain; not a cross-domain mapping at all"},
   {"vehicle":"emotion","inapt_reason_type":"synonym_or_hypernym","explanation":"anger is a kind-of emotion; a taxonomic parent, not a metaphor"}]}
 
 EXAMPLE
 Input: time (an indefinite period as a continuum)
-Output: {"topic":"time","gloss":"an indefinite period as a continuum","inapt_metaphors":[
+Output: {"topic":"time","inapt_metaphors":[
   {"vehicle":"clock","inapt_reason_type":"single_dimension","explanation":"shares only the functional dimension of measurement; clock is an instrument of time, not a structurally-different domain mapping onto it"},
   {"vehicle":"duration","inapt_reason_type":"same_domain","explanation":"near-synonym; same conceptual domain, no cross-domain leap"},
   {"vehicle":"eternity","inapt_reason_type":"wrong_concreteness","explanation":"more abstract than time itself; vehicle should be more concrete than topic"}]}
@@ -172,7 +179,6 @@ Output:
 ```json
 {
   "topic": "anger",
-  "gloss": "a strong feeling of displeasure",
   "metaphors": [
     {
       "vehicle": "fire",
@@ -188,12 +194,13 @@ Output:
 
 Dimensions: `sensorimotor | behaviour | functional | effect | emotional | social` (mirrors property taxonomy; `other` deliberately excluded — if the LLM can't name a dimension, the feature is too vague to keep).
 
+`gloss` is sent in the input prompt but deliberately NOT echoed in output — wasted tokens. Runner attaches the gloss locally at writeback for human-inspection records.
+
 ## Output schema — inapt (per anchor synset)
 
 ```json
 {
   "topic": "anger",
-  "gloss": "a strong feeling of displeasure",
   "inapt_metaphors": [
     {
       "vehicle": "calendar",
