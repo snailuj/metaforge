@@ -374,10 +374,13 @@ def test_score_apt_vehicles_scored_pair():
     sv = scored[0]
     assert sv.topic == "grief"
     assert sv.vehicle == "storm"
-    # Status must be one of the CascadeStatus literals
-    assert sv.cascade_status in ("scored", "gate_dropped", "no_properties",
-                                  "missing_concreteness", "unresolved")
-    assert isinstance(sv.cascade_status, str)
+    # Fixture: storm concreteness 4.5 - grief concreteness 1.5 = 3.0 >= gate 1.0,
+    # both have shared property -> cascade should fully score.
+    assert sv.cascade_status == "scored"
+    assert sv.final_score is not None
+    assert sv.gate_passed is True
+    assert sv.synset_topic == "syn-grief"
+    assert sv.synset_vehicle == "syn-storm"
 
 
 def test_score_apt_vehicles_unknown_vehicle():
@@ -397,3 +400,18 @@ def test_score_apt_vehicles_unknown_vehicle():
     assert len(scored) == 1
     assert scored[0].cascade_status == "unresolved"
     assert scored[0].final_score is None
+
+
+def test_write_jsonl_line_skips_non_serialisable(tmp_path, caplog):
+    """A non-JSON-serialisable payload logs a warning and is skipped."""
+    import logging as _logging
+    out = tmp_path / "out.jsonl"
+    write_jsonl_line(out, {"good": "value"})
+    # Set is not JSON-serialisable
+    with caplog.at_level(_logging.WARNING):
+        write_jsonl_line(out, {"bad": {1, 2, 3}})
+    write_jsonl_line(out, {"another": "value"})
+    lines = out.read_text().strip().splitlines()
+    # Good lines are written; the bad one is skipped silently (no crash).
+    assert len(lines) == 2
+    assert "non-serialisable" in caplog.text.lower()

@@ -440,12 +440,22 @@ class ScoredVehicle:
 def write_jsonl_line(path: Path, obj: dict) -> None:
     """Append one JSON object as a newline to path.
 
-    Creates parent directories if absent.
+    Creates parent directories if absent. If `obj` is not
+    JSON-serialisable the line is skipped with a WARNING — the
+    spike runner must not abort on a single bad payload.
     Thread-safety: this runner is single-threaded; no locking needed.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(obj, ensure_ascii=False) + "\n")
+    try:
+        line = json.dumps(obj, ensure_ascii=False)
+    except (TypeError, ValueError) as e:
+        log.warning("write_jsonl_line: skipping non-serialisable payload (%s)", e)
+        return
+    try:
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError as e:
+        log.warning("write_jsonl_line: write failed for %s: %s", path, e)
 
 
 def score_apt_vehicles(
@@ -488,7 +498,26 @@ def score_apt_vehicles(
             )
             continue
 
-        cr = evaluate_cascade_pair(conn, sid_topic, sid_vehicle, config)
+        try:
+            cr = evaluate_cascade_pair(conn, sid_topic, sid_vehicle, config)
+        except Exception as e:
+            log.warning(
+                "cascade scoring failed topic=%r vehicle=%r: %s",
+                topic_word, vehicle_word, e,
+            )
+            results.append(
+                ScoredVehicle(
+                    topic=topic_word,
+                    vehicle=vehicle_word,
+                    synset_topic=sid_topic,
+                    synset_vehicle=sid_vehicle,
+                    cascade_status="unresolved",
+                    final_score=None,
+                    gate_passed=False,
+                )
+            )
+            continue
+
         results.append(
             ScoredVehicle(
                 topic=topic_word,
