@@ -28,6 +28,8 @@ from metaphor_spike_1a import (
     score_apt_vehicles,
     ScoredVehicle,
     PRODUCTION_CASCADE_CONFIG,
+    GateMetrics,
+    compute_gate_metrics,
 )
 
 
@@ -415,3 +417,73 @@ def test_write_jsonl_line_skips_non_serialisable(tmp_path, caplog):
     # Good lines are written; the bad one is skipped silently (no crash).
     assert len(lines) == 2
     assert "non-serialisable" in caplog.text.lower()
+
+
+def test_compute_gate_metrics_all_pass():
+    validations = [
+        AptValidation(
+            schema_ok=True,
+            n_vehicles=3,
+            n_concepts=6,
+            n_single_word_concepts=6,
+            concept_violations=[],
+            schema_errors=[],
+        ),
+        AptValidation(
+            schema_ok=True,
+            n_vehicles=2,
+            n_concepts=4,
+            n_single_word_concepts=4,
+            concept_violations=[],
+            schema_errors=[],
+        ),
+    ]
+    snap = ConceptSnapResult(n_concepts=10, n_snapped=10, snap_rate=1.0, unsnapped=[])
+    m = compute_gate_metrics(validations, snap)
+    assert m.parse_ok_rate == 1.0  # both parsed (no parse failure injected)
+    assert m.schema_ok_rate == 1.0
+    assert m.single_word_rate == 1.0
+    assert m.snap_rate == 1.0
+
+
+def test_compute_gate_metrics_mixed():
+    validations = [
+        AptValidation(
+            schema_ok=True,
+            n_vehicles=2,
+            n_concepts=4,
+            n_single_word_concepts=3,  # one multi-word violation
+            concept_violations=["must be tamed"],
+            schema_errors=[],
+        ),
+        AptValidation(
+            schema_ok=False,  # schema failure
+            n_vehicles=0,
+            n_concepts=0,
+            n_single_word_concepts=0,
+            concept_violations=[],
+            schema_errors=["missing 'metaphors' key"],
+        ),
+    ]
+    snap = ConceptSnapResult(n_concepts=4, n_snapped=3, snap_rate=0.75, unsnapped=["xyz"])
+    m = compute_gate_metrics(validations, snap)
+    assert m.schema_ok_rate == 0.5  # 1/2
+    assert m.single_word_rate == round(3 / 4, 6)  # 3 of 4 concepts single-word
+    assert m.snap_rate == 0.75
+
+
+def test_compute_gate_metrics_zero_concepts():
+    validations = [
+        AptValidation(
+            schema_ok=False,
+            n_vehicles=0,
+            n_concepts=0,
+            n_single_word_concepts=0,
+            concept_violations=[],
+            schema_errors=["missing key"],
+        )
+    ]
+    snap = ConceptSnapResult(n_concepts=0, n_snapped=0, snap_rate=0.0, unsnapped=[])
+    m = compute_gate_metrics(validations, snap)
+    assert m.single_word_rate == 0.0
+    assert m.snap_rate == 0.0
