@@ -15,6 +15,10 @@ from metaphor_spike_1a import (
     TOPICS,
     build_apt_prompt,
     build_inapt_prompt,
+    validate_apt_response,
+    validate_inapt_response,
+    AptValidation,
+    InaptValidation,
 )
 
 
@@ -57,3 +61,107 @@ def test_apt_and_inapt_prompts_are_different():
     apt = build_apt_prompt("grief", "deep sorrow")
     inapt = build_inapt_prompt("grief", "deep sorrow")
     assert apt != inapt
+
+
+def test_validate_apt_response_valid():
+    raw = {
+        "topic": "anger",
+        "metaphors": [
+            {
+                "vehicle": "fire",
+                "shared_features": [
+                    {"dimension": "sensorimotor", "concept": "heat"},
+                    {"dimension": "behaviour", "concept": "spreading"},
+                ],
+                "confidence": 0.95,
+            }
+        ],
+    }
+    v = validate_apt_response(raw)
+    assert v.schema_ok
+    assert v.n_vehicles == 1
+    assert v.n_concepts == 2
+    assert v.n_single_word_concepts == 2
+    assert v.concept_violations == []
+
+
+def test_validate_apt_response_multi_word_concept():
+    """A concept containing a space must be counted as a violation."""
+    raw = {
+        "topic": "anger",
+        "metaphors": [
+            {
+                "vehicle": "fire",
+                "shared_features": [
+                    {"dimension": "sensorimotor", "concept": "must be tamed"},
+                ],
+                "confidence": 0.9,
+            }
+        ],
+    }
+    v = validate_apt_response(raw)
+    assert v.schema_ok
+    assert v.n_concepts == 1
+    assert v.n_single_word_concepts == 0
+    assert "must be tamed" in v.concept_violations
+
+
+def test_validate_apt_response_bad_dimension():
+    """An invalid dimension value makes schema_ok False."""
+    raw = {
+        "topic": "anger",
+        "metaphors": [
+            {
+                "vehicle": "fire",
+                "shared_features": [
+                    {"dimension": "other", "concept": "heat"},
+                ],
+                "confidence": 0.9,
+            }
+        ],
+    }
+    v = validate_apt_response(raw)
+    assert not v.schema_ok
+
+
+def test_validate_apt_response_missing_metaphors_key():
+    raw = {"topic": "anger"}
+    v = validate_apt_response(raw)
+    assert not v.schema_ok
+
+
+def test_validate_inapt_response_valid():
+    raw = {
+        "topic": "anger",
+        "inapt_metaphors": [
+            {
+                "vehicle": "fury",
+                "inapt_reason_type": "same_domain",
+                "explanation": "near-synonym",
+            }
+        ],
+    }
+    v = validate_inapt_response(raw)
+    assert v.schema_ok
+    assert v.n_vehicles == 1
+
+
+def test_validate_inapt_response_bad_reason_type():
+    raw = {
+        "topic": "anger",
+        "inapt_metaphors": [
+            {
+                "vehicle": "fury",
+                "inapt_reason_type": "made_up_tag",
+                "explanation": "near-synonym",
+            }
+        ],
+    }
+    v = validate_inapt_response(raw)
+    assert not v.schema_ok
+
+
+def test_validate_inapt_response_missing_key():
+    raw = {"topic": "anger"}
+    v = validate_inapt_response(raw)
+    assert not v.schema_ok

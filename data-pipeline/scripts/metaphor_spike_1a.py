@@ -23,6 +23,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
 
+import json
+import logging
+import sqlite3
+import argparse
+from datetime import datetime
+from dataclasses import dataclass, field
+from typing import Optional
+
+log = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Anchor topics — hand-curated for Phase 1a.
 # Covers: Lakoff classic (anger), concrete metaphor-rich (heart),
@@ -209,3 +219,123 @@ def build_apt_prompt(topic: str, gloss: str) -> str:
 def build_inapt_prompt(topic: str, gloss: str) -> str:
     """Render the inapt prompt template for a single topic."""
     return _INAPT_TEMPLATE.format(topic=topic, gloss=gloss)
+
+
+_VALID_DIMENSIONS = frozenset({
+    "sensorimotor", "behaviour", "functional", "effect", "emotional", "social",
+})
+
+_VALID_INAPT_REASON_TYPES = frozenset({
+    "single_dimension", "same_domain", "wrong_concreteness",
+    "dead_metaphor", "synonym_or_hypernym",
+})
+
+
+@dataclass
+class AptValidation:
+    """Validation result for one apt LLM response object."""
+    schema_ok: bool
+    n_vehicles: int
+    n_concepts: int
+    n_single_word_concepts: int
+    concept_violations: list[str]  # multi-word concept strings
+    schema_errors: list[str]       # structural problems
+
+
+@dataclass
+class InaptValidation:
+    """Validation result for one inapt LLM response object."""
+    schema_ok: bool
+    n_vehicles: int
+    schema_errors: list[str]
+
+
+def validate_apt_response(raw: dict) -> AptValidation:
+    """Validate one apt LLM response against the spike doc schema.
+
+    Checks:
+    - top-level "metaphors" key present and a list
+    - each metaphor has "vehicle" (str), "shared_features" (list), "confidence" (float)
+    - each shared_feature has "dimension" (valid enum) and "concept" (str)
+    - concept single-word compliance (no spaces)
+    """
+    errors: list[str] = []
+    concept_violations: list[str] = []
+    n_vehicles = 0
+    n_concepts = 0
+    n_single_word = 0
+
+    metaphors = raw.get("metaphors")
+    if not isinstance(metaphors, list):
+        errors.append("missing or non-list 'metaphors' key")
+        return AptValidation(
+            schema_ok=False,
+            n_vehicles=0,
+            n_concepts=0,
+            n_single_word_concepts=0,
+            concept_violations=[],
+            schema_errors=errors,
+        )
+
+    for i, m in enumerate(metaphors):
+        if not isinstance(m.get("vehicle"), str):
+            errors.append(f"metaphor[{i}] missing 'vehicle'")
+        if not isinstance(m.get("confidence"), (int, float)):
+            errors.append(f"metaphor[{i}] missing numeric 'confidence'")
+
+        features = m.get("shared_features")
+        if not isinstance(features, list):
+            errors.append(f"metaphor[{i}] missing 'shared_features' list")
+            continue
+
+        n_vehicles += 1
+        for j, sf in enumerate(features):
+            dim = sf.get("dimension", "")
+            concept = sf.get("concept", "")
+            if dim not in _VALID_DIMENSIONS:
+                errors.append(
+                    f"metaphor[{i}].shared_features[{j}] invalid dimension {dim!r}"
+                )
+            n_concepts += 1
+            if " " not in concept.strip():
+                n_single_word += 1
+            else:
+                concept_violations.append(concept)
+
+    return AptValidation(
+        schema_ok=len(errors) == 0,
+        n_vehicles=n_vehicles,
+        n_concepts=n_concepts,
+        n_single_word_concepts=n_single_word,
+        concept_violations=concept_violations,
+        schema_errors=errors,
+    )
+
+
+def validate_inapt_response(raw: dict) -> InaptValidation:
+    """Validate one inapt LLM response against the spike doc schema."""
+    errors: list[str] = []
+    n_vehicles = 0
+
+    inapt_metaphors = raw.get("inapt_metaphors")
+    if not isinstance(inapt_metaphors, list):
+        errors.append("missing or non-list 'inapt_metaphors' key")
+        return InaptValidation(schema_ok=False, n_vehicles=0, schema_errors=errors)
+
+    for i, m in enumerate(inapt_metaphors):
+        if not isinstance(m.get("vehicle"), str):
+            errors.append(f"inapt_metaphors[{i}] missing 'vehicle'")
+        reason = m.get("inapt_reason_type", "")
+        if reason not in _VALID_INAPT_REASON_TYPES:
+            errors.append(
+                f"inapt_metaphors[{i}] invalid inapt_reason_type {reason!r}"
+            )
+        if not isinstance(m.get("explanation"), str):
+            errors.append(f"inapt_metaphors[{i}] missing 'explanation'")
+        n_vehicles += 1
+
+    return InaptValidation(
+        schema_ok=len(errors) == 0,
+        n_vehicles=n_vehicles,
+        schema_errors=errors,
+    )
