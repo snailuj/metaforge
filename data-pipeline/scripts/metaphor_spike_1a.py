@@ -30,7 +30,7 @@ import sqlite3
 import argparse
 from contextlib import closing
 from datetime import datetime
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from evaluate_cascade import evaluate_cascade_pair, CascadeConfig
