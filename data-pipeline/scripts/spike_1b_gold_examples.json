@@ -1,0 +1,514 @@
+{
+  "model": "claude-sonnet-4-6",
+  "topics": [
+    {
+      "word": "love",
+      "gloss": "a strong feeling of affection or care toward another",
+      "apt": {
+        "topic": "love",
+        "metaphors": [
+          {
+            "vehicle": "fire",
+            "shared_features": [
+              {
+                "dimension": "sensorimotor",
+                "concept": "warmth"
+              },
+              {
+                "dimension": "sensorimotor",
+                "concept": "heat"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "consuming"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "spreading"
+              },
+              {
+                "dimension": "emotional",
+                "concept": "intensity"
+              },
+              {
+                "dimension": "functional",
+                "concept": "nurturing"
+              }
+            ],
+            "confidence": 0.92
+          },
+          {
+            "vehicle": "garden",
+            "shared_features": [
+              {
+                "dimension": "behaviour",
+                "concept": "cultivation"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "tending"
+              },
+              {
+                "dimension": "functional",
+                "concept": "nurturing"
+              },
+              {
+                "dimension": "effect",
+                "concept": "flourishing"
+              },
+              {
+                "dimension": "social",
+                "concept": "sharing"
+              }
+            ],
+            "confidence": 0.88
+          },
+          {
+            "vehicle": "journey",
+            "shared_features": [
+              {
+                "dimension": "behaviour",
+                "concept": "direction"
+              },
+              {
+                "dimension": "functional",
+                "concept": "navigation"
+              },
+              {
+                "dimension": "social",
+                "concept": "companionship"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "obstacles"
+              },
+              {
+                "dimension": "effect",
+                "concept": "growth"
+              }
+            ],
+            "confidence": 0.85
+          },
+          {
+            "vehicle": "gravity",
+            "shared_features": [
+              {
+                "dimension": "behaviour",
+                "concept": "attraction"
+              },
+              {
+                "dimension": "sensorimotor",
+                "concept": "pull"
+              },
+              {
+                "dimension": "functional",
+                "concept": "binding"
+              },
+              {
+                "dimension": "emotional",
+                "concept": "inevitability"
+              }
+            ],
+            "confidence": 0.82
+          },
+          {
+            "vehicle": "anchor",
+            "shared_features": [
+              {
+                "dimension": "functional",
+                "concept": "grounding"
+              },
+              {
+                "dimension": "effect",
+                "concept": "stability"
+              },
+              {
+                "dimension": "sensorimotor",
+                "concept": "weight"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "holding"
+              },
+              {
+                "dimension": "emotional",
+                "concept": "security"
+              }
+            ],
+            "confidence": 0.8
+          },
+          {
+            "vehicle": "flood",
+            "shared_features": [
+              {
+                "dimension": "sensorimotor",
+                "concept": "immersion"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "inundation"
+              },
+              {
+                "dimension": "emotional",
+                "concept": "surrender"
+              },
+              {
+                "dimension": "effect",
+                "concept": "transformation"
+              }
+            ],
+            "confidence": 0.78
+          }
+        ]
+      },
+      "inapt": {
+        "topic": "love",
+        "inapt_metaphors": [
+          {
+            "vehicle": "devotion",
+            "inapt_reason_type": "same_domain",
+            "explanation": "near-synonym in the affection/commitment domain; love→devotion shares the same emotional space with no cross-domain leap"
+          },
+          {
+            "vehicle": "warmth",
+            "inapt_reason_type": "dead_metaphor",
+            "explanation": "the thermal→affective mapping ('warmth of feeling', 'a warm person') is so thoroughly conventionalised that it no longer functions as a live figurative transfer"
+          },
+          {
+            "vehicle": "attraction",
+            "inapt_reason_type": "single_dimension",
+            "explanation": "shares only the social pull dimension; lacks the care, commitment, reciprocity, and sustained emotional depth that structural metaphor requires to resonate across domains"
+          }
+        ]
+      }
+    },
+    {
+      "word": "knowledge",
+      "gloss": "what is known; facts and understanding acquired through experience or learning",
+      "apt": {
+        "topic": "knowledge",
+        "metaphors": [
+          {
+            "vehicle": "light",
+            "shared_features": [
+              {
+                "dimension": "sensorimotor",
+                "concept": "illumination"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "revealing"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "spreading"
+              },
+              {
+                "dimension": "effect",
+                "concept": "clarity"
+              },
+              {
+                "dimension": "functional",
+                "concept": "guidance"
+              }
+            ],
+            "confidence": 0.95
+          },
+          {
+            "vehicle": "map",
+            "shared_features": [
+              {
+                "dimension": "functional",
+                "concept": "orientation"
+              },
+              {
+                "dimension": "functional",
+                "concept": "representation"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "navigation"
+              },
+              {
+                "dimension": "effect",
+                "concept": "certainty"
+              },
+              {
+                "dimension": "social",
+                "concept": "sharing"
+              }
+            ],
+            "confidence": 0.88
+          },
+          {
+            "vehicle": "seed",
+            "shared_features": [
+              {
+                "dimension": "behaviour",
+                "concept": "growth"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "propagation"
+              },
+              {
+                "dimension": "functional",
+                "concept": "potential"
+              },
+              {
+                "dimension": "effect",
+                "concept": "yield"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "cultivation"
+              }
+            ],
+            "confidence": 0.82
+          },
+          {
+            "vehicle": "edifice",
+            "shared_features": [
+              {
+                "dimension": "behaviour",
+                "concept": "construction"
+              },
+              {
+                "dimension": "functional",
+                "concept": "foundation"
+              },
+              {
+                "dimension": "effect",
+                "concept": "durability"
+              },
+              {
+                "dimension": "effect",
+                "concept": "collapse"
+              },
+              {
+                "dimension": "social",
+                "concept": "inheritance"
+              }
+            ],
+            "confidence": 0.8
+          },
+          {
+            "vehicle": "food",
+            "shared_features": [
+              {
+                "dimension": "behaviour",
+                "concept": "consumption"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "digestion"
+              },
+              {
+                "dimension": "effect",
+                "concept": "nourishment"
+              },
+              {
+                "dimension": "emotional",
+                "concept": "hunger"
+              },
+              {
+                "dimension": "sensorimotor",
+                "concept": "satiation"
+              }
+            ],
+            "confidence": 0.78
+          },
+          {
+            "vehicle": "treasure",
+            "shared_features": [
+              {
+                "dimension": "behaviour",
+                "concept": "seeking"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "accumulation"
+              },
+              {
+                "dimension": "emotional",
+                "concept": "value"
+              },
+              {
+                "dimension": "functional",
+                "concept": "concealment"
+              },
+              {
+                "dimension": "effect",
+                "concept": "empowerment"
+              }
+            ],
+            "confidence": 0.72
+          }
+        ]
+      },
+      "inapt": {
+        "topic": "knowledge",
+        "inapt_metaphors": [
+          {
+            "vehicle": "understanding",
+            "inapt_reason_type": "same_domain",
+            "explanation": "near-synonym in the epistemic domain; both denote a cognitive state of grasping truth — no cross-domain leap, merely a paraphrase at the same abstraction level"
+          },
+          {
+            "vehicle": "light",
+            "inapt_reason_type": "dead_metaphor",
+            "explanation": "'knowledge is enlightenment/illumination' is so thoroughly conventionalised in English that the mapping is no longer felt as figurative — 'enlightened', 'shed light on', 'illuminate' are lexicalised, not live metaphors"
+          },
+          {
+            "vehicle": "encyclopedia",
+            "inapt_reason_type": "single_dimension",
+            "explanation": "shares only the functional dimension of storing and organising facts; no sensorimotor, behavioural, emotional, or social resonance — it is an instrument of knowledge, not a structurally-different domain mapping onto it"
+          }
+        ]
+      }
+    },
+    {
+      "word": "fear",
+      "gloss": "an unpleasant feeling caused by perceived danger or threat",
+      "apt": {
+        "topic": "fear",
+        "metaphors": [
+          {
+            "vehicle": "ice",
+            "shared_features": [
+              {
+                "dimension": "sensorimotor",
+                "concept": "cold"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "freezing"
+              },
+              {
+                "dimension": "effect",
+                "concept": "immobility"
+              },
+              {
+                "dimension": "emotional",
+                "concept": "dread"
+              }
+            ],
+            "confidence": 0.9
+          },
+          {
+            "vehicle": "predator",
+            "shared_features": [
+              {
+                "dimension": "behaviour",
+                "concept": "stalking"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "pursuit"
+              },
+              {
+                "dimension": "functional",
+                "concept": "hunting"
+              },
+              {
+                "dimension": "social",
+                "concept": "threat"
+              },
+              {
+                "dimension": "emotional",
+                "concept": "vigilance"
+              }
+            ],
+            "confidence": 0.85
+          },
+          {
+            "vehicle": "quicksand",
+            "shared_features": [
+              {
+                "dimension": "sensorimotor",
+                "concept": "sinking"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "trapping"
+              },
+              {
+                "dimension": "effect",
+                "concept": "immobility"
+              },
+              {
+                "dimension": "emotional",
+                "concept": "despair"
+              }
+            ],
+            "confidence": 0.8
+          },
+          {
+            "vehicle": "fog",
+            "shared_features": [
+              {
+                "dimension": "sensorimotor",
+                "concept": "obscuring"
+              },
+              {
+                "dimension": "functional",
+                "concept": "disorientation"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "enveloping"
+              },
+              {
+                "dimension": "effect",
+                "concept": "confusion"
+              }
+            ],
+            "confidence": 0.75
+          },
+          {
+            "vehicle": "cage",
+            "shared_features": [
+              {
+                "dimension": "functional",
+                "concept": "confinement"
+              },
+              {
+                "dimension": "behaviour",
+                "concept": "restricting"
+              },
+              {
+                "dimension": "effect",
+                "concept": "immobility"
+              },
+              {
+                "dimension": "social",
+                "concept": "isolation"
+              }
+            ],
+            "confidence": 0.75
+          }
+        ]
+      },
+      "inapt": {
+        "topic": "fear",
+        "inapt_metaphors": [
+          {
+            "vehicle": "anxiety",
+            "inapt_reason_type": "same_domain",
+            "explanation": "near-synonym in the threat-response emotion cluster; both are anticipatory negative affect states — no cross-domain leap is made"
+          },
+          {
+            "vehicle": "alarm",
+            "inapt_reason_type": "dead_metaphor",
+            "explanation": "'alarmed' and 'alarm' have been so thoroughly literalised as synonyms for fear that the mapping no longer carries figurative weight — it reads as vocabulary, not metaphor"
+          },
+          {
+            "vehicle": "pain",
+            "inapt_reason_type": "single_dimension",
+            "explanation": "shares only negative emotional valence; pain lacks the threat-anticipation structure, freeze-or-flight behavioural signature, and social-signalling dimensions that make fear structurally distinctive"
+          }
+        ]
+      }
+    }
+  ]
+}
