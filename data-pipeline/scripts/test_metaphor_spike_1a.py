@@ -11,6 +11,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import sqlite3
+
 from metaphor_spike_1a import (
     TOPICS,
     build_apt_prompt,
@@ -19,6 +21,8 @@ from metaphor_spike_1a import (
     validate_inapt_response,
     AptValidation,
     InaptValidation,
+    check_concept_snap_rate,
+    ConceptSnapResult,
 )
 
 
@@ -217,3 +221,45 @@ def test_validate_inapt_response_non_dict_entry():
     raw = {"topic": "anger", "inapt_metaphors": [None, "fury", 42]}
     v = validate_inapt_response(raw)
     assert not v.schema_ok
+
+
+def _make_lemmas_db(words: list[str]) -> sqlite3.Connection:
+    """In-memory DB with a lemmas table populated for the given words."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        "CREATE TABLE lemmas (lemma TEXT NOT NULL, synset_id TEXT NOT NULL, "
+        "PRIMARY KEY (lemma, synset_id))"
+    )
+    for i, w in enumerate(words):
+        conn.execute("INSERT INTO lemmas VALUES (?, ?)", (w, f"s-{i}"))
+    conn.commit()
+    return conn
+
+
+def test_concept_snap_all_known():
+    conn = _make_lemmas_db(["heat", "spreading", "destruction"])
+    concepts = ["heat", "spreading", "destruction"]
+    result = check_concept_snap_rate(conn, concepts)
+    assert result.n_concepts == 3
+    assert result.n_snapped == 3
+    assert result.snap_rate == 1.0
+    assert result.unsnapped == []
+
+
+def test_concept_snap_partial():
+    conn = _make_lemmas_db(["heat"])
+    concepts = ["heat", "unknownxyz", "alsounkown"]
+    result = check_concept_snap_rate(conn, concepts)
+    assert result.n_concepts == 3
+    assert result.n_snapped == 1
+    assert round(result.snap_rate, 4) == round(1 / 3, 4)
+    assert "unknownxyz" in result.unsnapped
+    assert "alsounkown" in result.unsnapped
+
+
+def test_concept_snap_empty_list():
+    conn = _make_lemmas_db([])
+    result = check_concept_snap_rate(conn, [])
+    assert result.n_concepts == 0
+    assert result.n_snapped == 0
+    assert result.snap_rate == 0.0

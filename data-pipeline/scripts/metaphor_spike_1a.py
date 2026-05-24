@@ -360,3 +360,48 @@ def validate_inapt_response(raw: dict) -> InaptValidation:
         n_vehicles=n_vehicles,
         schema_errors=errors,
     )
+
+
+@dataclass
+class ConceptSnapResult:
+    n_concepts: int
+    n_snapped: int
+    snap_rate: float      # 0.0 when n_concepts == 0
+    unsnapped: list[str]  # concepts that had no lemmas row
+
+
+def check_concept_snap_rate(
+    conn: sqlite3.Connection, concepts: list[str]
+) -> ConceptSnapResult:
+    """Check how many concept words resolve against the lemmas table.
+
+    Each concept is looked up case-insensitively. Duplicates are
+    counted once per unique string (same concept appearing in multiple
+    shared_features entries for different vehicles is deduplicated so
+    one bad word doesn't dominate the rate unfairly).
+    """
+    if not concepts:
+        return ConceptSnapResult(
+            n_concepts=0, n_snapped=0, snap_rate=0.0, unsnapped=[]
+        )
+
+    unique = list(dict.fromkeys(c.strip().lower() for c in concepts if c.strip()))
+    snapped: list[str] = []
+    unsnapped: list[str] = []
+
+    for word in unique:
+        row = conn.execute(
+            "SELECT 1 FROM lemmas WHERE lemma = ? LIMIT 1", (word,)
+        ).fetchone()
+        if row:
+            snapped.append(word)
+        else:
+            unsnapped.append(word)
+
+    n = len(unique)
+    return ConceptSnapResult(
+        n_concepts=n,
+        n_snapped=len(snapped),
+        snap_rate=len(snapped) / n if n else 0.0,
+        unsnapped=unsnapped,
+    )
