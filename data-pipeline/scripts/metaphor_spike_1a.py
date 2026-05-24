@@ -278,6 +278,9 @@ def validate_apt_response(raw: dict) -> AptValidation:
         )
 
     for i, m in enumerate(metaphors):
+        if not isinstance(m, dict):
+            errors.append(f"metaphor[{i}] is not a dict (got {type(m).__name__})")
+            continue
         if not isinstance(m.get("vehicle"), str):
             errors.append(f"metaphor[{i}] missing 'vehicle'")
         if not isinstance(m.get("confidence"), (int, float)):
@@ -290,12 +293,25 @@ def validate_apt_response(raw: dict) -> AptValidation:
 
         n_vehicles += 1
         for j, sf in enumerate(features):
+            if not isinstance(sf, dict):
+                errors.append(
+                    f"metaphor[{i}].shared_features[{j}] is not a dict "
+                    f"(got {type(sf).__name__})"
+                )
+                continue
             dim = sf.get("dimension", "")
             concept = sf.get("concept", "")
             if dim not in _VALID_DIMENSIONS:
                 errors.append(
                     f"metaphor[{i}].shared_features[{j}] invalid dimension {dim!r}"
                 )
+            if not isinstance(concept, str):
+                errors.append(
+                    f"metaphor[{i}].shared_features[{j}] concept is not a string"
+                )
+                n_concepts += 1
+                concept_violations.append(repr(concept))
+                continue
             n_concepts += 1
             if " " not in concept.strip():
                 n_single_word += 1
@@ -323,6 +339,11 @@ def validate_inapt_response(raw: dict) -> InaptValidation:
         return InaptValidation(schema_ok=False, n_vehicles=0, schema_errors=errors)
 
     for i, m in enumerate(inapt_metaphors):
+        if not isinstance(m, dict):
+            errors.append(
+                f"inapt_metaphors[{i}] is not a dict (got {type(m).__name__})"
+            )
+            continue
         if not isinstance(m.get("vehicle"), str):
             errors.append(f"inapt_metaphors[{i}] missing 'vehicle'")
         reason = m.get("inapt_reason_type", "")

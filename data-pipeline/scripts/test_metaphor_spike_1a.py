@@ -165,3 +165,55 @@ def test_validate_inapt_response_missing_key():
     raw = {"topic": "anger"}
     v = validate_inapt_response(raw)
     assert not v.schema_ok
+
+
+def test_validate_apt_response_non_dict_metaphor_entry():
+    """A non-dict element in the metaphors list must not crash the validator."""
+    raw = {"topic": "anger", "metaphors": [None, "fire", 42]}
+    v = validate_apt_response(raw)
+    assert not v.schema_ok
+    # Should not have raised — validator returns gracefully
+
+
+def test_validate_apt_response_non_string_concept():
+    """A non-string concept value must not crash the validator."""
+    raw = {
+        "topic": "anger",
+        "metaphors": [
+            {
+                "vehicle": "fire",
+                "shared_features": [
+                    {"dimension": "sensorimotor", "concept": None},
+                    {"dimension": "behaviour", "concept": 42},
+                ],
+                "confidence": 0.9,
+            }
+        ],
+    }
+    v = validate_apt_response(raw)
+    assert not v.schema_ok
+    # n_concepts should still count the entries
+    assert v.n_concepts == 2
+
+
+def test_validate_apt_response_non_dict_shared_feature():
+    """A non-dict shared_feature element must not crash the validator."""
+    raw = {
+        "topic": "anger",
+        "metaphors": [
+            {
+                "vehicle": "fire",
+                "shared_features": [None, "intense", {"dimension": "sensorimotor", "concept": "heat"}],
+                "confidence": 0.9,
+            }
+        ],
+    }
+    v = validate_apt_response(raw)
+    assert not v.schema_ok
+
+
+def test_validate_inapt_response_non_dict_entry():
+    """A non-dict element in inapt_metaphors must not crash the validator."""
+    raw = {"topic": "anger", "inapt_metaphors": [None, "fury", 42]}
+    v = validate_inapt_response(raw)
+    assert not v.schema_ok
