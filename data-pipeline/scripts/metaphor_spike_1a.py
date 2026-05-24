@@ -385,7 +385,11 @@ def check_concept_snap_rate(
             n_concepts=0, n_snapped=0, snap_rate=0.0, unsnapped=[]
         )
 
-    unique = list(dict.fromkeys(c.strip().lower() for c in concepts if c.strip()))
+    unique = list(dict.fromkeys(
+        c.strip().lower()
+        for c in concepts
+        if isinstance(c, str) and c.strip()
+    ))
     snapped: list[str] = []
     unsnapped: list[str] = []
 

@@ -263,3 +263,22 @@ def test_concept_snap_empty_list():
     assert result.n_concepts == 0
     assert result.n_snapped == 0
     assert result.snap_rate == 0.0
+
+
+def test_concept_snap_handles_none_and_non_string_inputs():
+    """Non-string entries (None, ints) are silently filtered, like whitespace-only."""
+    conn = _make_lemmas_db(["heat"])
+    concepts = ["heat", None, 42, "  ", "unknownxyz"]
+    result = check_concept_snap_rate(conn, concepts)
+    # Only "heat" + "unknownxyz" survive the filter — count of 2 unique
+    assert result.n_concepts == 2
+    assert result.n_snapped == 1
+    assert "unknownxyz" in result.unsnapped
+
+
+def test_concept_snap_case_insensitive():
+    """Lookup is case-insensitive — HEAT matches the lowercase lemma."""
+    conn = _make_lemmas_db(["heat"])
+    result = check_concept_snap_rate(conn, ["HEAT", "Heat"])
+    assert result.n_concepts == 1  # dedup collapses to "heat"
+    assert result.n_snapped == 1
