@@ -102,6 +102,7 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Backlog (no clear slot yet)
 
+- **Sense-gloss-only metaphor enrichment variant** *(captured 2026-05-24 during the metaphor-enrichment spike brainstorm)* — option (c) from the input-granularity decision: feed the LLM only the sense definition, no word. Tests whether the model is metaphor-mapping the *concept* or pattern-matching the *word*. Deferred to backlog (budget-bound, not priority-bound) — promote to a small ablation experiment once the main spike has shipped and we have a reusable runner. Production-awkward (the word is what users type) but useful research signal for understanding whether future enrichment can ride on glosses alone (cheaper, less polysemy-coupled) or fundamentally needs the lexical anchor.
 - **Snap-tuning research** — see project memories `project_metaforge_snap_threshold_curve` and `project_metaforge_signal_weighted_snap_JSJSJS`
   - ~~Threshold default change 0.70 → 0.48~~ — **promoted into M02 — Asymmetric Ortony Scoring S04-D (in progress 2026-05-15)**.
   - ~~Curated vocab additions for sensorimotor losses (`resonant`, `earthy`, `angular`, etc.)~~ — **promoted into M02 — Asymmetric Ortony Scoring S04-G (queued, runs only if S04-D is partial)**.

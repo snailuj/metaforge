@@ -34,7 +34,16 @@ Generate, per synset, a small JSON graph of metaphor vehicles + structured share
 3. **Polysemy at snap.** Word "fire" maps to multiple synset_ids (noun: combustion / firearm / dismissal). Same sense-disambiguation problem property snap already solves — confirm the existing snap algorithm handles this without modification.
 4. **Cost ceiling.** ~35k synsets × N output tokens × per-call cost. Need a real number before commit.
 
-## Prompt (current draft)
+## Resolved during brainstorm 2026-05-24
+
+- **Input granularity:** option (b) — `word + tight Claude-summarised gloss`. Disambiguates polysemy cheaply, matches existing enrich-properties prompt shape. Verbatim WordNet definition rejected as too long; tight Claude gloss preferred.
+- **Storage:** the Claude-summarised gloss is **persisted in the DB alongside the WordNet definition** (new column on `synsets`, or sibling table). Future UI work may promote the gloss to user-facing whenever present.
+- **Sense-gloss-only input variant (option c)** deferred to backlog — interesting research signal (does the LLM metaphor-map a concept vs pattern-match a word?) but not this week.
+- **Inapt cohort generation:** option (b) — dedicated "plausible-but-wrong" prompt with structured JSON output. Closed-vocabulary `inapt_reason_type` tag + free-text `explanation` per vehicle. Cross-shuffle (option c) deferred to volume-scaling phase; same-prompt inapt (option a) rejected for triviality bias.
+- **Phasing:** spike runs in three gated phases — 1a small validation (5 topics, 20 calls), 1b full 20-topic spike (80 calls), Phase 2 cohort scale-up (~400 calls). Each phase operator-gated against the next. Operator funds 1a first; 1b only on 1a pass; Phase 2 only on 1b pass.
+- **Score-as-we-go:** every (topic, vehicle) pair is scored through the cascade in the same batch it's generated. First-look calibration signal builds live across phases. Diagnostic axis: per-`inapt_reason_type` discrimination breakdown reveals which failure modes the cascade catches vs misses — the calibration evidence M05 currently lacks.
+
+## Prompt — apt (current draft)
 
 ```
 You generate metaphor mappings for a thesaurus. For each topic word,
@@ -64,8 +73,8 @@ OUTPUT (JSON only, no markdown, no preamble):
 {"topic":"<word>","metaphors":[{"vehicle":"<word>","shared_features":[{"dimension":"<dim>","concept":"<concept>"}],"confidence":<0.0-1.0>}]}
 
 EXAMPLE
-Input: anger
-Output: {"topic":"anger","metaphors":[
+Input: anger (a strong feeling of displeasure)
+Output: {"topic":"anger","gloss":"a strong feeling of displeasure","metaphors":[
   {"vehicle":"fire","shared_features":[
     {"dimension":"sensorimotor","concept":"heat"},
     {"dimension":"behaviour","concept":"spreading"},
@@ -87,8 +96,8 @@ Output: {"topic":"anger","metaphors":[
     {"dimension":"social","concept":"feared, primal"}],"confidence":0.7}]}
 
 EXAMPLE
-Input: time
-Output: {"topic":"time","metaphors":[
+Input: time (an indefinite period as a continuum)
+Output: {"topic":"time","gloss":"an indefinite period as a continuum","metaphors":[
   {"vehicle":"money","shared_features":[
     {"dimension":"functional","concept":"spent, saved, wasted"},
     {"dimension":"social","concept":"budgeted, owed"},
@@ -102,15 +111,68 @@ Output: {"topic":"time","metaphors":[
     {"dimension":"effect","concept":"loss noticed late"},
     {"dimension":"emotional","concept":"lamented"}],"confidence":0.75}]}
 
-Input: <TOPIC>
+Input: <TOPIC> (<GLOSS>)
 Output:
 ```
 
-## Output schema (per anchor synset)
+## Prompt — inapt (current draft)
+
+```
+You generate plausible-but-INAPT metaphor mappings for a thesaurus
+evaluation cohort. For each topic, return 2-3 vehicles that have
+SURFACE resemblance to good metaphors but actually fail under
+structural scrutiny.
+
+The goal is to test whether a structural-similarity algorithm can
+DISCRIMINATE apt cross-domain metaphors from plausible-looking
+cross-domain noise. Therefore:
+
+- DO NOT return obvious antonyms or random unrelated words. They
+  test triviality, not discrimination.
+- DO return vehicles that share a single surface feature, are
+  paraphrastic, or sit in the same conceptual domain.
+- Each vehicle must look "metaphor-eligible" at first glance —
+  the inaptness should require analysis to detect.
+
+FAILURE MODES (closed vocabulary — pick exactly one per vehicle):
+- single_dimension: shares only one of {sensorimotor, behaviour,
+  functional, effect, emotional, social}. Insufficient resonance.
+- same_domain: actually a paraphrase / synonym / near-synonym in
+  the same conceptual domain. anger→fury, time→duration.
+- wrong_concreteness: vehicle is at the same abstraction level as
+  topic, or more abstract. anger→fury, time→eternity.
+- dead_metaphor: a once-living metaphor now literalised by usage
+  ("leg of a table"). The mapping no longer feels figurative.
+- synonym_or_hypernym: vehicle is a kind-of / part-of /
+  contained-in the topic. anger→emotion, fire→combustion.
+
+OUTPUT (JSON only, no markdown, no preamble):
+{"topic":"<word>","gloss":"<gloss>","inapt_metaphors":[{"vehicle":"<word>","inapt_reason_type":"<tag>","explanation":"<text>"}]}
+
+EXAMPLE
+Input: anger (a strong feeling of displeasure)
+Output: {"topic":"anger","gloss":"a strong feeling of displeasure","inapt_metaphors":[
+  {"vehicle":"calendar","inapt_reason_type":"single_dimension","explanation":"shares only the functional dimension of time-tracking; no sensorimotor, emotional, or behavioural resonance"},
+  {"vehicle":"fury","inapt_reason_type":"same_domain","explanation":"near-synonym in the emotion domain; not a cross-domain mapping at all"},
+  {"vehicle":"emotion","inapt_reason_type":"synonym_or_hypernym","explanation":"anger is a kind-of emotion; a taxonomic parent, not a metaphor"}]}
+
+EXAMPLE
+Input: time (an indefinite period as a continuum)
+Output: {"topic":"time","gloss":"an indefinite period as a continuum","inapt_metaphors":[
+  {"vehicle":"clock","inapt_reason_type":"single_dimension","explanation":"shares only the functional dimension of measurement; clock is an instrument of time, not a structurally-different domain mapping onto it"},
+  {"vehicle":"duration","inapt_reason_type":"same_domain","explanation":"near-synonym; same conceptual domain, no cross-domain leap"},
+  {"vehicle":"eternity","inapt_reason_type":"wrong_concreteness","explanation":"more abstract than time itself; vehicle should be more concrete than topic"}]}
+
+Input: <TOPIC> (<GLOSS>)
+Output:
+```
+
+## Output schema — apt (per anchor synset)
 
 ```json
 {
   "topic": "anger",
+  "gloss": "a strong feeling of displeasure",
   "metaphors": [
     {
       "vehicle": "fire",
@@ -126,19 +188,75 @@ Output:
 
 Dimensions: `sensorimotor | behaviour | functional | effect | emotional | social` (mirrors property taxonomy; `other` deliberately excluded — if the LLM can't name a dimension, the feature is too vague to keep).
 
-## Test plan
+## Output schema — inapt (per anchor synset)
 
-1. **Pick 20 anchor topics** mixing:
-   - 5 canonical Lakoff abstractions (anger, time, ideas, life, argument)
-   - 5 concrete-but-metaphor-rich nouns (heart, light, road, anchor, mirror)
-   - 5 compound / rare nouns (deadline, recursion, ambush, threshold, gridlock)
-   - 5 emotion / state nouns (anxiety, hope, grief, courage, doubt)
-2. **Run prompt on both Haiku 4.5 and Sonnet 4.6**, same 20 topics. Independent runs.
-3. **Score per output:**
-   - JSON parseability (binary)
-   - Schema compliance (all required fields, dimension in canonical set, confidence in [0,1])
-   - Quality pass: for each (topic, vehicle, shared_features) tuple — does it satisfy criteria 1–5? Operator manual eyeball.
-4. **Aggregate:** per-model format-compliance %, per-model quality-pass %, per-criterion violation counts.
+```json
+{
+  "topic": "anger",
+  "gloss": "a strong feeling of displeasure",
+  "inapt_metaphors": [
+    {
+      "vehicle": "calendar",
+      "inapt_reason_type": "single_dimension",
+      "explanation": "shares only the functional dimension of time-tracking; no sensorimotor, emotional, or behavioural mapping"
+    }
+  ]
+}
+```
+
+Closed-vocabulary `inapt_reason_type` tags (each maps to a violated apt criterion):
+
+| Tag | Definition | Maps to apt criterion violated |
+|-----|------------|--------------------------------|
+| `single_dimension` | Shares only one of the six dimensions. Insufficient resonance. | #3 multi-dimensional |
+| `same_domain` | Near-synonym / paraphrase in the same conceptual domain (anger→fury). | #2 cross-domain |
+| `wrong_concreteness` | Vehicle at the same abstraction level as topic or more abstract (time→eternity). | #1 concrete vehicle |
+| `dead_metaphor` | Once-living metaphor now literalised by usage; mapping no longer felt as figurative. | #5 living metaphor |
+| `synonym_or_hypernym` | Vehicle is a kind-of / part-of / contained-in the topic (anger→emotion). | #4 not synonym/hyponym |
+
+The closed vocabulary is the diagnostic axis: when we score apt-vs-inapt discrimination, we can ask *which failure modes the cascade discriminates against best*. γ may help with `single_dimension` (the multi-dimensional bonus literally targets this) but not necessarily with `same_domain` (the cosine band might mis-bin a same-domain pair as cross-domain). Per-failure-mode discrimination breakdown is exactly the calibration evidence M05 currently lacks.
+
+## Test plan — phased rollout
+
+The spike phases gate at each step so we never spend on a phase whose predecessor failed.
+
+### Phase 1a — small validation sample (operator-funded, cheap)
+
+- **5 anchor topics** spanning the four type-categories: `anger` (Lakoff classic), `heart` (concrete metaphor-rich), `deadline` (compound), `anxiety` (emotion).
+- **Both models** (Haiku 4.5, Sonnet 4.6).
+- **Both prompts** (apt + inapt). 5 topics × 2 models × 2 prompts = 20 LLM calls. Trivially cheap.
+- **Score-as-we-go:** each (topic, vehicle) pair is scored through the Go cascade in the same batch (or via Python `evaluate_cascade.py` for the spike, since the Go path requires the API running). This gives first-look calibration signal *during* validation.
+- **Gate to Phase 1b:**
+  - JSON parseability ≥80% per model
+  - Schema compliance ≥80% per model
+  - Manual eyeball quality pass acceptable on at least the Sonnet output (Haiku failures here would re-shape the prompt before scaling)
+
+### Phase 1b — full 20-topic spike (operator-gated promotion from 1a)
+
+- **20 anchor topics** as originally planned:
+  - 5 canonical Lakoff abstractions (anger, time, ideas, life, argument)
+  - 5 concrete-but-metaphor-rich nouns (heart, light, road, anchor, mirror)
+  - 5 compound / rare nouns (deadline, recursion, ambush, threshold, gridlock)
+  - 5 emotion / state nouns (anxiety, hope, grief, courage, doubt)
+- **Both models, both prompts.** 20 × 2 × 2 = 80 LLM calls.
+- **Score-as-we-go** continues — each batch's (topic, vehicle) pairs land in the cohort scoring table as they're generated.
+- **Aggregate metrics:**
+  - Per-model format-compliance %
+  - Per-model quality-pass % (apt and inapt evaluated separately)
+  - Per-criterion violation counts (apt prompt criteria 1–5; inapt prompt failure-mode coverage)
+  - **First-look calibration:** separation_score and aptness_rate against the cascade, computed live on the 20-topic cohort
+- **Gate to Phase 2:** operator review against pass/fail criteria below.
+
+### Phase 2 — cohort scale-up (operator-gated, paid)
+
+- **~200 anchor topics** drawn from a mix of: high-frequency abstractions, Lakoff classics, emotion words, common compound nouns, and a representative sample from `synsets` by POS / concreteness band.
+- **Winning model from Phase 1b** (Haiku if it passed; Sonnet otherwise; hybrid Haiku-draft → Sonnet-refine if neither passed alone).
+- **Both prompts.** ~200 × 1 × 2 = ~400 LLM calls.
+- **Output:** the eval cohort that unblocks M05 calibration.
+
+### Phase 3 — full-enrichment pivot decision
+
+Out of scope for this spike. Once Phase 2 lands and M05 calibration re-runs against the new cohort, operator decides whether to promote to a full 35k-synset enrichment milestone.
 
 ## Pass / fail criteria
 
@@ -154,13 +272,39 @@ Dimensions: `sensorimotor | behaviour | functional | effect | emotional | social
 
 Even if we never promote the full pivot to a milestone, this prompt run on ~200 carefully-chosen topics gives us the **evaluation cohort** we don't currently have (the 5–10 vehicles-per-topic idea from the brainstorm). That solves the M05 verdict's separation-score caveat about n=1 inapt resolutions. Worth running the prompt at small scale regardless of full-pivot decision.
 
+## M05 calibration follows from the spike — explicit sequencing
+
+The M05 verdict left three caveats unresolved: (1) n=1 inapt magnitude sensitivity, (2) `aptness_rate=0` because γ moves ranks but not absolute scores past the `apt_mean > inapt_mean + σ` threshold, (3) ~24% apt resolution against the curator cohort. These look like calibration problems but they are **measurement-instrument problems** — the existing Lakoff cohort can't measure what M05 changes, regardless of how the threshold is tuned. More calibration work against the same broken cohort will not move the metric.
+
+This spike is the unblock. At even small scale (200 topics × 5–10 apt vehicles + matched inapt controls), the cohort produced here has the n>>1 inapt mass that makes σ meaningful again. Once that lands:
+
+1. Re-run M05 γ-sweep against the new cohort. `aptness_rate` becomes measurable for the first time.
+2. Either γ=1.0 holds with absolute-score corroboration (calibration closed) or the new cohort reveals γ needs adjustment.
+3. The cascade — repositioned, not retired — keeps its job as cold-start engine + ranking primitive + multi-hop derivation engine on top of the enriched substrate.
+
+The spike doesn't defer M05 calibration. It **delivers the instrument calibration needs**. Sequencing recap:
+
+| Step | Output | Unblocks |
+|------|--------|----------|
+| Spike runs prompt on 20 test topics, dual-model | Format/quality verdict | Cohort scale-up |
+| Spike scales to ~200 topics + inapt controls | Eval cohort | M05 calibration measurement |
+| M05 γ-sweep re-run against new cohort | `aptness_rate` measurable | Calibration close-out OR γ adjustment |
+| Full enrichment pivot decision | Operator call | Programme direction |
+
+If the spike fails at step 1, M05 calibration is still blocked on cohort — the failure means we need another cohort path (hand curation, public dataset, Claude-as-judge), not that we should retry M05 calibration directly.
+
 ## Files this spike will produce
 
-- `data-pipeline/scripts/metaphor_enrichment_spike.py` — prompt runner over a fixed test-topic list, dual-model
-- `data-pipeline/output/metaphor_spike_haiku.jsonl` — Haiku output
-- `data-pipeline/output/metaphor_spike_sonnet.jsonl` — Sonnet output
-- `data-pipeline/output/metaphor_spike_scoring.md` — manual eyeball results + aggregate stats
-- This doc updated with the verdict + decision
+- `data-pipeline/scripts/metaphor_enrichment_spike.py` — prompt runner over a fixed test-topic list, dual-model, dual-prompt, phased (1a → 1b → 2)
+- `data-pipeline/scripts/glosses_summarise.py` — Claude-summarised gloss generator (input: synset_id + WordNet definition → tight gloss), idempotent, JSONL output
+- `data-pipeline/output/glosses.jsonl` — synset_id → tight Claude gloss (persisted alongside WordNet definition; pending decision on DB column vs sibling table)
+- `data-pipeline/output/metaphor_spike_apt_haiku.jsonl` — Haiku apt output
+- `data-pipeline/output/metaphor_spike_apt_sonnet.jsonl` — Sonnet apt output
+- `data-pipeline/output/metaphor_spike_inapt_haiku.jsonl` — Haiku inapt output
+- `data-pipeline/output/metaphor_spike_inapt_sonnet.jsonl` — Sonnet inapt output
+- `data-pipeline/output/metaphor_spike_scores.jsonl` — per (topic, vehicle) cascade score appended live as the spike runs
+- `data-pipeline/output/metaphor_spike_scoring.md` — manual eyeball results, aggregate format/quality metrics, first-look separation_score / aptness_rate, per-failure-mode discrimination breakdown
+- This doc updated with the verdict + decision after Phase 1b
 
 ## Cost estimate
 
