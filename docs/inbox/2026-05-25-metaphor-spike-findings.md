@@ -140,22 +140,71 @@ re-snap Phase 2 cohort and recompute scores.
 
 ---
 
-## Phase 2 (in progress)
+## Phase 2 (2026-05-25)
 
-Run timestamp: _pending_ · Branch: spike/metaphor-enrichment-phase-2.
+Run timestamp: 20260525T004154 · Branch: spike/metaphor-enrichment-phase-2.
+Outputs: `data-pipeline/output/metaphor_spike_*phase2_*`.
 
-200 topics × Haiku-only × 2 prompts = ~400 calls. Same gold examples
-as Phase 1b. Curator samples from the lexicon by frequency × POS ×
-concreteness tier; combined with the Phase 1b 20-topic anchor set so
-the cohort retains a hand-curated spine.
+200 topics × Haiku-only × 2 prompts = 400 calls (398 successful — 2
+safety refusals on `kashmiri` and `coke`, see FU-3). Same gold
+examples as Phase 1b. Curator samples 60 topics from each of 3
+concreteness bands (abstract / mid / concrete) plus the 20-topic
+Phase 1b spine.
 
-### Findings (fill in after run)
+### Format gates (all PASS)
 
-- [ ] Format gates pass/fail
-- [ ] End-to-end aptness rate (preview of FU-1)
-- [ ] Per-reason discrimination at scale
-- [ ] Surprises / pivots
-- [ ] Cost vs estimate
+| Metric        | Value | Threshold |
+|---------------|-------|-----------|
+| Parse rate    |  99%  | ≥80%      |
+| Schema rate   |  98%  | ≥80%      |
+| Single-word % | 100%  | ≥90%      |
+| Snap rate     |  88%  | ≥80%      |
+
+Snap rate dropped from 91% (1b) to 88% (2) — wider topic spread
+surfaces more `-ing` gerunds the lemmas table doesn't carry. FU-2
+remains the lever.
+
+### Cascade attrition at scale
+
+| Cohort  | Scored | Gate-dropped | Unresolved | No-props | Missing |
+|---------|--------|--------------|------------|----------|---------|
+| apt     | 417    | 455          | 45         | 171      | 8       |
+| inapt   | 93     | 445          | 18         | 44       | 0       |
+
+The pattern from Phase 1b holds at scale:
+- Apt   end-to-end: 213/1096 above-median = **19.4%** promoted
+- Inapt end-to-end:  42/600  above-median = **7.0%**  promoted
+- **System discrimination ratio = 2.78×**
+
+Scored-pair separation_score is +0.0055 — same artefact as Phase 1b
+where the metric undersells what the system actually does. End-to-
+end ratio (FU-1) is the truth signal and resolves the work clearly.
+
+### Per-reason discrimination at scale
+
+| Reason              | n   | Gate-pass | Discriminated |
+|---------------------|-----|-----------|---------------|
+| synonym_or_hypernym |  24 | 12%       | 100% (n=1)    |
+| single_dimension    | 320 | 24%       | 62%           |
+| same_domain         | 167 | 16%       | 55%           |
+| dead_metaphor       |  68 | 40%       | 38%           |
+| wrong_concreteness  |  21 | 19%       | (gate-only)   |
+
+Dead metaphors remain the hardest — they survive the gate more often
+(40%) and the score discriminates least (38%). Targeted lever for
+the loop: any tweak that lifts dead_metaphor discrimination is high-
+value.
+
+### Verdict and follow-ups
+
+Phase 2 verdict: **PASS** → unblock M05 calibration close-out and
+Karpathy loop.
+
+**Bail floor not triggered.** Pre-flight prep doc set 1.5× as the
+'cascade too noisy' threshold; Phase 2 delivered 2.78×. The loop can
+proceed without doing FU-2 lemmatisation first as a prerequisite —
+though lemmatisation remains worth running as an early loop
+iteration (or one-shot before the loop) for the snap-rate lift.
 
 ### Follow-ups (collect here as they surface)
 
