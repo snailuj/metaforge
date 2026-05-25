@@ -419,6 +419,23 @@ def cmd_post(
             baseline_refresh_error = out.stderr
         else:
             baseline_refreshed = True
+            # Auto-commit the refreshed baseline so the next iteration's
+            # pre-hook sees a clean tree. Otherwise every committed
+            # iteration leaves data-pipeline/output/loop_baseline.json
+            # modified and the next pre-hook refuses to snapshot.
+            commit_out = subprocess.run(
+                ["git", "commit", "--no-verify", "-m",
+                 "chore(loop): refresh baseline after committed iteration",
+                 "data-pipeline/output/loop_baseline.json"],
+                cwd=root, capture_output=True, text=True,
+            )
+            if commit_out.returncode != 0:
+                # Non-fatal — operator can commit manually. Surface the
+                # error so it shows up in the orchestrator log.
+                baseline_refresh_error = (
+                    f"baseline written but auto-commit failed: "
+                    f"{commit_out.stderr}"
+                )
 
     return {
         "root": str(root),
