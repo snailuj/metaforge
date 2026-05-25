@@ -85,7 +85,14 @@ class CascadeConfig:
     concreteness_threshold: float = 1.0
     ortony_scoring: str = "jaccard_salience"
     # --- Re-rank stage fields (cascade S02) ---------------------------------
-    d_cap: float = 0.77
+    # 2026-05-25 loop iter5: bumped default d_cap from 0.77 -> 0.65. Phase 2
+    # cosine distance is ~0.20 mean on both cohorts; lowering d_cap brings the
+    # apt-favouring tail closer to saturation faster, which lifted the bootstrap
+    # median ratio from 2.8621 to 2.9494 in a single-config probe without
+    # degrading the Lakoff ratio (0.6000 unchanged). Tested 0.5 first — improved
+    # Phase 2 to 3.28 but degraded Lakoff to 0.5625 (6.25% drop, just outside the
+    # 5% gate tolerance), so 0.65 is the conservative interior point.
+    d_cap: float = 0.65
     alpha: float = 0.5
     composition: Literal["multiplicative", "additive"] = "multiplicative"
     # Exponent applied to the (d / d_cap) ratio before clipping. 1.0 keeps the
