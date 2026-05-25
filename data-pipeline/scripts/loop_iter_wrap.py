@@ -8,11 +8,21 @@ iteration:
   (filesystem-level write protection for cohort fixtures, harness
   module, baseline JSON, canonical DB). Emit a JSON object the
   orchestrator threads into the post invocation.
-- **post mode:** check DB hash for unauthorised mutation, restore
-  from snapshot if changed, hard-reset loop branch if the iteration
-  also committed, refresh baseline JSON on a clean commit, chmod
-  immutable files back to writable for the next iteration's pre
-  hook (which will re-lock them). Emit a final outcome JSON.
+- **post mode:** check DB hash for unauthorised mutation, run the
+  full Python + Go test suites (only when the iteration committed
+  cleanly — saves a ~3-4 min test run on revert outcomes), restore
+  / hard-reset / force-revert as needed, refresh baseline JSON on a
+  clean commit, leave immutable files unlocked for the orchestrator
+  between iterations (next pre hook re-locks). Emit a final outcome
+  JSON.
+
+Test running is the orchestrator's responsibility per the v2
+iteration contract: iteration agents only run the eval harness for
+their commit-or-revert decision; the wrapper runs the full project
+test suites between iterations as the safety net for regressions
+the cohort metric can't catch (snap_properties.py drift, Go API
+breakage, etc.). This frees the iteration's 15-min implementation
+budget from test-orchestration overhead.
 
 The light code review (looking for cohort-data hardcoding) is the
 orchestrator's own subagent dispatch and lives outside this script —
@@ -247,6 +257,37 @@ def cmd_pre(iter_id: int, snapshot_dir: Path) -> dict:
     }
 
 
+def _run_python_tests(root: Path, venv_python: Path) -> tuple[bool, str]:
+    """Run the Python test suite. Returns (passed, stdout+stderr tail)."""
+    out = subprocess.run(
+        [str(venv_python), "-m", "pytest", "data-pipeline/", "-q", "--tb=short"],
+        cwd=root, capture_output=True, text=True,
+        timeout=300,  # 5 min cap; current full suite is ~70s
+    )
+    passed = out.returncode == 0
+    # Capture tail for diagnostics — full output would bloat the orchestrator
+    # log; the operator can re-run pytest manually if they want full detail.
+    combined = (out.stdout + out.stderr)[-4000:]
+    return passed, combined
+
+
+def _run_go_tests(root: Path) -> tuple[bool, str]:
+    """Run the Go test suite. Returns (passed, stdout+stderr tail).
+
+    The previously-deadlocking TestCascadeUnion_ClassicalPairsSurface_
+    AsCandidates is now ~110s for all 4 subcases; the full suite
+    fits well inside the 5-min cap.
+    """
+    out = subprocess.run(
+        ["/usr/local/go/bin/go", "test", "-timeout", "240s", "./..."],
+        cwd=root / "api", capture_output=True, text=True,
+        timeout=420,
+    )
+    passed = out.returncode == 0
+    combined = (out.stdout + out.stderr)[-4000:]
+    return passed, combined
+
+
 def cmd_post(
     pre_sha: str,
     pre_db_hash: str,
@@ -261,9 +302,14 @@ def cmd_post(
        DB, hard-reset branch, refresh baseline).
     2. DB hash gate: if hash changed, restore from snapshot, hard-reset
        branch if iteration committed, force OUTCOME=reverted_db_mutation.
-    3. Revert / timeout / escalate outcomes: ensure branch didn't
+    3. Test gate (only when iteration committed cleanly + DB unchanged):
+       run Python + Go test suites. If either fails, hard-reset branch
+       and force OUTCOME=reverted_tests_failed. Tests are skipped on
+       revert / timeout / escalate outcomes since the branch will be
+       reset to pre_sha anyway.
+    4. Revert / timeout / escalate outcomes: ensure branch didn't
        advance — hard-reset if it did.
-    4. Clean commit outcome: refresh baseline JSON by re-running the
+    5. Clean commit outcome: refresh baseline JSON by re-running the
        harness in --mode baseline.
 
     Immutable files are LEFT UNLOCKED on exit — the next iteration's
@@ -310,7 +356,33 @@ def cmd_post(
             iteration_advanced = False
         final_outcome = "reverted_db_mutation"
 
-    # Step 3 — revert / timeout / escalate outcomes must leave branch
+    # Step 3 — Test gate. Run pytest + go test only when the iteration
+    # COMMITTED cleanly so far. On revert/timeout/escalate outcomes
+    # the branch will be reset back to pre_sha (which had tests
+    # passing already), so re-running them would be ~5 min of waste.
+    tests_passed: Optional[bool] = None
+    python_tail = None
+    go_tail = None
+    if (
+        final_outcome == "committed"
+        and iteration_advanced
+        and not db_hash_changed
+    ):
+        venv_python = root / ".venv" / "bin" / "python"
+        if not venv_python.exists():
+            raise SystemExit(
+                f"loop_iter_wrap: venv python missing at {venv_python}."
+            )
+        py_ok, python_tail = _run_python_tests(root, venv_python)
+        go_ok, go_tail = _run_go_tests(root)
+        tests_passed = py_ok and go_ok
+        if not tests_passed:
+            _git(["reset", "--hard", pre_sha], root)
+            branch_reset = True
+            iteration_advanced = False
+            final_outcome = "reverted_tests_failed"
+
+    # Step 4 — revert / timeout / escalate outcomes must leave branch
     # at pre_sha. Defensive guard against an iteration that committed
     # despite reporting one of these outcomes.
     revert_outcomes = (
@@ -324,7 +396,7 @@ def cmd_post(
         branch_reset = True
         iteration_advanced = False
 
-    # Step 4 — clean commit refresh.
+    # Step 5 — clean commit refresh.
     baseline_refresh_error = None
     if final_outcome == "committed" and iteration_advanced and not db_hash_changed:
         if not venv_python.exists():
@@ -350,8 +422,14 @@ def cmd_post(
         "final_outcome": final_outcome,
         "db_restored": db_restored,
         "branch_reset": branch_reset,
+        "tests_ran": tests_passed is not None,
+        "tests_passed": tests_passed,
         "baseline_refreshed": baseline_refreshed,
         "baseline_refresh_error": baseline_refresh_error,
+        # Stderr/stdout tails surface only when the gate fires —
+        # otherwise None to keep the orchestrator log compact.
+        "python_test_tail": python_tail if tests_passed is False else None,
+        "go_test_tail": go_tail if tests_passed is False else None,
     }
 
 
