@@ -130,7 +130,16 @@ class CascadeConfig:
     # rerank stage now sees a wider distribution of distances and benefits from
     # stronger amplification of small-distance differences. Phase 2 median:
     # 1.9844 -> 1.9953; Lakoff ratio: 0.5727 -> 0.6042 (both improved).
-    rerank_exponent: float = 0.5
+    #
+    # 2026-05-25 loop-2 iter15: lowered 0.5 -> 0.35 under soft gate. Probe sweep
+    # showed Phase 2 median lifted 1.9953 -> 2.0312 (Lakoff unchanged at 0.6042).
+    # Stronger amplification of small distances under soft gate makes sense: with
+    # soft gate retaining more sub-threshold pairs (which tend to have smaller
+    # delta distances), pushing the curvature past full-sqrt boosts the apt-
+    # cohort's small-distance lift more than inapt. Tested 0.25/0.30/0.40/0.45
+    # — 0.35 was the local optimum; 0.30 dropped Lakoff to 0.5727; 0.40 reverted
+    # the Phase 2 gain. Boundaries are tight — small steps from 0.35 break it.
+    rerank_exponent: float = 0.35
     # Coefficient on the post-gate signed concreteness delta. The gate
     # discards an informative signal: apt-cohort mean signed delta is
     # ~2.03 vs inapt ~1.73 (post-gate, threshold 1.0). Without this
