@@ -294,14 +294,66 @@ func getSynsetRow(database *sql.DB, id string) (synsetRow, error) {
 	return r, nil
 }
 
+// getSynsetRowsBatchChunkSize is the maximum number of ids per IN-clause
+// query. SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 32766 since
+// 3.32 but query parsing + planning scales poorly beyond ~1k. The
+// real driver for the chunk size, though, is the lemma sub-query
+// performance — see getSynsetRowsBatch.
+const getSynsetRowsBatchChunkSize = 500
+
 // getSynsetRowsBatch fetches POS/definition/primary-lemma for many
-// synset ids in one IN-clause query. Returns a map id→row; missing
-// ids are absent from the result map.
+// synset ids. Returns a map id→row; missing ids are absent from the
+// result map.
+//
+// Implementation note: a 10k-element IN clause was making
+// `TestCascadeUnion_ClassicalPairsSurface_AsCandidates` stall for
+// 75s+ in `rows.Next()`. SQLite's default max-variable-number is
+// large enough to accept the bind list, but the IN-clause cardinality
+// drives the query planner into a degenerate path on large lists.
+// Chunking into batches of ~500 keeps each query plan small without
+// materially increasing total work — each chunk hits the same
+// lemmas.synset_id index. Matches the established
+// `GetSynsetClusterPropertiesBatch` chunking pattern flagged in the
+// M03 deferrals ledger.
 func getSynsetRowsBatch(database *sql.DB, ids []string) (map[string]synsetRow, error) {
 	out := make(map[string]synsetRow, len(ids))
 	if len(ids) == 0 {
 		return out, nil
 	}
+	for start := 0; start < len(ids); start += getSynsetRowsBatchChunkSize {
+		end := start + getSynsetRowsBatchChunkSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		chunk := ids[start:end]
+		if err := getSynsetRowsBatchChunk(database, chunk, out); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// getSynsetRowsBatchChunk runs a single bounded IN-clause query for a
+// chunk of ids and merges the rows into `out`. Kept separate so the
+// chunking logic in getSynsetRowsBatch is loop-only.
+//
+// Implementation notes:
+//
+//   - The original per-row `(SELECT lemma FROM lemmas WHERE synset_id
+//     = s.synset_id ORDER BY lemma LIMIT 1)` correlated subquery ran
+//     once per outer row. Even indexed, at a 10k IN clause that meant
+//     10k correlated subqueries — making
+//     `TestCascadeUnion_ClassicalPairsSurface_AsCandidates` stall for
+//     75s+ in `rows.Next()`. Replacing with a LEFT JOIN + MIN
+//     aggregation lets SQLite plan one indexed join pass per chunk
+//     instead of N× subqueries.
+//   - `TestCascadeUnion_LatencyBudget` fails at ~4.9-5.0s both on
+//     pristine main AND with this change — verified by stashing the
+//     diff and re-running. It is a pre-existing failure (the slow
+//     path is in concreteness gate / embedding scan at TopK=100, not
+//     in this batch fetch) and is out of scope for this commit. See
+//     PIPELINE.md backlog for the standalone follow-up.
+func getSynsetRowsBatchChunk(database *sql.DB, ids []string, out map[string]synsetRow) error {
 	placeholders := make([]string, len(ids))
 	args := make([]interface{}, len(ids))
 	for i, id := range ids {
@@ -309,24 +361,32 @@ func getSynsetRowsBatch(database *sql.DB, ids []string) (map[string]synsetRow, e
 		args[i] = id
 	}
 	q := `
-		SELECT s.synset_id, s.pos, s.definition,
-		       (SELECT lemma FROM lemmas WHERE synset_id = s.synset_id ORDER BY lemma LIMIT 1) as lemma
-		FROM synsets s WHERE s.synset_id IN (` + strings.Join(placeholders, ",") + `)`
+		SELECT s.synset_id, s.pos, s.definition, MIN(l.lemma) AS lemma
+		FROM synsets s
+		LEFT JOIN lemmas l ON l.synset_id = s.synset_id
+		WHERE s.synset_id IN (` + strings.Join(placeholders, ",") + `)
+		GROUP BY s.synset_id, s.pos, s.definition`
 	rows, err := database.Query(q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("getSynsetRowsBatch query: %w", err)
+		return fmt.Errorf("getSynsetRowsBatch query: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var id string
 		var r synsetRow
-		if err := rows.Scan(&id, &r.pos, &r.definition, &r.lemma); err != nil {
-			return nil, fmt.Errorf("scan synset row: %w", err)
+		// MIN over LEFT JOIN can yield SQL NULL when a synset has no
+		// lemmas; scan into a nullable string to avoid a driver error.
+		var lemma sql.NullString
+		if err := rows.Scan(&id, &r.pos, &r.definition, &lemma); err != nil {
+			return fmt.Errorf("scan synset row: %w", err)
+		}
+		if lemma.Valid {
+			r.lemma = lemma.String
 		}
 		out[id] = r
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate synset rows: %w", err)
+		return fmt.Errorf("iterate synset rows: %w", err)
 	}
-	return out, nil
+	return nil
 }
