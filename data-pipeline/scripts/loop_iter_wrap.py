@@ -200,10 +200,24 @@ def cmd_pre(iter_id: int, snapshot_dir: Path) -> dict:
             "Refusing to snapshot — operator must check out loop first."
         )
     dirty = _git(["status", "--porcelain"], root)
-    if dirty:
+    # Filter out untracked symlinks — those are infrastructure we
+    # created during worktree setup (.venv → canonical, DB symlink,
+    # vectors symlink). They're never going to be committed and
+    # shouldn't block the snapshot.
+    significant = []
+    for line in dirty.splitlines():
+        if not line.strip():
+            continue
+        status, _, path = line.partition(" ")
+        path = path.strip()
+        full = root / path
+        if line.startswith("??") and full.is_symlink():
+            continue
+        significant.append(line)
+    if significant:
         raise SystemExit(
-            f"loop_iter_wrap: working tree is not clean. "
-            f"Refusing to snapshot.\n{dirty}"
+            "loop_iter_wrap: working tree has significant uncommitted "
+            "changes. Refusing to snapshot.\n" + "\n".join(significant)
         )
     if not db.exists():
         raise SystemExit(f"loop_iter_wrap: DB missing: {db}")
