@@ -1,0 +1,133 @@
+{
+  "seed": 20260525,
+  "n_picked": 20,
+  "exclusion_set_size": 1868,
+  "per_pos_targets": {
+    "n": 10,
+    "v": 4,
+    "a_or_s": 4,
+    "r": 2
+  },
+  "topics": [
+    {
+      "synset_id": "104108",
+      "pos": "n",
+      "lemma": "nov",
+      "gloss": "the month following October and preceding December"
+    },
+    {
+      "synset_id": "100157",
+      "pos": "n",
+      "lemma": "tidiness",
+      "gloss": "the habit of being tidy"
+    },
+    {
+      "synset_id": "58151",
+      "pos": "n",
+      "lemma": "ebullience",
+      "gloss": "overflowing with eager enjoyment or approval"
+    },
+    {
+      "synset_id": "68056",
+      "pos": "n",
+      "lemma": "embargo",
+      "gloss": "a government order imposing a trade barrier"
+    },
+    {
+      "synset_id": "100519",
+      "pos": "n",
+      "lemma": "wall",
+      "gloss": "a difficult or awkward situation"
+    },
+    {
+      "synset_id": "78131",
+      "pos": "n",
+      "lemma": "belt",
+      "gloss": "an elongated region where a specific condition or characteristic is found"
+    },
+    {
+      "synset_id": "10440",
+      "pos": "n",
+      "lemma": "field hockey",
+      "gloss": "a game resembling ice hockey that is played on an open field; two opposing teams use curved hockey sticks try to drive a ball into the opponents' net"
+    },
+    {
+      "synset_id": "84342",
+      "pos": "n",
+      "lemma": "nephew",
+      "gloss": "a son of your brother or sister"
+    },
+    {
+      "synset_id": "79028",
+      "pos": "n",
+      "lemma": "boulder",
+      "gloss": "a large smooth mass of rock detached from its place of origin"
+    },
+    {
+      "synset_id": "97669",
+      "pos": "n",
+      "lemma": "eroticism",
+      "gloss": "a state of anticipation of sexuality"
+    },
+    {
+      "synset_id": "38238",
+      "pos": "v",
+      "lemma": "hospitalise",
+      "gloss": "admit into a hospital"
+    },
+    {
+      "synset_id": "11387",
+      "pos": "v",
+      "lemma": "freckle",
+      "gloss": "become freckled"
+    },
+    {
+      "synset_id": "15348",
+      "pos": "v",
+      "lemma": "pretend",
+      "gloss": "state insincerely"
+    },
+    {
+      "synset_id": "10311",
+      "pos": "v",
+      "lemma": "inhibit",
+      "gloss": "prohibit, forbid, or prevent from doing something"
+    },
+    {
+      "synset_id": "47263",
+      "pos": "a",
+      "lemma": "indonesian",
+      "gloss": "of or relating to or characteristic of Indonesia or its people or languages"
+    },
+    {
+      "synset_id": "14509",
+      "pos": "s",
+      "lemma": "primary",
+      "gloss": "not derived from or reducible to something else; basic"
+    },
+    {
+      "synset_id": "18915",
+      "pos": "s",
+      "lemma": "affirmative",
+      "gloss": "expressing or manifesting praise or approval"
+    },
+    {
+      "synset_id": "26270",
+      "pos": "s",
+      "lemma": "childish",
+      "gloss": "indicating a lack of maturity"
+    },
+    {
+      "synset_id": "4823",
+      "pos": "r",
+      "lemma": "behind",
+      "gloss": "showing a time that is earlier than the actual time"
+    },
+    {
+      "synset_id": "5562",
+      "pos": "r",
+      "lemma": "monthly",
+      "gloss": "occurring once a month"
+    }
+  ]
+}
