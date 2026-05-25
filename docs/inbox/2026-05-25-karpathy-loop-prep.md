@@ -129,24 +129,35 @@ Prompt skeleton (verbatim every iteration):
 >    wall clock covers steps 1 + 2 only; it stops when you invoke
 >    the eval harness in step 3.
 > 3. Run the eval harness on the Phase 2 cohort (with 10-bootstrap
->    resampling), the Lakoff cohort, AND the full project test
->    suites (`pytest data-pipeline/` and `go test ./...` from the
->    `api/` directory). Harness and test run-time are NOT counted
->    against your 15-min budget.
-> 4. Test gate (runs before the metric gate):
->      - Any test that was passing before your change now fails →
->        revert, report. No exceptions, no "this test was probably
->        already flaky" rationalisation.
->      - Harness crashed or failed to run → revert, report.
-> 5. Metric gate (only reached if all tests + harness pass):
+>    resampling) AND the Lakoff cohort. Harness run-time is NOT
+>    counted against your 15-min budget. You do NOT need to run
+>    pytest or go test — the orchestrator runs those after you
+>    report back, as part of cmd_post.
+> 4. Harness gate:
+>      - Harness crashed or failed to run (non-zero exit AND output
+>        JSON missing/malformed) → revert, OUTCOME=reverted_
+>        harness_crash.
+> 5. Metric gate (only reached if harness completed):
 >      - Phase 2 median bootstrap ratio MUST improve vs current
 >        `loop/` HEAD.
 >      - Lakoff ratio MUST NOT degrade by more than 5% vs current
 >        `loop/` HEAD.
->      - Both checks pass → commit to `loop/`, report.
->      - Either fails → revert, report.
+>      - Both checks pass → commit to `loop/`, OUTCOME=committed.
+>      - Either fails → revert, OUTCOME=reverted_metric_fail.
 > 6. 15-min implementation timer expires before you reach step 3 →
->    revert whatever you have, report timed-out. No exception.
+>    revert whatever you have, OUTCOME=timed_out. No exception.
+>
+> Test responsibility split (v2 contract): you handle the
+> HYPOTHESIS — does your change move the discrimination metric in
+> the right direction? The orchestrator handles SAFETY — does your
+> change break the existing system? After you report back, the
+> wrapper runs the full `pytest data-pipeline/` and `go test ./...`
+> suites in cmd_post and hard-resets / forces OUTCOME=reverted_
+> tests_failed if any previously-passing test now fails. This means:
+> you don't need to verify unrelated subsystems before committing,
+> but if your change breaks them, the orchestrator will catch it
+> and revert. Implementation budget reclaims the ~3 minutes that
+> were previously spent on test orchestration.
 >
 > Branch discipline: all iteration commits go to `loop/`. Never
 > commit to `main`. The operator decides which loop commits (if any)
