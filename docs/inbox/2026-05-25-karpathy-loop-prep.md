@@ -15,6 +15,15 @@ codebase as-is, hypothesises an improvement, implements it, runs the
 eval, and commits or reverts. No narrative threads. No ranked lever
 list. The codebase itself is the only state.
 
+**Loop branch isolation.** The loop runs entirely on a dedicated
+`loop/` branch (cut from `main` once preflight lands). Iteration
+commits live on that branch only. Output is treated as **exploratory
+prototype** — no TDD, no human-in-the-loop review, no code-review
+pass. The loop never merges to `main` without explicit operator
+review of a specific change that looks like a real stackable win.
+This decouples the loop's permissive commit posture from `main`'s
+production standards.
+
 The timer is the only scope constraint. Anything an iteration agent
 can fit in 15 minutes of *implementation* time is fair game:
 calibration knobs, formula swaps, new pipeline stages, ANN library
@@ -73,23 +82,32 @@ Prompt skeleton (verbatim every iteration):
 >
 > Workflow:
 > 1. Read the codebase enough to form a hypothesis.
-> 2. Implement on a fresh local branch from HEAD. The 15-min wall
->    clock covers steps 1 + 2 only; it stops when you invoke the
->    harness in step 3.
+> 2. Implement on top of the current `loop/` branch HEAD. The 15-min
+>    wall clock covers steps 1 + 2 only; it stops when you invoke
+>    the eval harness in step 3.
 > 3. Run the eval harness on the Phase 2 cohort (with 10-bootstrap
->    resampling) AND on the Lakoff cohort. Harness run-time is NOT
->    counted against your 15-min budget.
-> 4. Commit gate:
->      - Harness ran to completion → enter the metric gate below.
->      - Harness failed to run (crash, exception, infinite loop) →
->        revert, report, exit. No exceptions.
-> 5. Metric gate (only reached if harness completed):
->      - Phase 2 median bootstrap ratio MUST improve vs current HEAD.
->      - Lakoff ratio MUST NOT degrade by more than 5% vs current HEAD.
->      - Both checks pass → commit, fast-forward main, report.
+>    resampling), the Lakoff cohort, AND the full project test
+>    suites (`pytest data-pipeline/` and `go test ./...` from the
+>    `api/` directory). Harness and test run-time are NOT counted
+>    against your 15-min budget.
+> 4. Test gate (runs before the metric gate):
+>      - Any test that was passing before your change now fails →
+>        revert, report. No exceptions, no "this test was probably
+>        already flaky" rationalisation.
+>      - Harness crashed or failed to run → revert, report.
+> 5. Metric gate (only reached if all tests + harness pass):
+>      - Phase 2 median bootstrap ratio MUST improve vs current
+>        `loop/` HEAD.
+>      - Lakoff ratio MUST NOT degrade by more than 5% vs current
+>        `loop/` HEAD.
+>      - Both checks pass → commit to `loop/`, report.
 >      - Either fails → revert, report.
 > 6. 15-min implementation timer expires before you reach step 3 →
 >    revert whatever you have, report timed-out. No exception.
+>
+> Branch discipline: all iteration commits go to `loop/`. Never
+> commit to `main`. The operator decides which loop commits (if any)
+> are promoted to `main` after reviewing for stackable wins.
 >
 > Eval harness immutability:
 >   - You MUST NOT modify any file in the harness module (the
