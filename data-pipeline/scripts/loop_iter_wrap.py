@@ -278,10 +278,14 @@ def _run_go_tests(root: Path) -> tuple[bool, str]:
     AsCandidates is now ~110s for all 4 subcases; the full suite
     fits well inside the 5-min cap.
     """
+    # Handler suite alone takes ~200s when ClassicalPairs is included
+    # (the four anchor subcases at TopK=10000 burn ~110s combined).
+    # Plus 40s for thesaurus + 20s for db. Total ~280s baseline,
+    # leaving headroom for variation gives the 540s go-test cap.
     out = subprocess.run(
-        ["/usr/local/go/bin/go", "test", "-timeout", "240s", "./..."],
+        ["/usr/local/go/bin/go", "test", "-timeout", "540s", "./..."],
         cwd=root / "api", capture_output=True, text=True,
-        timeout=420,
+        timeout=720,
     )
     passed = out.returncode == 0
     combined = (out.stdout + out.stderr)[-4000:]
