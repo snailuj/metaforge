@@ -16,10 +16,26 @@ eval, and commits or reverts. No narrative threads. No ranked lever
 list. The codebase itself is the only state.
 
 The timer is the only scope constraint. Anything an iteration agent
-can fit in 15 minutes is fair game: calibration knobs, formula swaps,
-new pipeline stages, ANN library integration, new tables, schema
-changes. Karpathy-style: agent attempts, succeeds or fails, loop
-moves on.
+can fit in 15 minutes of *implementation* time is fair game:
+calibration knobs, formula swaps, new pipeline stages, ANN library
+integration, new tables, schema changes. Karpathy-style: agent
+attempts, succeeds or fails, loop moves on.
+
+**The 15-min wall clock excludes the eval harness run.** Harness time
+is not the agent's work, and varies with cohort + cascade complexity;
+counting it would penalise iterations that add legitimate new compute.
+The driver records harness wall-clock separately for cost tracking.
+
+**The eval harness itself is immutable per iteration.** No subagent
+may modify the harness code (the end-to-end metric, bootstrap
+resampling, commit-gate evaluation, or any file under the harness
+module). If an iteration concludes that the harness has a flaw that
+absolutely requires changing it, the subagent escalates to the
+operator with a written justification — this **halts the loop** and
+becomes an operator decision. Use the escape hatch only for genuine
+urgency; the cost of a halt is high and the cost of an unfair eval
+in one iteration is low (next iteration runs against a fresh codebase
+anyway).
 
 ## The loop
 
@@ -57,21 +73,40 @@ Prompt skeleton (verbatim every iteration):
 >
 > Workflow:
 > 1. Read the codebase enough to form a hypothesis.
-> 2. Implement on a fresh local branch from HEAD.
-> 3. Run the eval harness (see below) on the Phase 2 cohort with
->    10-bootstrap resampling, and also on the Lakoff cohort.
-> 4. Commit gate (see below). If pass, fast-forward main and report.
->    If fail, revert and report.
+> 2. Implement on a fresh local branch from HEAD. The 15-min wall
+>    clock covers steps 1 + 2 only; it stops when you invoke the
+>    harness in step 3.
+> 3. Run the eval harness on the Phase 2 cohort (with 10-bootstrap
+>    resampling) AND on the Lakoff cohort. Harness run-time is NOT
+>    counted against your 15-min budget.
+> 4. Commit gate:
+>      - Harness ran to completion → enter the metric gate below.
+>      - Harness failed to run (crash, exception, infinite loop) →
+>        revert, report, exit. No exceptions.
+> 5. Metric gate (only reached if harness completed):
+>      - Phase 2 median bootstrap ratio MUST improve vs current HEAD.
+>      - Lakoff ratio MUST NOT degrade by more than 5% vs current HEAD.
+>      - Both checks pass → commit, fast-forward main, report.
+>      - Either fails → revert, report.
+> 6. 15-min implementation timer expires before you reach step 3 →
+>    revert whatever you have, report timed-out. No exception.
 >
-> Commit gate:
->   - Phase 2 median bootstrap ratio MUST improve vs current HEAD.
->   - Lakoff ratio MUST NOT degrade by more than 5% vs current HEAD.
->   - Both checks pass → commit. Either fails → revert.
->   - Timer expires → revert whatever you have, no exception.
+> Eval harness immutability:
+>   - You MUST NOT modify any file in the harness module (the
+>     end-to-end metric, bootstrap resampling, the commit-gate
+>     evaluator). The exact file list is provided in the loop driver's
+>     prompt at iteration spawn.
+>   - If you believe a harness change is absolutely required, do NOT
+>     edit it. Instead, report `OUTCOME=escalate_harness_flaw` with a
+>     written justification. This halts the loop and surfaces to the
+>     operator. Use this hatch only when the harness flaw genuinely
+>     blocks all further work — its cost is high.
 >
 > Report on exit: hypothesis, change summary, Phase 2 ratio
 > (before/after), Lakoff ratio (before/after), outcome
-> (committed / reverted / timed-out), elapsed time.
+> (committed / reverted / timed-out / escalate_harness_flaw),
+> implementation elapsed time, harness elapsed time (reported
+> separately).
 
 The agent has no list of "things to try" and no memory of prior
 iterations. Selection is entirely up to its read of the codebase.
@@ -162,18 +197,26 @@ lemmatisation first (one-shot, outside the loop) and recompute the
 baseline before starting iterations. Log the decision in the findings
 doc either way.
 
-## Open question
+## Eval harness immutability — concrete file list
 
-Whether the iteration subagent should be allowed to MODIFY the eval
-harness itself. Strict reading: no — that lets the agent change the
-metric to fit its change. Permissive reading: yes — sometimes a better
-metric IS the improvement. Resolution: prohibit modifying the
-end-to-end ratio definition or the commit gate; allow modifying
-anything else (including adding NEW metrics alongside, for the report).
+The harness module is defined as a fixed set of files committed before
+the loop starts. The loop driver injects this list into every
+iteration prompt. The subagent reads the list at spawn and treats
+those files as read-only. Current planned scope::
 
-Pre-commit this as a fixed file list in the prompt:
+    data-pipeline/scripts/evaluate_loop_harness.py   # main entry
+    data-pipeline/scripts/evaluate_loop_metric.py    # end_to_end_ratio,
+                                                     # bootstrap_e2e_ratio,
+                                                     # commit gate evaluator
+    data-pipeline/scripts/test_evaluate_loop_*.py    # harness tests
 
-> The following files are off-limits in this iteration:
->   - definition of `end_to_end_ratio` and `bootstrap_e2e_ratio`
+(Names provisional — finalised when the harness lands as Condition 1+2
+infrastructure post-Phase-2.)
+
+Subagents may add NEW metric functions alongside (in their own files)
+and report them in their exit message, but the commit gate continues
+to read only the immutable harness functions. Adding-alongside is a
+useful pattern for proposing a future metric without changing the
+current one.
 >   - the commit-gate code
 > All other files in the repo are fair game.
