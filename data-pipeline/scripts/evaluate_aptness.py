@@ -130,6 +130,13 @@ def lookup_primary_synset(conn: sqlite3.Connection, lemma: str) -> str | None:
     """Resolve a lemma to its primary synset_id.
 
     Prefers the curated vocabulary entry (least-polysemous lemma per synset).
+    Within curated/lemmas, prefers NOUN synsets when any exist for the
+    surface form — metaphor topics and vehicles are overwhelmingly nominal
+    (LakoffM01/Phase2 cohort), so picking the verb sense (e.g. 'anger' →
+    "make angry"; 'storm' → "take by force"; 'tide' → "rise or move")
+    yields property profiles built around action frames rather than the
+    intended entity-domain. Falls back to any-POS if no noun synset exists
+    so cases like a verb-only vehicle still resolve.
     Falls back to the first synset in the lemmas table when curated vocab
     has no entry. When neither match the surface form, falls back to
     lemmatised variants (noun-lemma, then verb-lemma, then '-ing'/'-s'
@@ -142,6 +149,23 @@ def lookup_primary_synset(conn: sqlite3.Connection, lemma: str) -> str | None:
     needle = lemma.strip().lower()
 
     def _direct(form: str) -> str | None:
+        # Curated noun-preferred. Some legacy fixture DBs lack the `pos`
+        # column on property_vocab_curated; fail-open to the any-POS
+        # query in that case (matches the lemmas-table fail-open below).
+        try:
+            row = conn.execute(
+                "SELECT synset_id FROM property_vocab_curated "
+                "WHERE LOWER(lemma) = ? AND pos = 'n' "
+                "ORDER BY polysemy ASC LIMIT 1",
+                (form,),
+            ).fetchone()
+            if row:
+                return row[0]
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "no such column" not in msg and "no such table" not in msg:
+                raise
+        # Curated any-POS fallback (original behaviour).
         row = conn.execute(
             "SELECT synset_id FROM property_vocab_curated "
             "WHERE LOWER(lemma) = ? "
@@ -150,6 +174,24 @@ def lookup_primary_synset(conn: sqlite3.Connection, lemma: str) -> str | None:
         ).fetchone()
         if row:
             return row[0]
+        # Lemmas table noun-preferred — requires JOIN with synsets which
+        # may be absent on fixture DBs that pre-date this schema column.
+        # Fail-open to the original any-POS query on missing-table so
+        # legacy fixtures (test_evaluate_aptness in-memory DBs) keep
+        # passing without forcing them to mirror the production schema.
+        try:
+            row = conn.execute(
+                "SELECT l.synset_id FROM lemmas l "
+                "JOIN synsets s ON l.synset_id = s.synset_id "
+                "WHERE LOWER(l.lemma) = ? AND s.pos = 'n' "
+                "ORDER BY l.synset_id LIMIT 1",
+                (form,),
+            ).fetchone()
+            if row:
+                return row[0]
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc).lower():
+                raise
         row = conn.execute(
             "SELECT synset_id FROM lemmas "
             "WHERE LOWER(lemma) = ? "
