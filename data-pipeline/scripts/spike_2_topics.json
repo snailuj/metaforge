@@ -1,0 +1,1729 @@
+{
+  "phase": "2",
+  "n_total": 200,
+  "n_spine": 20,
+  "n_sampled": 180,
+  "random_seed": 20260525,
+  "topics": [
+    {
+      "word": "anger",
+      "gloss": "a strong feeling of displeasure or hostility",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "time",
+      "gloss": "an indefinite period of past, present, and future as a continuum",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "ideas",
+      "gloss": "thoughts or concepts formed in the mind",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "life",
+      "gloss": "the existence of a living being from birth to death",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "argument",
+      "gloss": "an exchange of opposing views or reasons",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "heart",
+      "gloss": "the hollow muscular organ that pumps blood through the body",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "light",
+      "gloss": "electromagnetic radiation perceived by the eye",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "road",
+      "gloss": "a paved way for vehicles connecting places",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "anchor",
+      "gloss": "a heavy device dropped to hold a vessel in place",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "mirror",
+      "gloss": "a polished surface that reflects an image",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "deadline",
+      "gloss": "a point in time by which something must be completed",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "recursion",
+      "gloss": "a process that refers to or repeats itself",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "ambush",
+      "gloss": "a surprise attack from a concealed position",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "threshold",
+      "gloss": "a doorway, or a point at which a change occurs",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "gridlock",
+      "gloss": "a traffic standstill in which vehicles cannot move",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "anxiety",
+      "gloss": "a feeling of worry and unease about uncertain outcomes",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "hope",
+      "gloss": "an expectation of a desired outcome",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "grief",
+      "gloss": "deep sorrow caused by loss or bereavement",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "courage",
+      "gloss": "the ability to face fear, pain, or risk",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "doubt",
+      "gloss": "uncertainty about the truth of something",
+      "source": "phase_1b_spine"
+    },
+    {
+      "word": "extinction",
+      "gloss": "the act of extinguishing",
+      "synset_id": "4972",
+      "concreteness": 2.43,
+      "zipf": 3.583,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "inclination",
+      "gloss": "a characteristic likelihood of or natural disposition toward a certain condition or character or",
+      "synset_id": "59680",
+      "concreteness": 2.03,
+      "zipf": 3.018,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "refutation",
+      "gloss": "the act of determining that something is false",
+      "synset_id": "3255",
+      "concreteness": 2.2,
+      "zipf": 0.997,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "hypothetical",
+      "gloss": "a hypothetical possibility, circumstance, statement, proposal, situation, etc.",
+      "synset_id": "64517",
+      "concreteness": 1.3,
+      "zipf": 3.129,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "voodoo",
+      "gloss": "(Haiti) followers of a religion that involves witchcraft and animistic deities",
+      "synset_id": "76400",
+      "concreteness": 2.59,
+      "zipf": 3.186,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "neighborliness",
+      "gloss": "a disposition to be friendly and helpful to neighbors",
+      "synset_id": "58254",
+      "concreteness": 1.96,
+      "zipf": 1.434,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "posterity",
+      "gloss": "all future generations",
+      "synset_id": "77481",
+      "concreteness": 2.11,
+      "zipf": 3.016,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "declaration",
+      "gloss": "(law) unsworn statement that can be admitted in evidence in a legal transaction",
+      "synset_id": "68467",
+      "concreteness": 2.52,
+      "zipf": 3.596,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "introvert",
+      "gloss": "(psychology) a person who tends to shrink from social contacts and to become preoccupied",
+      "synset_id": "83504",
+      "concreteness": 2.25,
+      "zipf": 2.111,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "childhood",
+      "gloss": "the time of person's life when they are a child",
+      "synset_id": "103739",
+      "concreteness": 2.53,
+      "zipf": 4.307,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "fussiness",
+      "gloss": "an irritable petulant feeling",
+      "synset_id": "72971",
+      "concreteness": 2.32,
+      "zipf": 1.696,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "commitment",
+      "gloss": "a message that makes a pledge",
+      "synset_id": "68187",
+      "concreteness": 2.16,
+      "zipf": 4.442,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "inessential",
+      "gloss": "anything that is not essential",
+      "synset_id": "79272",
+      "concreteness": 1.7,
+      "zipf": 1.395,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "par",
+      "gloss": "(golf) the standard number of strokes set for each hole on a golf course,",
+      "synset_id": "95117",
+      "concreteness": 2.26,
+      "zipf": 4.013,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "advocacy",
+      "gloss": "active support of an idea or cause etc.",
+      "synset_id": "22341",
+      "concreteness": 2.0,
+      "zipf": 2.741,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "acrophobia",
+      "gloss": "a morbid fear of great heights",
+      "synset_id": "99552",
+      "concreteness": 2.32,
+      "zipf": 1.599,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "insensitiveness",
+      "gloss": "the inability to respond to affective changes in your interpersonal environment",
+      "synset_id": "59166",
+      "concreteness": 2.07,
+      "zipf": 0.55,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "care",
+      "gloss": "a cause for feeling concern",
+      "synset_id": "72704",
+      "concreteness": 2.33,
+      "zipf": 5.341,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "irritability",
+      "gloss": "an irritable petulant feeling",
+      "synset_id": "72971",
+      "concreteness": 2.32,
+      "zipf": 1.951,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "guilt",
+      "gloss": "the state of having committed an offense",
+      "synset_id": "97426",
+      "concreteness": 1.93,
+      "zipf": 3.834,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "diffusion",
+      "gloss": "(physics) the process in which there is movement of a substance from an area",
+      "synset_id": "94465",
+      "concreteness": 2.24,
+      "zipf": 2.319,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "prophecy",
+      "gloss": "a prediction uttered under divine inspiration",
+      "synset_id": "68533",
+      "concreteness": 1.93,
+      "zipf": 3.126,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "repulsion",
+      "gloss": "intense aversion",
+      "synset_id": "72697",
+      "concreteness": 2.5,
+      "zipf": 2.143,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "way",
+      "gloss": "a journey or passage",
+      "synset_id": "6870",
+      "concreteness": 2.34,
+      "zipf": 6.119,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "continuance",
+      "gloss": "the period of time during which something continues",
+      "synset_id": "103663",
+      "concreteness": 2.12,
+      "zipf": 2.018,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "antifeminist",
+      "gloss": "someone who does not believe in the social or economic or political equality of",
+      "synset_id": "81705",
+      "concreteness": 2.12,
+      "zipf": 1.027,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "gerund",
+      "gloss": "a noun formed from a verb (such as the ‘-ing’ form of an English",
+      "synset_id": "66411",
+      "concreteness": 2.475,
+      "zipf": 1.599,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "a",
+      "gloss": "the 1st letter of the Roman alphabet",
+      "synset_id": "68944",
+      "concreteness": 1.46,
+      "zipf": 7.378,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "disgust",
+      "gloss": "strong feelings of dislike",
+      "synset_id": "72693",
+      "concreteness": 2.19,
+      "zipf": 4.293,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "poorness",
+      "gloss": "the state of having little or no money and few or no material possessions",
+      "synset_id": "100134",
+      "concreteness": 2.54,
+      "zipf": 0.696,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "consistency",
+      "gloss": "logical coherence and accordance with the facts",
+      "synset_id": "99755",
+      "concreteness": 2.55,
+      "zipf": 3.886,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "gradual",
+      "gloss": "(Roman Catholic Church) an antiphon (usually from the Book of Psalms) immediately after the",
+      "synset_id": "70157",
+      "concreteness": 1.9,
+      "zipf": 3.299,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "reducing",
+      "gloss": "loss of excess weight (as by dieting)",
+      "synset_id": "94870",
+      "concreteness": 2.5,
+      "zipf": 3.551,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "openness",
+      "gloss": "without obstructions to passage or view",
+      "synset_id": "60432",
+      "concreteness": 1.9,
+      "zipf": 3.328,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "resolution",
+      "gloss": "a decision to do something or to behave in a certain manner",
+      "synset_id": "3819",
+      "concreteness": 2.37,
+      "zipf": 4.086,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "comparative",
+      "gloss": "the comparative form of an adjective or adverb",
+      "synset_id": "66434",
+      "concreteness": 1.74,
+      "zipf": 2.782,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "reference",
+      "gloss": "an indicator that orients you generally",
+      "synset_id": "71341",
+      "concreteness": 2.38,
+      "zipf": 4.096,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "goodwill",
+      "gloss": "(accounting) an intangible asset valued according to the advantage or reputation a business has",
+      "synset_id": "93736",
+      "concreteness": 2.54,
+      "zipf": 3.519,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "impression",
+      "gloss": "(dentistry) an imprint of the teeth and gums in wax or plaster",
+      "synset_id": "51883",
+      "concreteness": 2.23,
+      "zipf": 4.433,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "fun",
+      "gloss": "activities that are enjoyable or amusing",
+      "synset_id": "9550",
+      "concreteness": 2.07,
+      "zipf": 5.309,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "confidence",
+      "gloss": "freedom from doubt",
+      "synset_id": "63573",
+      "concreteness": 2.34,
+      "zipf": 4.884,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "ineffectiveness",
+      "gloss": "lacking the power to be effective",
+      "synset_id": "61051",
+      "concreteness": 1.96,
+      "zipf": 1.541,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "incitement",
+      "gloss": "the act of exhorting",
+      "synset_id": "71275",
+      "concreteness": 2.04,
+      "zipf": 2.404,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "idiom",
+      "gloss": "a manner of speaking that is natural to native speakers of a language",
+      "synset_id": "70395",
+      "concreteness": 2.42,
+      "zipf": 2.474,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "stupidity",
+      "gloss": "a poor ability to understand or to profit from experience",
+      "synset_id": "63306",
+      "concreteness": 2.55,
+      "zipf": 3.192,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "bygone",
+      "gloss": "past events to be put aside",
+      "synset_id": "103631",
+      "concreteness": 1.69,
+      "zipf": 3.091,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "lawlessness",
+      "gloss": "illegality as a consequence of unlawful acts",
+      "synset_id": "59008",
+      "concreteness": 2.58,
+      "zipf": 2.559,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "insubordination",
+      "gloss": "an insubordinate act",
+      "synset_id": "21804",
+      "concreteness": 2.03,
+      "zipf": 2.228,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "gravitas",
+      "gloss": "formality in bearing and appearance",
+      "synset_id": "59515",
+      "concreteness": 2.03,
+      "zipf": 2.713,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "occupancy",
+      "gloss": "an act of being a tenant or occupant",
+      "synset_id": "19808",
+      "concreteness": 2.57,
+      "zipf": 2.866,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "appearance",
+      "gloss": "outward or visible aspect of a person or thing",
+      "synset_id": "58340",
+      "concreteness": 2.57,
+      "zipf": 4.321,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "humbleness",
+      "gloss": "a disposition to be humble",
+      "synset_id": "59404",
+      "concreteness": 1.76,
+      "zipf": 1.696,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "substituting",
+      "gloss": "working as a substitute for someone who is ill or on leave of absence",
+      "synset_id": "13309",
+      "concreteness": 2.41,
+      "zipf": 2.645,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "ancients",
+      "gloss": "people who lived in times long past (especially during the historical period before the",
+      "synset_id": "75583",
+      "concreteness": 2.293,
+      "zipf": 3.334,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "cohesion",
+      "gloss": "(botany) the process in some plants of parts growing together that are usually separate",
+      "synset_id": "94388",
+      "concreteness": 2.16,
+      "zipf": 3.19,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "suggestion",
+      "gloss": "the sequential mental process in which one thought leads to another by association",
+      "synset_id": "63941",
+      "concreteness": 2.23,
+      "zipf": 4.105,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "tyranny",
+      "gloss": "dominance through threat of punishment and violence",
+      "synset_id": "99881",
+      "concreteness": 1.68,
+      "zipf": 3.164,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "success",
+      "gloss": "a state of prosperity or fame",
+      "synset_id": "100040",
+      "concreteness": 2.21,
+      "zipf": 4.917,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "limitation",
+      "gloss": "the quality of being limited or restricted",
+      "synset_id": "60828",
+      "concreteness": 2.18,
+      "zipf": 3.308,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "dazzle",
+      "gloss": "brightness enough to blind partially and temporarily",
+      "synset_id": "59727",
+      "concreteness": 2.52,
+      "zipf": 3.257,
+      "band": "abstract",
+      "source": "sampled"
+    },
+    {
+      "word": "clause",
+      "gloss": "(grammar) an expression including a subject and predicate functioning as a part of a",
+      "synset_id": "66389",
+      "concreteness": 2.73,
+      "zipf": 3.713,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "optics",
+      "gloss": "the branch of physics that studies the physical properties of light",
+      "synset_id": "65413",
+      "concreteness": 3.29,
+      "zipf": 2.866,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "ally",
+      "gloss": "a friendly nation",
+      "synset_id": "77179",
+      "concreteness": 2.61,
+      "zipf": 3.957,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "covenant",
+      "gloss": "a signed written agreement between two or more parties (nations) to perform some action",
+      "synset_id": "68641",
+      "concreteness": 3.04,
+      "zipf": 3.52,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "sending",
+      "gloss": "the act of causing something to go (especially messages)",
+      "synset_id": "2476",
+      "concreteness": 2.87,
+      "zipf": 1.9,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "government",
+      "gloss": "the act of governing",
+      "synset_id": "20956",
+      "concreteness": 2.88,
+      "zipf": 5.762,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "lecturing",
+      "gloss": "teaching by giving a discourse on some subject (typically to a class)",
+      "synset_id": "17341",
+      "concreteness": 3.79,
+      "zipf": 3.191,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "fortification",
+      "gloss": "defensive structure consisting of walls or mounds built around a stronghold to strengthen it",
+      "synset_id": "50821",
+      "concreteness": 3.22,
+      "zipf": 2.678,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "faction",
+      "gloss": "a dissenting clique",
+      "synset_id": "76897",
+      "concreteness": 3.52,
+      "zipf": 3.099,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "devil",
+      "gloss": "a word used in exclamations of confusion",
+      "synset_id": "70642",
+      "concreteness": 3.41,
+      "zipf": 4.245,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "producer",
+      "gloss": "someone who manufactures something",
+      "synset_id": "83967",
+      "concreteness": 3.69,
+      "zipf": 4.09,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "living",
+      "gloss": "the experience of being alive",
+      "synset_id": "64134",
+      "concreteness": 3.04,
+      "zipf": 1.975,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "importation",
+      "gloss": "the commercial activity of buying and bringing in goods from a foreign country",
+      "synset_id": "20745",
+      "concreteness": 2.81,
+      "zipf": 2.34,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "tuition",
+      "gloss": "teaching pupils individually (usually by a tutor hired privately)",
+      "synset_id": "17281",
+      "concreteness": 3.52,
+      "zipf": 4.092,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "kashmiri",
+      "gloss": "a member of the people of Kashmir",
+      "synset_id": "80260",
+      "concreteness": 3.613,
+      "zipf": 2.428,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "therapy",
+      "gloss": "(medicine) the act of caring for someone (as by medication or remedial training etc.)",
+      "synset_id": "13872",
+      "concreteness": 2.93,
+      "zipf": 3.917,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "antique",
+      "gloss": "any piece of furniture or decorative object or the like produced in a former",
+      "synset_id": "43768",
+      "concreteness": 3.75,
+      "zipf": 4.621,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "die",
+      "gloss": "a cutting tool that is fitted into a diestock and used for cutting male",
+      "synset_id": "49706",
+      "concreteness": 3.07,
+      "zipf": 5.14,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "silence",
+      "gloss": "a refusal to speak when expected",
+      "synset_id": "58235",
+      "concreteness": 3.33,
+      "zipf": 4.326,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "adornment",
+      "gloss": "a decoration of color or interest that is added to relieve plainness",
+      "synset_id": "43035",
+      "concreteness": 2.83,
+      "zipf": 2.319,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "rap",
+      "gloss": "a reproach for some lapse or misdeed",
+      "synset_id": "68365",
+      "concreteness": 3.57,
+      "zipf": 3.837,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "showstopper",
+      "gloss": "something that is strikingly attractive or has great popular appeal",
+      "synset_id": "58420",
+      "concreteness": 3.0,
+      "zipf": 2.79,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "edition",
+      "gloss": "the form in which a text (especially a printed book) is published",
+      "synset_id": "67666",
+      "concreteness": 3.21,
+      "zipf": 4.084,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "baseline",
+      "gloss": "the back line bounding each end of a tennis or handball court",
+      "synset_id": "78705",
+      "concreteness": 2.86,
+      "zipf": 3.172,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "fever",
+      "gloss": "a state of nervous excitement",
+      "synset_id": "72740",
+      "concreteness": 3.27,
+      "zipf": 3.991,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "counterfeit",
+      "gloss": "a copy that is represented as the original",
+      "synset_id": "51871",
+      "concreteness": 3.64,
+      "zipf": 3.636,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "election",
+      "gloss": "a vote to select the winner of a position or political office",
+      "synset_id": "3858",
+      "concreteness": 3.17,
+      "zipf": 5.073,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "airs",
+      "gloss": "affected manners intended to impress others",
+      "synset_id": "58887",
+      "concreteness": 3.33,
+      "zipf": 3.284,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "fixation",
+      "gloss": "(histology) the preservation and hardening of a tissue sample to retain as nearly as",
+      "synset_id": "6066",
+      "concreteness": 2.9,
+      "zipf": 2.764,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "slaughter",
+      "gloss": "the killing of animals (as for food)",
+      "synset_id": "4833",
+      "concreteness": 3.68,
+      "zipf": 3.652,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "splendor",
+      "gloss": "a quality that outshines the usual",
+      "synset_id": "59737",
+      "concreteness": 2.93,
+      "zipf": 1.599,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "reassembly",
+      "gloss": "assembling again",
+      "synset_id": "5914",
+      "concreteness": 3.07,
+      "zipf": 1.395,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "cutoff",
+      "gloss": "a route shorter than the usual one",
+      "synset_id": "55612",
+      "concreteness": 3.63,
+      "zipf": 1.395,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "duplication",
+      "gloss": "the act of copying or making a duplicate (or duplicates) of something",
+      "synset_id": "19257",
+      "concreteness": 3.3,
+      "zipf": 2.7,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "retailing",
+      "gloss": "the activities involved in selling commodities directly to consumers",
+      "synset_id": "20809",
+      "concreteness": 2.67,
+      "zipf": 2.892,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "works",
+      "gloss": "performance of moral or religious acts",
+      "synset_id": "12554",
+      "concreteness": 3.79,
+      "zipf": 5.065,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "speller",
+      "gloss": "an introductory textbook to teach spelling",
+      "synset_id": "66923",
+      "concreteness": 3.07,
+      "zipf": 1.599,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "crybaby",
+      "gloss": "a person given to excessive complaints and crying and whining",
+      "synset_id": "86828",
+      "concreteness": 3.68,
+      "zipf": 1.775,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "spook",
+      "gloss": "someone unpleasantly strange or eccentric",
+      "synset_id": "82071",
+      "concreteness": 3.38,
+      "zipf": 3.204,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "breeder",
+      "gloss": "a person who breeds animals",
+      "synset_id": "81458",
+      "concreteness": 3.13,
+      "zipf": 3.127,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "publicity",
+      "gloss": "the quality of being open to public view",
+      "synset_id": "58576",
+      "concreteness": 2.74,
+      "zipf": 3.925,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "disorganisation",
+      "gloss": "a condition in which an orderly system has been disrupted",
+      "synset_id": "100174",
+      "concreteness": 2.65,
+      "zipf": 1.81,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "oath",
+      "gloss": "a solemn promise, usually invoking a divine witness, regarding your future acts or behavior",
+      "synset_id": "71170",
+      "concreteness": 2.79,
+      "zipf": 3.541,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "demolishing",
+      "gloss": "complete destruction of a building",
+      "synset_id": "4698",
+      "concreteness": 2.97,
+      "zipf": 2.64,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "equation",
+      "gloss": "a mathematical statement that two expressions are equal",
+      "synset_id": "68109",
+      "concreteness": 3.65,
+      "zipf": 3.737,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "inbreeding",
+      "gloss": "the act of mating closely related individuals",
+      "synset_id": "16709",
+      "concreteness": 2.9,
+      "zipf": 2.565,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "calibration",
+      "gloss": "the act of checking or adjusting (by comparison with a standard) the accuracy of",
+      "synset_id": "18941",
+      "concreteness": 3.0,
+      "zipf": 2.264,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "rigour",
+      "gloss": "excessive sternness",
+      "synset_id": "58177",
+      "concreteness": 3.36,
+      "zipf": 2.857,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "coloniser",
+      "gloss": "someone who helps to found a colony",
+      "synset_id": "81849",
+      "concreteness": 3.187,
+      "zipf": 2.24,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "baritone",
+      "gloss": "the second lowest adult male singing voice",
+      "synset_id": "69165",
+      "concreteness": 3.67,
+      "zipf": 2.946,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "uniting",
+      "gloss": "the act of making or becoming a single unit",
+      "synset_id": "8432",
+      "concreteness": 3.38,
+      "zipf": 2.975,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "hopper",
+      "gloss": "funnel-shaped receptacle",
+      "synset_id": "51716",
+      "concreteness": 3.78,
+      "zipf": 3.336,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "investment",
+      "gloss": "outer layer or covering of an organ or part or organism",
+      "synset_id": "25769",
+      "concreteness": 3.59,
+      "zipf": 4.821,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "waterloo",
+      "gloss": "a final crushing defeat",
+      "synset_id": "72543",
+      "concreteness": 3.358,
+      "zipf": 3.794,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "exorcism",
+      "gloss": "freeing from evil spirits",
+      "synset_id": "64959",
+      "concreteness": 2.86,
+      "zipf": 2.541,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "softness",
+      "gloss": "the trait of being effeminate (derogatory of a man)",
+      "synset_id": "58318",
+      "concreteness": 3.1,
+      "zipf": 2.961,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "putter",
+      "gloss": "a golfer who is putting",
+      "synset_id": "85121",
+      "concreteness": 3.42,
+      "zipf": 3.062,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "evening",
+      "gloss": "the early part of night (from dinner until bedtime) spent in a special way",
+      "synset_id": "103862",
+      "concreteness": 3.26,
+      "zipf": 5.125,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "monochrome",
+      "gloss": "painting done in a range of tones of a single color",
+      "synset_id": "53139",
+      "concreteness": 3.27,
+      "zipf": 2.687,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "programing",
+      "gloss": "creating a sequence of instructions to enable the computer to do something",
+      "synset_id": "17906",
+      "concreteness": 2.97,
+      "zipf": 0.696,
+      "band": "mid",
+      "source": "sampled"
+    },
+    {
+      "word": "silver",
+      "gloss": "silverware eating utensils",
+      "synset_id": "50666",
+      "concreteness": 4.52,
+      "zipf": 5.014,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "outset",
+      "gloss": "the time at which something is supposed to begin",
+      "synset_id": "104385",
+      "concreteness": 4.41,
+      "zipf": 3.427,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "canoe",
+      "gloss": "small and light boat",
+      "synset_id": "46919",
+      "concreteness": 4.86,
+      "zipf": 3.5,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "plane",
+      "gloss": "a power tool for smoothing or shaping wood",
+      "synset_id": "54162",
+      "concreteness": 4.92,
+      "zipf": 4.584,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "nipple",
+      "gloss": "a flexible cap on a baby's feeding bottle or pacifier",
+      "synset_id": "53389",
+      "concreteness": 4.83,
+      "zipf": 3.096,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "kingdom",
+      "gloss": "a domain in which something is dominant",
+      "synset_id": "100247",
+      "concreteness": 4.57,
+      "zipf": 4.597,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "coke",
+      "gloss": "street names for cocaine",
+      "synset_id": "48355",
+      "concreteness": 4.85,
+      "zipf": 3.706,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "pageant",
+      "gloss": "a rich and spectacular ceremony",
+      "synset_id": "72392",
+      "concreteness": 4.0,
+      "zipf": 3.371,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "head",
+      "gloss": "the tip of an abscess (where the pus accumulates)",
+      "synset_id": "99128",
+      "concreteness": 4.75,
+      "zipf": 5.61,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "newsperson",
+      "gloss": "a person who investigates and reports or edits news stories",
+      "synset_id": "85282",
+      "concreteness": 4.63,
+      "zipf": 0.976,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "ton",
+      "gloss": "a United States unit of weight equivalent to 2000 pounds",
+      "synset_id": "95930",
+      "concreteness": 4.17,
+      "zipf": 3.964,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "articulation",
+      "gloss": "expressing in coherent verbal form",
+      "synset_id": "70388",
+      "concreteness": 4.13,
+      "zipf": 2.319,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "fibula",
+      "gloss": "the outer and thinner of the two bones of the human leg between the",
+      "synset_id": "63031",
+      "concreteness": 4.76,
+      "zipf": 2.42,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "palm",
+      "gloss": "any plant of the family Palmae having an unbranched trunk crowned by large pinnate",
+      "synset_id": "90985",
+      "concreteness": 4.83,
+      "zipf": 3.865,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "ampersand",
+      "gloss": "a punctuation mark (‘&’) used to represent conjunction (and)",
+      "synset_id": "69031",
+      "concreteness": 4.031,
+      "zipf": 1.173,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "page",
+      "gloss": "a boy who is employed to run errands",
+      "synset_id": "84576",
+      "concreteness": 4.9,
+      "zipf": 4.524,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "killer",
+      "gloss": "someone who causes the death of a person or animal",
+      "synset_id": "83609",
+      "concreteness": 3.89,
+      "zipf": 4.371,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "scrum",
+      "gloss": "(rugby) the method of beginning play in which the forwards of each team crouch",
+      "synset_id": "5254",
+      "concreteness": 4.203,
+      "zipf": 4.211,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "spur",
+      "gloss": "a railway line connected to a trunk line",
+      "synset_id": "46177",
+      "concreteness": 4.57,
+      "zipf": 3.343,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "abdomen",
+      "gloss": "the cavity containing the major viscera",
+      "synset_id": "62845",
+      "concreteness": 4.7,
+      "zipf": 3.442,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "dime",
+      "gloss": "a United States coin worth one tenth of a dollar",
+      "synset_id": "94053",
+      "concreteness": 4.85,
+      "zipf": 3.178,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "bratwurst",
+      "gloss": "a small pork sausage",
+      "synset_id": "73823",
+      "concreteness": 4.82,
+      "zipf": 2.094,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "noblewoman",
+      "gloss": "a woman of the peerage in Britain",
+      "synset_id": "83662",
+      "concreteness": 4.33,
+      "zipf": 1.842,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "roach",
+      "gloss": "a roll of hair brushed back from the forehead",
+      "synset_id": "61325",
+      "concreteness": 4.96,
+      "zipf": 2.954,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "moon",
+      "gloss": "any natural satellite of a planet",
+      "synset_id": "79369",
+      "concreteness": 4.9,
+      "zipf": 4.738,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "marble",
+      "gloss": "a sculpture carved from marble",
+      "synset_id": "52810",
+      "concreteness": 4.85,
+      "zipf": 3.86,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "valley",
+      "gloss": "a long depression in the surface of the land that usually contains a river",
+      "synset_id": "79688",
+      "concreteness": 4.72,
+      "zipf": 4.474,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "guitar",
+      "gloss": "a stringed instrument usually having six strings",
+      "synset_id": "51315",
+      "concreteness": 4.9,
+      "zipf": 4.386,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "publication",
+      "gloss": "the act of issuing printed materials",
+      "synset_id": "20616",
+      "concreteness": 4.41,
+      "zipf": 3.742,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "shank",
+      "gloss": "cylinder forming the part of a bit by which it is held in the",
+      "synset_id": "55502",
+      "concreteness": 4.18,
+      "zipf": 2.979,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "energiser",
+      "gloss": "someone who imparts energy and vitality and spirit to other people",
+      "synset_id": "82520",
+      "concreteness": 4.0,
+      "zipf": 1.541,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "olympics",
+      "gloss": "the modern revival of the ancient games held once every 4 years in a",
+      "synset_id": "72416",
+      "concreteness": 4.11,
+      "zipf": 4.702,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "plate",
+      "gloss": "a rigid layer of the Earth's crust that is believed to drift slowly",
+      "synset_id": "79464",
+      "concreteness": 4.77,
+      "zipf": 4.728,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "car",
+      "gloss": "the compartment that is suspended from an airship and that carries personnel and the",
+      "synset_id": "47023",
+      "concreteness": 4.92,
+      "zipf": 5.442,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "pomegranate",
+      "gloss": "large globular fruit having many seeds with juicy red pulp in a tough brownish-red",
+      "synset_id": "74420",
+      "concreteness": 4.86,
+      "zipf": 3.241,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "band",
+      "gloss": "a range of frequencies between two limits",
+      "synset_id": "66132",
+      "concreteness": 4.68,
+      "zipf": 4.936,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "washroom",
+      "gloss": "a lavatory (particularly a lavatory in a public place)",
+      "synset_id": "57698",
+      "concreteness": 4.76,
+      "zipf": 2.553,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "pregnancy",
+      "gloss": "the state of being pregnant",
+      "synset_id": "97716",
+      "concreteness": 4.31,
+      "zipf": 3.869,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "spareribs",
+      "gloss": "baked or roasted with a spicy sauce",
+      "synset_id": "75036",
+      "concreteness": 4.76,
+      "zipf": 2.162,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "blast",
+      "gloss": "a highly pleasurable or exciting experience",
+      "synset_id": "71507",
+      "concreteness": 3.9,
+      "zipf": 4.127,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "september",
+      "gloss": "the month following August and preceding October",
+      "synset_id": "104104",
+      "concreteness": 3.81,
+      "zipf": 4.447,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "gazette",
+      "gloss": "a newspaper or official journal",
+      "synset_id": "66169",
+      "concreteness": 4.15,
+      "zipf": 3.123,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "detective",
+      "gloss": "a police officer who investigates crimes",
+      "synset_id": "82265",
+      "concreteness": 4.37,
+      "zipf": 4.256,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "groundcover",
+      "gloss": "low-growing plants planted in deep shade or on a steep slope where turf is",
+      "synset_id": "92728",
+      "concreteness": 4.32,
+      "zipf": 1.395,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "environs",
+      "gloss": "an outer adjacent area of any place",
+      "synset_id": "78213",
+      "concreteness": 4.113,
+      "zipf": 2.127,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "hostess",
+      "gloss": "a woman steward on an airplane",
+      "synset_id": "86056",
+      "concreteness": 4.31,
+      "zipf": 3.182,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "engineer",
+      "gloss": "a person who uses scientific knowledge to solve practical problems",
+      "synset_id": "79986",
+      "concreteness": 4.64,
+      "zipf": 4.139,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "sheikh",
+      "gloss": "the leader of an Arab village or family",
+      "synset_id": "85670",
+      "concreteness": 4.6,
+      "zipf": 3.324,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "art",
+      "gloss": "a superior skill that you can learn by study and practice and observation",
+      "synset_id": "63267",
+      "concreteness": 4.17,
+      "zipf": 5.147,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "fracking",
+      "gloss": "a well-stimulation technique in which rock is fractured by a pressurized liquid",
+      "synset_id": "105332",
+      "concreteness": 4.358,
+      "zipf": 2.764,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "schooltime",
+      "gloss": "the period of instruction in a school",
+      "synset_id": "104050",
+      "concreteness": 4.79,
+      "zipf": 0.772,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "chino",
+      "gloss": "a coarse twilled cotton fabric frequently used for uniforms",
+      "synset_id": "47762",
+      "concreteness": 4.356,
+      "zipf": 2.127,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "marshal",
+      "gloss": "(in some countries) a military officer of highest rank",
+      "synset_id": "83990",
+      "concreteness": 4.41,
+      "zipf": 3.454,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "mustang",
+      "gloss": "small hardy range horse of the western plains descended from horses brought by the",
+      "synset_id": "38680",
+      "concreteness": 4.89,
+      "zipf": 2.979,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "stutterer",
+      "gloss": "someone who speaks with involuntary pauses and repetitions",
+      "synset_id": "86011",
+      "concreteness": 4.16,
+      "zipf": 1.173,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "key",
+      "gloss": "a lever (as in a keyboard) that actuates a mechanism when depressed",
+      "synset_id": "52167",
+      "concreteness": 4.89,
+      "zipf": 5.074,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "methane",
+      "gloss": "a colorless odorless gas used as a fuel",
+      "synset_id": "102667",
+      "concreteness": 4.32,
+      "zipf": 3.388,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "closure",
+      "gloss": "the act of blocking",
+      "synset_id": "20161",
+      "concreteness": 3.93,
+      "zipf": 3.977,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "dietician",
+      "gloss": "a specialist in the study of diet and nutrition",
+      "synset_id": "82286",
+      "concreteness": 4.14,
+      "zipf": 2.428,
+      "band": "concrete",
+      "source": "sampled"
+    },
+    {
+      "word": "chevron",
+      "gloss": "an inverted V-shaped charge",
+      "synset_id": "47712",
+      "concreteness": 4.27,
+      "zipf": 2.516,
+      "band": "concrete",
+      "source": "sampled"
+    }
+  ]
+}
