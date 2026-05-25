@@ -159,7 +159,17 @@ the cohort retains a hand-curated spine.
 
 ### Follow-ups (collect here as they surface)
 
-_(empty — fill in as Phase 2 reveals new follow-ups)_
+- **FU-3: Curator should exclude ethnonyms / demonyms / people-categories.**
+  Phase 2 sampled `kashmiri` (synset for a person from Kashmir).
+  Haiku correctly refused — metaphor mapping on ethnic/cultural
+  groups risks stereotype reduction. Refusal handled gracefully
+  (runner logs + empty result + continues), but the topic is
+  unusable for the cohort and we burnt one Haiku call on it.
+  Fix: extend `curate_spike_2_topics.py` to filter
+  `lexical_domain LIKE 'noun.person'` or similar WordNet-domain
+  marker before sampling. Also worth scanning the current 200-topic
+  cohort for other person-category words and noting them — they'll
+  all be cohort attrition.
 
 ---
 
