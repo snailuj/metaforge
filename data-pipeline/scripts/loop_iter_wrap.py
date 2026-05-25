@@ -4,12 +4,15 @@ Automates the mechanical parts of the loop driver around each
 iteration:
 
 - **pre mode:** snapshot lexicon_v2.db, record loop HEAD SHA + DB
-  md5 + baseline JSON copy. Emit a JSON object the orchestrator
-  threads into the post invocation.
+  md5 + baseline JSON copy, chmod a-w on the immutable file set
+  (filesystem-level write protection for cohort fixtures, harness
+  module, baseline JSON, canonical DB). Emit a JSON object the
+  orchestrator threads into the post invocation.
 - **post mode:** check DB hash for unauthorised mutation, restore
   from snapshot if changed, hard-reset loop branch if the iteration
-  also committed, refresh baseline JSON on a clean commit. Emit a
-  final outcome JSON.
+  also committed, refresh baseline JSON on a clean commit, chmod
+  immutable files back to writable for the next iteration's pre
+  hook (which will re-lock them). Emit a final outcome JSON.
 
 The light code review (looking for cohort-data hardcoding) is the
 orchestrator's own subagent dispatch and lives outside this script —
@@ -30,22 +33,28 @@ Usage::
 
 Both modes emit a single JSON object to stdout. The orchestrator
 captures and threads them.
+
+Run this script FROM the worktree where the loop is checked out
+(`.worktrees/loop/` in the default project layout). It uses
+`git rev-parse --show-toplevel` to anchor all paths; running it
+from the canonical main checkout would lock the wrong files.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import os
 import shutil
+import stat
 import subprocess
-import sys
 from pathlib import Path
 from typing import Optional
 
 
-# These paths are anchored at the repo root so the wrapper can be
-# invoked from anywhere. The repo root is computed via git rev-parse.
 def _repo_root() -> Path:
+    """Resolve the worktree root via git. Must be invoked from inside
+    the worktree being protected."""
     out = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
         capture_output=True, text=True, check=True,
@@ -53,8 +62,7 @@ def _repo_root() -> Path:
     return Path(out.stdout.strip())
 
 
-# Outcome categories the iteration agent may report. Order matters:
-# the lookup table below maps each to a status code.
+# Iteration-reported outcomes (what the iteration agent may say).
 _ITERATION_OUTCOMES = {
     "committed",
     "reverted_tests_failed",
@@ -65,12 +73,92 @@ _ITERATION_OUTCOMES = {
     "escalate_db_change",
 }
 
-# Final outcomes the orchestrator surfaces (a superset of the
-# iteration-reported ones).
+# Final outcomes the orchestrator surfaces — superset including the
+# orchestrator-only downgrades.
 _FINAL_OUTCOMES = _ITERATION_OUTCOMES | {
     "reverted_db_mutation",
     "reverted_data_hack",
 }
+
+
+def _immutable_paths(root: Path) -> list[Path]:
+    """Files chmod a-w during iteration. Operators / orchestrator
+    write-unlock them between iterations to refresh baseline.
+
+    Includes the wrapper script itself so iterations can't disable
+    their own safeguards by editing this file.
+    """
+    return [
+        # Harness module — the immutable truth-signal code.
+        root / "data-pipeline" / "scripts" / "evaluate_loop_metric.py",
+        root / "data-pipeline" / "scripts" / "evaluate_loop_harness.py",
+        root / "data-pipeline" / "scripts" / "test_evaluate_loop_metric.py",
+        root / "data-pipeline" / "scripts" / "test_evaluate_loop_harness.py",
+        # The wrapper itself — iterations can't unlock anything by
+        # patching the script.
+        root / "data-pipeline" / "scripts" / "loop_iter_wrap.py",
+        # Baseline JSON — orchestrator-only writes (refresh after
+        # clean commit). Iteration would be rewriting the baseline
+        # they're being measured against.
+        root / "data-pipeline" / "output" / "loop_baseline.json",
+        # Cohort fixtures — the data discrimination is measured on.
+        # These exist as actual files in the worktree (committed).
+        root / "data-pipeline" / "fixtures" / "lakoff_apt.jsonl",
+        root / "data-pipeline" / "fixtures" / "lakoff_inapt.jsonl",
+        # Canonical DB — symlinked from the worktree to the main
+        # repo's data-pipeline/output/lexicon_v2.db. chmod follows
+        # the symlink and locks the canonical file.
+        root / "data-pipeline" / "output" / "lexicon_v2.db",
+        # Phase 2 cohort outputs — committed in the loop branch
+        # (and in main); locking prevents iterations from rewriting
+        # the cohort data they're being measured on.
+        root / "data-pipeline" / "output" / "metaphor_spike_apt_phase2_20260525T004154.jsonl",
+        root / "data-pipeline" / "output" / "metaphor_spike_inapt_phase2_20260525T004154.jsonl",
+    ]
+
+
+def _chmod_lock(paths: list[Path]) -> list[dict]:
+    """Remove write bits from every existing path. Returns list of
+    {path, prior_mode, new_mode} for diagnostics."""
+    out = []
+    for p in paths:
+        if not p.exists():
+            continue
+        # Resolve symlinks so chmod hits the real file (lexicon_v2.db
+        # symlink → canonical).
+        real = p.resolve()
+        prior = real.stat().st_mode
+        # Strip user / group / other write bits.
+        new = prior & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)
+        os.chmod(real, new)
+        out.append({
+            "path": str(p),
+            "real_path": str(real),
+            "prior_mode": oct(prior),
+            "new_mode": oct(new),
+        })
+    return out
+
+
+def _chmod_unlock(paths: list[Path]) -> list[dict]:
+    """Restore u+w (user write) on every existing path. Mirrors
+    _chmod_lock but only adds the user-write bit (keeps group/other
+    consistent with the umask)."""
+    out = []
+    for p in paths:
+        if not p.exists():
+            continue
+        real = p.resolve()
+        prior = real.stat().st_mode
+        new = prior | stat.S_IWUSR
+        os.chmod(real, new)
+        out.append({
+            "path": str(p),
+            "real_path": str(real),
+            "prior_mode": oct(prior),
+            "new_mode": oct(new),
+        })
+    return out
 
 
 def _md5(path: Path) -> str:
@@ -89,23 +177,17 @@ def _git(args: list[str], cwd: Path) -> str:
     return out.stdout.strip()
 
 
-def _git_safe(args: list[str], cwd: Path) -> tuple[int, str, str]:
-    """Non-raising git invocation. Returns (returncode, stdout, stderr)."""
-    out = subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True,
-    )
-    return out.returncode, out.stdout.strip(), out.stderr.strip()
-
-
 def cmd_pre(iter_id: int, snapshot_dir: Path) -> dict:
-    """Capture pre-state.
+    """Capture pre-state and apply OS-level write protection.
 
-    1. Verify we're on the loop branch with a clean tree (uncommitted
-       changes would mean a prior iteration didn't clean up).
+    1. Verify we're on the loop branch with a clean tree.
     2. Hash the canonical DB.
-    3. Copy the DB to the snapshot location.
-    4. Copy the baseline JSON to a parallel snapshot.
-    5. Record the current HEAD SHA.
+    3. Copy DB + baseline JSON to the snapshot location.
+    4. Record the current HEAD SHA.
+    5. chmod a-w on the immutable file set — iterations cannot
+       physically write to them through any mechanism (snap reruns,
+       direct sqlite3 connections, ALTER TABLE, redirected output, ...
+       all fail with EACCES at the filesystem layer).
     """
     root = _repo_root()
     db = root / "data-pipeline" / "output" / "lexicon_v2.db"
@@ -138,12 +220,16 @@ def cmd_pre(iter_id: int, snapshot_dir: Path) -> dict:
     pre_db_hash = _md5(db)
     pre_sha = _git(["rev-parse", "HEAD"], root)
 
+    locked = _chmod_lock(_immutable_paths(root))
+
     return {
         "iter_id": iter_id,
+        "root": str(root),
         "pre_sha": pre_sha,
         "pre_db_hash": pre_db_hash,
         "snapshot_path": str(snapshot_path),
         "baseline_snapshot_path": str(baseline_snapshot),
+        "locked_files": locked,
     }
 
 
@@ -154,23 +240,21 @@ def cmd_post(
     baseline_snapshot_path: Optional[Path],
     outcome: str,
 ) -> dict:
-    """Check post-state and apply mechanical gates.
+    """Check post-state, apply mechanical gates, restore write perms.
 
-    Gate order (each gate either passes through or downgrades the
-    outcome):
+    Order:
+    1. Unlock immutables (so the orchestrator can act on them — restore
+       DB, hard-reset branch, refresh baseline).
+    2. DB hash gate: if hash changed, restore from snapshot, hard-reset
+       branch if iteration committed, force OUTCOME=reverted_db_mutation.
+    3. Revert / timeout / escalate outcomes: ensure branch didn't
+       advance — hard-reset if it did.
+    4. Clean commit outcome: refresh baseline JSON by re-running the
+       harness in --mode baseline.
 
-    1. DB hash gate. If the canonical DB hash changed: restore from
-       snapshot. If the iteration also committed (loop HEAD != pre_sha),
-       hard-reset loop. Force outcome = reverted_db_mutation.
-    2. (Light code review gate is orchestrator-driven, NOT this
-       script's job. The orchestrator runs that BEFORE invoking us
-       and either keeps OUTCOME=committed or downgrades to
-       reverted_data_hack. We honour the outcome it tells us.)
-    3. If final outcome is reverted_*, hard-reset loop branch to
-       pre_sha if it advanced.
-    4. If final outcome is committed AND DB unchanged AND no other
-       gate fired: refresh baseline JSON so the next iteration
-       compares against the new HEAD.
+    Immutable files are LEFT UNLOCKED on exit — the next iteration's
+    pre call will lock them again. This avoids the orchestrator being
+    unable to refresh baseline mid-loop.
     """
     if outcome not in _ITERATION_OUTCOMES and outcome not in _FINAL_OUTCOMES:
         raise SystemExit(
@@ -190,6 +274,9 @@ def cmd_post(
             f"loop_iter_wrap: not on loop branch (current: {branch})."
         )
 
+    # Step 1 — unlock so we can act.
+    _chmod_unlock(_immutable_paths(root))
+
     current_sha = _git(["rev-parse", "HEAD"], root)
     iteration_advanced = current_sha != pre_sha
 
@@ -199,36 +286,36 @@ def cmd_post(
     baseline_refreshed = False
     final_outcome = outcome
 
-    # Gate 1: DB mutation.
+    # Step 2 — DB mutation gate.
     if db_hash_changed:
         shutil.copy2(snapshot_path, db)
         db_restored = True
         if iteration_advanced:
             _git(["reset", "--hard", pre_sha], root)
             branch_reset = True
-            iteration_advanced = False  # no longer advanced
+            iteration_advanced = False
         final_outcome = "reverted_db_mutation"
 
-    # Gate 3: revert outcomes — make sure branch is at pre_sha.
-    if final_outcome.startswith("reverted_") and iteration_advanced:
+    # Step 3 — revert / timeout / escalate outcomes must leave branch
+    # at pre_sha. Defensive guard against an iteration that committed
+    # despite reporting one of these outcomes.
+    revert_outcomes = (
+        "reverted_tests_failed", "reverted_harness_crash",
+        "reverted_metric_fail", "reverted_db_mutation",
+        "reverted_data_hack",
+        "timed_out", "escalate_harness_flaw", "escalate_db_change",
+    )
+    if final_outcome in revert_outcomes and iteration_advanced:
         _git(["reset", "--hard", pre_sha], root)
         branch_reset = True
         iteration_advanced = False
 
-    # Gate 3b: timed_out / escalate_* outcomes — same, ensure branch
-    # didn't advance. The iteration shouldn't have committed in these
-    # cases but check defensively.
-    if final_outcome in ("timed_out", "escalate_harness_flaw", "escalate_db_change") and iteration_advanced:
-        _git(["reset", "--hard", pre_sha], root)
-        branch_reset = True
-        iteration_advanced = False
-
-    # Gate 4: refresh baseline on a clean commit.
+    # Step 4 — clean commit refresh.
+    baseline_refresh_error = None
     if final_outcome == "committed" and iteration_advanced and not db_hash_changed:
         if not venv_python.exists():
             raise SystemExit(
-                f"loop_iter_wrap: venv python missing at {venv_python}. "
-                "Run `python3 -m venv .venv && pip install -r ...` at repo root."
+                f"loop_iter_wrap: venv python missing at {venv_python}."
             )
         out = subprocess.run(
             [
@@ -236,30 +323,21 @@ def cmd_post(
                 "--mode", "baseline",
                 "--output", str(baseline),
             ],
-            cwd=root,
-            capture_output=True, text=True,
+            cwd=root, capture_output=True, text=True,
         )
         if out.returncode != 0:
-            # Baseline refresh failed — committed change is still in
-            # place but the next iteration's baseline is stale. Flag
-            # but don't override outcome — the operator decides whether
-            # to revert.
-            return {
-                "iter_id_pre_sha": pre_sha,
-                "final_outcome": final_outcome,
-                "db_restored": db_restored,
-                "branch_reset": branch_reset,
-                "baseline_refreshed": False,
-                "baseline_refresh_error": out.stderr,
-            }
-        baseline_refreshed = True
+            baseline_refresh_error = out.stderr
+        else:
+            baseline_refreshed = True
 
     return {
+        "root": str(root),
         "iter_id_pre_sha": pre_sha,
         "final_outcome": final_outcome,
         "db_restored": db_restored,
         "branch_reset": branch_reset,
         "baseline_refreshed": baseline_refreshed,
+        "baseline_refresh_error": baseline_refresh_error,
     }
 
 
