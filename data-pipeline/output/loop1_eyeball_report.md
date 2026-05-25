@@ -12,16 +12,16 @@ Go resolved to source synset: `104108`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | terry | 0.551 | +0 | terry | 0.703 | scored |
-| 2 | corner | 0.551 | +0 | corner | 0.703 | scored |
-| 3 | check | 0.550 | +0 | check | 0.703 | scored |
-| 4 | yellowthroat | 0.549 | +0 | yellowthroat | 0.700 | scored |
-| 5 | bridge | 0.547 | +0 | bridge | 0.700 | scored |
-| 6 | carry | 0.547 | +0 | carry | 0.698 | scored |
-| 7 | exploit | 0.536 | +0 | exploit | 0.689 | scored |
-| 8 | duffel | 0.534 | +0 | duffel | 0.686 | scored |
-| 9 | jumping-off point | 0.531 | +0 | jumping-off point | 0.683 | scored |
-| 10 | draw | 0.528 | +0 | draw | 0.680 | scored |
+| 1 | terry | 0.551 | -4 | bridge | 0.622 | scored |
+| 2 | corner | 0.551 | -1 | check | 0.574 | scored |
+| 3 | check | 0.550 | -12 | betel | 0.565 | scored |
+| 4 | yellowthroat | 0.549 | +2 | corner | 0.560 | scored |
+| 5 | bridge | 0.547 | +4 | terry | 0.546 | scored |
+| 6 | carry | 0.547 | -5 | vest | 0.519 | scored |
+| 7 | exploit | 0.536 | -7 | square | 0.465 | scored |
+| 8 | duffel | 0.534 | +1 | exploit | 0.463 | scored |
+| 9 | jumping-off point | 0.531 | +0 | jumping-off point | 0.444 | scored |
+| 10 | draw | 0.528 | -2 | publisher | 0.438 | scored |
 
 _Candidates: 35, Go scored 35, Py scored 35 (gate-dropped or missing-prop excluded)._
 
@@ -31,16 +31,16 @@ Go resolved to source synset: `59439`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | orthodontist | 1.019 | -12 | moneybag | 0.783 | scored |
-| 2 | dispenser | 0.830 | -19 | duffel | 0.781 | scored |
-| 3 | cube | 0.811 | -13 | draw | 0.771 | scored |
-| 4 | table | 0.769 | -15 | fry | 0.749 | scored |
-| 5 | run | 0.759 | -22 | draw | 0.746 | scored |
-| 6 | appliance | 0.745 | -16 | rosemary | 0.744 | scored |
-| 7 | stack | 0.728 | -7 | off-street | 0.741 | scored |
-| 8 | pat | 0.720 | -12 | bloodroot | 0.740 | scored |
-| 9 | clipping | 0.719 | -16 | purulent | 0.734 | scored |
-| 10 | secretarial assistant | 0.718 | -8 | jumping-off point | 0.727 | scored |
+| 1 | orthodontist | 1.019 | -12 | moneybag | 0.658 | scored |
+| 2 | dispenser | 0.830 | -20 | rosemary | 0.631 | scored |
+| 3 | cube | 0.811 | -22 | purulent | 0.574 | scored |
+| 4 | table | 0.769 | -13 | lacewood | 0.566 | scored |
+| 5 | run | 0.759 | -14 | fry | 0.562 | scored |
+| 6 | appliance | 0.745 | -22 | dibble | 0.555 | scored |
+| 7 | stack | 0.728 | -17 | loge | 0.523 | scored |
+| 8 | pat | 0.720 | -10 | jumping-off point | 0.508 | scored |
+| 9 | clipping | 0.719 | -12 | duffel | 0.504 | scored |
+| 10 | secretarial assistant | 0.718 | -10 | bloodroot | 0.502 | scored |
 
 _Candidates: 35, Go scored 35, Py scored 35 (gate-dropped or missing-prop excluded)._
 
@@ -50,16 +50,16 @@ Go resolved to source synset: `58151`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | animation | 1.082 | -19 | joint | 0.681 | scored |
-| 2 | beam | 0.993 | -17 | instrument | 0.681 | scored |
-| 3 | high | 0.964 | -21 | foliate | 0.681 | scored |
-| 4 | laughing | 0.942 | -14 | hang | 0.680 | scored |
-| 5 | light | 0.914 | -11 | override | 0.680 | scored |
-| 6 | xanthous | 0.756 | -11 | communicate | 0.680 | scored |
-| 7 | orange | 0.751 | -15 | 9 | 0.680 | scored |
-| 8 | beam | 0.695 | -13 | sixth | 0.679 | scored |
-| 9 | bubbly | 0.693 | -19 | abut | 0.679 | scored |
-| 10 | high | 0.690 | -21 | hook | 0.679 | scored |
+| 1 | animation | 1.082 | -23 | foliate | 0.652 | scored |
+| 2 | beam | 0.993 | -36 | insignificant | 0.648 | scored |
+| 3 | high | 0.964 | -34 | knot | 0.647 | scored |
+| 4 | laughing | 0.942 | -27 | hook | 0.643 | scored |
+| 5 | light | 0.914 | -23 | abut | 0.641 | scored |
+| 6 | xanthous | 0.756 | -24 | port | 0.607 | scored |
+| 7 | orange | 0.751 | -40 | bracket | 0.607 | scored |
+| 8 | beam | 0.695 | -12 | joint | 0.604 | scored |
+| 9 | bubbly | 0.693 | -20 | article | 0.596 | scored |
+| 10 | high | 0.690 | -32 | back | 0.594 | scored |
 
 _Candidates: 58, Go scored 58, Py scored 58 (gate-dropped or missing-prop excluded)._
 
@@ -69,16 +69,16 @@ Go resolved to source synset: `68056`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | enmesh | 0.631 | +0 | enmesh | 0.776 | scored |
-| 2 | cap | 0.597 | +0 | cap | 0.752 | scored |
-| 3 | float | 0.597 | -1 | contrast | 0.750 | scored |
-| 4 | contrast | 0.597 | +1 | float | 0.750 | scored |
-| 5 | muffle | 0.592 | -2 | ceiling | 0.737 | scored |
-| 6 | corset | 0.592 | -2 | tie | 0.726 | scored |
-| 7 | ceiling | 0.583 | -2 | curb | 0.697 | scored |
-| 8 | tie | 0.578 | -2 | chains | 0.690 | scored |
-| 9 | curb | 0.543 | +3 | corset | 0.684 | scored |
-| 10 | chains | 0.536 | +5 | muffle | 0.684 | scored |
+| 1 | enmesh | 0.631 | -1 | cap | 0.636 | scored |
+| 2 | cap | 0.597 | -5 | ceiling | 0.623 | scored |
+| 3 | float | 0.597 | -5 | tie | 0.606 | scored |
+| 4 | contrast | 0.597 | -13 | fork | 0.595 | scored |
+| 5 | muffle | 0.592 | -8 | carpet | 0.589 | scored |
+| 6 | corset | 0.592 | -19 | beard | 0.589 | scored |
+| 7 | ceiling | 0.583 | -21 | twist | 0.584 | scored |
+| 8 | tie | 0.578 | -21 | foot | 0.579 | scored |
+| 9 | curb | 0.543 | -30 | aggrandise | 0.575 | scored |
+| 10 | chains | 0.536 | -16 | can | 0.574 | scored |
 
 _Candidates: 55, Go scored 55, Py scored 55 (gate-dropped or missing-prop excluded)._
 
@@ -113,16 +113,16 @@ Go resolved to source synset: `72613`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | delilah | 0.817 | -5 | bridge | 0.689 | scored |
-| 2 | adapin | 0.536 | -1 | check | 0.689 | scored |
-| 3 | check | 0.535 | +1 | adapin | 0.688 | scored |
-| 4 | fall | 0.535 | +0 | fall | 0.687 | scored |
-| 5 | sixth | 0.535 | -3 | attach | 0.687 | scored |
-| 6 | bridge | 0.534 | +1 | sixth | 0.687 | scored |
-| 7 | price | 0.533 | -4 | a.d. | 0.685 | scored |
-| 8 | attach | 0.533 | +1 | price | 0.685 | scored |
-| 9 | scatter | 0.532 | -1 | article | 0.685 | scored |
-| 10 | article | 0.531 | -2 | dress | 0.684 | scored |
+| 1 | delilah | 0.817 | -5 | bridge | 0.651 | scored |
+| 2 | adapin | 0.536 | -10 | dress | 0.644 | scored |
+| 3 | check | 0.535 | -11 | foliate | 0.641 | scored |
+| 4 | fall | 0.535 | -15 | defer | 0.638 | scored |
+| 5 | sixth | 0.535 | -3 | attach | 0.637 | scored |
+| 6 | bridge | 0.534 | -22 | branch | 0.633 | scored |
+| 7 | price | 0.533 | -18 | tamal | 0.632 | scored |
+| 8 | attach | 0.533 | -15 | arse about | 0.626 | scored |
+| 9 | scatter | 0.532 | +6 | check | 0.625 | scored |
+| 10 | article | 0.531 | -10 | calendar | 0.609 | scored |
 
 _Candidates: 46, Go scored 46, Py scored 46 (gate-dropped or missing-prop excluded)._
 
@@ -132,16 +132,16 @@ Go resolved to source synset: `38238`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | pound | 0.809 | -13 | plaice | 0.713 | scored |
-| 2 | city | 0.749 | -13 | rosemary | 0.708 | scored |
-| 3 | high | 0.729 | -13 | lacewood | 0.698 | scored |
-| 4 | bank | 0.725 | -13 | moneybag | 0.692 | scored |
-| 5 | spreadsheet | 0.722 | -14 | spud | 0.679 | scored |
-| 6 | officer | 0.709 | -15 | loge | 0.674 | scored |
-| 7 | police matron | 0.709 | -15 | fry | 0.673 | scored |
-| 8 | berth | 0.709 | +7 | pound | 0.536 | scored |
-| 9 | bank | 0.704 | -4 | asylum | 0.482 | scored |
-| 10 | binder | 0.698 | +8 | city | 0.475 | scored |
+| 1 | pound | 0.809 | -18 | spud | 0.488 | scored |
+| 2 | city | 0.749 | -13 | rosemary | 0.485 | scored |
+| 3 | high | 0.729 | -11 | plaice | 0.474 | scored |
+| 4 | bank | 0.725 | -13 | moneybag | 0.466 | scored |
+| 5 | spreadsheet | 0.722 | -11 | lacewood | 0.415 | scored |
+| 6 | officer | 0.709 | -16 | fry | 0.363 | scored |
+| 7 | police matron | 0.709 | +6 | pound | 0.351 | scored |
+| 8 | berth | 0.709 | -13 | loge | 0.349 | scored |
+| 9 | bank | 0.704 | -9 | cabin | 0.348 | scored |
+| 10 | binder | 0.698 | +8 | city | 0.348 | scored |
 
 _Candidates: 27, Go scored 27, Py scored 27 (gate-dropped or missing-prop excluded)._
 
@@ -156,16 +156,16 @@ Go resolved to source synset: `16511`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | bull | 1.324 | +0 | bull | 0.805 | scored |
-| 2 | beguiler | 0.992 | -25 | lead | 0.655 | scored |
-| 3 | quack | 0.861 | -69 | genuflect | 0.652 | scored |
-| 4 | crib | 0.787 | -50 | bust | 0.635 | scored |
-| 5 | lift | 0.784 | -33 | depressant | 0.630 | scored |
-| 6 | bamboozle | 0.784 | -14 | tenant | 0.620 | scored |
-| 7 | camouflage | 0.780 | -32 | curb | 0.619 | scored |
-| 8 | bastard | 0.778 | -38 | feed | 0.617 | scored |
-| 9 | cook | 0.748 | -48 | rosemary | 0.615 | scored |
-| 10 | counterfeit | 0.740 | -27 | twin | 0.614 | scored |
+| 1 | bull | 1.324 | +0 | bull | 0.665 | scored |
+| 2 | beguiler | 0.992 | -58 | walnut | 0.510 | scored |
+| 3 | quack | 0.861 | -60 | hose | 0.499 | scored |
+| 4 | crib | 0.787 | -39 | heel | 0.494 | scored |
+| 5 | lift | 0.784 | -56 | field day | 0.490 | scored |
+| 6 | bamboozle | 0.784 | -62 | bridge | 0.481 | scored |
+| 7 | camouflage | 0.780 | -32 | curb | 0.478 | scored |
+| 8 | bastard | 0.778 | -49 | rosemary | 0.474 | scored |
+| 9 | cook | 0.748 | -36 | grain | 0.465 | scored |
+| 10 | counterfeit | 0.740 | -44 | bust | 0.462 | scored |
 
 _Candidates: 80, Go scored 80, Py scored 80 (gate-dropped or missing-prop excluded)._
 
@@ -175,16 +175,16 @@ Go resolved to source synset: `39771`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | stunt | 1.133 | -21 | prostrate | 0.801 | scored |
-| 2 | choke | 0.993 | -19 | house of york | 0.781 | scored |
-| 3 | constrain | 0.834 | -20 | affaire d'honneur | 0.759 | scored |
-| 4 | dwarf | 0.819 | -26 | fantastic | 0.750 | scored |
-| 5 | balk | 0.814 | -27 | genuflect | 0.742 | scored |
-| 6 | bond | 0.800 | -12 | bombproof | 0.727 | scored |
-| 7 | pinion | 0.783 | -35 | citrate | 0.727 | scored |
-| 8 | brake | 0.781 | -21 | moneybag | 0.713 | scored |
-| 9 | pull | 0.761 | -22 | dalmatian | 0.701 | scored |
-| 10 | confinement | 0.760 | -30 | reprobate | 0.700 | scored |
+| 1 | stunt | 1.133 | -28 | moneybag | 0.682 | scored |
+| 2 | choke | 0.993 | -29 | dalmatian | 0.679 | scored |
+| 3 | constrain | 0.834 | -27 | fantastic | 0.674 | scored |
+| 4 | dwarf | 0.819 | -28 | genuflect | 0.661 | scored |
+| 5 | balk | 0.814 | -21 | basil | 0.657 | scored |
+| 6 | bond | 0.800 | -38 | escargot | 0.648 | scored |
+| 7 | pinion | 0.783 | -14 | house of york | 0.647 | scored |
+| 8 | brake | 0.781 | -40 | aloe | 0.635 | scored |
+| 9 | pull | 0.761 | -30 | huitre | 0.633 | scored |
+| 10 | confinement | 0.760 | -28 | dibble | 0.632 | scored |
 
 _Candidates: 52, Go scored 52, Py scored 52 (gate-dropped or missing-prop excluded)._
 
@@ -194,16 +194,16 @@ Go resolved to source synset: `69605`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | chin | 0.797 | -2 | scum | 0.685 | scored |
-| 2 | fluid | 0.699 | -2 | arse about | 0.684 | scored |
-| 3 | scum | 0.533 | -2 | spud | 0.679 | scored |
-| 4 | arse about | 0.532 | +3 | chin | 0.476 | scored |
-| 5 | spud | 0.527 | -3 | knell | 0.444 | scored |
-| 6 | lake | 0.524 | -1 | fount | 0.432 | scored |
-| 7 | fount | 0.523 | -12 | parrot | 0.424 | scored |
-| 8 | knell | 0.521 | -2 | guitar | 0.423 | scored |
-| 9 | church | 0.517 | +7 | fluid | 0.419 | scored |
-| 10 | guitar | 0.512 | -1 | string section | 0.406 | scored |
+| 1 | chin | 0.797 | -3 | arse about | 0.385 | scored |
+| 2 | fluid | 0.699 | -3 | spud | 0.372 | scored |
+| 3 | scum | 0.533 | +0 | scum | 0.355 | scored |
+| 4 | arse about | 0.532 | +3 | chin | 0.291 | scored |
+| 5 | spud | 0.527 | -14 | parrot | 0.281 | scored |
+| 6 | lake | 0.524 | -4 | guitar | 0.261 | scored |
+| 7 | fount | 0.523 | -1 | knell | 0.254 | scored |
+| 8 | knell | 0.521 | -6 | crow | 0.248 | scored |
+| 9 | church | 0.517 | -6 | fox | 0.248 | scored |
+| 10 | guitar | 0.512 | +3 | fount | 0.239 | scored |
 
 _Candidates: 23, Go scored 23, Py scored 23 (gate-dropped or missing-prop excluded)._
 
@@ -213,16 +213,16 @@ Go resolved to source synset: `79474`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | center | 0.784 | -35 | affaire d'honneur | 0.722 | scored |
-| 2 | department of energy | 0.716 | -16 | bestiary | 0.671 | scored |
-| 3 | pie | 0.711 | -20 | bring | 0.670 | scored |
-| 4 | alphabet | 0.677 | -42 | culprit | 0.667 | scored |
-| 5 | capital | 0.605 | -2 | broken | 0.654 | scored |
-| 6 | 1 | 0.590 | -32 | set | 0.652 | scored |
-| 7 | broken | 0.569 | -35 | unironed | 0.650 | scored |
-| 8 | heartbeat | 0.561 | -21 | damaged | 0.644 | scored |
-| 9 | base | 0.549 | -30 | unroll | 0.643 | scored |
-| 10 | core | 0.548 | -10 | iridocyclitis | 0.640 | scored |
+| 1 | center | 0.784 | -39 | defect | 0.604 | scored |
+| 2 | department of energy | 0.716 | -25 | prig | 0.580 | scored |
+| 3 | pie | 0.711 | -39 | unironed | 0.574 | scored |
+| 4 | alphabet | 0.677 | -27 | slave | 0.567 | scored |
+| 5 | capital | 0.605 | -16 | jacket | 0.562 | scored |
+| 6 | 1 | 0.590 | -39 | crow | 0.557 | scored |
+| 7 | broken | 0.569 | +0 | broken | 0.549 | scored |
+| 8 | heartbeat | 0.561 | -33 | brand | 0.544 | scored |
+| 9 | base | 0.549 | -25 | fat | 0.540 | scored |
+| 10 | core | 0.548 | -34 | bloodroot | 0.540 | scored |
 
 _Candidates: 61, Go scored 61, Py scored 61 (gate-dropped or missing-prop excluded)._
 
@@ -232,16 +232,16 @@ Go resolved to source synset: `18915`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | acceptance | 0.745 | -4 | west | 0.725 | scored |
-| 2 | plus | 0.668 | -9 | sou'-east | 0.705 | scored |
-| 3 | congratulate | 0.593 | -7 | easterly | 0.704 | scored |
-| 4 | fortunate | 0.582 | -5 | rustle | 0.704 | scored |
-| 5 | west | 0.572 | -7 | sou'west | 0.704 | scored |
-| 6 | spark | 0.568 | -9 | contaminated | 0.702 | scored |
-| 7 | ascend | 0.568 | -7 | embargo | 0.702 | scored |
-| 8 | high | 0.560 | -8 | broken | 0.699 | scored |
-| 9 | rustle | 0.553 | -10 | arse about | 0.698 | scored |
-| 10 | easterly | 0.553 | -10 | loge | 0.697 | scored |
+| 1 | acceptance | 0.745 | -18 | arse about | 0.681 | scored |
+| 2 | plus | 0.668 | -22 | dibble | 0.664 | scored |
+| 3 | congratulate | 0.593 | -17 | loge | 0.656 | scored |
+| 4 | fortunate | 0.582 | -55 | cube | 0.653 | scored |
+| 5 | west | 0.572 | -56 | riddle | 0.652 | scored |
+| 6 | spark | 0.568 | -30 | quarter | 0.648 | scored |
+| 7 | ascend | 0.568 | -9 | broken | 0.638 | scored |
+| 8 | high | 0.560 | -25 | add | 0.636 | scored |
+| 9 | rustle | 0.553 | -31 | gender | 0.618 | scored |
+| 10 | easterly | 0.553 | -31 | sex | 0.618 | scored |
 
 _Candidates: 70, Go scored 70, Py scored 70 (gate-dropped or missing-prop excluded)._
 
@@ -251,16 +251,16 @@ Go resolved to source synset: `26270`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | child | 0.928 | -16 | concrete | 0.701 | scored |
-| 2 | baby | 0.812 | -16 | duffel | 0.698 | scored |
-| 3 | lamb | 0.779 | -16 | dibble | 0.698 | scored |
-| 4 | piggy | 0.725 | -16 | grade | 0.696 | scored |
-| 5 | birth | 0.716 | -16 | connect | 0.696 | scored |
-| 6 | peanut | 0.715 | -16 | receipt | 0.694 | scored |
-| 7 | puppy | 0.711 | -16 | people | 0.694 | scored |
-| 8 | pup | 0.701 | -16 | drop | 0.689 | scored |
-| 9 | litter | 0.678 | -16 | visa | 0.688 | scored |
-| 10 | baby | 0.678 | -18 | blend | 0.687 | scored |
+| 1 | child | 0.928 | -21 | receipt | 0.650 | scored |
+| 2 | baby | 0.812 | -19 | connect | 0.647 | scored |
+| 3 | lamb | 0.779 | -20 | people | 0.646 | scored |
+| 4 | piggy | 0.725 | -13 | concrete | 0.627 | scored |
+| 5 | birth | 0.716 | -25 | corner | 0.615 | scored |
+| 6 | peanut | 0.715 | -22 | blend | 0.609 | scored |
+| 7 | puppy | 0.711 | -12 | dibble | 0.609 | scored |
+| 8 | pup | 0.701 | -24 | lacewood | 0.596 | scored |
+| 9 | litter | 0.678 | -30 | rack | 0.590 | scored |
+| 10 | baby | 0.678 | -15 | visa | 0.583 | scored |
 
 _Candidates: 45, Go scored 45, Py scored 45 (gate-dropped or missing-prop excluded)._
 
@@ -270,16 +270,16 @@ Go resolved to source synset: `4807`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | scrapbook | 0.641 | -7 | rubber | 0.680 | scored |
-| 2 | placenta | 0.625 | -8 | bubble | 0.679 | scored |
-| 3 | backseat | 0.566 | -9 | colloidal gel | 0.663 | scored |
-| 4 | half-pint | 0.566 | -5 | knell | 0.661 | scored |
-| 5 | kernel | 0.537 | -1 | head | 0.654 | scored |
-| 6 | head | 0.529 | -1 | onion | 0.643 | scored |
-| 7 | onion | 0.528 | -4 | vinegar | 0.626 | scored |
-| 8 | rubber | 0.524 | +7 | scrapbook | 0.589 | scored |
-| 9 | knell | 0.522 | +7 | placenta | 0.562 | scored |
-| 10 | bubble | 0.522 | +6 | half-pint | 0.536 | scored |
+| 1 | scrapbook | 0.641 | -7 | rubber | 0.463 | scored |
+| 2 | placenta | 0.625 | -5 | onion | 0.438 | scored |
+| 3 | backseat | 0.566 | -6 | knell | 0.436 | scored |
+| 4 | half-pint | 0.566 | -7 | vinegar | 0.435 | scored |
+| 5 | kernel | 0.537 | -1 | head | 0.413 | scored |
+| 6 | head | 0.529 | -6 | colloidal gel | 0.410 | scored |
+| 7 | onion | 0.528 | -3 | bubble | 0.380 | scored |
+| 8 | rubber | 0.524 | +7 | scrapbook | 0.375 | scored |
+| 9 | knell | 0.522 | -4 | butt | 0.374 | scored |
+| 10 | bubble | 0.522 | -12 | toe | 0.371 | scored |
 
 _Candidates: 27, Go scored 27, Py scored 27 (gate-dropped or missing-prop excluded)._
 
@@ -289,59 +289,46 @@ Go resolved to source synset: `32780`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | mailman | 0.754 | -5 | moneybag | 0.717 | scored |
-| 2 | cricket | 0.727 | -6 | plaice | 0.690 | scored |
-| 3 | cord | 0.720 | -7 | arse about | 0.683 | scored |
-| 4 | ferry | 0.614 | -8 | burden | 0.675 | scored |
-| 5 | beat | 0.570 | -12 | rag | 0.529 | scored |
-| 6 | moneybag | 0.566 | -12 | bump | 0.500 | scored |
-| 7 | ferry | 0.552 | -7 | beat | 0.477 | scored |
-| 8 | plaice | 0.538 | +7 | mailman | 0.466 | scored |
-| 9 | uniform | 0.532 | -12 | drum | 0.461 | scored |
-| 10 | arse about | 0.531 | +8 | cricket | 0.451 | scored |
+| 1 | mailman | 0.754 | -11 | burden | 0.429 | scored |
+| 2 | cricket | 0.727 | -8 | arse about | 0.415 | scored |
+| 3 | cord | 0.720 | -3 | moneybag | 0.387 | scored |
+| 4 | ferry | 0.614 | -4 | plaice | 0.366 | scored |
+| 5 | beat | 0.570 | -9 | beat | 0.327 | scored |
+| 6 | moneybag | 0.566 | -15 | drum | 0.316 | scored |
+| 7 | ferry | 0.552 | -15 | drum | 0.306 | scored |
+| 8 | plaice | 0.538 | -9 | rag | 0.291 | scored |
+| 9 | uniform | 0.532 | -9 | bump | 0.287 | scored |
+| 10 | arse about | 0.531 | -3 | astragal | 0.282 | scored |
 
 _Candidates: 24, Go scored 24, Py scored 24 (gate-dropped or missing-prop excluded)._
 
 ---
 
-## Verdict (auto-generated, eyeball still recommended)
+## Post-soft-gate re-run (2026-05-25, after evaluate_cascade.py soft-gate landed)
 
-**Method note.** "Go" rankings reflect the pre-loop production cascade (`api/internal/forge/cascade.go`, DCap=0.77, no rerank exponent, no concreteness bonus). "Py" rankings reflect the loop's cumulative Python tuning (PRODUCTION_CASCADE_CONFIG with d_cap=0.68, rerank_exponent=0.75, concreteness_bonus_coef=0.002). Same candidate set per topic — only the scoring changes — so any rank delta is purely the loop's reranks.
+Re-ran the same harness after promoting `PRODUCTION_CASCADE_CONFIG` to `gate_mode='soft', gate_alpha=2.0`. **Same 6 topics still produce zero candidates.** This is a load-bearing finding about *where* the soft gate has to land to deliver coverage:
 
-### Stats over the 14 scored topics
+- The Python `evaluate_cascade_pair` is now soft-gated correctly. Unit tests confirm a previously gate-dropped pair (similar→alike, delta +0.1) now status='scored' with a small positive score.
+- But the eyeball harness queries Go's `/forge/suggest` to surface candidates. Go's cascade pipeline filters at the **SQL CTE level** (`cascade_pipeline.go:301`: "SQL CTE already filtered gate_dropped + missing_concreteness"). The candidates never reach the cascade scorer, let alone Python.
+- For the 6 OOD concrete topics, Go's CTE returns zero candidates. Python rescoring has nothing to operate on.
 
-| Metric | Value |
-|--------|------:|
-| Top-1 disagreement (Go vs Py) | 11 / 14 (79%) |
-| Top-3 overlap, median | 0 of 3 |
-| Top-3 overlap, mean | 0.64 of 3 (~21%) |
-| Top-3 overlap distribution | nine 0s, two 1s, two 2s, one 3 |
+**What this means:**
 
-The loop reranks are doing material work on OOD topics — they don't merely reshuffle near-ties. Whether the new ranking is *better* is what eyeballing decides.
+| Surface | Soft-gate impact |
+|---------|-----------------|
+| Python `loop_harness` (Phase 2 + Lakoff) | ✅ Directly measured. Baseline shifted: Phase 2 median 3.03 → 1.98, Lakoff 0.6000 → 0.5727. Loop-2 will tune `gate_alpha` here. |
+| User-facing `/forge/suggest` | ❌ Still hard-gated. Soft-gate benefit invisible to users until ported to Go. |
+| OOD eyeball (this report) | ❌ Can't validate end-to-end. Go gates upstream of Python rescore. |
 
-### Coverage finding (the headline)
+**Follow-up needed:** Port soft-gate to Go (`api/internal/forge/cascade.go` + the CTE-level filter in `cascade_pipeline.go`). Until then the loop tunes a metric that production never sees. The Python cohort measurement remains valid as a *predictor* of what production would do *if* it adopted the same gate — but the prediction is theoretical until ported.
 
-**6 of 20 OOD topics produced zero scored candidates** — even with `candidate_sources=union` (cluster overlap + embedding ANN both enabled, the M04 path). All six are very-concrete topics: wall (4.86), belt (4.90), field hockey (4.31), nephew (4.48), boulder (4.67), freckle (4.56). The cluster path returned nothing; the embedding path delivered ~100 candidates each — but the **+1.0 signed-delta concreteness gate filtered every one**. When topic_c ≥ 4.3, there is essentially no vehicle in the lexicon with concreteness ≥ topic_c + 1.0.
+The unit-test side did confirm what we built:
 
-This is a **cascade structural blind spot**, not a loop issue — the loop never touched the gate threshold or its asymmetry. It also flatters the original Phase 2 + Lakoff cohorts: both skew toward abstract-or-mid-concrete topics where the gate has headroom.
+```
+data-pipeline/scripts/test_evaluate_cascade.py::test_soft_gate_rescues_previously_dropped_pair PASSED
+data-pipeline/scripts/test_evaluate_cascade.py::test_soft_gate_preserves_clear_pass_pair_score_approximately PASSED
+data-pipeline/scripts/test_evaluate_cascade.py::test_soft_gate_status_is_scored_even_when_hard_would_drop PASSED
++ 4 more invariant/config tests
+```
 
-Implications:
-- The +28.7% Phase 2 lift is real but conditional. It does not extend to very-concrete topics because the gate kills them before any rerank can run.
-- A loop-2 that wants to broaden the win envelope should target the gate first (relax the threshold for concrete topics, or replace the asymmetric signed delta with a different abstractness-mismatch metric).
-- For productionisation: a hard 30% topic coverage loss on a random OOD slice is worth knowing before merging the loop wins to main.
-
-### POS resilience
-
-Non-nominal POS retained 9 of 10 picks (4/4 adjectives, 2/2 adverbs, 3/4 verbs — only "freckle" was gate-killed). Nominal lost 5 of 10 to the gate. **The iter-2 noun-POS preference did not catastrophically harm non-nouns** — the cascade still surfaces and scores verb/adjective/adverb topics normally. The non-nominal stratification was the right call; without it we'd have missed the verb-and-adjective resilience signal entirely.
-
-### Qualitative observations (eyeball the topic sections above)
-
-- **Abstract topics with cross-domain Py picks** — ebullience (fire/dance/burn/spark), affirmative (sun/illumination/bright), embargo (enmesh/cap/float/tie/curb). Py rankings look conceptually-metaphor-shaped where Go's were closer-domain.
-- **Childish** — Py demotes literal-young-being candidates (child, baby) and elevates evaluative ones (potty, absurd). Reasonable since the inapt vehicle space for "childish" is exactly literal-young-being.
-- **Pretend** — Py top-5 (bull, err, camouflage, forge, cook) shapes well to the deceit/imitation cluster Go was already finding; reordering looks neutral-to-good.
-- **Monthly / behind** — these adverb topics produce noisy candidate sets in both rankings; the cascade doesn't have a strong signal here either way.
-- **Indonesian** — geographic adjective with no obvious metaphor mapping; both rankings are noise. OOD limit, not a loop issue.
-
-### Bottom line
-
-The loop wins are real on the topics where the cascade actually runs (top-1 changes in 79% of scored cases, with qualitatively more cross-domain picks). But the cascade only runs on ~70% of random OOD topics — the +1.0 concreteness gate gates out the rest. That coverage cap is now the binding constraint for any further work on this surface.
+Soft-gate behaviour is correct in Python. The coverage win awaits the Go port.
