@@ -159,17 +159,28 @@ the cohort retains a hand-curated spine.
 
 ### Follow-ups (collect here as they surface)
 
-- **FU-3: Curator should exclude ethnonyms / demonyms / people-categories.**
-  Phase 2 sampled `kashmiri` (synset for a person from Kashmir).
-  Haiku correctly refused — metaphor mapping on ethnic/cultural
-  groups risks stereotype reduction. Refusal handled gracefully
-  (runner logs + empty result + continues), but the topic is
-  unusable for the cohort and we burnt one Haiku call on it.
-  Fix: extend `curate_spike_2_topics.py` to filter
-  `lexical_domain LIKE 'noun.person'` or similar WordNet-domain
-  marker before sampling. Also worth scanning the current 200-topic
-  cohort for other person-category words and noting them — they'll
-  all be cohort attrition.
+- **FU-3: Curator needs sense-aware safety filtering.**
+  Phase 2 saw two safety refusals so far:
+  - `kashmiri` (gloss: "a member of the people of Kashmir") —
+    ethnonym, Haiku refused metaphor mapping on cultural groups.
+  - `coke` (gloss: "street names for cocaine") — cocaine sense,
+    Haiku refused mapping on substances-of-abuse. The word has
+    benign senses (soft drink, coal coke) but `lookup_primary_synset`
+    picked the SUBTLEX-frequency-dominant sense, which is cocaine.
+  Both refusals were handled gracefully (logged, empty result, loop
+  continued) but each burnt one Haiku call and produces zero cohort
+  rows.
+  Two-part fix:
+  1. Exclude WordNet `noun.person` domain wholesale from sampling
+     — metaphor mapping on people-categories is always risky.
+  2. Sense-aware selection: when a lemma has multiple senses, prefer
+     the most concrete benign sense over the frequency-dominant one.
+     Concretely, score each candidate sense for safety (filter against
+     a small bad-domain list like `noun.act` containing drug terms,
+     weapons, etc) and pick the safest sense whose gloss matches the
+     concreteness band we sampled it for.
+  Until both fixes land, the Phase 2 cohort just absorbs ~1-2% safety
+  refusals as zero-vehicle rows.
 
 ---
 
