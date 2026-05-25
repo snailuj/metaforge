@@ -123,7 +123,14 @@ class CascadeConfig:
     # additive composition alpha=1.0 the bonus is the dominant signal; reducing
     # the amplifier brings ortony's contribution back toward parity, which may
     # tip a few resamples on the bootstrap edge.
-    rerank_exponent: float = 0.75
+    #
+    # 2026-05-25 loop-2 iter14: bumped from 0.75 -> 0.5 (full sqrt) under soft
+    # gate. The 0.75 value was tuned under hard gate which discards sub-
+    # threshold pairs. Soft gate retains them with sigmoid attenuation, so the
+    # rerank stage now sees a wider distribution of distances and benefits from
+    # stronger amplification of small-distance differences. Phase 2 median:
+    # 1.9844 -> 1.9953; Lakoff ratio: 0.5727 -> 0.6042 (both improved).
+    rerank_exponent: float = 0.5
     # Coefficient on the post-gate signed concreteness delta. The gate
     # discards an informative signal: apt-cohort mean signed delta is
     # ~2.03 vs inapt ~1.73 (post-gate, threshold 1.0). Without this
