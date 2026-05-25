@@ -144,6 +144,20 @@ class CascadeConfig:
     # delta spread means even tiny coefficients can flip apt↔inapt
     # promotions. 0.002 is the largest coef tested that preserves Lakoff.
     concreteness_bonus_coef: float = 0.002
+    # --- Gate mode (2026-05-25, post-loop-1 eyeball finding) ----------------
+    # Hard mode: signed-delta < threshold → gate_dropped (final_score=0.0).
+    # Soft mode: sigmoid penalty centred at threshold; penalty multiplies
+    # final_score; status stays 'scored' for any pair with both concreteness
+    # scores present. Soft mode rescues OOD very-concrete topics that the
+    # hard gate kills upstream of the rerank. See
+    # data-pipeline/output/loop1_eyeball_report.md for the motivating finding.
+    #
+    # gate_alpha controls sigmoid steepness. As alpha → ∞ soft converges on
+    # hard. alpha=2.0 starting point: clear-pass pairs (apt-cohort, delta≈2)
+    # retain ~95% of hard-mode score; ceiling pairs (delta≈0) get ~12%;
+    # reverse-direction pairs (delta<<0) get ~0-5%. Tunable by the loop.
+    gate_mode: Literal["hard", "soft"] = "hard"
+    gate_alpha: float = 2.0
 
     def __post_init__(self) -> None:
         if self.composition not in _VALID_COMPOSITIONS:
@@ -168,6 +182,14 @@ class CascadeConfig:
             raise ValueError(
                 f"concreteness_bonus_coef must be >= 0, got "
                 f"{self.concreteness_bonus_coef}"
+            )
+        if self.gate_mode not in ("hard", "soft"):
+            raise ValueError(
+                f"gate_mode must be 'hard' or 'soft', got {self.gate_mode!r}"
+            )
+        if self.gate_alpha <= 0.0:
+            raise ValueError(
+                f"gate_alpha must be > 0, got {self.gate_alpha}"
             )
 
 
@@ -195,19 +217,24 @@ class CascadeResult:
         """Pin the per-status field-presence contract.
 
         Per-status invariants (see module-level Scoring policy):
-          * scored:               final_score!=None, gate_passed=True, ortony_score!=None
+          * scored:               final_score!=None, ortony_score!=None
+                                  (gate_passed=True under hard gate; under
+                                  soft gate gate_passed reflects whether the
+                                  pair would have cleared the hard threshold,
+                                  so it can be either value for a scored pair)
           * gate_dropped:         final_score==0.0,  gate_passed=False, ortony_score is None,
                                   cosine_distance is None, re_rank_bonus is None
+                                  (hard gate only — soft gate never produces this status)
           * missing_concreteness: final_score is None, gate_passed=False, ortony_score is None
           * no_properties:        final_score is None, gate_passed=True,  ortony_score is None
           * unresolved:           final_score is None, gate_passed=False, ortony_score is None
                                   (produced only by the cohort orchestrator)
         """
         if self.status == "scored":
-            if self.final_score is None or not self.gate_passed or self.ortony_score is None:
+            if self.final_score is None or self.ortony_score is None:
                 raise ValueError(
-                    f"invalid CascadeResult: status=scored requires final_score, "
-                    f"gate_passed=True, and ortony_score (got "
+                    f"invalid CascadeResult: status=scored requires final_score "
+                    f"and ortony_score (got "
                     f"final_score={self.final_score}, gate_passed={self.gate_passed}, "
                     f"ortony_score={self.ortony_score})"
                 )
@@ -364,6 +391,21 @@ def _cosine_distance(va: list[float], vb: list[float]) -> Optional[float]:
     return 1.0 - cos_sim
 
 
+def _sigmoid(x: float) -> float:
+    """Numerically-stable logistic sigmoid. Used by the soft-gate penalty.
+
+    The hand-rolled stable form avoids overflow at large |x| — math.exp on
+    a +1000 input would raise OverflowError, but the cascade can legitimately
+    feed values that large when gate_alpha is high and the delta is far from
+    the threshold. Caller-side clamping is the wrong layer.
+    """
+    if x >= 0.0:
+        z = math.exp(-x)
+        return 1.0 / (1.0 + z)
+    z = math.exp(x)
+    return z / (1.0 + z)
+
+
 def _re_rank_bonus(d: float, d_cap: float, exponent: float = 1.0) -> float:
     """Monotonic-up-to-cap reward shape with configurable curvature.
 
@@ -432,7 +474,10 @@ def evaluate_cascade_pair(
         )
 
     signed_delta = c_vehicle - c_topic
-    if signed_delta < config.concreteness_threshold:
+    # Hard mode: drop sub-threshold pairs outright. Soft mode: compute a
+    # multiplicative sigmoid penalty later (see Stage 5); status stays
+    # 'scored' for any pair with both concreteness scores.
+    if config.gate_mode == "hard" and signed_delta < config.concreteness_threshold:
         return CascadeResult(
             final_score=0.0,
             gate_passed=False,
@@ -491,9 +536,26 @@ def evaluate_cascade_pair(
         if residual > 0.0:
             final_score = final_score + config.concreteness_bonus_coef * residual
 
+    # Stage 5: soft-gate sigmoid penalty (gate_mode='soft' only). The hard
+    # gate is a cliff at signed_delta = threshold; soft mode replaces the
+    # cliff with sigmoid(alpha * (signed_delta - threshold)) and multiplies
+    # the result into final_score. Clear-pass pairs (delta >> threshold)
+    # retain ~100% of their score; ceiling pairs (delta ≈ threshold) get
+    # 50%; reverse-direction pairs (delta << threshold) get near-zero.
+    # The hard-mode early-return above ensures this branch is unreachable
+    # in hard mode; sub-threshold pairs in soft mode are passed through
+    # here with their sigmoid penalty applied.
+    gate_passed = True
+    if config.gate_mode == "soft":
+        gate_score = _sigmoid(
+            config.gate_alpha * (signed_delta - config.concreteness_threshold)
+        )
+        final_score = final_score * gate_score
+        gate_passed = gate_score >= 0.5
+
     return CascadeResult(
         final_score=final_score,
-        gate_passed=True,
+        gate_passed=gate_passed,
         ortony_score=ortony_score,
         cosine_distance=cosine_distance,
         re_rank_bonus=re_rank_bonus,
