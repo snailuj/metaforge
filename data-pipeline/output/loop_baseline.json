@@ -1,0 +1,43 @@
+{
+  "timestamp": "2026-05-25T08:56:59",
+  "config": {
+    "concreteness_threshold": 1.0,
+    "ortony_scoring": "jaccard_salience",
+    "alpha": 1.0,
+    "composition": "additive",
+    "d_cap": 0.77,
+    "bootstrap_n": 10,
+    "bootstrap_seed": 20260525
+  },
+  "phase2": {
+    "median_ratio": 2.3511788859002394,
+    "p10_ratio": 2.0365473750946634,
+    "p90_ratio": 3.093853505192579,
+    "per_resample_ratio": [
+      3.0897520298441954,
+      3.1307667833280304,
+      2.0374531835205993,
+      2.6807666886979513,
+      2.268103292602179,
+      2.2552364953540867,
+      2.6070681492898817,
+      2.4342544791982994,
+      2.1340629274965797,
+      2.0283950992612407
+    ],
+    "full_cohort_ratio": 2.7620760534429594,
+    "apt_promote_rate": 0.19334532374100719,
+    "inapt_promote_rate": 0.07,
+    "threshold": 0.2797757773659691,
+    "n_apt": 1112,
+    "n_inapt": 600
+  },
+  "lakoff": {
+    "ratio": 0.6,
+    "apt_promote_rate": 0.3,
+    "inapt_promote_rate": 0.5,
+    "threshold": 0.2843891870841862,
+    "n_apt": 80,
+    "n_inapt": 90
+  }
+}
