@@ -437,13 +437,20 @@ def test_re_rank_bonus_saturates_at_d_cap():
 
 
 def test_re_rank_bonus_linearly_below_cap():
-    """d=0.5, d_cap=1.0 → bonus = 0.5. Linear ramp up to cap."""
+    """d=0.5, d_cap=1.0, rerank_exponent=1.0 → bonus = 0.5. Linear ramp up to cap.
+
+    Pins the exponent explicitly because the iter4 default is 2.0 (quadratic);
+    the linear contract still holds when callers opt back in.
+    """
     from dataclasses import replace
     conn = _build_fixture_db_with_centroids()
     # S_TOPIC_GRIEF (1.5) vs S_TOPIC_SIMILAR (2.0) — concreteness delta = 0.5
     # which is below default threshold 1.0; lower threshold so the gate
     # passes and we get to the re-rank stage.
-    cfg = replace(CascadeConfig(d_cap=1.0), concreteness_threshold=0.0)
+    cfg = replace(
+        CascadeConfig(d_cap=1.0, rerank_exponent=1.0),
+        concreteness_threshold=0.0,
+    )
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_GRIEF", "S_TOPIC_SIMILAR", cfg,
     )
@@ -541,6 +548,37 @@ def test_re_rank_alpha_zero_recovers_ortony_only():
     assert abs(result.final_score - result.ortony_score) < 1e-6
     # bonus still computed for diagnostics — alpha just gates whether it lands.
     assert result.re_rank_bonus == 1.0
+
+
+def test_rerank_exponent_below_one_amplifies_below_cap():
+    """exponent<1 amplifies sub-cap distances. exponent=0.75 maps
+    d/d_cap=0.5 to 0.5**0.75 ≈ 0.5946, up from the linear 0.5.
+    Saturation and zero are unchanged.
+
+    Pins the iter4 default — if it changes again, this assertion fires.
+    """
+    from dataclasses import replace
+    conn = _build_fixture_db_with_centroids()
+    cfg = replace(
+        CascadeConfig(d_cap=1.0, rerank_exponent=0.75),
+        concreteness_threshold=0.0,
+    )
+    result = evaluate_cascade_pair(
+        conn, "S_TOPIC_GRIEF", "S_TOPIC_SIMILAR", cfg,
+    )
+    assert result.cosine_distance is not None
+    assert abs(result.cosine_distance - 0.5) < 1e-3
+    assert result.re_rank_bonus is not None
+    # d/d_cap = 0.5, exponent 0.75 → 0.5**0.75 ≈ 0.5946
+    assert abs(result.re_rank_bonus - (0.5 ** 0.75)) < 1e-3
+
+
+def test_rerank_exponent_nonpositive_rejected_at_construction():
+    """Fail-fast on rerank_exponent <= 0 — matches d_cap/alpha policy."""
+    with pytest.raises(ValueError, match="rerank_exponent must be > 0"):
+        CascadeConfig(rerank_exponent=0.0)
+    with pytest.raises(ValueError, match="rerank_exponent must be > 0"):
+        CascadeConfig(rerank_exponent=-0.5)
 
 
 def test_re_rank_unknown_composition_raises_valueerror():

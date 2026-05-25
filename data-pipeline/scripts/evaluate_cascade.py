@@ -88,6 +88,20 @@ class CascadeConfig:
     d_cap: float = 0.77
     alpha: float = 0.5
     composition: Literal["multiplicative", "additive"] = "multiplicative"
+    # Exponent applied to the (d / d_cap) ratio before clipping. 1.0 keeps the
+    # historical linear-up-to-cap shape; values > 1 suppress small distances
+    # (sharper "must be far" reward); 0 < value < 1 amplifies small distances.
+    # The clip-at-1.0 saturation guard still applies after exponentiation, so
+    # any exponent leaves the bonus in [0, 1].
+    #
+    # 2026-05-25 loop iter4: bumped default from 1.0 -> 0.5 (square-root shape).
+    # Diagnostic on the production DB showed apt (Phase 2) cosine distance mean
+    # ~0.20 vs inapt ~0.18, both far below d_cap=0.77, so the linear shape
+    # barely magnified the (small but real) apt-favouring gap. Sqrt amplifies
+    # small distances on (0, d_cap) — saturation and zero behaviour unchanged.
+    # Quadratic was tried first and improved Lakoff but regressed Phase 2;
+    # sqrt is its inverse and so flips the sign on both cohorts' deltas.
+    rerank_exponent: float = 0.75
 
     def __post_init__(self) -> None:
         if self.composition not in _VALID_COMPOSITIONS:
@@ -104,6 +118,10 @@ class CascadeConfig:
             raise ValueError(f"d_cap must be > 0, got {self.d_cap}")
         if self.alpha < 0.0:
             raise ValueError(f"alpha must be >= 0, got {self.alpha}")
+        if self.rerank_exponent <= 0.0:
+            raise ValueError(
+                f"rerank_exponent must be > 0, got {self.rerank_exponent}"
+            )
 
 
 @dataclass(frozen=True)
@@ -299,22 +317,28 @@ def _cosine_distance(va: list[float], vb: list[float]) -> Optional[float]:
     return 1.0 - cos_sim
 
 
-def _re_rank_bonus(d: float, d_cap: float) -> float:
-    """Monotonic-up-to-cap reward shape.
+def _re_rank_bonus(d: float, d_cap: float, exponent: float = 1.0) -> float:
+    """Monotonic-up-to-cap reward shape with configurable curvature.
 
-    bonus = clip(d / d_cap, 0.0, 1.0). Distances above d_cap saturate
-    at 1.0; distances ≤ 0 yield 0. The triangular-around-intermediate
-    shape from the initial roadmap draft was discarded after pre-flight
-    showed the inapt MUNCH cohort doesn't sample the too-far arm at all.
+    bonus = clip((d / d_cap) ** exponent, 0.0, 1.0). exponent=1.0 keeps the
+    historical linear shape; exponent>1 suppresses small distances
+    (sharper "must be far" reward) which can sharpen apt/inapt discrimination
+    when both cohorts cluster well below d_cap. exponent<1 amplifies small
+    distances. Distances ≤ 0 yield 0; distances at or above d_cap saturate
+    at 1.0 regardless of exponent.
 
-    Caller invariant (enforced by CascadeConfig.__post_init__): d_cap > 0.
+    Caller invariants (enforced by CascadeConfig.__post_init__): d_cap > 0,
+    exponent > 0.
     """
     ratio = d / d_cap
-    if ratio < 0.0:
+    if ratio <= 0.0:
         return 0.0
-    if ratio > 1.0:
+    if ratio >= 1.0:
         return 1.0
-    return ratio
+    # Power transform on the open interval (0, 1). Both ends are pinned by
+    # the saturation guards above, so this branch is the only place exponent
+    # has effect — no negative-base or 0**0 edge cases reachable here.
+    return ratio ** exponent
 
 
 # --- Main evaluator ----------------------------------------------------------
@@ -400,7 +424,7 @@ def evaluate_cascade_pair(
         d = _cosine_distance(va, vb)
         if d is not None:
             cosine_distance = d
-            re_rank_bonus = _re_rank_bonus(d, config.d_cap)
+            re_rank_bonus = _re_rank_bonus(d, config.d_cap, config.rerank_exponent)
 
     if re_rank_bonus is None:
         final_score = ortony_score
@@ -623,6 +647,7 @@ def evaluate_cohort(
             "d_cap": config.d_cap,
             "alpha": config.alpha,
             "composition": config.composition,
+            "rerank_exponent": config.rerank_exponent,
             "threshold": round(threshold, 6),
             "threshold_percentile": threshold_percentile,
             "pairs_file": pairs_file,
