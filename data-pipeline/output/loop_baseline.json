@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-05-25T10:29:38",
+  "timestamp": "2026-05-25T10:43:51",
   "config": {
     "concreteness_threshold": 1.0,
     "ortony_scoring": "jaccard_salience",
