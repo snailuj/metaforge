@@ -24,6 +24,29 @@ review of a specific change that looks like a real stackable win.
 This decouples the loop's permissive commit posture from `main`'s
 production standards.
 
+**No data hacking.** Iteration agents are trying to lift a cohort-
+discrimination metric. The most direct attack on that metric is
+modifying the cohort data itself (or any of the property /
+concreteness / lemma data the cascade reads). Two safeguards:
+
+1. **Canonical DB is read-only.** `data-pipeline/output/lexicon_v2.db`
+   may not be mutated by an iteration. The orchestrator hashes the DB
+   before spawn and after report-back; any hash change auto-reverts
+   from snapshot and tags the outcome `reverted_db_mutation`,
+   overriding `committed` if necessary. Iterations may create NEW DB
+   files (e.g. `lexicon_v2_typecache.db`) or write JSON cache files —
+   those are derived state, not canonical inputs.
+2. **No hardcoded cohort data in code.** Iteration commits that embed
+   data derived from the Phase 2 or Lakoff cohort (vehicle names from
+   the cohort files appearing as dict literals, hand-rolled apt /
+   inapt judgements baked into a scoring function, etc.) fail the
+   light code-review pass and auto-revert with outcome
+   `reverted_data_hack`.
+
+Both checks are orchestrator-side and mechanical (or close to it).
+They don't catch every possible exploit but they catch the obvious
+class of "look like you improved the metric by encoding the answer".
+
 The timer is the only scope constraint. Anything an iteration agent
 can fit in 15 minutes of *implementation* time is fair game:
 calibration knobs, formula swaps, new pipeline stages, ANN library
@@ -50,12 +73,32 @@ anyway).
 
 ```
 while operator_allows:
+    # ORCHESTRATOR PRE-SPAWN HOOK
+    snapshot lexicon_v2.db to /tmp/lexicon_v2.db.loop-iter{N}-pre
+    record pre-hash (md5) and pre-SHA (git rev-parse HEAD on loop)
+    record pre-baseline (data-pipeline/output/loop_baseline.json)
+
+    # SPAWN
     spawn iteration subagent with the standard prompt:
         - codebase HEAD as it currently is
         - paths to: Phase 2 cohort JSONL, Lakoff cohort, eval harness
         - 15-min hard wall clock
         - commit-or-revert rule (below)
-    record outcome (committed / reverted / timed-out)
+        - DB read-only rule (below)
+
+    # ORCHESTRATOR POST-RETURN HOOK
+    compute post-hash of lexicon_v2.db
+    IF post-hash != pre-hash:
+        restore lexicon_v2.db from snapshot
+        IF iteration committed: hard-reset loop branch to pre-SHA
+        force OUTCOME = reverted_db_mutation
+    ELIF iteration committed:
+        run light code review on the diff (see below)
+        IF review fails: hard-reset loop branch to pre-SHA
+                         force OUTCOME = reverted_data_hack
+    IF outcome is committed (after all gates):
+        refresh loop_baseline.json by running --mode baseline
+    record outcome (committed | reverted_* | timed_out | escalate_*)
 ```
 
 The loop driver does not feed prior attempts into the next iteration.
@@ -120,9 +163,40 @@ Prompt skeleton (verbatim every iteration):
 >     operator. Use this hatch only when the harness flaw genuinely
 >     blocks all further work — its cost is high.
 >
+> Database write policy:
+>   - `data-pipeline/output/lexicon_v2.db` is READ-ONLY for this
+>     iteration. You must NOT mutate it via any vector — direct
+>     sqlite3 connections, snap_properties.py reruns, enrich.sh,
+>     ALTER TABLE statements, schema changes, INSERT / UPDATE /
+>     DELETE on any existing table — none of it. The orchestrator
+>     hashes the DB before and after your iteration and auto-reverts
+>     any change.
+>   - If your improvement legitimately needs derived data: create a
+>     NEW file (e.g. `data-pipeline/output/lexicon_v2_typecache.db`,
+>     a JSON cache, a Python dict in a new module). The cascade can
+>     read from multiple sources.
+>   - If your improvement absolutely requires modifying the canonical
+>     DB (e.g. re-running snap with a new algorithm), do NOT do it.
+>     Report `OUTCOME=escalate_db_change` with justification. Halts
+>     the loop for operator review.
+>
+> No hardcoded cohort data:
+>   - You must NOT embed data derived from the Phase 2 or Lakoff
+>     cohort directly in code. No dict literals of `{vehicle_name:
+>     score}` keyed by words copied from the cohort files. No
+>     conditional branches like `if topic == "anger": ...`. No
+>     special-cased apt/inapt scoring tables.
+>   - The orchestrator runs a light code review on your diff after
+>     commit. Suspect patterns auto-revert with
+>     `OUTCOME=reverted_data_hack`. If you find yourself typing
+>     vehicle names from the Phase 2 file into a Python literal, stop
+>     — that's the failure mode the gate exists to catch.
+>
 > Report on exit: hypothesis, change summary, Phase 2 ratio
 > (before/after), Lakoff ratio (before/after), outcome
-> (committed / reverted / timed-out / escalate_harness_flaw),
+> (committed / reverted_tests_failed / reverted_harness_crash /
+> reverted_metric_fail / reverted_db_mutation / reverted_data_hack /
+> timed_out / escalate_harness_flaw / escalate_db_change),
 > implementation elapsed time, harness elapsed time (reported
 > separately).
 
@@ -214,6 +288,65 @@ cascade is too noisy for the loop to converge. In that case, do FU-2
 lemmatisation first (one-shot, outside the loop) and recompute the
 baseline before starting iterations. Log the decision in the findings
 doc either way.
+
+## Light code review (orchestrator-side, between iterations)
+
+After an iteration reports `OUTCOME=committed` and passes the DB
+hash check, the orchestrator runs a **light** code review on the
+diff before letting the commit stand. Not a full superpowers /
+code-review-loop pass — just a focused look for the failure modes
+the metric gate can't catch:
+
+- **Cohort data embedded in code.** Search the diff for any string
+  literal matching a topic or vehicle name from the Phase 2 / Lakoff
+  cohorts. Multiple matches → likely overfit hack → revert.
+- **Special-cased branches.** `if topic == "anger"` / `if vehicle in
+  {...}` patterns where the set looks cohort-shaped → revert.
+- **Hand-curated tables.** Dict literals or new JSON / YAML files
+  with `(topic, vehicle) → score` mappings, or per-pair concreteness
+  overrides → revert.
+- **Mutation of immutable files.** Sanity check that the diff doesn't
+  touch anything in the immutable file list (harness module, cohort
+  fixtures, baseline JSON) — this should already fail at the harness
+  level, but verify.
+- **New deps with unclear value.** A pip install or go get added for
+  a single line of new code → not a revert trigger but flag for the
+  operator log.
+
+The review is a quick read of `git show <commit>` plus a grep of the
+diff against the cohort topic / vehicle lists. Expected time: 30-60s
+per iteration. Run as a focused subagent dispatch with the diff
+text and the cohort word lists in the prompt, returning PASS / FAIL
++ one-line rationale.
+
+If FAIL: `git reset --hard <pre-iter-SHA>` on the loop branch and
+mark `OUTCOME=reverted_data_hack`.
+
+## Orchestrator wrapper script
+
+`data-pipeline/scripts/loop_iter_wrap.py` automates the mechanical
+parts of the pre / post hooks. Two modes::
+
+    # Before spawning an iteration
+    python loop_iter_wrap.py --mode pre \\
+        --snapshot-dir /tmp \\
+        --iter-id <integer>
+    # Prints JSON: { pre_sha, pre_db_hash, snapshot_path }
+
+    # After the iteration reports back
+    python loop_iter_wrap.py --mode post \\
+        --pre-sha <hash> \\
+        --pre-db-hash <md5> \\
+        --snapshot-path /tmp/lexicon_v2.db.loop-iter<N>-pre \\
+        --outcome <iteration's reported outcome>
+    # Prints JSON: { final_outcome, db_restored, branch_reset,
+    #               baseline_refreshed }
+
+The orchestrator (the human-driving session, or the future
+automated loop driver) calls `pre` before each Agent dispatch and
+`post` after the dispatched agent reports back. The light code
+review is the orchestrator's own subagent dispatch and lives
+outside the wrapper.
 
 ## Eval harness immutability — concrete file list
 
