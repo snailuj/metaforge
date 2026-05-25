@@ -1,38 +1,80 @@
 # Karpathy Loop — Pre-flight Prep
 
-Drafted while Phase 2 runs. Once Phase 2 finishes, three pieces of
-infrastructure must land before the first loop iteration. This doc
-captures all three so the loop can start the moment they're in place.
+Drafted while Phase 2 runs. Once Phase 2 finishes, two pieces of
+infrastructure must land before the first iteration. This doc captures
+the design.
 
 Cross-ref: `docs/inbox/2026-05-25-metaphor-spike-findings.md` (FU-1
-metric correction, FU-2 lemmatisation — both flow into the prep
-work below).
+metric correction).
 
-## The loop itself
+## Philosophy
+
+Each iteration is a **fresh subagent** with no handover from the
+previous one. Identical prompt every time. The subagent reads the
+codebase as-is, hypothesises an improvement, implements it, runs the
+eval, and commits or reverts. No narrative threads. No ranked lever
+list. The codebase itself is the only state.
+
+The timer is the only scope constraint. Anything an iteration agent
+can fit in 15 minutes is fair game: calibration knobs, formula swaps,
+new pipeline stages, ANN library integration, new tables, schema
+changes. Karpathy-style: agent attempts, succeeds or fails, loop
+moves on.
+
+## The loop
 
 ```
-while time_budget_remains:
-    1. Pick top untried lever from the ranked list (below)
-    2. Implement the change (≤ 5 lines preferred; never a new pipeline stage)
-    3. Re-score the Phase 2 cohort with the new config — pure local op,
-       no LLM calls (the cohort JSONL is saved)
-    4. Compute end-to-end ratio + per-reason breakdown on BOTH the
-       train split AND the val split (see Condition 2)
-    5. Improvement gate:
-         BOTH train AND val show better → commit, mark lever 'won'
-         else                           → revert, mark lever 'tried'
-    6. Loop with a 5-min wall-clock cap per iteration
+while operator_allows:
+    spawn iteration subagent with the standard prompt:
+        - codebase HEAD as it currently is
+        - paths to: Phase 2 cohort JSONL, Lakoff cohort, eval harness
+        - 15-min hard wall clock
+        - commit-or-revert rule (below)
+    record outcome (committed / reverted / timed-out)
 ```
 
-Wall-clock budget per iteration: 5 min. Eval pass alone is ~40-90s for
-200 topics × ~1500 vehicles through the cascade; the rest is the
-implementation + reversion overhead. Levers that need re-snap may run
-longer — explicitly allow up to 10 min for those, flagged in the list.
+The loop driver does not feed prior attempts into the next iteration.
+The subagent can `git log` recent commits if it wants signal on what's
+been tried, but the prompt doesn't hand it any.
 
-Termination: the operator stops the loop, OR three consecutive iterations
-fail the improvement gate (drift signal — we're in noise floor).
+Termination: operator stops. No automatic halt on consecutive failures
+— the user-corrected version is explicitly "go until told to stop".
 
----
+## Iteration subagent contract
+
+Prompt skeleton (verbatim every iteration):
+
+> You are one iteration of an open-ended cascade-improvement loop.
+>
+> Repository: <path>. Eval harness: <command>. Phase 2 cohort:
+> <path>. Lakoff cohort: <path>.
+>
+> Your job: identify a modest improvement to the cascade or its
+> supporting pipeline that you can implement, test, and evaluate in
+> ≤ 15 minutes. Anything is fair game — config knobs, scoring
+> formulas, new stages, new tables, library swaps. The only
+> constraint is the timer.
+>
+> Workflow:
+> 1. Read the codebase enough to form a hypothesis.
+> 2. Implement on a fresh local branch from HEAD.
+> 3. Run the eval harness (see below) on the Phase 2 cohort with
+>    10-bootstrap resampling, and also on the Lakoff cohort.
+> 4. Commit gate (see below). If pass, fast-forward main and report.
+>    If fail, revert and report.
+>
+> Commit gate:
+>   - Phase 2 median bootstrap ratio MUST improve vs current HEAD.
+>   - Lakoff ratio MUST NOT degrade by more than 5% vs current HEAD.
+>   - Both checks pass → commit. Either fails → revert.
+>   - Timer expires → revert whatever you have, no exception.
+>
+> Report on exit: hypothesis, change summary, Phase 2 ratio
+> (before/after), Lakoff ratio (before/after), outcome
+> (committed / reverted / timed-out), elapsed time.
+
+The agent has no list of "things to try" and no memory of prior
+iterations. Selection is entirely up to its read of the codebase.
 
 ## Condition 1: FU-1 end-to-end metric
 
@@ -43,136 +85,95 @@ end-to-end discrimination ratio as the loop's truth-metric.
 with 2.5× end-to-end discrimination. Modest cascade tweaks move
 separation_score by ≤0.005 — below noise floor.
 
-**Where.** `evaluate_aptness.py:aggregate_metrics()` and the cascade
-sweep harness. Add a new function `end_to_end_ratio(apt_scored,
-inapt_scored, threshold) -> dict` returning::
+**Where.** New function in `evaluate_aptness.py` (or a new
+`evaluate_e2e.py` module if separation is preferred)::
 
-    {
-      "apt_promote_rate":   n_apt_above   / n_apt_total,
-      "inapt_promote_rate": n_inapt_above / n_inapt_total,
-      "ratio": apt_promote_rate / inapt_promote_rate,
-    }
+    def end_to_end_ratio(apt_scored, inapt_scored, threshold) -> dict:
+        """
+        apt_promote   = (n_apt_above_threshold) / n_apt_total
+        inapt_promote = (n_inapt_above_threshold) / n_inapt_total
+        ratio         = apt_promote / inapt_promote
+        """
 
-Denominator is the FULL cohort (gate-dropped + missing-concreteness +
-no-properties + unresolved all count as 'not promoted').
+Denominator is the FULL cohort. Gate-dropped + missing-concreteness +
+no-properties + unresolved all count as 'not promoted'.
 
 **Effort.** ~30 lines + 3 unit tests. ~30 min.
 
-**Loop dependency.** Lever evaluation step 4 uses this metric.
+## Condition 2: Bootstrap-resampling harness
 
----
+**What.** Instead of a fixed train/val split, each iteration scores
+the cohort across N=10 bootstrap resamples (each ~80% of topics,
+sampled with replacement at topic level). The loop's truth signal
+is the **median ratio across resamples**, not a single number.
 
-## Condition 2: Train/val split of the Phase 2 cohort
+**Why.** A fixed val set becomes a second training set under repeated
+checking. Bootstrap mutates the partition every iteration — no fixed
+subset can accumulate overfit. Plus the resample spread gives us
+free uncertainty bands; if the 10th-percentile ratio is below 1.0
+while the median is 2.0, the metric is unstable and the agent should
+treat improvements with suspicion.
 
-**What.** Deterministic 80/20 split (160 train + 40 val topics) of the
-200-topic cohort. Apply the lever to BOTH splits; commit only if BOTH
-improve.
+**Where.** New harness function::
 
-**Why.** With ~20-30 loop iterations against one cohort, any tweak
-will eventually find a noise direction that improves the metric.
-Held-out val catches this.
+    def bootstrap_e2e_ratio(
+        apt_scored, inapt_scored, threshold,
+        n_resamples: int = 10, seed: int = 20260525,
+    ) -> dict:
+        """
+        Returns:
+            median_ratio: float
+            p10_ratio:    float   # 10th percentile across resamples
+            p90_ratio:    float   # 90th percentile
+            per_resample: list[float]
+        Each resample picks 80% of topics with replacement. All vehicles
+        for a sampled topic move together so within-topic correlation
+        doesn't leak.
+        """
 
-**Where.** New helper in the cascade harness:
+Topics (not vehicles) are the resampling unit so within-topic vehicle
+correlation doesn't bias the spread.
 
-    def split_cohort(scores_jsonl: Path, seed: int = 20260525) -> tuple[list, list]:
-        """Deterministic 80/20 split. Returns (train, val) score-row lists."""
+**Effort.** ~40 lines + 2 tests. ~30 min.
 
-Topics (not vehicles) are split, so all vehicles for a topic stay in
-the same partition — prevents within-topic leakage.
+## Condition 2b: Parallel Lakoff signal
 
-The Phase 1b 20-topic spine is forced into TRAIN to keep the val set
-purely sampled (i.e., no spine bias in the held-out signal).
+**What.** Every iteration ALSO scores the original M01 Lakoff cohort
+end-to-end (no bootstrap — Lakoff is small enough to score
+deterministically). Report alongside Phase 2.
 
-**Effort.** ~20 lines + 1 test. ~15 min.
+**Why.** Phase 2's cohort encodes Haiku-via-Sonnet biases. Lakoff is
+an independent hand-curated cohort with different biases. A tweak
+that lifts Phase 2 but drops Lakoff is fitting LLM artefacts, not
+improving the cascade. Different from a single held-out: Lakoff is
+known-different, not random-different.
 
-**Alternative held-out.** If the Lakoff cohort is still intact, also
-run each lever against it as a sanity check. A tweak that helps
-Phase 2 train+val but hurts Lakoff is a yellow flag, not a green.
+**Commit gate uses both.** Phase 2 median ratio must improve;
+Lakoff ratio must not drop by >5%. Both checks bind.
 
----
+**Effort.** ~10 lines (Lakoff harness already exists in
+evaluate_aptness.py — just wire it into the iteration's eval call).
 
-## Condition 3: Lever list (ranked)
+## Bail criterion
 
-Drafted from a read of `evaluate_cascade.py` (CascadeConfig knobs) and
-`evaluate_aptness.py` (SCORING_FNS registry). Ordered roughly by
-expected-effect ÷ implementation-cost.
+If Phase 2 end-to-end ratio < 1.5× at the post-Phase-2 baseline, the
+cascade is too noisy for the loop to converge. In that case, do FU-2
+lemmatisation first (one-shot, outside the loop) and recompute the
+baseline before starting iterations. Log the decision in the findings
+doc either way.
 
-### Tier 1 — single-knob tweaks (≤2 lines, eval-only)
+## Open question
 
-These mutate `CascadeConfig` without touching code paths. Re-score is
-the entire work.
+Whether the iteration subagent should be allowed to MODIFY the eval
+harness itself. Strict reading: no — that lets the agent change the
+metric to fit its change. Permissive reading: yes — sometimes a better
+metric IS the improvement. Resolution: prohibit modifying the
+end-to-end ratio definition or the commit gate; allow modifying
+anything else (including adding NEW metrics alongside, for the report).
 
-1. **Gate threshold sweep.** `concreteness_threshold` ∈ {0.5, 0.75,
-   1.0, 1.25, 1.5}. Phase 1b's gate dropped 68% of inapt vs 29% of
-   apt — moving the threshold trades apt-attrition for inapt-promotion.
-   Current default 1.0 may be sub-optimal at the new cohort scale.
-2. **Alpha sweep.** `alpha` ∈ {0.0, 0.25, 0.5, 0.75, 1.0, 1.5}.
-   Re-rank weight on the cosine bonus. M05 sweep ratified 1.0 at
-   Lakoff scale; Phase 2 may want different.
-3. **Composition flip.** `composition` ∈ {"additive",
-   "multiplicative"}. Production is additive; multiplicative dampens
-   high-cosine bonuses on low-Jaccard pairs. Could help discriminate
-   same_domain vehicles (which often have high cosine, low Jaccard).
-4. **d_cap sweep.** `d_cap` ∈ {0.5, 0.65, 0.77, 0.85, 0.95}. Cosine
-   re-rank cap. Higher d_cap promotes more distant vehicles
-   (potentially more apt cross-domain).
+Pre-commit this as a fixed file list in the prompt:
 
-### Tier 2 — formula swap (1-line config change, eval-only)
-
-5. **Scoring formula swap.** `ortony_scoring` ∈ {jaccard_salience,
-   jaccard_raw, cosine_salience, ortony_vehicle_salience,
-   ortony_imbalance, ortony_log_ratio}. The registry already has 6
-   variants. Production is `jaccard_salience`. Run all 6 against the
-   same cohort + threshold and pick the discrimination winner.
-
-### Tier 3 — small algorithmic tweaks (5-15 lines)
-
-6. **Vehicle-side concreteness penalty.** Currently the gate is a
-   one-sided check (signed delta ≥ threshold). Add a soft penalty
-   when vehicle concreteness is below a floor (e.g., 3.0), even if
-   the signed delta passes. Targets abstract-vehicle inapt cases
-   (wrong_concreteness reason type).
-7. **Property-type weighting in Jaccard.** Weight sensorimotor /
-   behavioural properties more heavily than social / emotional in
-   the salience-weighted Jaccard. Phase 1b per-reason data should
-   tell us which types correlate with apt vs inapt.
-8. **Confidence-gated apt scoring.** Drop apt vehicles where Haiku
-   returned confidence < 0.7 before scoring. Tests whether Haiku's
-   self-rating is a useful signal we're currently throwing away.
-
-### Tier 4 — needs re-snap (≤10 min budget)
-
-9. **Concept lemmatisation (FU-2).** Lemmatise concepts before
-   lemmas-table lookup. Bigger effect on bridge-node data than on
-   cascade scoring directly, but may shift snap-rate-driven attrition.
-10. **Sense-disambiguated concept snap.** When a concept resolves to
-    multiple synsets (polysemy), pick the one whose properties have
-    the highest Jaccard against the topic. Currently the snap takes
-    the primary sense by frequency — context-driven snap may improve
-    bridge-node quality.
-
-### Off-limits — explicitly NOT loop fodder
-
-These are real cascade improvements but too big for a 5-min iteration.
-Promote to a separate plan if they look promising during the loop:
-
-- Adding a new pipeline stage (e.g., antonym-pair penalty stage)
-- Replacing the embedding model (wiki-news → another)
-- Adding new property types beyond the existing six
-- Restructuring the snap cascade (3-stage → N-stage)
-- Anything that requires re-running LLM enrichment
-
----
-
-## What to do if Phase 2 reveals a different picture
-
-If Phase 2 shows end-to-end ratio drops below ~1.5×, the cascade is too
-noisy for the loop to converge. In that case:
-
-1. Bail on the loop until lemmatisation lifts snap and recomputes the
-   baseline.
-2. Or pivot to a larger structural change (one of the off-limits items
-   above) outside the loop.
-
-Decision point: log the Phase 2 ratio in the findings doc; if <1.5×,
-explicitly stop and re-plan.
+> The following files are off-limits in this iteration:
+>   - definition of `end_to_end_ratio` and `bootstrap_e2e_ratio`
+>   - the commit-gate code
+> All other files in the repo are fair game.
