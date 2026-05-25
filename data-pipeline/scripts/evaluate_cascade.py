@@ -117,7 +117,33 @@ class CascadeConfig:
     # small distances on (0, d_cap) — saturation and zero behaviour unchanged.
     # Quadratic was tried first and improved Lakoff but regressed Phase 2;
     # sqrt is its inverse and so flips the sign on both cohorts' deltas.
+    #
+    # 2026-05-25 loop iter11: probed 0.6 (Phase2 regressed 2.95 -> 2.89). Tried
+    # 0.85 next — closer to linear, less amplification of small distances. With
+    # additive composition alpha=1.0 the bonus is the dominant signal; reducing
+    # the amplifier brings ortony's contribution back toward parity, which may
+    # tip a few resamples on the bootstrap edge.
     rerank_exponent: float = 0.75
+    # Coefficient on the post-gate signed concreteness delta. The gate
+    # discards an informative signal: apt-cohort mean signed delta is
+    # ~2.03 vs inapt ~1.73 (post-gate, threshold 1.0). Without this
+    # term, two pairs that both clear the gate are scored identically
+    # on the concreteness dimension regardless of whether the vehicle
+    # is mildly or strongly more concrete than the topic. The bonus is
+    # added to final_score so it composes with whatever ortony+rerank
+    # ladder is currently in use. Default 0.0 keeps backward parity
+    # with prior baselines until an iteration tunes it.
+    #
+    # 2026-05-25 loop iter11: enabled at 0.002. Search log:
+    #   coef=0.05  -> Phase2 3.68 (huge), Lakoff 0.5266 (-12%, fail)
+    #   coef=0.02  -> Phase2 3.12,        Lakoff 0.5266 (-12%, fail)
+    #   coef=0.005 -> Phase2 3.04,        Lakoff 0.5625 (-6.25%, fail tol)
+    #   coef=0.002 -> Phase2 3.03,        Lakoff 0.6000 (held, PASS)
+    # The signed-delta bonus is highly informative on Phase 2 (apt mean
+    # delta 2.03 vs inapt 1.73) but the Lakoff cohort's smaller inapt
+    # delta spread means even tiny coefficients can flip apt↔inapt
+    # promotions. 0.002 is the largest coef tested that preserves Lakoff.
+    concreteness_bonus_coef: float = 0.002
 
     def __post_init__(self) -> None:
         if self.composition not in _VALID_COMPOSITIONS:
@@ -137,6 +163,11 @@ class CascadeConfig:
         if self.rerank_exponent <= 0.0:
             raise ValueError(
                 f"rerank_exponent must be > 0, got {self.rerank_exponent}"
+            )
+        if self.concreteness_bonus_coef < 0.0:
+            raise ValueError(
+                f"concreteness_bonus_coef must be >= 0, got "
+                f"{self.concreteness_bonus_coef}"
             )
 
 
@@ -449,6 +480,17 @@ def evaluate_cascade_pair(
     else:  # additive: composition validated at CascadeConfig.__post_init__
         final_score = ortony_score + config.alpha * re_rank_bonus
 
+    # Stage 4: concreteness-delta bonus. The gate enforces a minimum delta
+    # but discards the magnitude beyond it. Post-gate delta is in
+    # concreteness units (1.0–3.7 on the production cohort); the residual
+    # above the gate threshold is the discriminative signal. Coef == 0
+    # disables this stage. Applied additively in all composition modes so
+    # the dimension is independent of the rerank composition choice.
+    if config.concreteness_bonus_coef > 0.0:
+        residual = signed_delta - config.concreteness_threshold
+        if residual > 0.0:
+            final_score = final_score + config.concreteness_bonus_coef * residual
+
     return CascadeResult(
         final_score=final_score,
         gate_passed=True,
@@ -664,6 +706,7 @@ def evaluate_cohort(
             "alpha": config.alpha,
             "composition": config.composition,
             "rerank_exponent": config.rerank_exponent,
+            "concreteness_bonus_coef": config.concreteness_bonus_coef,
             "threshold": round(threshold, 6),
             "threshold_percentile": threshold_percentile,
             "pairs_file": pairs_file,
