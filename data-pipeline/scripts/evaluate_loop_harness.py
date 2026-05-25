@@ -80,6 +80,12 @@ PRODUCTION_CASCADE_CONFIG = CascadeConfig(
     ortony_scoring="jaccard_salience",
     alpha=1.0,
     composition="additive",
+    # 2026-05-25 post-loop-1: switched gate_mode hard -> soft to recover
+    # OOD coverage. See data-pipeline/output/loop1_eyeball_report.md for
+    # the motivating finding (30% of random OOD topics gate-killed under
+    # hard mode). gate_alpha=2.0 is the starting point — loop-2 tunes it.
+    gate_mode="soft",
+    gate_alpha=2.0,
 )
 
 
