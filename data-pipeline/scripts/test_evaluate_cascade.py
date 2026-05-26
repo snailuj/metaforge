@@ -348,12 +348,12 @@ def test_s01_scope_re_rank_fields_none_when_centroids_missing():
     """
     conn = _build_fixture_db()
     # The fixture DB doesn't carry synset_centroids — exercising the
-    # missing-centroid path on both sides. concreteness_bonus_coef=0
-    # to isolate the re-rank fail-open behaviour from the iter10
-    # concreteness-magnitude bonus.
+    # missing-centroid path on both sides. concreteness_bonus_coef=0 to
+    # isolate the re-rank fail-open behaviour from the iter10 bonus;
+    # ortony_weight=1.0 to isolate from the iter17 weight multiplier.
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE",
-        CascadeConfig(concreteness_bonus_coef=0.0),
+        CascadeConfig(concreteness_bonus_coef=0.0, ortony_weight=1.0),
     )
     assert result.cosine_distance is None
     assert result.re_rank_bonus is None
@@ -515,6 +515,7 @@ def test_re_rank_multiplicative_composition_lifts_score():
     cfg = CascadeConfig(
         d_cap=0.5, alpha=1.0, composition="multiplicative",
         concreteness_bonus_coef=0.0,  # isolate re-rank from iter10 bonus
+        ortony_weight=1.0,  # isolate from iter17 weight multiplier
     )
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE", cfg,
@@ -535,6 +536,7 @@ def test_re_rank_additive_composition_lifts_score():
     cfg = CascadeConfig(
         d_cap=0.5, alpha=1.0, composition="additive",
         concreteness_bonus_coef=0.0,  # isolate re-rank from iter10 bonus
+        ortony_weight=1.0,  # isolate from iter17 weight multiplier
     )
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE", cfg,
@@ -554,6 +556,7 @@ def test_re_rank_alpha_zero_recovers_ortony_only():
     cfg = CascadeConfig(
         d_cap=0.5, alpha=0.0, composition="multiplicative",
         concreteness_bonus_coef=0.0,  # isolate re-rank from iter10 bonus
+        ortony_weight=1.0,  # isolate from iter17 weight multiplier
     )
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE", cfg,
@@ -875,7 +878,7 @@ def test_re_rank_handles_zero_norm_centroid_as_missing():
     conn.commit()
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE",
-        CascadeConfig(concreteness_bonus_coef=0.0),  # isolate from iter10 bonus
+        CascadeConfig(concreteness_bonus_coef=0.0, ortony_weight=1.0),  # isolate from iter10 + iter17
     )
     # Treat as missing centroid → fail-open path.
     assert result.cosine_distance is None

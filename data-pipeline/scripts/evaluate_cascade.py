@@ -139,7 +139,16 @@ class CascadeConfig:
     # cohort's small-distance lift more than inapt. Tested 0.25/0.30/0.40/0.45
     # — 0.35 was the local optimum; 0.30 dropped Lakoff to 0.5727; 0.40 reverted
     # the Phase 2 gain. Boundaries are tight — small steps from 0.35 break it.
-    rerank_exponent: float = 0.35
+    #
+    # 2026-05-25 loop-2 iter17: lowered 0.35 -> 0.12 paired with new
+    # ortony_weight 1.0 -> 1.75. Iter17 trades a small Phase 2 cost for a
+    # large Lakoff lift via path-b (Pareto bonus). Driving rerank_exponent
+    # further toward 0 amplifies the very-small distances that dominate
+    # both cohorts, which strongly favours apt-cohort discrimination on
+    # Lakoff (where ortony also pro-discriminates) and lifts Phase 2 back
+    # most of the way after the ortony_weight cost. See ortony_weight
+    # docstring below for the joint sweep summary.
+    rerank_exponent: float = 0.12
     # Coefficient on the post-gate signed concreteness delta. The gate
     # discards an informative signal: apt-cohort mean signed delta is
     # ~2.03 vs inapt ~1.73 (post-gate, threshold 1.0). Without this
@@ -174,6 +183,25 @@ class CascadeConfig:
     # reverse-direction pairs (delta<<0) get ~0-5%. Tunable by the loop.
     gate_mode: Literal["hard", "soft"] = "hard"
     gate_alpha: float = 2.0
+    # Multiplicative weight applied to the ortony score before composition
+    # with the re-rank bonus. Value of 1.0 reproduces prior cascade behaviour;
+    # values > 1.0 amplify ortony's contribution.
+    #
+    # 2026-05-25 loop-2 iter17: introduced + tuned to 1.75 to exploit the
+    # Pareto frontier finding from iter16 — Ortony pro-discriminates on
+    # Lakoff (apt 0.029 vs inapt 0.007) but anti-discriminates on Phase 2
+    # (apt 0.026 vs inapt 0.053). Lifting ortony_weight improves Lakoff at
+    # a small Phase 2 cost — exactly the path-(b) Pareto-bonus trade.
+    # Paired with rerank_exponent 0.35 -> 0.12 so the rerank stage
+    # contributes a stronger Phase-2-favouring signal that compensates
+    # for ortony's Phase 2 anti-discrimination. Combined effect:
+    #   Phase 2 median 2.0312 -> 2.0017 (-0.0295, within -2% path-b budget)
+    #   Lakoff ratio   0.6042 -> 0.8617 (+0.2575, well above +0.05 path-b
+    #                                    requirement)
+    # Probe sweep recorded in commit message. Applied to ortony_score
+    # directly so it composes naturally with both additive and
+    # multiplicative rerank composition modes.
+    ortony_weight: float = 1.75
 
     def __post_init__(self) -> None:
         if self.composition not in _VALID_COMPOSITIONS:
@@ -206,6 +234,10 @@ class CascadeConfig:
         if self.gate_alpha <= 0.0:
             raise ValueError(
                 f"gate_alpha must be > 0, got {self.gate_alpha}"
+            )
+        if self.ortony_weight < 0.0:
+            raise ValueError(
+                f"ortony_weight must be >= 0, got {self.ortony_weight}"
             )
 
 
@@ -518,6 +550,10 @@ def evaluate_cascade_pair(
 
     scoring_fn = SCORING_FNS[config.ortony_scoring]
     ortony_score = scoring_fn(pa, pb)
+    # Apply ortony_weight (default 1.0 is identity). The weighted score is
+    # what composes with the re-rank bonus and gets emitted as final_score;
+    # the unweighted ortony_score is retained on the result for diagnostics.
+    weighted_ortony = ortony_score * config.ortony_weight
 
     # --- Stage 3: domain-distance re-rank (S02) ------------------------------
     # Fail-open: if either centroid is missing OR has zero norm, the re-rank
@@ -535,11 +571,11 @@ def evaluate_cascade_pair(
             re_rank_bonus = _re_rank_bonus(d, config.d_cap, config.rerank_exponent)
 
     if re_rank_bonus is None:
-        final_score = ortony_score
+        final_score = weighted_ortony
     elif config.composition == "multiplicative":
-        final_score = ortony_score * (1.0 + config.alpha * re_rank_bonus)
+        final_score = weighted_ortony * (1.0 + config.alpha * re_rank_bonus)
     else:  # additive: composition validated at CascadeConfig.__post_init__
-        final_score = ortony_score + config.alpha * re_rank_bonus
+        final_score = weighted_ortony + config.alpha * re_rank_bonus
 
     # Stage 4: concreteness-delta bonus. The gate enforces a minimum delta
     # but discards the magnitude beyond it. Post-gate delta is in
