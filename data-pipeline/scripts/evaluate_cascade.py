@@ -102,7 +102,12 @@ class CascadeConfig:
     # is the local optimum that respects both gates simultaneously. Tiny lift
     # but compounding direction — see iter5 note above for the search history.
     d_cap: float = 0.68
-    alpha: float = 0.5
+    # 2026-05-26 loop-3 prep: bumped alpha default 0.5 -> 1.0 to match the
+    # value previously pinned in PRODUCTION_CASCADE_CONFIG (now unpinned so
+    # the loop agent can tune it). Pre-existing tests that depended on the
+    # 0.5 default must set alpha=0.5 explicitly if they want that path;
+    # tests passing exact alpha values are unaffected.
+    alpha: float = 1.0
     composition: Literal["multiplicative", "additive"] = "multiplicative"
     # Exponent applied to the (d / d_cap) ratio before clipping. 1.0 keeps the
     # historical linear-up-to-cap shape; values > 1 suppress small distances

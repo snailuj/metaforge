@@ -76,16 +76,19 @@ DEFAULT_DB = Path("data-pipeline/output/lexicon_v2.db")
 # Production cascade config (same as M03 ratification, see
 # docs/memory/m03_cascade_winner_config.md).
 PRODUCTION_CASCADE_CONFIG = CascadeConfig(
+    # Pinned structural choices — operator-supervised changes only.
+    # These represent architectural decisions about the cascade shape
+    # that the loop is not authorised to flip silently.
     concreteness_threshold=1.0,
-    ortony_scoring="jaccard_salience",
-    alpha=1.0,
     composition="additive",
-    # 2026-05-25 post-loop-1: switched gate_mode hard -> soft to recover
-    # OOD coverage. See data-pipeline/output/loop1_eyeball_report.md for
-    # the motivating finding (30% of random OOD topics gate-killed under
-    # hard mode). gate_alpha=2.0 is the starting point — loop-2 tunes it.
     gate_mode="soft",
-    gate_alpha=2.0,
+    # 2026-05-26 loop-3 prep: UNLOCKED alpha, ortony_scoring, gate_alpha.
+    # Previously pinned values now live as CascadeConfig dataclass defaults
+    # (alpha=1.0, ortony_scoring='jaccard_salience', gate_alpha=2.0).
+    # Loop agents can now tune these via the dataclass defaults — same
+    # mechanism used for d_cap, rerank_exponent, concreteness_bonus_coef,
+    # ortony_weight in loop-1+2. The harness pin previously made these
+    # no-op levers; the unlock opens three new search dimensions for loop-3.
 )
 
 
