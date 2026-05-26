@@ -187,7 +187,17 @@ class CascadeConfig:
     # retain ~95% of hard-mode score; ceiling pairs (delta≈0) get ~12%;
     # reverse-direction pairs (delta<<0) get ~0-5%. Tunable by the loop.
     gate_mode: Literal["hard", "soft"] = "hard"
-    gate_alpha: float = 2.0
+    # 2026-05-25 loop-3 iter18: bumped from 2.0 -> 3.0 (newly-unlocked lever).
+    # Loop-3 prep removed the harness pin on gate_alpha so the dataclass
+    # default is now the production value. Sharper sigmoid slope tightens
+    # the soft gate toward the hard-cliff limit without going all the way:
+    # clear-pass pairs retain near-full score, ceiling pairs (delta ≈
+    # threshold) drop more aggressively, reverse-direction pairs go further
+    # toward zero. Probe sweep: 0.5/1.0/1.5/2.0/3.0/4.0/6.0 — 3.0 was the
+    # local optimum (Phase 2 2.0367 -> 2.0663, Lakoff 0.8438 unchanged).
+    # 4.0 lifted Phase 2 identically but tanked Lakoff to 0.7279; 6.0
+    # reverted Phase 2 partway. Path-(a) trade: Phase 2 +1.5%, Lakoff flat.
+    gate_alpha: float = 3.0
     # Multiplicative weight applied to the ortony score before composition
     # with the re-rank bonus. Value of 1.0 reproduces prior cascade behaviour;
     # values > 1.0 amplify ortony's contribution.
