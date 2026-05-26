@@ -107,7 +107,27 @@ class CascadeConfig:
     # the loop agent can tune it). Pre-existing tests that depended on the
     # 0.5 default must set alpha=0.5 explicitly if they want that path;
     # tests passing exact alpha values are unaffected.
-    alpha: float = 1.0
+    #
+    # 2026-05-26 loop-3 iter19: lowered 1.0 -> 0.75. With composition=additive
+    # the final score is weighted_ortony + alpha * re_rank_bonus; alpha
+    # is the rerank-vs-ortony composition coefficient. Iter16 diagnosed
+    # the rerank stage as pro-discriminative on Phase 2 / anti-discriminative
+    # on Lakoff, and ortony as the inverse. Iter17/18 had loaded heavy
+    # weight on ortony (ortony_weight=1.75, gate_alpha=3.0) to chase the
+    # Lakoff lift, leaving rerank's Phase 2 contribution proportionally
+    # under-weighted. Counterintuitively, *lowering* alpha (reducing
+    # rerank's absolute contribution) lifted both cohorts here — likely
+    # because the heavy ortony_weight had been competing with a too-strong
+    # rerank signal on Lakoff, and trimming rerank back lets ortony's
+    # pro-Lakoff signal dominate while Phase 2 still benefits from
+    # rerank shape on small-distance pairs. Probe sweep:
+    #   alpha=0.5:  Phase 2 2.0472  Lakoff 0.9293 (path-b, Phase 2 below baseline)
+    #   alpha=0.6:  Phase 2 2.0750  Lakoff 0.8856 (path-a)
+    #   alpha=0.75: Phase 2 2.0878  Lakoff 0.8856 (path-a, chosen)
+    #   alpha=0.8:  Phase 2 2.0855  Lakoff 0.8856 (path-a)
+    #   alpha=1.0  (baseline):    Phase 2 2.0663  Lakoff 0.8438
+    #   alpha=1.5:  Phase 2 2.0663  Lakoff 0.7650 (Lakoff fail)
+    alpha: float = 0.75
     composition: Literal["multiplicative", "additive"] = "multiplicative"
     # Exponent applied to the (d / d_cap) ratio before clipping. 1.0 keeps the
     # historical linear-up-to-cap shape; values > 1 suppress small distances
