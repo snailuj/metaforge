@@ -853,6 +853,27 @@ func TestOrtonyWeight_MultipliesOrtonyTerm(t *testing.T) {
 	}
 }
 
+func TestOrtonyScoring_ValidateRejectsUnknown(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.OrtonyScoring = OrtonyScoring("not_a_real_scoring")
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate should reject unknown scoring")
+	} else if !strings.Contains(err.Error(), "OrtonyScoring") {
+		t.Errorf("error should name field: %v", err)
+	}
+}
+
+func TestOrtonyScoring_EmptyValidatesAsDefault(t *testing.T) {
+	// Empty value (zero value of OrtonyScoring) must be accepted and
+	// behave identically to jaccard_salience. This keeps callers that
+	// don't set the field working.
+	cfg := DefaultCascadeConfig()
+	cfg.OrtonyScoring = ""
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("empty value should validate, got %v", err)
+	}
+}
+
 func TestOrtonyWeight_ZeroFallsBackToOne(t *testing.T) {
 	// Zero value means "not set" — apply identity (1.0) so existing
 	// configs that don't set OrtonyWeight behave unchanged.

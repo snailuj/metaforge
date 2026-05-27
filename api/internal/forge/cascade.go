@@ -226,6 +226,26 @@ func ParseCandidateMode(s string) (CandidateMode, error) {
 	return m, nil
 }
 
+// OrtonyScoring picks the pointwise scoring function. Only
+// jaccard_salience is implemented in Go — other Python sweep-side
+// scoring fns (jaccard_raw, cosine_salience, ortony_vehicle_salience,
+// ortony_imbalance, ortony_log_ratio, random_uniform) live in
+// evaluate_aptness.SCORING_FNS and stay Python-only. Adding more Go
+// scoring fns is out of scope until production needs them.
+type OrtonyScoring string
+
+const (
+	OrtonyScoringJaccardSalience OrtonyScoring = "jaccard_salience"
+)
+
+func (s OrtonyScoring) Valid() bool {
+	switch s {
+	case "", OrtonyScoringJaccardSalience:
+		return true
+	}
+	return false
+}
+
 // GammaWeight is the M05 type-diversity-bonus weight on EvaluateCascadePair.
 // The struct wrap with an unexported field makes operator-supplied env/flag
 // values an unforgeable validation-gated boundary cast (NewGamma) — direct
@@ -291,6 +311,11 @@ type CascadeConfig struct {
 	// backward-compatible until task 6 sets the production-tuned value.
 	OrtonyWeight float64
 
+	// OrtonyScoring picks the pointwise scoring function. Production fixed to
+	// jaccard_salience; "" treated as default (jaccard_salience). Adding more
+	// Go scoring fns is out of scope until production needs them.
+	OrtonyScoring OrtonyScoring
+
 	// M05 type-aligned scoring.
 	Gamma GammaWeight // weight on the type-diversity bonus in EvaluateCascadePair.
 	// 0 disables M05 (M03/M04 behaviour preserved). Calibration sweep on
@@ -351,6 +376,9 @@ const EmbeddingTopKCeiling = 10000
 // parsing so bad values fail loud instead of silently degrading the
 // scorer.
 func (c CascadeConfig) Validate() error {
+	if !c.OrtonyScoring.Valid() {
+		return fmt.Errorf("OrtonyScoring %q is not a known scoring function", c.OrtonyScoring)
+	}
 	if !c.Mode.Valid() {
 		return fmt.Errorf("CandidateMode %q is not one of cluster_only|embedding_only|union", c.Mode)
 	}
