@@ -6,382 +6,382 @@ Topics: 20, candidates per topic: 20, displayed: top-10.
 
 **How to read:** Δ column is `python_rank - go_rank`. Negative = Python pushed up. Positive = Python pushed down. `—` = absent from that ranking's top-K display.
 
-## 'date of reference'  (pos=n, synset 104555)
-_(astronomy) an arbitrarily fixed date that is the point in time relative to which information (as coordinates of a celestial body) is recorded_
-Go resolved to source synset: `104555`
+## 'armchair'  (pos=n, synset 44026)
+_chair with a support on each side for arms_
+Go resolved to source synset: `44026`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | angle bracket | 1.024 | +0 | angle bracket | 0.866 | scored |
-| 2 | gram molecule | 0.959 | +0 | gram molecule | 0.803 | scored |
-| 3 | informatics | 0.753 | +0 | informatics | 0.753 | scored |
-| 4 | write | 0.713 | +0 | write | 0.713 | scored |
-| 5 | lamb | 0.671 | +0 | lamb | 0.671 | scored |
-| 6 | beeswax | 0.660 | +0 | beeswax | 0.660 | scored |
-| 7 | goad | 0.601 | +0 | goad | 0.601 | scored |
-| 8 | fat | 0.587 | +0 | fat | 0.587 | scored |
-| 9 | dibble | 0.574 | +0 | dibble | 0.574 | scored |
-| 10 | sandlot | 0.570 | +0 | sandlot | 0.570 | scored |
-
-_Candidates: 106, Go scored 106, Py scored 106 (gate-dropped or missing-prop excluded)._
-
-## 'show window'  (pos=n, synset 100254)
-_a setting in which something can be displayed to best effect_
-Go resolved to source synset: `100254`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | banner | 1.027 | +0 | banner | 0.872 | scored |
-| 2 | foreground | 0.825 | -2 | toast | 0.796 | scored |
-| 3 | glare | 0.811 | +1 | foreground | 0.690 | scored |
-| 4 | toast | 0.796 | +1 | glare | 0.676 | scored |
-| 5 | formative | 0.542 | +0 | formative | 0.542 | scored |
-| 6 | weasel | 0.523 | +0 | weasel | 0.523 | scored |
-| 7 | moneybag | 0.486 | +0 | moneybag | 0.486 | scored |
-| 8 | slug | 0.481 | +0 | slug | 0.481 | scored |
-| 9 | plaice | 0.480 | +0 | plaice | 0.480 | scored |
-| 10 | enmesh | 0.365 | +0 | enmesh | 0.365 | scored |
-
-_Candidates: 79, Go scored 79, Py scored 79 (gate-dropped or missing-prop excluded)._
-
-## 'ideology'  (pos=n, synset 63979)
-_imaginary or visionary theorization_
-Go resolved to source synset: `65904`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | establishment | 1.491 | +0 | establishment | 0.933 | scored |
-| 2 | canon | 1.316 | -2 | matrix | 0.922 | scored |
-| 3 | ground | 1.307 | +1 | canon | 0.917 | scored |
-| 4 | matrix | 1.264 | +1 | ground | 0.907 | scored |
-| 5 | domain | 1.061 | +0 | domain | 0.879 | scored |
-| 6 | data format | 0.946 | -6 | shampoo | 0.710 | scored |
-| 7 | division | 0.899 | -6 | fox | 0.710 | scored |
-| 8 | division | 0.892 | -6 | rosemary | 0.710 | scored |
-| 9 | category | 0.891 | -6 | weasel | 0.708 | scored |
-| 10 | globally | 0.814 | -6 | lamb | 0.708 | scored |
-
-_Candidates: 100, Go scored 100, Py scored 100 (gate-dropped or missing-prop excluded)._
-
-## 'unesco'  (pos=n, synset 77162)
-_an agency of the United Nations that promotes education and communication and the arts_
-Go resolved to source synset: `77162`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | present | 0.664 | -1 | goner | 0.503 | scored |
-| 2 | goner | 0.503 | +1 | present | 0.460 | scored |
-| 3 | bozo | 0.448 | +0 | bozo | 0.448 | scored |
-| 4 | betel | 0.419 | +0 | betel | 0.419 | scored |
-| 5 | weasel | 0.413 | +0 | weasel | 0.413 | scored |
-| 6 | packaging | 0.398 | -1 | plaice | 0.357 | scored |
-| 7 | plaice | 0.357 | +1 | packaging | 0.325 | scored |
-| 8 | prig | 0.277 | +0 | prig | 0.277 | scored |
-| 9 | outer garment | 0.269 | -1 | loge | 0.205 | scored |
-| 10 | loge | 0.205 | -1 | cower | 0.193 | scored |
-
-_Candidates: 106, Go scored 106, Py scored 106 (gate-dropped or missing-prop excluded)._
-
-## 'isotope'  (pos=n, synset 100826)
-_one of two or more atoms with the same atomic number but with different numbers of neutrons_
-Go resolved to source synset: `100826`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | tamal | 0.527 | +0 | tamal | 0.527 | scored |
-| 2 | footle | 0.496 | +0 | footle | 0.496 | scored |
-| 3 | check | 0.446 | +0 | check | 0.446 | scored |
-| 4 | crest | 0.363 | +0 | crest | 0.363 | scored |
-| 5 | prig | 0.342 | +0 | prig | 0.342 | scored |
-| 6 | lemming | 0.301 | +0 | lemming | 0.301 | scored |
-| 7 | fry | 0.285 | +0 | fry | 0.285 | scored |
-| 8 | cower | 0.250 | +0 | cower | 0.250 | scored |
-| 9 | admixture | 0.245 | +0 | admixture | 0.245 | scored |
-| 10 | cyprinid | 0.215 | +0 | cyprinid | 0.215 | scored |
-
-_Candidates: 107, Go scored 107, Py scored 107 (gate-dropped or missing-prop excluded)._
-
-## 'pint'  (pos=n, synset 95243)
-_a British imperial capacity measure (liquid or dry) equal to 4 gills or 568.26 cubic centimeters_
-Go resolved to source synset: `95243`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | bead | 0.162 | +0 | bead | 0.162 | scored |
-| 2 | eye-drop | 0.159 | -1 | bead | 0.159 | scored |
-| 3 | bead | 0.159 | -2 | bridge | 0.140 | scored |
-| 4 | drink | 0.155 | +2 | eye-drop | 0.133 | scored |
-| 5 | bridge | 0.142 | +1 | drink | 0.100 | scored |
-| 6 | gal | 0.132 | +0 | gal | 0.096 | scored |
-| 7 | spud | 0.083 | -1 | boy | 0.083 | scored |
-| 8 | boy | 0.083 | +1 | spud | 0.083 | scored |
-| 9 | boulder | 0.073 | +0 | boulder | 0.073 | scored |
-| 10 | gill | 0.056 | +0 | gill | 0.042 | scored |
-
-_Candidates: 105, Go scored 105, Py scored 105 (gate-dropped or missing-prop excluded)._
-
-## 'disinterest'  (pos=n, synset 105284)
-_lack of interest_
-Go resolved to source synset: `105284`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | dead | 1.453 | +0 | dead | 1.082 | scored |
-| 2 | emotionlessness | 1.433 | +0 | emotionlessness | 1.042 | scored |
-| 3 | cold | 1.037 | +0 | cold | 0.863 | scored |
-| 4 | dock | 0.697 | +0 | dock | 0.697 | scored |
-| 5 | thyroid | 0.696 | +0 | thyroid | 0.696 | scored |
-| 6 | goad | 0.695 | +0 | goad | 0.695 | scored |
-| 7 | groom | 0.693 | +0 | groom | 0.693 | scored |
-| 8 | sriracha | 0.687 | +0 | sriracha | 0.687 | scored |
-| 9 | square | 0.682 | +0 | square | 0.682 | scored |
-| 10 | behemoth | 0.680 | +0 | behemoth | 0.680 | scored |
-
-_Candidates: 93, Go scored 93, Py scored 93 (gate-dropped or missing-prop excluded)._
-
-## 'se'  (pos=n, synset 96570)
-_the compass point midway between south and east; at 135 degrees_
-Go resolved to source synset: `96570`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | boldness | 0.389 | +0 | boldness | 0.389 | scored |
-| 2 | blackguard | 0.384 | +0 | blackguard | 0.384 | scored |
-| 3 | rat | 0.378 | +0 | rat | 0.378 | scored |
-| 4 | wildcat | 0.347 | +0 | wildcat | 0.347 | scored |
-| 5 | unauthorised | 0.347 | +0 | unauthorised | 0.347 | scored |
-| 6 | quarter | 0.304 | -1 | sandbag | 0.289 | scored |
-| 7 | sandbag | 0.289 | +1 | quarter | 0.255 | scored |
-| 8 | purulent | 0.187 | +0 | purulent | 0.187 | scored |
-| 9 | lemming | 0.164 | +0 | lemming | 0.164 | scored |
-| 10 | due east | 0.144 | -1 | blow | 0.125 | scored |
-
-_Candidates: 106, Go scored 106, Py scored 106 (gate-dropped or missing-prop excluded)._
-
-## 'eyewitness'  (pos=n, synset 82633)
-_a spectator who can describe what happened_
-Go resolved to source synset: `35053`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | look on | 0.762 | +0 | look on | 0.562 | scored |
-| 2 | custodian | 0.737 | -3 | bridge | 0.527 | scored |
-| 3 | catch | 0.615 | +0 | catch | 0.515 | scored |
-| 4 | follow | 0.589 | -2 | beeswax | 0.488 | scored |
-| 5 | bridge | 0.527 | -2 | jacket | 0.479 | scored |
-| 6 | beeswax | 0.488 | +4 | custodian | 0.461 | scored |
-| 7 | jacket | 0.479 | -2 | attach | 0.456 | scored |
-| 8 | look out | 0.462 | +4 | follow | 0.436 | scored |
-| 9 | attach | 0.456 | +1 | look out | 0.402 | scored |
-| 10 | witness | 0.411 | -1 | bubble | 0.347 | scored |
-
-_Candidates: 107, Go scored 107, Py scored 107 (gate-dropped or missing-prop excluded)._
-
-## 'halocarbon'  (pos=n, synset 102379)
-_one of various compounds of carbon and any of the halogens_
-Go resolved to source synset: `102379`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | polytetrafluoroethylene | 1.046 | +0 | polytetrafluoroethylene | 0.733 | scored |
-| 2 | propane | 0.956 | +0 | propane | 0.677 | scored |
-| 3 | accelerator | 0.692 | -1 | brassica oleracea gongylodes | 0.562 | scored |
-| 4 | brassica oleracea gongylodes | 0.562 | -1 | moneybag | 0.518 | scored |
-| 5 | moneybag | 0.518 | +2 | accelerator | 0.490 | scored |
-| 6 | fentanyl | 0.460 | -1 | dibble | 0.440 | scored |
-| 7 | dibble | 0.440 | -1 | cross | 0.419 | scored |
-| 8 | cross | 0.419 | -1 | lemming | 0.402 | scored |
-| 9 | lemming | 0.402 | +3 | fentanyl | 0.380 | scored |
-| 10 | atomic number 10 | 0.375 | -1 | square | 0.362 | scored |
-
-_Candidates: 100, Go scored 100, Py scored 100 (gate-dropped or missing-prop excluded)._
-
-## 'discredit'  (pos=v, synset 14306)
-_cause to be distrusted or disbelieved_
-Go resolved to source synset: `14306`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | black | 1.094 | +0 | black | 0.904 | scored |
-| 2 | fallen | 1.071 | -1 | demon | 0.837 | scored |
-| 3 | demon | 1.014 | -1 | admixture | 0.758 | scored |
-| 4 | admixture | 1.009 | -1 | coal black | 0.718 | scored |
-| 5 | coal black | 0.718 | -1 | laptop | 0.703 | scored |
-| 6 | laptop | 0.703 | -1 | bulb | 0.702 | scored |
-| 7 | bulb | 0.702 | -1 | squirrel | 0.702 | scored |
-| 8 | squirrel | 0.702 | -1 | lace | 0.701 | scored |
-| 9 | lace | 0.701 | -1 | cedar | 0.701 | scored |
-| 10 | cedar | 0.701 | -1 | shoebox | 0.701 | scored |
-
-_Candidates: 83, Go scored 83, Py scored 83 (gate-dropped or missing-prop excluded)._
-
-## 'delay'  (pos=v, synset 10241)
-_cause to be slowed down or delayed_
-Go resolved to source synset: `10241`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | crawl | 0.998 | +0 | crawl | 0.998 | scored |
-| 2 | stand | 0.871 | -8 | lamb | 0.676 | scored |
-| 3 | firmness | 0.637 | -6 | fox | 0.670 | scored |
-| 4 | sit-down | 0.531 | -8 | sauerkraut | 0.637 | scored |
-| 5 | firm | 0.410 | -3 | bridle | 0.628 | scored |
-| 6 | firm | 0.338 | -8 | appreciate | 0.614 | scored |
-| 7 | paralyse | 0.318 | -10 | braid | 0.602 | scored |
-| 8 | bridle | 0.297 | -11 | mod | 0.592 | scored |
-| 9 | fox | 0.279 | -12 | go | 0.590 | scored |
-| 10 | lamb | 0.279 | -1 | block | 0.587 | scored |
-
-_Candidates: 97, Go scored 97, Py scored 97 (gate-dropped or missing-prop excluded)._
-
-## 'trump'  (pos=v, synset 35818)
-_produce a sound as if from a trumpet_
-Go resolved to source synset: `20223`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | stopper | 1.655 | +0 | stopper | 1.068 | scored |
-| 2 | chief | 1.576 | +0 | chief | 0.993 | scored |
-| 3 | boss | 1.099 | -65 | carry | 0.743 | scored |
-| 4 | birdlime | 0.699 | -71 | seize | 0.725 | scored |
-| 5 | fox | 0.698 | +1 | birdlime | 0.699 | scored |
-| 6 | beeswax | 0.696 | +1 | fox | 0.698 | scored |
-| 7 | tamal | 0.696 | +1 | beeswax | 0.696 | scored |
-| 8 | burden | 0.692 | +1 | tamal | 0.696 | scored |
-| 9 | arse about | 0.692 | +1 | burden | 0.692 | scored |
-| 10 | people | 0.691 | +1 | arse about | 0.692 | scored |
-
-_Candidates: 102, Go scored 102, Py scored 102 (gate-dropped or missing-prop excluded)._
-
-## 'jump'  (pos=v, synset 13194)
-_bypass_
-Go resolved to source synset: `16944`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | jar | 0.293 | +0 | jar | 0.224 | scored |
-| 2 | rocket | 0.134 | -1 | tamal | 0.087 | scored |
-| 3 | tamal | 0.086 | +1 | rocket | 0.072 | scored |
-| 4 | explosion | 0.073 | -1 | betel | 0.064 | scored |
-| 5 | betel | 0.064 | -1 | rosemary | 0.053 | scored |
-| 6 | rosemary | 0.053 | +2 | explosion | 0.043 | scored |
-| 7 | skydiving | 0.035 | -2 | corset | 0.031 | scored |
-| 8 | pop | 0.030 | -2 | dibble | 0.030 | scored |
-| 9 | corset | 0.030 | -3 | sandlot | 0.029 | scored |
-| 10 | dibble | 0.030 | -3 | purulent | 0.028 | scored |
-
-_Candidates: 95, Go scored 95, Py scored 95 (gate-dropped or missing-prop excluded)._
-
-## 'pure'  (pos=s, synset 21579)
-_free from discordant qualities_
-Go resolved to source synset: `31905`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | white | 1.178 | +0 | white | 0.987 | scored |
-| 2 | clean | 0.904 | +0 | clean | 0.775 | scored |
-| 3 | clean | 0.860 | +0 | clean | 0.731 | scored |
-| 4 | uncontaminated | 0.781 | -6 | burden | 0.726 | scored |
-| 5 | brassica oleracea gongylodes | 0.709 | +0 | brassica oleracea gongylodes | 0.722 | scored |
-| 6 | arse about | 0.708 | -3 | cash | 0.718 | scored |
-| 7 | plaice | 0.708 | -5 | dibble | 0.716 | scored |
-| 8 | mick | 0.707 | +2 | arse about | 0.710 | scored |
-| 9 | cash | 0.706 | +1 | mick | 0.708 | scored |
-| 10 | burden | 0.706 | +3 | plaice | 0.707 | scored |
-
-_Candidates: 101, Go scored 101, Py scored 101 (gate-dropped or missing-prop excluded)._
-
-## 'less-traveled'  (pos=s, synset 30703)
-_not visited by many travelers_
-Go resolved to source synset: `30703`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | night | 1.083 | +0 | night | 0.909 | scored |
-| 2 | corner | 1.034 | +0 | corner | 0.854 | scored |
-| 3 | hermit | 0.973 | +0 | hermit | 0.819 | scored |
-| 4 | anchorite | 0.733 | +0 | anchorite | 0.733 | scored |
-| 5 | arm | 0.679 | +0 | arm | 0.679 | scored |
-| 6 | toe | 0.676 | +0 | toe | 0.676 | scored |
-| 7 | connect | 0.665 | +0 | connect | 0.665 | scored |
-| 8 | sign | 0.636 | +0 | sign | 0.636 | scored |
-| 9 | deposit | 0.628 | +0 | deposit | 0.628 | scored |
-| 10 | fat | 0.614 | +0 | fat | 0.614 | scored |
-
-_Candidates: 111, Go scored 111, Py scored 111 (gate-dropped or missing-prop excluded)._
-
-## 'noiseless'  (pos=s, synset 32108)
-_making no sound_
-Go resolved to source synset: `32108`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | silent | 1.143 | +0 | silent | 0.869 | scored |
-| 2 | placid | 1.127 | +0 | placid | 0.820 | scored |
-| 3 | silent | 0.930 | +0 | silent | 0.793 | scored |
-| 4 | hush | 0.895 | -3 | roach | 0.700 | scored |
-| 5 | hush | 0.870 | -3 | yardstick | 0.692 | scored |
-| 6 | still | 0.721 | -3 | graph | 0.690 | scored |
-| 7 | roach | 0.700 | -3 | cube | 0.688 | scored |
-| 8 | yardstick | 0.692 | -3 | deposit | 0.686 | scored |
-| 9 | graph | 0.690 | +5 | hush | 0.680 | scored |
-| 10 | cube | 0.688 | -3 | purulent | 0.678 | scored |
-
-_Candidates: 98, Go scored 98, Py scored 98 (gate-dropped or missing-prop excluded)._
-
-## 'compound'  (pos=a, synset 35748)
-_composed of more than one part_
-Go resolved to source synset: `101890`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | crow | 0.662 | +0 | crow | 0.662 | scored |
-| 2 | burden | 0.651 | +0 | burden | 0.651 | scored |
-| 3 | cheek | 0.647 | +0 | cheek | 0.647 | scored |
-| 4 | weasel | 0.633 | +0 | weasel | 0.633 | scored |
-| 5 | boob | 0.620 | +0 | boob | 0.620 | scored |
-| 6 | concoction | 0.608 | -1 | plaice | 0.608 | scored |
-| 7 | plaice | 0.608 | -1 | mick | 0.599 | scored |
-| 8 | mick | 0.599 | -1 | cheekiness | 0.595 | scored |
-| 9 | cheekiness | 0.595 | -1 | terry | 0.583 | scored |
-| 10 | terry | 0.583 | -1 | dibble | 0.561 | scored |
-
-_Candidates: 109, Go scored 109, Py scored 109 (gate-dropped or missing-prop excluded)._
-
-## 'aboard'  (pos=r, synset 5435)
-_on first or second or third base_
-Go resolved to source synset: `5441`
-
-| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
-|---|---|---|---|---|---|---|
-| 1 | wing | 0.622 | +0 | wing | 0.455 | scored |
-| 2 | room | 0.615 | -4 | arse about | 0.262 | scored |
-| 3 | chamber | 0.279 | +1 | room | 0.261 | scored |
-| 4 | harbor | 0.279 | -3 | neighbor | 0.250 | scored |
-| 5 | boxing | 0.262 | -3 | boy | 0.244 | scored |
-| 6 | arse about | 0.260 | -3 | weasel | 0.236 | scored |
-| 7 | neighbor | 0.250 | -3 | rosemary | 0.206 | scored |
-| 8 | boy | 0.245 | -3 | brougham | 0.189 | scored |
-| 9 | weasel | 0.236 | -3 | cheekiness | 0.171 | scored |
-| 10 | rosemary | 0.209 | +7 | chamber | 0.159 | scored |
+| 1 | pillow | 0.076 | +0 | pillow | 0.047 | scored |
+| 2 | mattress | 0.065 | +0 | mattress | 0.046 | scored |
+| 3 | bed | 0.061 | -3 | gymnastic horse | 0.042 | scored |
+| 4 | arm | 0.057 | +1 | bed | 0.042 | scored |
+| 5 | headrest | 0.044 | +1 | arm | 0.040 | scored |
+| 6 | gymnastic horse | 0.042 | -1 | bookshelf | 0.032 | scored |
+| 7 | bookshelf | 0.040 | -1 | timber | 0.032 | scored |
+| 8 | timber | 0.039 | -2 | gate | 0.030 | scored |
+| 9 | carpet slipper | 0.035 | +0 | carpet slipper | 0.028 | scored |
+| 10 | gate | 0.030 | +5 | headrest | 0.028 | scored |
 
 _Candidates: 96, Go scored 96, Py scored 96 (gate-dropped or missing-prop excluded)._
 
-## 'freely'  (pos=r, synset 4535)
-_in a free manner_
-Go resolved to source synset: `4535`
+## 'beetle'  (pos=n, synset 35581)
+_insect having biting mouthparts and front wings modified to form horny covers overlying the membranous rear wings_
+Go resolved to source synset: `24987`
 
 | # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
 |---|---|---|---|---|---|---|
-| 1 | free | 0.776 | -2 | umbrella | 0.704 | scored |
-| 2 | free | 0.707 | -2 | fox | 0.703 | scored |
-| 3 | umbrella | 0.704 | -2 | enlace | 0.702 | scored |
-| 4 | fox | 0.703 | -2 | puzzle | 0.699 | scored |
-| 5 | enlace | 0.702 | -2 | scum | 0.697 | scored |
-| 6 | puzzle | 0.699 | -2 | rosemary | 0.697 | scored |
-| 7 | scum | 0.697 | -2 | crustacean | 0.695 | scored |
-| 8 | rosemary | 0.697 | -2 | vest | 0.689 | scored |
-| 9 | crustacean | 0.695 | -2 | prig | 0.688 | scored |
-| 10 | vest | 0.689 | -2 | visa | 0.681 | scored |
+| 1 | forge | 0.071 | -1 | pecker | 0.057 | scored |
+| 2 | pecker | 0.054 | +1 | forge | 0.055 | scored |
+| 3 | comb | 0.054 | +0 | comb | 0.049 | scored |
+| 4 | hammer | 0.053 | -1 | circle | 0.048 | scored |
+| 5 | circle | 0.048 | +1 | hammer | 0.045 | scored |
+| 6 | beat | 0.039 | +0 | beat | 0.034 | scored |
+| 7 | poke | 0.039 | +0 | poke | 0.034 | scored |
+| 8 | hooks | 0.038 | +0 | hooks | 0.034 | scored |
+| 9 | slog | 0.035 | +0 | slog | 0.030 | scored |
+| 10 | drink | 0.027 | +0 | drink | 0.027 | scored |
 
-_Candidates: 105, Go scored 105, Py scored 105 (gate-dropped or missing-prop excluded)._
+_Candidates: 95, Go scored 95, Py scored 95 (gate-dropped or missing-prop excluded)._
+
+## 'trainer'  (pos=n, synset 86468)
+_one who trains other persons or animals_
+Go resolved to source synset: `86468`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | school teacher | 0.284 | -2 | pig | 0.199 | scored |
+| 2 | schoolmaster | 0.215 | -2 | ophidian | 0.199 | scored |
+| 3 | pig | 0.199 | +2 | school teacher | 0.198 | scored |
+| 4 | ophidian | 0.199 | -1 | birdlime | 0.183 | scored |
+| 5 | birdlime | 0.183 | -1 | bag | 0.159 | scored |
+| 6 | bag | 0.159 | +4 | schoolmaster | 0.151 | scored |
+| 7 | instructor | 0.118 | +0 | instructor | 0.083 | scored |
+| 8 | cardiologist | 0.108 | +0 | cardiologist | 0.077 | scored |
+| 9 | soot | 0.077 | +0 | soot | 0.077 | scored |
+| 10 | coach | 0.061 | -1 | cash | 0.054 | scored |
+
+_Candidates: 92, Go scored 92, Py scored 92 (gate-dropped or missing-prop excluded)._
+
+## 'charity'  (pos=n, synset 91760)
+_pinnate-leaved European perennial having bright blue or white flowers_
+Go resolved to source synset: `59148`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | quarter | 1.377 | +0 | quarter | 1.009 | scored |
+| 2 | flax | 1.254 | -3 | big | 0.685 | scored |
+| 3 | herb | 1.188 | -3 | charcoal | 0.680 | scored |
+| 4 | daffodil | 1.184 | -4 | nincompoop | 0.677 | scored |
+| 5 | big | 0.897 | -2 | dog | 0.675 | scored |
+| 6 | charcoal | 0.690 | +2 | daffodil | 0.643 | scored |
+| 7 | dog | 0.689 | +5 | flax | 0.630 | scored |
+| 8 | nincompoop | 0.688 | -5 | jumping-off point | 0.626 | scored |
+| 9 | asshole | 0.630 | +6 | herb | 0.626 | scored |
+| 10 | dingy | 0.628 | +0 | dingy | 0.621 | scored |
+
+_Candidates: 93, Go scored 93, Py scored 93 (gate-dropped or missing-prop excluded)._
+
+## 'mate'  (pos=n, synset 96064)
+_one of a pair_
+Go resolved to source synset: `91600`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | coffee | 0.275 | +0 | coffee | 0.207 | scored |
+| 2 | bore | 0.187 | +0 | bore | 0.178 | scored |
+| 3 | bag | 0.149 | +0 | bag | 0.141 | scored |
+| 4 | burden | 0.132 | +0 | burden | 0.132 | scored |
+| 5 | sib | 0.109 | -3 | dock | 0.075 | scored |
+| 6 | skipper | 0.108 | -4 | cloud | 0.057 | scored |
+| 7 | captain | 0.107 | -6 | rusted | 0.048 | scored |
+| 8 | dock | 0.077 | +2 | skipper | 0.037 | scored |
+| 9 | girlfriend | 0.061 | +2 | captain | 0.037 | scored |
+| 10 | cloud | 0.059 | +5 | sib | 0.034 | scored |
+
+_Candidates: 93, Go scored 93, Py scored 93 (gate-dropped or missing-prop excluded)._
+
+## 'jacket'  (pos=n, synset 74040)
+_the outer skin of a potato_
+Go resolved to source synset: `858`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | blanket | 0.131 | +0 | blanket | 0.089 | scored |
+| 2 | glove | 0.085 | -1 | blanket | 0.073 | scored |
+| 3 | blanket | 0.084 | +1 | glove | 0.069 | scored |
+| 4 | exoskeleton | 0.067 | -2 | hood | 0.053 | scored |
+| 5 | cocoon | 0.064 | -3 | carrot | 0.050 | scored |
+| 6 | hood | 0.061 | +1 | cocoon | 0.044 | scored |
+| 7 | asphalt | 0.051 | -3 | hawk | 0.041 | scored |
+| 8 | carrot | 0.050 | +4 | exoskeleton | 0.041 | scored |
+| 9 | plate | 0.050 | -2 | cervid | 0.034 | scored |
+| 10 | hawk | 0.041 | +3 | asphalt | 0.033 | scored |
+
+_Candidates: 85, Go scored 85, Py scored 85 (gate-dropped or missing-prop excluded)._
+
+## 'suspicion'  (pos=n, synset 64658)
+_an impression that something might be the case_
+Go resolved to source synset: `97387`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | cloud-covered | 1.065 | +0 | cloud-covered | 0.868 | scored |
+| 2 | icicle | 0.976 | -2 | dark | 0.808 | scored |
+| 3 | black | 0.942 | -2 | steaming | 0.773 | scored |
+| 4 | dark | 0.792 | -3 | brassica oleracea gongylodes | 0.723 | scored |
+| 5 | steaming | 0.722 | -4 | terry | 0.722 | scored |
+| 6 | parathion | 0.712 | -2 | moneybag | 0.721 | scored |
+| 7 | brassica oleracea gongylodes | 0.711 | -4 | cash | 0.718 | scored |
+| 8 | moneybag | 0.707 | -17 | lightless | 0.717 | scored |
+| 9 | terry | 0.706 | -13 | citrate | 0.716 | scored |
+| 10 | plaice | 0.703 | -6 | fortune teller | 0.715 | scored |
+
+_Candidates: 85, Go scored 85, Py scored 85 (gate-dropped or missing-prop excluded)._
+
+## 'diving'  (pos=n, synset 72480)
+_an athletic competition that involves diving into water_
+Go resolved to source synset: `9841`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | diver | 0.556 | +0 | diver | 0.406 | scored |
+| 2 | shower | 0.349 | +0 | shower | 0.283 | scored |
+| 3 | dabble | 0.295 | -1 | muskrat | 0.263 | scored |
+| 4 | muskrat | 0.265 | +1 | dabble | 0.241 | scored |
+| 5 | snowboarder | 0.248 | -1 | defer | 0.234 | scored |
+| 6 | defer | 0.236 | -1 | arse about | 0.183 | scored |
+| 7 | arse about | 0.187 | +2 | snowboarder | 0.179 | scored |
+| 8 | betel | 0.171 | +0 | betel | 0.170 | scored |
+| 9 | scum | 0.152 | +0 | scum | 0.153 | scored |
+| 10 | check | 0.145 | +0 | check | 0.144 | scored |
+
+_Candidates: 108, Go scored 108, Py scored 108 (gate-dropped or missing-prop excluded)._
+
+## 'in'  (pos=n, synset 95405)
+_a unit of length equal to one twelfth of a foot_
+Go resolved to source synset: `38039`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | office | 1.786 | +0 | office | 1.221 | scored |
+| 2 | chief | 1.667 | +0 | chief | 1.124 | scored |
+| 3 | seat | 1.582 | +0 | seat | 1.035 | scored |
+| 4 | ringmaster | 1.290 | +0 | ringmaster | 0.856 | scored |
+| 5 | controller | 1.267 | +0 | controller | 0.829 | scored |
+| 6 | czar | 1.105 | +0 | czar | 0.743 | scored |
+| 7 | vice-presidency | 0.848 | -2 | tamal | 0.660 | scored |
+| 8 | boss | 0.733 | -2 | arse about | 0.650 | scored |
+| 9 | tamal | 0.660 | -2 | footle | 0.645 | scored |
+| 10 | arse about | 0.650 | -2 | betel | 0.643 | scored |
+
+_Candidates: 92, Go scored 92, Py scored 92 (gate-dropped or missing-prop excluded)._
+
+## 'plug'  (pos=n, synset 71289)
+_blatant or sensational promotion_
+Go resolved to source synset: `50573`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | brake drum | 0.154 | +0 | brake drum | 0.131 | scored |
+| 2 | stopper | 0.116 | -2 | nail | 0.107 | scored |
+| 3 | key | 0.112 | +0 | key | 0.080 | scored |
+| 4 | nail | 0.107 | -2 | cannon | 0.075 | scored |
+| 5 | smack | 0.082 | -2 | around the bend | 0.073 | scored |
+| 6 | cannon | 0.075 | -5 | bull | 0.059 | scored |
+| 7 | around the bend | 0.075 | -3 | betrayer | 0.059 | scored |
+| 8 | lamppost | 0.070 | -4 | nincompoop | 0.056 | scored |
+| 9 | discharge | 0.069 | +7 | stopper | 0.051 | scored |
+| 10 | betrayer | 0.060 | +2 | lamppost | 0.050 | scored |
+
+_Candidates: 102, Go scored 102, Py scored 102 (gate-dropped or missing-prop excluded)._
+
+## 'divine'  (pos=v, synset 34731)
+_perceive intuitively or through some inexplicable perceptive powers_
+Go resolved to source synset: `20926`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | prodigy | 0.927 | -1 | hang | 0.765 | scored |
+| 2 | hang | 0.765 | +1 | prodigy | 0.764 | scored |
+| 3 | angelic | 0.733 | -1 | fantastic | 0.718 | scored |
+| 4 | fantastic | 0.718 | -1 | birdlime | 0.710 | scored |
+| 5 | birdlime | 0.710 | -1 | mick | 0.709 | scored |
+| 6 | mick | 0.709 | -1 | tamal | 0.708 | scored |
+| 7 | tamal | 0.708 | -1 | defect | 0.708 | scored |
+| 8 | defect | 0.708 | -1 | slug | 0.708 | scored |
+| 9 | slug | 0.708 | -1 | soot | 0.707 | scored |
+| 10 | soot | 0.707 | -1 | plaice | 0.707 | scored |
+
+_Candidates: 108, Go scored 108, Py scored 108 (gate-dropped or missing-prop excluded)._
+
+## 'overwhelm'  (pos=v, synset 15268)
+_charge someone with too many tasks_
+Go resolved to source synset: `20734`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | bat | 1.706 | +0 | bat | 1.115 | scored |
+| 2 | beat | 1.478 | +0 | beat | 1.088 | scored |
+| 3 | drench | 1.305 | -1 | poke | 0.982 | scored |
+| 4 | poke | 1.173 | +1 | drench | 0.810 | scored |
+| 5 | convertible | 0.342 | +0 | convertible | 0.649 | scored |
+| 6 | analyst | 0.226 | +0 | analyst | 0.594 | scored |
+| 7 | defeat | 0.217 | -2 | check | 0.581 | scored |
+| 8 | reverend | 0.187 | +0 | reverend | 0.578 | scored |
+| 9 | check | 0.175 | -2 | gender | 0.575 | scored |
+| 10 | check | 0.175 | -2 | sex | 0.575 | scored |
+
+_Candidates: 100, Go scored 100, Py scored 100 (gate-dropped or missing-prop excluded)._
+
+## 'spell'  (pos=v, synset 19991)
+_place under a spell_
+Go resolved to source synset: `104526`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | pig | 0.595 | +0 | pig | 0.595 | scored |
+| 2 | boldness | 0.555 | +0 | boldness | 0.555 | scored |
+| 3 | tamal | 0.550 | +0 | tamal | 0.550 | scored |
+| 4 | cheek | 0.540 | +0 | cheek | 0.540 | scored |
+| 5 | brassica oleracea gongylodes | 0.514 | +0 | brassica oleracea gongylodes | 0.514 | scored |
+| 6 | slug | 0.455 | -10 | dial | 0.467 | scored |
+| 7 | recite | 0.376 | +1 | slug | 0.455 | scored |
+| 8 | mod | 0.313 | -4 | letter | 0.441 | scored |
+| 9 | fantastic | 0.305 | +1 | mod | 0.313 | scored |
+| 10 | cower | 0.280 | +0 | cower | 0.280 | scored |
+
+_Candidates: 99, Go scored 99, Py scored 99 (gate-dropped or missing-prop excluded)._
+
+## 'shepherd'  (pos=v, synset 41128)
+_watch over like a shepherd, as a teacher of their pupils_
+Go resolved to source synset: `41128`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | female parent | 0.068 | -3 | bush | 0.064 | scored |
+| 2 | fuss | 0.068 | -3 | tamal | 0.057 | scored |
+| 3 | bring up | 0.064 | -3 | charcoal | 0.055 | scored |
+| 4 | bush | 0.064 | -3 | enlace | 0.055 | scored |
+| 5 | tamal | 0.057 | +4 | female parent | 0.045 | scored |
+| 6 | charcoal | 0.055 | +4 | fuss | 0.045 | scored |
+| 7 | enlace | 0.055 | +4 | bring up | 0.043 | scored |
+| 8 | attendant | 0.041 | +0 | attendant | 0.026 | scored |
+| 9 | nurse | 0.037 | +0 | nurse | 0.025 | scored |
+| 10 | nurse | 0.037 | +0 | nurse | 0.025 | scored |
+
+_Candidates: 102, Go scored 102, Py scored 102 (gate-dropped or missing-prop excluded)._
+
+## 'out'  (pos=s, synset 30793)
+_not worth considering as a possibility_
+Go resolved to source synset: `18280`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | alfresco | 1.771 | +0 | alfresco | 1.211 | scored |
+| 2 | outside | 1.661 | -1 | exterior | 1.165 | scored |
+| 3 | exterior | 1.581 | +1 | outside | 1.165 | scored |
+| 4 | outside | 1.425 | +0 | outside | 0.916 | scored |
+| 5 | blush | 1.227 | +0 | blush | 0.709 | scored |
+| 6 | sleeping | 1.011 | -4 | frog | 0.669 | scored |
+| 7 | blaze | 0.808 | +0 | blaze | 0.640 | scored |
+| 8 | conk | 0.739 | -3 | sign | 0.637 | scored |
+| 9 | asleep | 0.697 | -5 | medication | 0.630 | scored |
+| 10 | frog | 0.692 | -3 | goad | 0.619 | scored |
+
+_Candidates: 93, Go scored 93, Py scored 93 (gate-dropped or missing-prop excluded)._
+
+## 'direct'  (pos=s, synset 15548)
+_having no intervening persons, agents, conditions_
+Go resolved to source synset: `29221`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | director | 1.877 | +0 | director | 1.315 | scored |
+| 2 | blunt | 1.063 | -92 | direction | 1.023 | scored |
+| 3 | beeline | 0.727 | -7 | harness | 0.716 | scored |
+| 4 | forthright | 0.718 | -3 | purulent | 0.700 | scored |
+| 5 | people | 0.703 | -6 | duffel | 0.687 | scored |
+| 6 | boy | 0.702 | +0 | boy | 0.686 | scored |
+| 7 | purulent | 0.695 | +2 | people | 0.684 | scored |
+| 8 | cower | 0.685 | -1 | licked | 0.683 | scored |
+| 9 | licked | 0.683 | +1 | cower | 0.682 | scored |
+| 10 | harness | 0.673 | -3 | fall | 0.663 | scored |
+
+_Candidates: 102, Go scored 102, Py scored 102 (gate-dropped or missing-prop excluded)._
+
+## 'thirsty'  (pos=s, synset 41244)
+_needing moisture_
+Go resolved to source synset: `17290`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | comb | 0.426 | +0 | comb | 0.426 | scored |
+| 2 | parazoan | 0.425 | +0 | parazoan | 0.425 | scored |
+| 3 | anchor ring | 0.405 | +0 | anchor ring | 0.405 | scored |
+| 4 | bulb | 0.389 | +0 | bulb | 0.389 | scored |
+| 5 | branch | 0.374 | +0 | branch | 0.374 | scored |
+| 6 | dirt | 0.352 | +0 | dirt | 0.352 | scored |
+| 7 | sex | 0.136 | -2 | cleft | 0.113 | scored |
+| 8 | adust | 0.118 | +1 | sex | 0.099 | scored |
+| 9 | cleft | 0.113 | -1 | jumping-off point | 0.095 | scored |
+| 10 | jumping-off point | 0.095 | -1 | add | 0.090 | scored |
+
+_Candidates: 82, Go scored 82, Py scored 82 (gate-dropped or missing-prop excluded)._
+
+## 'periodic'  (pos=a, synset 32749)
+_happening or recurring at regular intervals_
+Go resolved to source synset: `12858`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | mask | 0.706 | +0 | mask | 0.706 | scored |
+| 2 | dress | 0.705 | +0 | dress | 0.705 | scored |
+| 3 | lace | 0.704 | +0 | lace | 0.704 | scored |
+| 4 | fly | 0.702 | +0 | fly | 0.702 | scored |
+| 5 | concrete | 0.700 | +0 | concrete | 0.700 | scored |
+| 6 | male | 0.696 | +0 | male | 0.696 | scored |
+| 7 | cross | 0.696 | +0 | cross | 0.696 | scored |
+| 8 | cere | 0.694 | +0 | cere | 0.694 | scored |
+| 9 | back | 0.691 | +0 | back | 0.691 | scored |
+| 10 | back | 0.691 | +0 | back | 0.691 | scored |
+
+_Candidates: 98, Go scored 98, Py scored 98 (gate-dropped or missing-prop excluded)._
+
+## 'daily'  (pos=r, synset 3771)
+_gradually and progressively_
+Go resolved to source synset: `3771`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | beat | 1.082 | +0 | beat | 1.082 | scored |
+| 2 | footfall | 1.030 | +0 | footfall | 0.739 | scored |
+| 3 | birdlime | 0.649 | +0 | birdlime | 0.643 | scored |
+| 4 | stroke | 0.630 | +0 | stroke | 0.630 | scored |
+| 5 | drink | 0.608 | +0 | drink | 0.607 | scored |
+| 6 | corner | 0.565 | +0 | corner | 0.556 | scored |
+| 7 | mantle | 0.550 | +0 | mantle | 0.545 | scored |
+| 8 | fry | 0.465 | +0 | fry | 0.461 | scored |
+| 9 | beat | 0.412 | -1 | jumping-off point | 0.401 | scored |
+| 10 | jumping-off point | 0.400 | -2 | broken | 0.333 | scored |
+
+_Candidates: 102, Go scored 102, Py scored 102 (gate-dropped or missing-prop excluded)._
+
+## 'freshly'  (pos=r, synset 8108)
+_in an impudent or impertinent manner_
+Go resolved to source synset: `8108`
+
+| # | Go top-K | Go score | Δ rank | Py top-K (loop) | Py score | Py status |
+|---|---|---|---|---|---|---|
+| 1 | cheekiness | 1.530 | +0 | cheekiness | 1.332 | scored |
+| 2 | back talk | 1.347 | +0 | back talk | 1.148 | scored |
+| 3 | cheek | 1.345 | +0 | cheek | 1.146 | scored |
+| 4 | cheek | 1.217 | +0 | cheek | 1.019 | scored |
+| 5 | boldness | 1.190 | +0 | boldness | 0.991 | scored |
+| 6 | piquant | 1.048 | +0 | piquant | 0.866 | scored |
+| 7 | cartoonist | 1.015 | +0 | cartoonist | 0.832 | scored |
+| 8 | fresh | 0.810 | -8 | people | 0.714 | scored |
+| 9 | telescope | 0.687 | +0 | telescope | 0.711 | scored |
+| 10 | cloak | 0.687 | -2 | educatee | 0.711 | scored |
+
+_Candidates: 103, Go scored 103, Py scored 103 (gate-dropped or missing-prop excluded)._
