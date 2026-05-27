@@ -284,6 +284,13 @@ type CascadeConfig struct {
 	// continue to pass.
 	ConcretenessBonusCoef float64
 
+	// OrtonyWeight is the multiplicative weight applied to the ortony term
+	// before composition. Mirrors Python's ortony_weight (production-tuned
+	// to 1.75 at L2-17 — the Pareto commit that drove the Lakoff +50-pair-flip
+	// lift). 0 is treated as 1.0 (identity) so DefaultCascadeConfig stays
+	// backward-compatible until task 6 sets the production-tuned value.
+	OrtonyWeight float64
+
 	// M05 type-aligned scoring.
 	Gamma GammaWeight // weight on the type-diversity bonus in EvaluateCascadePair.
 	// 0 disables M05 (M03/M04 behaviour preserved). Calibration sweep on
@@ -488,6 +495,12 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 	}
 	ortony := JaccardSalience(in.TopicProperties, in.VehicleProperties)
 
+	ortonyWeight := cfg.OrtonyWeight
+	if ortonyWeight == 0 {
+		ortonyWeight = 1.0 // back-compat: zero means "not set", identity weight
+	}
+	weightedOrtony := ortony * ortonyWeight
+
 	var cosDist, bonus *float64
 	if in.TopicCentroid != nil && in.VehicleCentroid != nil {
 		if d, ok := CascadeCosineDistance(in.TopicCentroid, in.VehicleCentroid); ok {
@@ -501,13 +514,13 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 		}
 	}
 
-	final := ortony
+	final := weightedOrtony
 	if bonus != nil {
 		switch cfg.Composition {
 		case CompositionAdditive:
-			final = ortony + cfg.Alpha*(*bonus)
+			final = weightedOrtony + cfg.Alpha*(*bonus)
 		case CompositionMultiplicative:
-			final = ortony * (1.0 + cfg.Alpha*(*bonus))
+			final = weightedOrtony * (1.0 + cfg.Alpha*(*bonus))
 		}
 	}
 

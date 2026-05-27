@@ -818,6 +818,62 @@ func TestConcretenessBonusCoef_OnlyAppliesAboveThreshold(t *testing.T) {
 	}
 }
 
+func TestOrtonyWeight_MultipliesOrtonyTerm(t *testing.T) {
+	// ortony=0.5 raw, weight=1.75 → weighted=0.875.
+	// No centroid → final = weighted_ortony.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		OrtonyWeight:          1.75,
+	}
+	tc, vc := 1.0, 3.0
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 0.5, 2: 1.0},
+		VehicleProperties:   map[int64]float64{1: 0.5, 2: 0.0, 3: 1.0},
+		// no centroids → no rerank bonus
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if r.Status != CascadeStatusScored {
+		t.Fatalf("expected scored, got %v", r.Status)
+	}
+	// ortony (jaccard_salience) computed by JaccardSalience helper —
+	// compute expected the same way to stay decoupled from internal
+	// representation choices.
+	wantOrt := JaccardSalience(in.TopicProperties, in.VehicleProperties)
+	want := wantOrt * 1.75
+	if math.Abs(*r.FinalScore-want) > 1e-9 {
+		t.Errorf("expected weighted=%v, got final=%v", want, *r.FinalScore)
+	}
+	// Diagnostic: raw OrtonyScore field stays unweighted.
+	if math.Abs(*r.OrtonyScore-wantOrt) > 1e-9 {
+		t.Errorf("OrtonyScore diagnostic should be raw, got %v want %v",
+			*r.OrtonyScore, wantOrt)
+	}
+}
+
+func TestOrtonyWeight_ZeroFallsBackToOne(t *testing.T) {
+	// Zero value means "not set" — apply identity (1.0) so existing
+	// configs that don't set OrtonyWeight behave unchanged.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		OrtonyWeight:          0.0,
+	}
+	tc, vc := 1.0, 3.0
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if math.Abs(*r.FinalScore-1.0) > 1e-9 {
+		t.Errorf("OrtonyWeight=0 should behave as 1.0, got %v", *r.FinalScore)
+	}
+}
+
 func TestEvaluateCascadePair_EmptyClusterTypes_NoBonus(t *testing.T) {
 	// Doc on CascadeInputs.ClusterTypes promises that EvaluateCascadePair
 	// "skips the type-diversity bonus computation regardless of Gamma"
