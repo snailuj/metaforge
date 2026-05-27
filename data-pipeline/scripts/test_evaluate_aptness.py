@@ -106,6 +106,32 @@ def test_lookup_primary_synset_is_case_insensitive():
     assert lookup_primary_synset(conn, "Anger") == "S001"
 
 
+def test_lookup_primary_synset_falls_back_to_lemmatised_form():
+    """Plural / gerund vehicles (e.g. 'sparks', 'unraveling') should
+    resolve to their base lemma when the surface form is OOV.
+
+    FU-2 from the metaphor-enrichment spike: 9% of Phase 2 vehicles
+    are -ing gerunds or -s plurals that the lemmas table doesn't
+    carry but whose base form is present. Without the fallback those
+    rows land in 'unresolved' and the cohort under-counts apt promotes.
+    """
+    conn = _build_fixture_db()
+    # 'fires' (plural of 'fire') → S002 via lemmatiser fallback
+    assert lookup_primary_synset(conn, "fires") == "S002"
+    # 'angering' (gerund of 'anger') → S001 via lemmatiser fallback
+    assert lookup_primary_synset(conn, "angering") == "S001"
+
+
+def test_lookup_primary_synset_lemmatised_fallback_only_when_direct_misses():
+    """A surface form that resolves directly must NOT detour through
+    the lemmatiser — that would change semantics for words like
+    'meeting' (noun synset) vs 'meet' (verb synset)."""
+    conn = _build_fixture_db()
+    # 'coming' is a direct lemma in the fixture — must NOT be lemmatised
+    # to 'come' or any other base form.
+    assert lookup_primary_synset(conn, "coming") == "S004"
+
+
 # --- Scoring -----------------------------------------------------------------
 
 def test_score_pair_with_overlap_returns_scored():

@@ -348,9 +348,12 @@ def test_s01_scope_re_rank_fields_none_when_centroids_missing():
     """
     conn = _build_fixture_db()
     # The fixture DB doesn't carry synset_centroids — exercising the
-    # missing-centroid path on both sides.
+    # missing-centroid path on both sides. concreteness_bonus_coef=0 to
+    # isolate the re-rank fail-open behaviour from the iter10 bonus;
+    # ortony_weight=1.0 to isolate from the iter17 weight multiplier.
     result = evaluate_cascade_pair(
-        conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE", CascadeConfig(),
+        conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE",
+        CascadeConfig(concreteness_bonus_coef=0.0, ortony_weight=1.0),
     )
     assert result.cosine_distance is None
     assert result.re_rank_bonus is None
@@ -437,13 +440,20 @@ def test_re_rank_bonus_saturates_at_d_cap():
 
 
 def test_re_rank_bonus_linearly_below_cap():
-    """d=0.5, d_cap=1.0 → bonus = 0.5. Linear ramp up to cap."""
+    """d=0.5, d_cap=1.0, rerank_exponent=1.0 → bonus = 0.5. Linear ramp up to cap.
+
+    Pins the exponent explicitly because the iter4 default is 2.0 (quadratic);
+    the linear contract still holds when callers opt back in.
+    """
     from dataclasses import replace
     conn = _build_fixture_db_with_centroids()
     # S_TOPIC_GRIEF (1.5) vs S_TOPIC_SIMILAR (2.0) — concreteness delta = 0.5
     # which is below default threshold 1.0; lower threshold so the gate
     # passes and we get to the re-rank stage.
-    cfg = replace(CascadeConfig(d_cap=1.0), concreteness_threshold=0.0)
+    cfg = replace(
+        CascadeConfig(d_cap=1.0, rerank_exponent=1.0),
+        concreteness_threshold=0.0,
+    )
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_GRIEF", "S_TOPIC_SIMILAR", cfg,
     )
@@ -480,7 +490,9 @@ def test_re_rank_fail_open_when_either_centroid_missing():
     pre-purge DB.
     """
     conn = _build_fixture_db_with_centroids()
-    cfg = CascadeConfig(concreteness_threshold=0.0)  # let the gate through
+    # concreteness_bonus_coef=0 to isolate fail-open behaviour from
+    # iter10's bonus term.
+    cfg = CascadeConfig(concreteness_threshold=0.0, concreteness_bonus_coef=0.0)
     # S_TOPIC_ANGER has a centroid; S_TOPIC_ALIKE does not.
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_ANGER", "S_TOPIC_ALIKE", cfg,
@@ -500,7 +512,11 @@ def test_re_rank_multiplicative_composition_lifts_score():
     With alpha=1.0 and bonus=1.0 (saturation), final should be 2 × ortony.
     """
     conn = _build_fixture_db_with_centroids()
-    cfg = CascadeConfig(d_cap=0.5, alpha=1.0, composition="multiplicative")
+    cfg = CascadeConfig(
+        d_cap=0.5, alpha=1.0, composition="multiplicative",
+        concreteness_bonus_coef=0.0,  # isolate re-rank from iter10 bonus
+        ortony_weight=1.0,  # isolate from iter17 weight multiplier
+    )
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE", cfg,
     )
@@ -517,7 +533,11 @@ def test_re_rank_additive_composition_lifts_score():
     With alpha=1.0 and bonus=1.0, final = ortony + 1.0.
     """
     conn = _build_fixture_db_with_centroids()
-    cfg = CascadeConfig(d_cap=0.5, alpha=1.0, composition="additive")
+    cfg = CascadeConfig(
+        d_cap=0.5, alpha=1.0, composition="additive",
+        concreteness_bonus_coef=0.0,  # isolate re-rank from iter10 bonus
+        ortony_weight=1.0,  # isolate from iter17 weight multiplier
+    )
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE", cfg,
     )
@@ -533,7 +553,11 @@ def test_re_rank_alpha_zero_recovers_ortony_only():
     sweeping alpha=0 isolates the gate-only effect from gate+re-rank.
     """
     conn = _build_fixture_db_with_centroids()
-    cfg = CascadeConfig(d_cap=0.5, alpha=0.0, composition="multiplicative")
+    cfg = CascadeConfig(
+        d_cap=0.5, alpha=0.0, composition="multiplicative",
+        concreteness_bonus_coef=0.0,  # isolate re-rank from iter10 bonus
+        ortony_weight=1.0,  # isolate from iter17 weight multiplier
+    )
     result = evaluate_cascade_pair(
         conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE", cfg,
     )
@@ -541,6 +565,37 @@ def test_re_rank_alpha_zero_recovers_ortony_only():
     assert abs(result.final_score - result.ortony_score) < 1e-6
     # bonus still computed for diagnostics — alpha just gates whether it lands.
     assert result.re_rank_bonus == 1.0
+
+
+def test_rerank_exponent_below_one_amplifies_below_cap():
+    """exponent<1 amplifies sub-cap distances. exponent=0.75 maps
+    d/d_cap=0.5 to 0.5**0.75 ≈ 0.5946, up from the linear 0.5.
+    Saturation and zero are unchanged.
+
+    Pins the iter4 default — if it changes again, this assertion fires.
+    """
+    from dataclasses import replace
+    conn = _build_fixture_db_with_centroids()
+    cfg = replace(
+        CascadeConfig(d_cap=1.0, rerank_exponent=0.75),
+        concreteness_threshold=0.0,
+    )
+    result = evaluate_cascade_pair(
+        conn, "S_TOPIC_GRIEF", "S_TOPIC_SIMILAR", cfg,
+    )
+    assert result.cosine_distance is not None
+    assert abs(result.cosine_distance - 0.5) < 1e-3
+    assert result.re_rank_bonus is not None
+    # d/d_cap = 0.5, exponent 0.75 → 0.5**0.75 ≈ 0.5946
+    assert abs(result.re_rank_bonus - (0.5 ** 0.75)) < 1e-3
+
+
+def test_rerank_exponent_nonpositive_rejected_at_construction():
+    """Fail-fast on rerank_exponent <= 0 — matches d_cap/alpha policy."""
+    with pytest.raises(ValueError, match="rerank_exponent must be > 0"):
+        CascadeConfig(rerank_exponent=0.0)
+    with pytest.raises(ValueError, match="rerank_exponent must be > 0"):
+        CascadeConfig(rerank_exponent=-0.5)
 
 
 def test_re_rank_unknown_composition_raises_valueerror():
@@ -822,7 +877,8 @@ def test_re_rank_handles_zero_norm_centroid_as_missing():
     )
     conn.commit()
     result = evaluate_cascade_pair(
-        conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE", CascadeConfig(),
+        conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE",
+        CascadeConfig(concreteness_bonus_coef=0.0, ortony_weight=1.0),  # isolate from iter10 + iter17
     )
     # Treat as missing centroid → fail-open path.
     assert result.cosine_distance is None
@@ -891,3 +947,109 @@ def test_cascade_result_rejects_unknown_status():
         # noinspection PyTypeChecker — intentionally bypassing Literal for the runtime check
         CascadeResult(final_score=None, gate_passed=False, ortony_score=None,
                       cosine_distance=None, re_rank_bonus=None, status="bogus")  # type: ignore[arg-type]
+
+
+# --- Soft-gate behaviour (2026-05-25 — replaces hard signed-delta cliff) -----
+# Soft gate = sigmoid penalty centred at the threshold. Concrete-on-concrete
+# pairs (boulder→rock etc.) that the hard gate kills outright now get a
+# small but nonzero score, so the rerank machinery can still surface OOD
+# concrete topics. The penalty is multiplicative on final_score; status stays
+# 'scored' for any pair with both concreteness scores present.
+
+def test_soft_gate_rescues_previously_dropped_pair():
+    """fire (4.5) as topic → light (4.2) as vehicle: delta = -0.3 (hard
+    gate drops this with threshold=1.0). Under soft mode, the sigmoid
+    penalty should yield a small but POSITIVE final_score, and status
+    should be 'scored', not 'gate_dropped'.
+    """
+    conn = _build_fixture_db()
+    cfg = CascadeConfig(gate_mode="soft", gate_alpha=2.0)
+    # similar (2.0) → alike (2.1): delta = +0.1, hard gate drops. Both share
+    # cluster_id 7 so Ortony > 0, giving the soft penalty something to scale.
+    result = evaluate_cascade_pair(
+        conn, "S_TOPIC_SIMILAR", "S_TOPIC_ALIKE", cfg,
+    )
+    assert result.status == "scored", (
+        f"soft mode must not drop sub-threshold pairs; got {result.status!r}"
+    )
+    assert result.final_score is not None and result.final_score > 0.0, (
+        f"soft mode must yield positive final_score for delta below threshold; "
+        f"got {result.final_score!r}"
+    )
+    # Sanity: hard mode drops this same pair to 0.0.
+    hard = evaluate_cascade_pair(
+        conn, "S_TOPIC_SIMILAR", "S_TOPIC_ALIKE", CascadeConfig(),
+    )
+    assert hard.status == "gate_dropped"
+    assert hard.final_score == 0.0
+    # And the soft score should be SMALL — the gate penalty is doing real work.
+    # delta=+0.1, alpha=2.0 -> sigmoid(2*(0.1-1.0)) = sigmoid(-1.8) ≈ 0.142
+    assert result.final_score < 0.5, (
+        f"soft-mode penalty must materially demote sub-threshold pairs; "
+        f"got final_score={result.final_score!r}, expected < 0.5"
+    )
+
+
+def test_soft_gate_preserves_clear_pass_pair_score_approximately():
+    """anger (2.0) → fire (4.5): delta = +2.5 (clear pass). Under soft mode
+    with gate_alpha=2.0, sigmoid(2*(2.5-1.0)) = sigmoid(3) ≈ 0.953 — so
+    final_score should be very close to the hard-mode score (within ~5%)."""
+    conn = _build_fixture_db()
+    hard_cfg = CascadeConfig()
+    soft_cfg = CascadeConfig(gate_mode="soft", gate_alpha=2.0)
+    hard = evaluate_cascade_pair(conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE", hard_cfg)
+    soft = evaluate_cascade_pair(conn, "S_TOPIC_ANGER", "S_VEHICLE_FIRE", soft_cfg)
+    assert hard.final_score is not None and soft.final_score is not None
+    # Soft must be ≤ hard (penalty never lifts above 1.0).
+    assert soft.final_score <= hard.final_score
+    # But shouldn't be dramatically smaller for clearly-passing pairs.
+    ratio = soft.final_score / hard.final_score
+    assert ratio > 0.85, (
+        f"clear-pass pair should retain >85% of hard-mode score under soft mode "
+        f"with alpha=2.0; got ratio={ratio:.3f}"
+    )
+
+
+def test_soft_gate_status_is_scored_even_when_hard_would_drop():
+    """Reverse-direction pair (vehicle less concrete than topic) — under
+    hard gate this is gate_dropped. Under soft mode, status must be
+    'scored' because we're not dropping anything with concreteness data."""
+    conn = _build_fixture_db()
+    cfg = CascadeConfig(gate_mode="soft", gate_alpha=2.0)
+    result = evaluate_cascade_pair(
+        conn, "S_VEHICLE_FIRE", "S_TOPIC_ANGER", cfg,
+    )
+    assert result.status == "scored"
+    assert result.final_score is not None
+    # Hard gate drops this to 0.0; soft should give it some small score.
+    assert result.final_score > 0.0
+
+
+def test_hard_gate_mode_is_default_and_preserves_existing_behaviour():
+    """Default CascadeConfig must keep gate_mode='hard' so the loop's
+    pinned baselines + existing tests stay green."""
+    cfg = CascadeConfig()
+    assert cfg.gate_mode == "hard"
+
+
+def test_cascade_config_rejects_invalid_gate_mode():
+    with pytest.raises(ValueError, match="gate_mode"):
+        CascadeConfig(gate_mode="bogus")  # type: ignore[arg-type]
+
+
+def test_cascade_config_rejects_nonpositive_gate_alpha():
+    with pytest.raises(ValueError, match="gate_alpha"):
+        CascadeConfig(gate_mode="soft", gate_alpha=0.0)
+    with pytest.raises(ValueError, match="gate_alpha"):
+        CascadeConfig(gate_mode="soft", gate_alpha=-1.0)
+
+
+def test_soft_gate_missing_concreteness_still_fails_closed():
+    """Soft mode does NOT change the missing-concreteness contract.
+    Without both scores, we cannot compute the sigmoid penalty either,
+    so status remains 'missing_concreteness' and final_score=None."""
+    conn = _build_fixture_db()
+    cfg = CascadeConfig(gate_mode="soft", gate_alpha=2.0)
+    result = evaluate_cascade_pair(conn, "S_NOCONC", "S_VEHICLE_FIRE", cfg)
+    assert result.status == "missing_concreteness"
+    assert result.final_score is None

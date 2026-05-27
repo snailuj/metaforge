@@ -58,6 +58,66 @@ from utils import LEXICON_V2, get_git_commit
 
 log = logging.getLogger(__name__)
 
+
+# WordNet lemmatiser for the surface-form fallback in
+# `lookup_primary_synset`. Loaded lazily and module-level so the
+# (heavy) NLTK data download only happens once per process. We share
+# the same lemmatiser instance snap_properties.py uses — the corpus is
+# downloaded at module-import time there too. Kept inside a try/except
+# so a missing NLTK install degrades to "no lemmatisation fallback"
+# rather than failing the whole eval pipeline.
+try:
+    import nltk  # noqa: E402
+
+    try:
+        nltk.data.find("corpora/wordnet")
+    except LookupError:
+        nltk.download("wordnet", quiet=True)
+    from nltk.stem import WordNetLemmatizer  # noqa: E402
+
+    _LEMMATISER: "WordNetLemmatizer | None" = WordNetLemmatizer()
+except ImportError:  # pragma: no cover — defensive only
+    log.warning("nltk unavailable; lookup_primary_synset lemmatiser fallback disabled")
+    _LEMMATISER = None
+
+
+def _lemma_variants(word: str) -> list[str]:
+    """Return distinct lemmatised variants of `word`, base-form first.
+
+    Order: noun-lemma, verb-lemma, then heuristic '-ing'/'-s' strips
+    for cases the WordNet lemmatiser misses (e.g. 'smelting' → 'smelt'
+    is not in WordNet's exception list). The caller iterates this in
+    order and stops at the first match — so noun reading is preferred,
+    then verb, then suffix heuristics. Lower-cased; the input surface
+    form is excluded so callers never re-try the direct match.
+    """
+    if _LEMMATISER is None:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    # POS order — noun first because metaphor vehicles are
+    # overwhelmingly nominal in the cohort. 'a'/'r' add little value
+    # and risk false positives on rare adjective stems.
+    for pos in ("n", "v"):
+        v = _LEMMATISER.lemmatize(word, pos=pos)
+        if v != word and v not in seen:
+            seen.add(v)
+            out.append(v)
+    # Heuristic suffix strips for WordNet gaps. Conservative bounds
+    # (len > 5 for -ing, len > 4 for -s) avoid generating short noise
+    # stems like 'in' from 'sing'.
+    if word.endswith("ing") and len(word) > 5:
+        for cand in (word[:-3], word[:-3] + "e"):
+            if cand not in seen:
+                seen.add(cand)
+                out.append(cand)
+    if word.endswith("s") and not word.endswith("ss") and len(word) > 4:
+        cand = word[:-1]
+        if cand not in seen:
+            seen.add(cand)
+            out.append(cand)
+    return out
+
 PIPELINE_DIR = Path(__file__).parent.parent
 FIXTURES_DIR = PIPELINE_DIR / "fixtures"
 DEFAULT_PAIRS = FIXTURES_DIR / "metaphor_pairs_v2.json"
@@ -70,29 +130,90 @@ def lookup_primary_synset(conn: sqlite3.Connection, lemma: str) -> str | None:
     """Resolve a lemma to its primary synset_id.
 
     Prefers the curated vocabulary entry (least-polysemous lemma per synset).
+    Within curated/lemmas, prefers NOUN synsets when any exist for the
+    surface form — metaphor topics and vehicles are overwhelmingly nominal
+    (LakoffM01/Phase2 cohort), so picking the verb sense (e.g. 'anger' →
+    "make angry"; 'storm' → "take by force"; 'tide' → "rise or move")
+    yields property profiles built around action frames rather than the
+    intended entity-domain. Falls back to any-POS if no noun synset exists
+    so cases like a verb-only vehicle still resolve.
     Falls back to the first synset in the lemmas table when curated vocab
-    has no entry. Returns None if the lemma is unknown.
+    has no entry. When neither match the surface form, falls back to
+    lemmatised variants (noun-lemma, then verb-lemma, then '-ing'/'-s'
+    heuristic strips) — recovers ~9% of cohort vehicles that arrive as
+    plurals or gerunds (FU-2 from the metaphor-enrichment spike).
+    Returns None if no variant resolves.
     """
     if not lemma:
         return None
     needle = lemma.strip().lower()
 
-    row = conn.execute(
-        "SELECT synset_id FROM property_vocab_curated "
-        "WHERE LOWER(lemma) = ? "
-        "ORDER BY polysemy ASC LIMIT 1",
-        (needle,),
-    ).fetchone()
-    if row:
-        return row[0]
+    def _direct(form: str) -> str | None:
+        # Curated noun-preferred. Some legacy fixture DBs lack the `pos`
+        # column on property_vocab_curated; fail-open to the any-POS
+        # query in that case (matches the lemmas-table fail-open below).
+        try:
+            row = conn.execute(
+                "SELECT synset_id FROM property_vocab_curated "
+                "WHERE LOWER(lemma) = ? AND pos = 'n' "
+                "ORDER BY polysemy ASC LIMIT 1",
+                (form,),
+            ).fetchone()
+            if row:
+                return row[0]
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "no such column" not in msg and "no such table" not in msg:
+                raise
+        # Curated any-POS fallback (original behaviour).
+        row = conn.execute(
+            "SELECT synset_id FROM property_vocab_curated "
+            "WHERE LOWER(lemma) = ? "
+            "ORDER BY polysemy ASC LIMIT 1",
+            (form,),
+        ).fetchone()
+        if row:
+            return row[0]
+        # Lemmas table noun-preferred — requires JOIN with synsets which
+        # may be absent on fixture DBs that pre-date this schema column.
+        # Fail-open to the original any-POS query on missing-table so
+        # legacy fixtures (test_evaluate_aptness in-memory DBs) keep
+        # passing without forcing them to mirror the production schema.
+        try:
+            row = conn.execute(
+                "SELECT l.synset_id FROM lemmas l "
+                "JOIN synsets s ON l.synset_id = s.synset_id "
+                "WHERE LOWER(l.lemma) = ? AND s.pos = 'n' "
+                "ORDER BY l.synset_id LIMIT 1",
+                (form,),
+            ).fetchone()
+            if row:
+                return row[0]
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc).lower():
+                raise
+        row = conn.execute(
+            "SELECT synset_id FROM lemmas "
+            "WHERE LOWER(lemma) = ? "
+            "ORDER BY synset_id LIMIT 1",
+            (form,),
+        ).fetchone()
+        return row[0] if row else None
 
-    row = conn.execute(
-        "SELECT synset_id FROM lemmas "
-        "WHERE LOWER(lemma) = ? "
-        "ORDER BY synset_id LIMIT 1",
-        (needle,),
-    ).fetchone()
-    return row[0] if row else None
+    sid = _direct(needle)
+    if sid is not None:
+        return sid
+
+    # Lemmatised fallback — only triggered when the surface form is
+    # OOV in BOTH curated vocab and the lemmas table. Preserves
+    # existing direct-hit behaviour for forms like 'coming' that have
+    # their own nominal synset (test guard).
+    for variant in _lemma_variants(needle):
+        sid = _direct(variant)
+        if sid is not None:
+            return sid
+
+    return None
 
 
 def _get_properties(conn: sqlite3.Connection, synset_id: str) -> dict[int, float]:
