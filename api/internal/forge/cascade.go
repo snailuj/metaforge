@@ -360,26 +360,18 @@ type CascadeConfig struct {
 	// existing additive cascade: final = ortony + Alpha·cosBonus + Gamma·typeBonus
 }
 
-// DefaultCascadeConfig returns the production-blessed winner config from
-// the M03 Stage-2 sweep (separation +0.1779) plus the pre-sweep M04
-// candidate-generation defaults. Mode is ModeCluster (M03 behaviour)
-// until the M04 sweep ratifies ModeUnion.
+// DefaultCascadeConfig returns the production-blessed config ratified
+// through the Karpathy loop-3 review. Mirrors PRODUCTION_CASCADE_CONFIG in
+// data-pipeline/scripts/evaluate_loop_harness.py.
 //
-// Gamma is ratified at 1.0 by the M05 Phase 2 Lakoff γ-sweep
-// (2026-05-24). With pre-flight diagnostics confirming 100% of the
-// cohort is data-resolvable and limit=10000 eliminating ranking-cutoff
-// confound, the sweep produced a clean monotone signal:
+// History in one line: M03 Stage-2 sweep found Alpha=1.0/DCap=0.77; the
+// Karpathy loop then ratified Alpha=0.75/DCap=0.68/ReRankExponent=0.12/
+// OrtonyWeight=1.75/GateAlpha=3.0 and promoted GateModeSoft to the
+// production default. Gamma=1.0 is the M05 Phase 2 Lakoff γ-sweep ratified
+// value. Full loop history lives in the loop-meta branch.
 //
-//   γ=0.00 → separation=-0.2546   γ=0.50 → -0.1230
-//   γ=0.25 → separation=-0.1888   γ=1.00 → +0.0086
-//                                 γ=2.00 → +0.2717
-//
-// γ=1.0 brings the apt cohort to parity with the inapt survivors
-// (separation ≈ 0) — the conservative "turn the signal on" choice.
-// γ=2.0 scores higher in the sweep but the magnitude rides on n=1
-// inapt and would overweight one design dimension across the broader
-// thesaurus traffic that does not share the Lakoff cohort's
-// cross-domain bias. See data-pipeline/sweeps/m05_lakoff_gamma_phase2_verdict.md.
+// GateMode=Soft makes soft-rescue the production default; operators can flip
+// back via METAFORGE_FORGE_GATE_MODE=hard (wired in task 11).
 //
 // In-package direct GammaWeight{} construction is idiomatic here: 1.0
 // is a compile-time-known valid literal, and NewGamma exists to guard
@@ -388,14 +380,22 @@ type CascadeConfig struct {
 func DefaultCascadeConfig() CascadeConfig {
 	return CascadeConfig{
 		ConcretenessThreshold: 1.0,
-		Alpha:                 1.0,
-		DCap:                  0.77,
+		Alpha:                 0.75,
+		DCap:                  0.68,
 		Composition:           CompositionAdditive,
-		Mode:                  ModeCluster,
-		EmbeddingDMin:         0.4,
-		EmbeddingDMax:         0.85,
-		EmbeddingTopK:         100,
-		Gamma:                 GammaWeight{v: 1.0},
+		ReRankExponent:        0.12,
+		ConcretenessBonusCoef: 0.002,
+		OrtonyWeight:          1.75,
+		OrtonyScoring:         OrtonyScoringJaccardSalience,
+		GateMode:              GateModeSoft,
+		GateAlpha:             3.0,
+
+		// M04 / M05 fields unchanged.
+		Mode:          ModeCluster,
+		EmbeddingDMin: 0.4,
+		EmbeddingDMax: 0.85,
+		EmbeddingTopK: 100,
+		Gamma:         GammaWeight{v: 1.0},
 	}
 }
 
