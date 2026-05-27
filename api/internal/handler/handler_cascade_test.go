@@ -1155,3 +1155,83 @@ func TestCascadePipeline_CloseWithoutEmit_LogsProgrammingError(t *testing.T) {
 		t.Errorf("close() must be idempotent; second invocation wrote: %s", buf.String()[prevLen:])
 	}
 }
+
+// TestHandlerSoftGateRescuesHighConcretenessTopic is the end-to-end proof
+// that Task 8 (SQL gate removal) + Task 6 (GateMode=Soft default) together
+// rescue a high-concreteness topic that the hard gate kills entirely.
+//
+// 'boulder' has concreteness ~4.67 (Brysbaert). The hard gate requires the
+// vehicle concreteness to exceed topic_c + threshold (4.67 + 1.0 = 5.67).
+// The lexicon_v2.db contains no synsets with concreteness ≥ 5.67, so hard
+// mode produces zero scored candidates. Soft mode applies a sigmoid penalty
+// and surfaces a nonzero top-K instead.
+func TestHandlerSoftGateRescuesHighConcretenessTopic(t *testing.T) {
+	// Step 1: soft mode (DefaultCascadeConfig — GateMode=Soft since Task 6)
+	// should surface at least one scored candidate for 'boulder'.
+	h, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade: %v", err)
+	}
+	defer h.Close()
+
+	req := httptest.NewRequest("GET", "/forge/suggest?word=boulder&limit=20", nil)
+	w := httptest.NewRecorder()
+	h.HandleSuggest(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("soft mode: status %d: %s", w.Code, w.Body.String())
+	}
+	var softResp SuggestResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &softResp); err != nil {
+		t.Fatalf("soft mode: decode: %v", err)
+	}
+	softScoredCount := 0
+	for _, m := range softResp.Suggestions {
+		if m.CascadeStatus == "scored" && m.FinalScore != nil && *m.FinalScore > 0 {
+			softScoredCount++
+		}
+	}
+	if softScoredCount == 0 {
+		t.Errorf("soft mode: expected ≥1 scored candidate with final_score>0 for 'boulder', got none (total=%d)",
+			len(softResp.Suggestions))
+	}
+
+	// Step 2: hard mode must return zero scored candidates for the same topic,
+	// confirming the rescue is real and not noise that both modes share.
+	// lexicon_v2.db has no synset with concreteness ≥ 5.67, so the hard gate
+	// kills every candidate — zero should reach status=scored.
+	hhard, err := NewHandlerWithCascade(testDBPath, true)
+	if err != nil {
+		t.Fatalf("NewHandlerWithCascade (hard): %v", err)
+	}
+	defer hhard.Close()
+
+	hardCfg := forge.DefaultCascadeConfig()
+	hardCfg.GateMode = forge.GateModeHard
+	if err := hhard.WithCascadeConfig(hardCfg); err != nil {
+		t.Fatalf("WithCascadeConfig GateModeHard: %v", err)
+	}
+
+	req2 := httptest.NewRequest("GET", "/forge/suggest?word=boulder&limit=20", nil)
+	w2 := httptest.NewRecorder()
+	hhard.HandleSuggest(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("hard mode: status %d: %s", w2.Code, w2.Body.String())
+	}
+	var hardResp SuggestResponse
+	if err := json.Unmarshal(w2.Body.Bytes(), &hardResp); err != nil {
+		t.Fatalf("hard mode: decode: %v", err)
+	}
+	hardScoredCount := 0
+	for _, m := range hardResp.Suggestions {
+		if m.CascadeStatus == "scored" {
+			hardScoredCount++
+		}
+	}
+	if hardScoredCount != 0 {
+		t.Errorf("hard mode: expected 0 scored candidates for 'boulder' (concreteness ~4.67, threshold 1.0), got %d",
+			hardScoredCount)
+	}
+
+	t.Logf("soft mode: %d scored candidates; hard mode: %d scored candidates (rescue confirmed)",
+		softScoredCount, hardScoredCount)
+}
