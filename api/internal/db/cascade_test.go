@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -84,7 +85,11 @@ func TestGetSynsetClusterPropertiesBatch_EmptyInputReturnsEmptyResult(t *testing
 	}
 }
 
-func TestGetForgeCascadeCandidatesByLemma_AllPassConcretenessGate(t *testing.T) {
+func TestGetForgeCascadeCandidatesByLemma_AllHaveConcreteness(t *testing.T) {
+	// Task 8: the SQL no longer filters by gate threshold. The DB layer now
+	// only enforces the missing-concreteness contract (INNER JOIN). Every
+	// returned candidate must have a concreteness score on both sides; the
+	// gate threshold decision (hard-drop vs soft sigmoid) is made in Go.
 	database, err := Open(testDBPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -104,17 +109,17 @@ func TestGetForgeCascadeCandidatesByLemma_AllPassConcretenessGate(t *testing.T) 
 		t.Fatal("expected at least one cascade candidate for 'anger'")
 	}
 
-	// Every returned candidate must have (vehicle − topic) ≥ 1.0 by the cache.
+	// Every returned candidate must have concreteness present on both sides
+	// (the INNER JOIN guarantee). The gate delta itself may be anything —
+	// the Go scorer decides what to do with sub-threshold rows.
 	for _, c := range candidates {
-		topicScore, hasTopic := cache.Concreteness[c.SourceSynsetID]
-		vehScore, hasVeh := cache.Concreteness[c.SynsetID]
-		if !hasTopic || !hasVeh {
-			t.Errorf("candidate %s/%s missing concreteness in cache", c.SourceSynsetID, c.SynsetID)
-			continue
+		if _, hasTopic := cache.Concreteness[c.SourceSynsetID]; !hasTopic {
+			t.Errorf("candidate %s/%s: topic synset missing concreteness in cache — INNER JOIN contract violated",
+				c.SourceSynsetID, c.SynsetID)
 		}
-		if vehScore-topicScore < 1.0 {
-			t.Errorf("candidate %s (vehicle %v) − %s (topic %v) = %v < 1.0",
-				c.SynsetID, vehScore, c.SourceSynsetID, topicScore, vehScore-topicScore)
+		if _, hasVeh := cache.Concreteness[c.SynsetID]; !hasVeh {
+			t.Errorf("candidate %s/%s: vehicle synset missing concreteness in cache — INNER JOIN contract violated",
+				c.SourceSynsetID, c.SynsetID)
 		}
 	}
 }
@@ -199,6 +204,97 @@ func TestGetForgeCascadeCandidatesByLemma_TagsRowsWithSourceCluster(t *testing.T
 		if c.Source != forge.SourceCluster {
 			t.Errorf("candidate %s tagged %q, want %q", c.SynsetID, c.Source, forge.SourceCluster)
 		}
+	}
+}
+
+func TestCandidateFetch_SurfacesSubThresholdRows(t *testing.T) {
+	// Pre-Task-8: candidates with vehicle_c - topic_c < ConcretenessThreshold
+	// were filtered out at the SQL layer. After Task 8, they must surface
+	// so the Go scorer can decide what to do (gate-drop in hard mode,
+	// score with sigmoid penalty in soft mode).
+	//
+	// Fixture: topic synset concreteness 4.0, two vehicle candidates —
+	// one concreteness 5.0 (above-threshold: 5.0-4.0=1.0 >= 1.0) and one
+	// concreteness 3.5 (sub-threshold: 3.5-4.0=-0.5 < 1.0). Both must be
+	// returned from the DB function so the Go scorer handles gate logic.
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT, definition TEXT);
+		CREATE TABLE lemmas (lemma TEXT, synset_id TEXT, PRIMARY KEY (lemma, synset_id));
+		CREATE TABLE property_vocab_curated (
+			vocab_id INTEGER PRIMARY KEY,
+			synset_id TEXT NOT NULL,
+			lemma TEXT NOT NULL,
+			pos TEXT NOT NULL,
+			polysemy INTEGER NOT NULL
+		);
+		CREATE TABLE synset_properties_curated (
+			synset_id TEXT NOT NULL,
+			vocab_id INTEGER NOT NULL,
+			cluster_id INTEGER NOT NULL,
+			snap_method TEXT NOT NULL,
+			snap_score REAL,
+			salience_sum REAL NOT NULL DEFAULT 1.0,
+			PRIMARY KEY (synset_id, cluster_id)
+		);
+		CREATE TABLE cluster_antonyms (
+			cluster_id_a INTEGER NOT NULL,
+			cluster_id_b INTEGER NOT NULL,
+			PRIMARY KEY (cluster_id_a, cluster_id_b)
+		);
+		CREATE TABLE synset_concreteness (
+			synset_id TEXT PRIMARY KEY,
+			score REAL,
+			source TEXT
+		);
+
+		-- Topic: "dread" (abstract, concreteness 4.0)
+		INSERT INTO synsets VALUES ('src-dread', 'n', 'a feeling of dread');
+		INSERT INTO lemmas VALUES ('dread', 'src-dread');
+		INSERT INTO property_vocab_curated VALUES (1, 'v1', 'heavy', 'a', 1);
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES
+			('src-dread', 1, 1, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('src-dread', 4.0, 'test');
+
+		-- Vehicle A: concreteness 5.0 → delta = +1.0 (at threshold, above gate)
+		INSERT INTO synsets VALUES ('tgt-above', 'n', 'something very concrete');
+		INSERT INTO lemmas VALUES ('rock', 'tgt-above');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES
+			('tgt-above', 1, 1, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-above', 5.0, 'test');
+
+		-- Vehicle B: concreteness 3.5 → delta = -0.5 (below threshold)
+		INSERT INTO synsets VALUES ('tgt-below', 'n', 'something less concrete');
+		INSERT INTO lemmas VALUES ('mist', 'tgt-below');
+		INSERT INTO synset_properties_curated (synset_id, vocab_id, cluster_id, snap_method, snap_score) VALUES
+			('tgt-below', 1, 1, 'exact', NULL);
+		INSERT INTO synset_concreteness VALUES ('tgt-below', 3.5, 'test');
+	`)
+	if err != nil {
+		t.Fatalf("fixture setup: %v", err)
+	}
+
+	candidates, err := GetForgeCascadeCandidatesByLemma(db, "dread", 1.0, 50)
+	if err != nil {
+		t.Fatalf("GetForgeCascadeCandidatesByLemma: %v", err)
+	}
+
+	// Both the above-threshold AND the sub-threshold vehicle must surface.
+	// The Go scorer (not SQL) is responsible for gate decisions.
+	synsetIDs := make(map[string]bool, len(candidates))
+	for _, c := range candidates {
+		synsetIDs[c.SynsetID] = true
+	}
+	if !synsetIDs["tgt-above"] {
+		t.Error("above-threshold candidate tgt-above missing from results")
+	}
+	if !synsetIDs["tgt-below"] {
+		t.Error("sub-threshold candidate tgt-below missing from results — SQL CTE is still filtering gate; Task 8 fix not applied")
 	}
 }
 
