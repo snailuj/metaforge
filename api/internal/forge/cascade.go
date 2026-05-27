@@ -277,6 +277,13 @@ type CascadeConfig struct {
 	EmbeddingDMax float64       // inclusive upper band; must satisfy DMax > DMin
 	EmbeddingTopK int           // cap on per-request embedding candidates
 
+	// ConcretenessBonusCoef is the additive reward on the signed-delta
+	// residual above ConcretenessThreshold. Mirrors Python's
+	// concreteness_bonus_coef (production-tuned to 0.002 at L1-10).
+	// 0 disables stage entirely so existing tests using DefaultCascadeConfig
+	// continue to pass.
+	ConcretenessBonusCoef float64
+
 	// M05 type-aligned scoring.
 	Gamma GammaWeight // weight on the type-diversity bonus in EvaluateCascadePair.
 	// 0 disables M05 (M03/M04 behaviour preserved). Calibration sweep on
@@ -501,6 +508,17 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 			final = ortony + cfg.Alpha*(*bonus)
 		case CompositionMultiplicative:
 			final = ortony * (1.0 + cfg.Alpha*(*bonus))
+		}
+	}
+
+	// Stage 4: concreteness-delta residual bonus. Mirrors Python evaluate_cascade.py.
+	// Only positive residuals contribute; the gate guarantees signed >= threshold
+	// in hard mode, but in soft mode we may have signed < threshold and the
+	// residual is then negative — clamp to 0 by gating on the sign.
+	if cfg.ConcretenessBonusCoef > 0.0 {
+		residual := signed - cfg.ConcretenessThreshold
+		if residual > 0.0 {
+			final = final + cfg.ConcretenessBonusCoef*residual
 		}
 	}
 

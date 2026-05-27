@@ -750,6 +750,74 @@ func TestReRankExponent_AppliedInEvaluateCascadePair(t *testing.T) {
 	}
 }
 
+func TestConcretenessBonusCoef_ZeroDisables(t *testing.T) {
+	// With coef=0, post-composition score equals pre-bonus score.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0, DCap: 0.68,
+		Composition: CompositionAdditive,
+		ConcretenessBonusCoef: 0.0,
+	}
+	tc, vc := 1.0, 4.0
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0}, // ortony=1.0
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if r.Status != CascadeStatusScored {
+		t.Fatalf("expected scored, got %v", r.Status)
+	}
+	if math.Abs(*r.FinalScore-1.0) > 1e-9 {
+		t.Errorf("coef=0 must not add bonus: got %v", *r.FinalScore)
+	}
+}
+
+func TestConcretenessBonusCoef_AppliedToResidual(t *testing.T) {
+	// vc - tc = 3.0; threshold = 1.0; residual = 2.0; coef = 0.1.
+	// Expected bonus = 0.1 * 2.0 = 0.2 added to final.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0, DCap: 0.68,
+		Composition: CompositionAdditive,
+		ConcretenessBonusCoef: 0.1,
+	}
+	tc, vc := 1.0, 4.0
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if r.Status != CascadeStatusScored {
+		t.Fatalf("expected scored, got %v", r.Status)
+	}
+	want := 1.0 + 0.1*2.0
+	if math.Abs(*r.FinalScore-want) > 1e-9 {
+		t.Errorf("expected %v, got %v", want, *r.FinalScore)
+	}
+}
+
+func TestConcretenessBonusCoef_OnlyAppliesAboveThreshold(t *testing.T) {
+	// Pair JUST at threshold: residual=0; bonus=0.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0, DCap: 0.68,
+		Composition: CompositionAdditive,
+		ConcretenessBonusCoef: 0.5,
+	}
+	tc, vc := 1.0, 2.0 // signed_delta = 1.0 = threshold
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if math.Abs(*r.FinalScore-1.0) > 1e-9 {
+		t.Errorf("at-threshold pair must not get bonus: got %v", *r.FinalScore)
+	}
+}
+
 func TestEvaluateCascadePair_EmptyClusterTypes_NoBonus(t *testing.T) {
 	// Doc on CascadeInputs.ClusterTypes promises that EvaluateCascadePair
 	// "skips the type-diversity bonus computation regardless of Gamma"
