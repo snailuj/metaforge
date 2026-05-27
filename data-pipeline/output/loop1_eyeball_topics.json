@@ -1,0 +1,133 @@
+{
+  "seed": 20260525,
+  "n_picked": 20,
+  "exclusion_set_size": 1868,
+  "per_pos_targets": {
+    "n": 10,
+    "v": 4,
+    "a_or_s": 4,
+    "r": 2
+  },
+  "topics": [
+    {
+      "synset_id": "104555",
+      "pos": "n",
+      "lemma": "date of reference",
+      "gloss": "(astronomy) an arbitrarily fixed date that is the point in time relative to which information (as coordinates of a celestial body) is recorded"
+    },
+    {
+      "synset_id": "100254",
+      "pos": "n",
+      "lemma": "show window",
+      "gloss": "a setting in which something can be displayed to best effect"
+    },
+    {
+      "synset_id": "63979",
+      "pos": "n",
+      "lemma": "ideology",
+      "gloss": "imaginary or visionary theorization"
+    },
+    {
+      "synset_id": "77162",
+      "pos": "n",
+      "lemma": "unesco",
+      "gloss": "an agency of the United Nations that promotes education and communication and the arts"
+    },
+    {
+      "synset_id": "100826",
+      "pos": "n",
+      "lemma": "isotope",
+      "gloss": "one of two or more atoms with the same atomic number but with different numbers of neutrons"
+    },
+    {
+      "synset_id": "95243",
+      "pos": "n",
+      "lemma": "pint",
+      "gloss": "a British imperial capacity measure (liquid or dry) equal to 4 gills or 568.26 cubic centimeters"
+    },
+    {
+      "synset_id": "105284",
+      "pos": "n",
+      "lemma": "disinterest",
+      "gloss": "lack of interest"
+    },
+    {
+      "synset_id": "96570",
+      "pos": "n",
+      "lemma": "se",
+      "gloss": "the compass point midway between south and east; at 135 degrees"
+    },
+    {
+      "synset_id": "82633",
+      "pos": "n",
+      "lemma": "eyewitness",
+      "gloss": "a spectator who can describe what happened"
+    },
+    {
+      "synset_id": "102379",
+      "pos": "n",
+      "lemma": "halocarbon",
+      "gloss": "one of various compounds of carbon and any of the halogens"
+    },
+    {
+      "synset_id": "14306",
+      "pos": "v",
+      "lemma": "discredit",
+      "gloss": "cause to be distrusted or disbelieved"
+    },
+    {
+      "synset_id": "10241",
+      "pos": "v",
+      "lemma": "delay",
+      "gloss": "cause to be slowed down or delayed"
+    },
+    {
+      "synset_id": "35818",
+      "pos": "v",
+      "lemma": "trump",
+      "gloss": "produce a sound as if from a trumpet"
+    },
+    {
+      "synset_id": "13194",
+      "pos": "v",
+      "lemma": "jump",
+      "gloss": "bypass"
+    },
+    {
+      "synset_id": "21579",
+      "pos": "s",
+      "lemma": "pure",
+      "gloss": "free from discordant qualities"
+    },
+    {
+      "synset_id": "30703",
+      "pos": "s",
+      "lemma": "less-traveled",
+      "gloss": "not visited by many travelers"
+    },
+    {
+      "synset_id": "32108",
+      "pos": "s",
+      "lemma": "noiseless",
+      "gloss": "making no sound"
+    },
+    {
+      "synset_id": "35748",
+      "pos": "a",
+      "lemma": "compound",
+      "gloss": "composed of more than one part"
+    },
+    {
+      "synset_id": "5435",
+      "pos": "r",
+      "lemma": "aboard",
+      "gloss": "on first or second or third base"
+    },
+    {
+      "synset_id": "4535",
+      "pos": "r",
+      "lemma": "freely",
+      "gloss": "in a free manner"
+    }
+  ]
+}
