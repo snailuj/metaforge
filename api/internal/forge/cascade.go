@@ -459,6 +459,23 @@ func (c CascadeConfig) Validate() error {
 		return fmt.Errorf("Gamma>0 is only validated with Composition=additive; got Gamma=%v with Composition=%s. Set Gamma=0 or Composition=additive.",
 			c.Gamma.Value(), c.Composition)
 	}
+	if !c.GateMode.Valid() {
+		return fmt.Errorf("GateMode %v is not one of GateModeHard|GateModeSoft", c.GateMode)
+	}
+	if c.GateMode == GateModeSoft {
+		if c.GateAlpha <= 0 || math.IsNaN(c.GateAlpha) || math.IsInf(c.GateAlpha, 0) {
+			return fmt.Errorf("GateAlpha %v must be > 0 and finite in soft mode", c.GateAlpha)
+		}
+	}
+	if c.ReRankExponent < 0 || math.IsNaN(c.ReRankExponent) || math.IsInf(c.ReRankExponent, 0) {
+		return fmt.Errorf("ReRankExponent %v must be >= 0 and finite", c.ReRankExponent)
+	}
+	if c.ConcretenessBonusCoef < 0 || math.IsNaN(c.ConcretenessBonusCoef) || math.IsInf(c.ConcretenessBonusCoef, 0) {
+		return fmt.Errorf("ConcretenessBonusCoef %v must be >= 0 and finite", c.ConcretenessBonusCoef)
+	}
+	if c.OrtonyWeight < 0 || math.IsNaN(c.OrtonyWeight) || math.IsInf(c.OrtonyWeight, 0) {
+		return fmt.Errorf("OrtonyWeight %v must be >= 0 and finite", c.OrtonyWeight)
+	}
 	return nil
 }
 

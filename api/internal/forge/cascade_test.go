@@ -1125,6 +1125,70 @@ func TestSoftGateGatePassedDiagnostic(t *testing.T) {
 	}
 }
 
+// --- Task 7: Validate() covers all loop-tuned config fields ------------------
+
+func TestValidate_ReRankExponentMustBePositiveOrZero(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.ReRankExponent = -0.1
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for negative ReRankExponent")
+	}
+	cfg.ReRankExponent = math.NaN()
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for NaN ReRankExponent")
+	}
+}
+
+func TestValidate_ConcretenessBonusCoefMustBeNonNegFinite(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.ConcretenessBonusCoef = -0.001
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for negative ConcretenessBonusCoef")
+	}
+	cfg.ConcretenessBonusCoef = math.Inf(1)
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for Inf ConcretenessBonusCoef")
+	}
+}
+
+func TestValidate_OrtonyWeightMustBeNonNegFinite(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.OrtonyWeight = -1.0
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for negative OrtonyWeight")
+	}
+}
+
+func TestValidate_GateModeMustBeValid(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.GateMode = GateMode(42)
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for invalid GateMode")
+	}
+}
+
+func TestValidate_GateAlphaMustBePositiveInSoftMode(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.GateMode = GateModeSoft
+	cfg.GateAlpha = 0.0
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for GateAlpha=0 in soft mode")
+	}
+	cfg.GateAlpha = -1.0
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for negative GateAlpha in soft mode")
+	}
+}
+
+func TestValidate_GateAlphaIgnoredInHardMode(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.GateMode = GateModeHard
+	cfg.GateAlpha = 0.0
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("hard mode should accept GateAlpha=0: %v", err)
+	}
+}
+
 func TestSoftGateMonotonicInGateAlpha(t *testing.T) {
 	// Fixed sub-threshold pair. Higher alpha → stricter penalty → lower final.
 	tc, vc := 4.0, 3.5
