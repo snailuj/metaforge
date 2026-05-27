@@ -27,7 +27,6 @@ Important: the Go binary must be built before running this script.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import random
@@ -48,7 +47,6 @@ import requests
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "data-pipeline" / "scripts"))
 
-from evaluate_aptness import lookup_primary_synset  # noqa: E402
 from evaluate_cascade import evaluate_cascade_pair  # noqa: E402
 from evaluate_loop_harness import (  # noqa: E402
     PRODUCTION_CASCADE_CONFIG,
@@ -224,7 +222,7 @@ def run_parity(conn: sqlite3.Connection, base_url: str) -> tuple[int, int, list[
       4. Skip only candidates where Python returns status!=scored (missing_concreteness
          or no_properties — these reflect data gaps, not algorithmic divergence).
 
-    Returns (n_comparable, n_mismatch, mismatch_details).
+    Returns (n_comparable, n_skipped, n_mismatch, mismatch_details).
     """
     rng = random.Random(SEED)
 
@@ -366,7 +364,7 @@ def run_parity(conn: sqlite3.Connection, base_url: str) -> tuple[int, int, list[
                 py_final, go_final, delta,
             )
 
-    return n_comparable, n_mismatch, mismatches
+    return n_comparable, n_skipped, n_mismatch, mismatches
 
 
 # ---------------------------------------------------------------------------
@@ -417,15 +415,21 @@ def main() -> int:
     try:
         conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
         try:
-            n_comparable, n_mismatch, mismatches = run_parity(conn, base_url)
+            n_comparable, n_skipped, n_mismatch, mismatches = run_parity(conn, base_url)
         finally:
             conn.close()
     finally:
         stop_api(proc)
 
     print()
+    if n_comparable < TARGET_PAIRS // 2:
+        print(
+            f"PARITY FAIL: only {n_comparable} comparable pairs of {TARGET_PAIRS} sampled — too few to be meaningful",
+            file=sys.stderr,
+        )
+        return 1
     if n_mismatch == 0:
-        print(f"PARITY OK: {n_comparable} pairs within {TOLERANCE:.0e}")
+        print(f"PARITY OK: {n_comparable} pairs within {TOLERANCE:.0e} ({n_skipped} skipped)")
         return 0
     else:
         print(f"PARITY FAIL: {n_mismatch} pairs over tolerance (of {n_comparable} comparable)")
