@@ -46,19 +46,19 @@ func main() {
 		envFloat("METAFORGE_FORGE_GATE_ALPHA", 3.0),
 		"soft-gate sigmoid steepness; ignored in hard mode")
 	alpha := flag.Float64("forge-alpha",
-		envFloat("METAFORGE_FORGE_ALPHA", 0.75),
+		envFloat("METAFORGE_FORGE_ALPHA", 1.0),
 		"rerank composition weight (alpha in `ortony + alpha*bonus`)")
 	dCap := flag.Float64("forge-dcap",
-		envFloat("METAFORGE_FORGE_DCAP", 0.68),
+		envFloat("METAFORGE_FORGE_DCAP", 0.77),
 		"distance cap for rerank bonus saturation")
 	rerankExp := flag.Float64("forge-rerank-exp",
 		envFloat("METAFORGE_FORGE_RERANK_EXPONENT", 0.12),
 		"power transform on rerank ratio (d/DCap)^exp")
 	concBonus := flag.Float64("forge-concreteness-bonus-coef",
-		envFloat("METAFORGE_FORGE_CONCRETENESS_BONUS_COEF", 0.002),
+		envFloat("METAFORGE_FORGE_CONCRETENESS_BONUS_COEF", 0.0),
 		"additive bonus coef on concreteness residual above threshold")
 	ortonyWeight := flag.Float64("forge-ortony-weight",
-		envFloat("METAFORGE_FORGE_ORTONY_WEIGHT", 1.75),
+		envFloat("METAFORGE_FORGE_ORTONY_WEIGHT", 1.0),
 		"multiplicative weight on the ortony term")
 	ortonyScoring := flag.String("forge-ortony-scoring",
 		envOrDefault("METAFORGE_FORGE_ORTONY_SCORING", "jaccard_salience"),
