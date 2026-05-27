@@ -688,7 +688,7 @@ func TestEvaluateCascadePair_GammaPositiveNoClusterTypesIsZero(t *testing.T) {
 	}
 }
 
-func TestReRankBonus_LinearWhenExponentOne(t *testing.T) {
+func TestReRankBonusPow_LinearWhenExponentOne(t *testing.T) {
 	// exponent=1.0 must reproduce the historical linear shape.
 	got := ReRankBonusPow(0.5, 1.0, 1.0)
 	if math.Abs(got-0.5) > 1e-9 {
@@ -696,7 +696,7 @@ func TestReRankBonus_LinearWhenExponentOne(t *testing.T) {
 	}
 }
 
-func TestReRankBonus_ExponentBelowOneAmplifiesSmallDistances(t *testing.T) {
+func TestReRankBonusPow_ExponentBelowOneAmplifiesSmallDistances(t *testing.T) {
 	// d/dCap = 0.5; exp=0.5 → sqrt(0.5) ≈ 0.707.
 	got := ReRankBonusPow(0.5, 1.0, 0.5)
 	if math.Abs(got-math.Sqrt(0.5)) > 1e-9 {
@@ -704,7 +704,7 @@ func TestReRankBonus_ExponentBelowOneAmplifiesSmallDistances(t *testing.T) {
 	}
 }
 
-func TestReRankBonus_ExponentAboveOneSuppressesSmallDistances(t *testing.T) {
+func TestReRankBonusPow_ExponentAboveOneSuppressesSmallDistances(t *testing.T) {
 	// d/dCap = 0.5; exp=2.0 → 0.25.
 	got := ReRankBonusPow(0.5, 1.0, 2.0)
 	if math.Abs(got-0.25) > 1e-9 {
@@ -712,7 +712,7 @@ func TestReRankBonus_ExponentAboveOneSuppressesSmallDistances(t *testing.T) {
 	}
 }
 
-func TestReRankBonus_SaturatesAtOneRegardlessOfExponent(t *testing.T) {
+func TestReRankBonusPow_SaturatesAtOneRegardlessOfExponent(t *testing.T) {
 	for _, exp := range []float64{0.12, 0.5, 1.0, 2.0} {
 		got := ReRankBonusPow(2.0, 1.0, exp)
 		if math.Abs(got-1.0) > 1e-9 {
@@ -721,14 +721,14 @@ func TestReRankBonus_SaturatesAtOneRegardlessOfExponent(t *testing.T) {
 	}
 }
 
-func TestRerankExponent_AppliedInEvaluateCascadePair(t *testing.T) {
+func TestReRankExponent_AppliedInEvaluateCascadePair(t *testing.T) {
 	// Build a pair that reaches the rerank stage. Use orthogonal-ish vectors
 	// to produce a measurable cos distance, then verify final-score = ortony +
 	// Alpha * (d/DCap)^exp using the actual computed distance.
 	cfg := CascadeConfig{
 		ConcretenessThreshold: 1.0, Alpha: 0.75, DCap: 0.68,
 		Composition:    CompositionAdditive,
-		RerankExponent: 0.12,
+		ReRankExponent: 0.12,
 	}
 	tc, vc := 2.0, 4.0
 	in := CascadeInputs{
@@ -744,7 +744,7 @@ func TestRerankExponent_AppliedInEvaluateCascadePair(t *testing.T) {
 		t.Fatalf("expected scored, got %v", r.Status)
 	}
 	d, _ := CascadeCosineDistance(in.TopicCentroid, in.VehicleCentroid)
-	want := 1.0 + cfg.Alpha*math.Pow(d/cfg.DCap, cfg.RerankExponent)
+	want := 1.0 + cfg.Alpha*math.Pow(d/cfg.DCap, cfg.ReRankExponent)
 	if math.Abs(*r.FinalScore-want) > 1e-6 {
 		t.Errorf("final mismatch: got %v want %v", *r.FinalScore, want)
 	}

@@ -61,8 +61,12 @@ func ReRankBonus(d, dCap float64) float64 {
 
 // ReRankBonusPow is ReRankBonus with a power transform on the open
 // interval (0, 1). exponent=1.0 reproduces ReRankBonus exactly. Used
-// inside EvaluateCascadePair when CascadeConfig.RerankExponent is set.
+// inside EvaluateCascadePair when CascadeConfig.ReRankExponent is set.
 // Saturation guards at 0 and 1 are independent of exponent.
+//
+// Note: exponent=0 returns 1.0 for all interior values (math.Pow(x,0)==1).
+// Callers needing back-compat with the linear shape should pass exponent=1.0
+// explicitly; see EvaluateCascadePair for the zero-value treatment.
 func ReRankBonusPow(d, dCap, exponent float64) float64 {
 	if dCap <= 0 {
 		return 0.0
@@ -261,11 +265,11 @@ type CascadeConfig struct {
 	DCap                  float64
 	Composition           Composition
 
-	// RerankExponent is the power transform exponent applied to (d/DCap) in
+	// ReRankExponent is the power transform exponent applied to (d/DCap) in
 	// the rerank stage. Zero (the zero value) falls back to linear (exponent=1)
 	// so DefaultCascadeConfig stays backward-compatible until task 6 sets the
 	// production-tuned value of 0.12. Mirrors Python's rerank_exponent.
-	RerankExponent float64
+	ReRankExponent float64
 
 	// M04 candidate-generation knobs.
 	Mode          CandidateMode // M04 candidate-generation mode: cluster_only / embedding_only / union
@@ -481,7 +485,7 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 	if in.TopicCentroid != nil && in.VehicleCentroid != nil {
 		if d, ok := CascadeCosineDistance(in.TopicCentroid, in.VehicleCentroid); ok {
 			cosDist = &d
-			exp := cfg.RerankExponent
+			exp := cfg.ReRankExponent
 			if exp == 0 {
 				exp = 1.0 // back-compat: zero means "not set", use linear shape
 			}
