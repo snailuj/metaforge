@@ -226,6 +226,31 @@ func ParseCandidateMode(s string) (CandidateMode, error) {
 	return m, nil
 }
 
+// GateMode picks the concreteness-gate behaviour.
+type GateMode int
+
+const (
+	GateModeHard GateMode = iota // existing cliff: sub-threshold pairs return gate_dropped
+	GateModeSoft                 // sigmoid penalty: sub-threshold pairs score with attenuation
+)
+
+func (m GateMode) Valid() bool {
+	return m == GateModeHard || m == GateModeSoft
+}
+
+// sigmoid is the numerically-stable logistic σ(x) = 1/(1+e^-x). Mirrors
+// data-pipeline/scripts/evaluate_cascade.py:_sigmoid. Splits on sign of x
+// to avoid math.Exp overflow at large |x| (the cascade can produce
+// alpha*delta on the order of ±tens).
+func sigmoid(x float64) float64 {
+	if x >= 0 {
+		z := math.Exp(-x)
+		return 1.0 / (1.0 + z)
+	}
+	z := math.Exp(x)
+	return z / (1.0 + z)
+}
+
 // OrtonyScoring picks the pointwise scoring function. Only
 // jaccard_salience is implemented in Go — other Python sweep-side
 // scoring fns (jaccard_raw, cosine_salience, ortony_vehicle_salience,
@@ -315,6 +340,18 @@ type CascadeConfig struct {
 	// jaccard_salience; "" treated as default (jaccard_salience). Adding more
 	// Go scoring fns is out of scope until production needs them.
 	OrtonyScoring OrtonyScoring
+
+	// GateMode picks the concreteness-gate behaviour. GateModeHard (0, default)
+	// preserves the existing cliff: sub-threshold pairs return gate_dropped.
+	// GateModeSoft replaces the cliff with a sigmoid penalty multiplied into
+	// final_score; sub-threshold pairs are scored (status="scored") with
+	// attenuation. Mirrors Python's gate_mode='hard'|'soft'.
+	GateMode GateMode
+
+	// GateAlpha is the sigmoid steepness for GateModeSoft. Must be > 0 when
+	// GateMode==GateModeSoft. Ignored in GateModeHard. Mirrors Python's
+	// gate_alpha. Higher values produce a sharper transition at the threshold.
+	GateAlpha float64
 
 	// M05 type-aligned scoring.
 	Gamma GammaWeight // weight on the type-diversity bonus in EvaluateCascadePair.
@@ -513,7 +550,7 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 		return CascadeResult{Status: CascadeStatusMissingConcreteness}
 	}
 	signed := *in.VehicleConcreteness - *in.TopicConcreteness
-	if signed < cfg.ConcretenessThreshold {
+	if cfg.GateMode == GateModeHard && signed < cfg.ConcretenessThreshold {
 		zero := 0.0
 		return CascadeResult{FinalScore: &zero, Status: CascadeStatusGateDropped}
 	}
@@ -592,9 +629,21 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 		}
 	}
 
+	// Stage 5: soft-gate sigmoid penalty (GateModeSoft only). The hard-gate
+	// early-return above ensures this branch is unreachable in hard mode.
+	// Sub-threshold pairs in soft mode fall through here with their sigmoid
+	// penalty applied. Mirrors data-pipeline/scripts/evaluate_cascade.py
+	// Stage 5 (lines 626–641).
+	gatePassed := true
+	if cfg.GateMode == GateModeSoft {
+		gateScore := sigmoid(cfg.GateAlpha * (signed - cfg.ConcretenessThreshold))
+		final = final * gateScore
+		gatePassed = gateScore >= 0.5
+	}
+
 	return CascadeResult{
 		FinalScore:         &final,
-		GatePassed:         true,
+		GatePassed:         gatePassed,
 		OrtonyScore:        &ortony,
 		CosineDistance:     cosDist,
 		ReRankBonus:        bonus,

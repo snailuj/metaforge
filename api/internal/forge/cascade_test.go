@@ -922,3 +922,147 @@ func TestEvaluateCascadePair_EmptyClusterTypes_NoBonus(t *testing.T) {
 		t.Errorf("empty ClusterTypes: SharedTypesCount should be 0, got %d", res.SharedTypesCount)
 	}
 }
+
+// --- Task 5: sigmoid helper + GateMode soft-gate tests -----------------------
+
+func TestSigmoid_AtZeroReturnsHalf(t *testing.T) {
+	if got := sigmoid(0); math.Abs(got-0.5) > 1e-12 {
+		t.Errorf("sigmoid(0) = %v, want 0.5", got)
+	}
+}
+
+func TestSigmoid_StableAtLargePositive(t *testing.T) {
+	// math.Exp(1000) overflows; the stable form must return ~1.0.
+	if got := sigmoid(1000); got <= 0.99 || got > 1.0 {
+		t.Errorf("sigmoid(1000) = %v, want ~1.0", got)
+	}
+}
+
+func TestSigmoid_StableAtLargeNegative(t *testing.T) {
+	if got := sigmoid(-1000); got < 0.0 || got >= 0.01 {
+		t.Errorf("sigmoid(-1000) = %v, want ~0.0", got)
+	}
+}
+
+func TestSoftGateRescuesPreviouslyDroppedPair(t *testing.T) {
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		GateMode:              GateModeSoft,
+		GateAlpha:             3.0,
+	}
+	tc, vc := 4.0, 3.5 // signed=-0.5; sub-threshold but soft should still score
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if r.Status != CascadeStatusScored {
+		t.Fatalf("soft mode must keep status=scored even sub-threshold, got %v", r.Status)
+	}
+	if r.FinalScore == nil || *r.FinalScore <= 0 {
+		t.Fatalf("expected positive final, got %v", r.FinalScore)
+	}
+	// gate_score = sigmoid(3.0 * (-0.5 - 1.0)) = sigmoid(-4.5) ≈ 0.011.
+	// ortony = 1.0, final = 1.0 * 0.011 ≈ 0.011.
+	want := sigmoid(3.0 * (-1.5))
+	if math.Abs(*r.FinalScore-want) > 1e-6 {
+		t.Errorf("final %v != want %v", *r.FinalScore, want)
+	}
+}
+
+func TestSoftGatePreservesClearPassScore(t *testing.T) {
+	cfgHard := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		GateMode:              GateModeHard,
+	}
+	cfgSoft := cfgHard
+	cfgSoft.GateMode = GateModeSoft
+	cfgSoft.GateAlpha = 3.0
+	tc, vc := 1.0, 4.0 // signed=3.0; well above threshold
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	rh := EvaluateCascadePair(in, cfgHard)
+	rs := EvaluateCascadePair(in, cfgSoft)
+	if rh.FinalScore == nil || rs.FinalScore == nil {
+		t.Fatal("both modes must score this pair")
+	}
+	ratio := *rs.FinalScore / *rh.FinalScore
+	if ratio < 0.85 {
+		t.Errorf("soft mode lost too much score at clear pass: ratio=%v", ratio)
+	}
+}
+
+func TestSoftGateMissingConcretenessStillFailsClosed(t *testing.T) {
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		GateMode:              GateModeSoft,
+		GateAlpha:             3.0,
+	}
+	in := CascadeInputs{
+		TopicConcreteness:   nil,
+		VehicleConcreteness: nil,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if r.Status != CascadeStatusMissingConcreteness {
+		t.Errorf("soft mode must NOT rescue missing-concreteness: got %v", r.Status)
+	}
+}
+
+func TestSoftGateGatePassedDiagnostic(t *testing.T) {
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		GateMode:              GateModeSoft,
+		GateAlpha:             3.0,
+	}
+	// gate_score = sigmoid(3*(-0.5-1)) ≈ 0.011 → GatePassed=false
+	tc1, vc1 := 4.0, 3.5
+	in1 := CascadeInputs{TopicConcreteness: &tc1, VehicleConcreteness: &vc1,
+		TopicProperties: map[int64]float64{1: 1.0}, VehicleProperties: map[int64]float64{1: 1.0}}
+	r1 := EvaluateCascadePair(in1, cfg)
+	if r1.GatePassed {
+		t.Errorf("expected GatePassed=false at gate_score < 0.5, got true")
+	}
+	// gate_score = sigmoid(3*(3-1)) = sigmoid(6) ≈ 0.998 → GatePassed=true
+	tc2, vc2 := 1.0, 4.0
+	in2 := CascadeInputs{TopicConcreteness: &tc2, VehicleConcreteness: &vc2,
+		TopicProperties: map[int64]float64{1: 1.0}, VehicleProperties: map[int64]float64{1: 1.0}}
+	r2 := EvaluateCascadePair(in2, cfg)
+	if !r2.GatePassed {
+		t.Errorf("expected GatePassed=true at gate_score > 0.5, got false")
+	}
+}
+
+func TestSoftGateMonotonicInGateAlpha(t *testing.T) {
+	// Fixed sub-threshold pair. Higher alpha → stricter penalty → lower final.
+	tc, vc := 4.0, 3.5
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	mk := func(a float64) float64 {
+		cfg := CascadeConfig{
+			ConcretenessThreshold: 1.0,
+			Composition:           CompositionAdditive,
+			GateMode:              GateModeSoft,
+			GateAlpha:             a,
+		}
+		return *EvaluateCascadePair(in, cfg).FinalScore
+	}
+	if !(mk(5.0) < mk(3.0) && mk(3.0) < mk(1.0)) {
+		t.Errorf("not monotonic: alpha 5=%v 3=%v 1=%v", mk(5.0), mk(3.0), mk(1.0))
+	}
+}
