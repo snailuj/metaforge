@@ -116,19 +116,23 @@ func NewCascadeCandidate(o NewCascadeCandidateOpts) CascadeCandidate {
 	}
 }
 
-// GetForgeCascadeCandidatesByLemma extends the curated-by-lemma CTE with a
-// concreteness join that filters out gate-rejected candidates SQL-side.
-// Only candidates with (vehicle_score − topic_score) ≥ threshold reach Go.
+// GetForgeCascadeCandidatesByLemma fetches all candidates whose concreteness
+// is present on both the topic and vehicle side. The gate threshold (whether
+// hard or soft) is enforced only in the Go scorer layer, not here.
 //
 // The structural query shape is identical to GetForgeMatchesCuratedByLemma
-// — same best-sense selection, same antonym counting — with two new JOINs
-// against synset_concreteness and one WHERE clause. Candidates with missing
-// concreteness on either side are excluded (INNER JOIN) because the
-// cascade would route them to missing_concreteness anyway.
+// — same best-sense selection, same antonym counting — with two INNER JOINs
+// against synset_concreteness. INNER JOIN still enforces the
+// missing-concreteness contract at the DB layer: candidates where either
+// side lacks a concreteness score are excluded because the cascade scorer
+// cannot evaluate them. The gate threshold is enforced *only* in Go now.
 //
 // Returns ErrLemmaNotFound when the lemma has no curated properties at all
 // (same contract as GetForgeMatchesCuratedByLemma). An empty result with
-// nil error means the lemma is enriched but no candidate passes the gate.
+// nil error means the lemma is enriched but all candidates lack concreteness.
+// threshold is intentionally retained in the signature so callers (which read
+// it from cfg.ConcretenessThreshold) don't need changing. The gate logic has
+// moved to the Go scorer; the SQL no longer consumes this value.
 func GetForgeCascadeCandidatesByLemma(
 	database *sql.DB, lemma string, threshold float64, limit int,
 ) ([]CascadeCandidate, error) {
@@ -152,23 +156,24 @@ func GetForgeCascadeCandidatesByLemma(
 			WHERE tgt.synset_id NOT IN (SELECT synset_id FROM source_synsets)
 			GROUP BY ss.synset_id, tgt.synset_id
 		),
-		shared_gated AS (
-			-- Concreteness gate pushed in here so the window function below
-			-- operates only on already-gated rows. Filtering after best_sense
-			-- defeats SQLite's predicate pushdown and turns this query
-			-- catastrophic (~200s vs ~1s on a typical lemma).
+		shared_with_concreteness AS (
+			-- INNER JOIN on synset_concreteness still enforces the
+			-- missing-concreteness contract: rows where either side lacks a
+			-- score are excluded here. The gate threshold is enforced *only*
+			-- in Go now — soft mode rescues sub-threshold rows via sigmoid
+			-- penalty; hard mode drops them. The WHERE clause
+			-- "(scv.score - sct.score) >= ?" was removed by Task 8.
 			SELECT pss.source_id, pss.target_id, pss.salience_sum, pss.shared_props,
 			       sct.score AS topic_score, scv.score AS vehicle_score
 			FROM per_sense_shared pss
 			JOIN synset_concreteness sct ON sct.synset_id = pss.source_id
 			JOIN synset_concreteness scv ON scv.synset_id = pss.target_id
-			WHERE (scv.score - sct.score) >= ?
 		),
 		best_sense AS (
 			SELECT source_id, target_id, salience_sum, shared_props,
 			       topic_score, vehicle_score,
 			       ROW_NUMBER() OVER (PARTITION BY target_id ORDER BY salience_sum DESC) as rn
-			FROM shared_gated
+			FROM shared_with_concreteness
 		),
 		per_sense_contrast AS (
 			SELECT ss.synset_id as source_id,
@@ -211,7 +216,7 @@ func GetForgeCascadeCandidatesByLemma(
 		WHERE bs.rn = 1
 		ORDER BY bs.salience_sum + COALESCE(bc.contrast_count, 0) DESC
 		LIMIT ?
-	`, lemma, threshold, limit)
+	`, lemma, limit)
 
 	if err != nil {
 		// Surface "no such table" cleanly — cascade tables may be absent on

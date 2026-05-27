@@ -59,6 +59,28 @@ func ReRankBonus(d, dCap float64) float64 {
 	return r
 }
 
+// ReRankBonusPow is ReRankBonus with a power transform on the open
+// interval (0, 1). exponent=1.0 reproduces ReRankBonus exactly. Used
+// inside EvaluateCascadePair when CascadeConfig.ReRankExponent is set.
+// Saturation guards at 0 and 1 are independent of exponent.
+//
+// Note: exponent=0 returns 1.0 for all interior values (math.Pow(x,0)==1).
+// Callers needing back-compat with the linear shape should pass exponent=1.0
+// explicitly; see EvaluateCascadePair for the zero-value treatment.
+func ReRankBonusPow(d, dCap, exponent float64) float64 {
+	if dCap <= 0 {
+		return 0.0
+	}
+	ratio := d / dCap
+	if ratio <= 0.0 {
+		return 0.0
+	}
+	if ratio >= 1.0 {
+		return 1.0
+	}
+	return math.Pow(ratio, exponent)
+}
+
 // CascadeCosineDistance returns 1 − cosine_similarity ∈ [0, 2]. The bool
 // is false on dim mismatch OR zero-norm input — both surface as
 // 'missing centroid' upstream, not as a degenerate 1.0 like the legacy
@@ -204,6 +226,51 @@ func ParseCandidateMode(s string) (CandidateMode, error) {
 	return m, nil
 }
 
+// GateMode picks the concreteness-gate behaviour.
+type GateMode int
+
+const (
+	GateModeHard GateMode = iota // existing cliff: sub-threshold pairs return gate_dropped
+	GateModeSoft                 // sigmoid penalty: sub-threshold pairs score with attenuation
+)
+
+func (m GateMode) Valid() bool {
+	return m == GateModeHard || m == GateModeSoft
+}
+
+// sigmoid is the numerically-stable logistic σ(x) = 1/(1+e^-x). Mirrors
+// data-pipeline/scripts/evaluate_cascade.py:_sigmoid. Splits on sign of x
+// to avoid math.Exp overflow at large |x| (the cascade can produce
+// alpha*delta on the order of ±tens).
+func sigmoid(x float64) float64 {
+	if x >= 0 {
+		z := math.Exp(-x)
+		return 1.0 / (1.0 + z)
+	}
+	z := math.Exp(x)
+	return z / (1.0 + z)
+}
+
+// OrtonyScoring picks the pointwise scoring function. Only
+// jaccard_salience is implemented in Go — other Python sweep-side
+// scoring fns (jaccard_raw, cosine_salience, ortony_vehicle_salience,
+// ortony_imbalance, ortony_log_ratio, random_uniform) live in
+// evaluate_aptness.SCORING_FNS and stay Python-only. Adding more Go
+// scoring fns is out of scope until production needs them.
+type OrtonyScoring string
+
+const (
+	OrtonyScoringJaccardSalience OrtonyScoring = "jaccard_salience"
+)
+
+func (s OrtonyScoring) Valid() bool {
+	switch s {
+	case "", OrtonyScoringJaccardSalience:
+		return true
+	}
+	return false
+}
+
 // GammaWeight is the M05 type-diversity-bonus weight on EvaluateCascadePair.
 // The struct wrap with an unexported field makes operator-supplied env/flag
 // values an unforgeable validation-gated boundary cast (NewGamma) — direct
@@ -243,11 +310,48 @@ type CascadeConfig struct {
 	DCap                  float64
 	Composition           Composition
 
+	// ReRankExponent is the power transform exponent applied to (d/DCap) in
+	// the rerank stage. Zero (the zero value) falls back to linear (exponent=1)
+	// so DefaultCascadeConfig stays backward-compatible until task 6 sets the
+	// production-tuned value of 0.12. Mirrors Python's rerank_exponent.
+	ReRankExponent float64
+
 	// M04 candidate-generation knobs.
 	Mode          CandidateMode // M04 candidate-generation mode: cluster_only / embedding_only / union
 	EmbeddingDMin float64       // inclusive lower band on cosine distance
 	EmbeddingDMax float64       // inclusive upper band; must satisfy DMax > DMin
 	EmbeddingTopK int           // cap on per-request embedding candidates
+
+	// ConcretenessBonusCoef is the additive reward on the signed-delta
+	// residual above ConcretenessThreshold. Mirrors Python's
+	// concreteness_bonus_coef (production-tuned to 0.002 at L1-10).
+	// 0 disables stage entirely so existing tests using DefaultCascadeConfig
+	// continue to pass.
+	ConcretenessBonusCoef float64
+
+	// OrtonyWeight is the multiplicative weight applied to the ortony term
+	// before composition. Mirrors Python's ortony_weight (production-tuned
+	// to 1.75 at L2-17 — the Pareto commit that drove the Lakoff +50-pair-flip
+	// lift). 0 is treated as 1.0 (identity) so DefaultCascadeConfig stays
+	// backward-compatible until task 6 sets the production-tuned value.
+	OrtonyWeight float64
+
+	// OrtonyScoring picks the pointwise scoring function. Production fixed to
+	// jaccard_salience; "" treated as default (jaccard_salience). Adding more
+	// Go scoring fns is out of scope until production needs them.
+	OrtonyScoring OrtonyScoring
+
+	// GateMode picks the concreteness-gate behaviour. GateModeHard (0, default)
+	// preserves the existing cliff: sub-threshold pairs return gate_dropped.
+	// GateModeSoft replaces the cliff with a sigmoid penalty multiplied into
+	// final_score; sub-threshold pairs are scored (status="scored") with
+	// attenuation. Mirrors Python's gate_mode='hard'|'soft'.
+	GateMode GateMode
+
+	// GateAlpha is the sigmoid steepness for GateModeSoft. Must be > 0 when
+	// GateMode==GateModeSoft. Ignored in GateModeHard. Mirrors Python's
+	// gate_alpha. Higher values produce a sharper transition at the threshold.
+	GateAlpha float64
 
 	// M05 type-aligned scoring.
 	Gamma GammaWeight // weight on the type-diversity bonus in EvaluateCascadePair.
@@ -256,26 +360,18 @@ type CascadeConfig struct {
 	// existing additive cascade: final = ortony + Alpha·cosBonus + Gamma·typeBonus
 }
 
-// DefaultCascadeConfig returns the production-blessed winner config from
-// the M03 Stage-2 sweep (separation +0.1779) plus the pre-sweep M04
-// candidate-generation defaults. Mode is ModeCluster (M03 behaviour)
-// until the M04 sweep ratifies ModeUnion.
+// DefaultCascadeConfig returns the production-blessed config ratified
+// through the Karpathy loop-3 review. Mirrors PRODUCTION_CASCADE_CONFIG in
+// data-pipeline/scripts/evaluate_loop_harness.py.
 //
-// Gamma is ratified at 1.0 by the M05 Phase 2 Lakoff γ-sweep
-// (2026-05-24). With pre-flight diagnostics confirming 100% of the
-// cohort is data-resolvable and limit=10000 eliminating ranking-cutoff
-// confound, the sweep produced a clean monotone signal:
+// History in one line: M03 Stage-2 sweep found Alpha=1.0/DCap=0.77; the
+// Karpathy loop then ratified Alpha=0.75/DCap=0.68/ReRankExponent=0.12/
+// OrtonyWeight=1.75/GateAlpha=3.0 and promoted GateModeSoft to the
+// production default. Gamma=1.0 is the M05 Phase 2 Lakoff γ-sweep ratified
+// value. Full loop history lives in the loop-meta branch.
 //
-//   γ=0.00 → separation=-0.2546   γ=0.50 → -0.1230
-//   γ=0.25 → separation=-0.1888   γ=1.00 → +0.0086
-//                                 γ=2.00 → +0.2717
-//
-// γ=1.0 brings the apt cohort to parity with the inapt survivors
-// (separation ≈ 0) — the conservative "turn the signal on" choice.
-// γ=2.0 scores higher in the sweep but the magnitude rides on n=1
-// inapt and would overweight one design dimension across the broader
-// thesaurus traffic that does not share the Lakoff cohort's
-// cross-domain bias. See data-pipeline/sweeps/m05_lakoff_gamma_phase2_verdict.md.
+// GateMode=Soft makes soft-rescue the production default; operators can flip
+// back via METAFORGE_FORGE_GATE_MODE=hard (wired in task 11).
 //
 // In-package direct GammaWeight{} construction is idiomatic here: 1.0
 // is a compile-time-known valid literal, and NewGamma exists to guard
@@ -284,14 +380,22 @@ type CascadeConfig struct {
 func DefaultCascadeConfig() CascadeConfig {
 	return CascadeConfig{
 		ConcretenessThreshold: 1.0,
-		Alpha:                 1.0,
-		DCap:                  0.77,
+		Alpha:                 0.75,
+		DCap:                  0.68,
 		Composition:           CompositionAdditive,
-		Mode:                  ModeCluster,
-		EmbeddingDMin:         0.4,
-		EmbeddingDMax:         0.85,
-		EmbeddingTopK:         100,
-		Gamma:                 GammaWeight{v: 1.0},
+		ReRankExponent:        0.12,
+		ConcretenessBonusCoef: 0.002,
+		OrtonyWeight:          1.75,
+		OrtonyScoring:         OrtonyScoringJaccardSalience,
+		GateMode:              GateModeSoft,
+		GateAlpha:             3.0,
+
+		// M04 / M05 fields unchanged.
+		Mode:          ModeCluster,
+		EmbeddingDMin: 0.4,
+		EmbeddingDMax: 0.85,
+		EmbeddingTopK: 100,
+		Gamma:         GammaWeight{v: 1.0},
 	}
 }
 
@@ -309,6 +413,9 @@ const EmbeddingTopKCeiling = 10000
 // parsing so bad values fail loud instead of silently degrading the
 // scorer.
 func (c CascadeConfig) Validate() error {
+	if !c.OrtonyScoring.Valid() {
+		return fmt.Errorf("OrtonyScoring %q is not a known scoring function", c.OrtonyScoring)
+	}
 	if !c.Mode.Valid() {
 		return fmt.Errorf("CandidateMode %q is not one of cluster_only|embedding_only|union", c.Mode)
 	}
@@ -351,6 +458,23 @@ func (c CascadeConfig) Validate() error {
 	if c.Gamma.Value() > 0 && c.Composition == CompositionMultiplicative {
 		return fmt.Errorf("Gamma>0 is only validated with Composition=additive; got Gamma=%v with Composition=%s. Set Gamma=0 or Composition=additive.",
 			c.Gamma.Value(), c.Composition)
+	}
+	if !c.GateMode.Valid() {
+		return fmt.Errorf("GateMode %v is not one of GateModeHard|GateModeSoft", c.GateMode)
+	}
+	if c.GateMode == GateModeSoft {
+		if c.GateAlpha <= 0 || math.IsNaN(c.GateAlpha) || math.IsInf(c.GateAlpha, 0) {
+			return fmt.Errorf("GateAlpha %v must be > 0 and finite in soft mode", c.GateAlpha)
+		}
+	}
+	if c.ReRankExponent < 0 || math.IsNaN(c.ReRankExponent) || math.IsInf(c.ReRankExponent, 0) {
+		return fmt.Errorf("ReRankExponent %v must be >= 0 and finite", c.ReRankExponent)
+	}
+	if c.ConcretenessBonusCoef < 0 || math.IsNaN(c.ConcretenessBonusCoef) || math.IsInf(c.ConcretenessBonusCoef, 0) {
+		return fmt.Errorf("ConcretenessBonusCoef %v must be >= 0 and finite", c.ConcretenessBonusCoef)
+	}
+	if c.OrtonyWeight < 0 || math.IsNaN(c.OrtonyWeight) || math.IsInf(c.OrtonyWeight, 0) {
+		return fmt.Errorf("OrtonyWeight %v must be >= 0 and finite", c.OrtonyWeight)
 	}
 	return nil
 }
@@ -443,7 +567,7 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 		return CascadeResult{Status: CascadeStatusMissingConcreteness}
 	}
 	signed := *in.VehicleConcreteness - *in.TopicConcreteness
-	if signed < cfg.ConcretenessThreshold {
+	if cfg.GateMode == GateModeHard && signed < cfg.ConcretenessThreshold {
 		zero := 0.0
 		return CascadeResult{FinalScore: &zero, Status: CascadeStatusGateDropped}
 	}
@@ -453,22 +577,43 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 	}
 	ortony := JaccardSalience(in.TopicProperties, in.VehicleProperties)
 
+	ortonyWeight := cfg.OrtonyWeight
+	if ortonyWeight == 0 {
+		ortonyWeight = 1.0 // back-compat: zero means "not set", identity weight
+	}
+	weightedOrtony := ortony * ortonyWeight
+
 	var cosDist, bonus *float64
 	if in.TopicCentroid != nil && in.VehicleCentroid != nil {
 		if d, ok := CascadeCosineDistance(in.TopicCentroid, in.VehicleCentroid); ok {
 			cosDist = &d
-			rb := ReRankBonus(d, cfg.DCap)
+			exp := cfg.ReRankExponent
+			if exp == 0 {
+				exp = 1.0 // back-compat: zero means "not set", use linear shape
+			}
+			rb := ReRankBonusPow(d, cfg.DCap, exp)
 			bonus = &rb
 		}
 	}
 
-	final := ortony
+	final := weightedOrtony
 	if bonus != nil {
 		switch cfg.Composition {
 		case CompositionAdditive:
-			final = ortony + cfg.Alpha*(*bonus)
+			final = weightedOrtony + cfg.Alpha*(*bonus)
 		case CompositionMultiplicative:
-			final = ortony * (1.0 + cfg.Alpha*(*bonus))
+			final = weightedOrtony * (1.0 + cfg.Alpha*(*bonus))
+		}
+	}
+
+	// Stage 4: concreteness-delta residual bonus. Mirrors Python evaluate_cascade.py.
+	// Only positive residuals contribute; the gate guarantees signed >= threshold
+	// in hard mode, but in soft mode we may have signed < threshold and the
+	// residual is then negative — clamp to 0 by gating on the sign.
+	if cfg.ConcretenessBonusCoef > 0.0 {
+		residual := signed - cfg.ConcretenessThreshold
+		if residual > 0.0 {
+			final = final + cfg.ConcretenessBonusCoef*residual
 		}
 	}
 
@@ -501,9 +646,21 @@ func EvaluateCascadePair(in CascadeInputs, cfg CascadeConfig) CascadeResult {
 		}
 	}
 
+	// Stage 5: soft-gate sigmoid penalty (GateModeSoft only). The hard-gate
+	// early-return above ensures this branch is unreachable in hard mode.
+	// Sub-threshold pairs in soft mode fall through here with their sigmoid
+	// penalty applied. Mirrors data-pipeline/scripts/evaluate_cascade.py
+	// Stage 5 (lines 626–641).
+	gatePassed := true
+	if cfg.GateMode == GateModeSoft {
+		gateScore := sigmoid(cfg.GateAlpha * (signed - cfg.ConcretenessThreshold))
+		final = final * gateScore
+		gatePassed = gateScore >= 0.5
+	}
+
 	return CascadeResult{
 		FinalScore:         &final,
-		GatePassed:         true,
+		GatePassed:         gatePassed,
 		OrtonyScore:        &ortony,
 		CosineDistance:     cosDist,
 		ReRankBonus:        bonus,

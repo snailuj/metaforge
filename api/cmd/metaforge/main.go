@@ -39,6 +39,30 @@ func main() {
 	embTopK := flag.Int("embedding-top-k",
 		envInt("METAFORGE_FORGE_EMB_TOPK", 100),
 		"Cap on embedding candidates per request")
+	gateMode := flag.String("gate-mode",
+		envOrDefault("METAFORGE_FORGE_GATE_MODE", "soft"),
+		"concreteness gate mode: hard | soft")
+	gateAlpha := flag.Float64("gate-alpha",
+		envFloat("METAFORGE_FORGE_GATE_ALPHA", 3.0),
+		"soft-gate sigmoid steepness; ignored in hard mode")
+	alpha := flag.Float64("forge-alpha",
+		envFloat("METAFORGE_FORGE_ALPHA", 0.75),
+		"rerank composition weight (alpha in `ortony + alpha*bonus`)")
+	dCap := flag.Float64("forge-dcap",
+		envFloat("METAFORGE_FORGE_DCAP", 0.68),
+		"distance cap for rerank bonus saturation")
+	rerankExp := flag.Float64("forge-rerank-exp",
+		envFloat("METAFORGE_FORGE_RERANK_EXPONENT", 0.12),
+		"power transform on rerank ratio (d/DCap)^exp")
+	concBonus := flag.Float64("forge-concreteness-bonus-coef",
+		envFloat("METAFORGE_FORGE_CONCRETENESS_BONUS_COEF", 0.002),
+		"additive bonus coef on concreteness residual above threshold")
+	ortonyWeight := flag.Float64("forge-ortony-weight",
+		envFloat("METAFORGE_FORGE_ORTONY_WEIGHT", 1.75),
+		"multiplicative weight on the ortony term")
+	ortonyScoring := flag.String("forge-ortony-scoring",
+		envOrDefault("METAFORGE_FORGE_ORTONY_SCORING", "jaccard_salience"),
+		"ortony scoring function (only jaccard_salience implemented)")
 	// Gamma needs a stricter parse than envFloat's Warn-and-default
 	// behaviour: a malformed value silently falling back to 0.0 would
 	// disable M05 while the operator believes it is set — defeating the
@@ -87,6 +111,21 @@ func main() {
 	cascadeCfg.EmbeddingDMin = *embDMin
 	cascadeCfg.EmbeddingDMax = *embDMax
 	cascadeCfg.EmbeddingTopK = *embTopK
+	switch *gateMode {
+	case "hard":
+		cascadeCfg.GateMode = forge.GateModeHard
+	case "soft":
+		cascadeCfg.GateMode = forge.GateModeSoft
+	default:
+		log.Fatalf("METAFORGE_FORGE_GATE_MODE/-gate-mode %q is not 'hard' or 'soft'", *gateMode)
+	}
+	cascadeCfg.GateAlpha = *gateAlpha
+	cascadeCfg.Alpha = *alpha
+	cascadeCfg.DCap = *dCap
+	cascadeCfg.ReRankExponent = *rerankExp
+	cascadeCfg.ConcretenessBonusCoef = *concBonus
+	cascadeCfg.OrtonyWeight = *ortonyWeight
+	cascadeCfg.OrtonyScoring = forge.OrtonyScoring(*ortonyScoring)
 	g, err := forge.NewGamma(*gamma)
 	if err != nil {
 		log.Fatalf("invalid --gamma value: %v", err)
@@ -116,6 +155,10 @@ func main() {
 		"cascade", *cascade, "cascade_timing", *cascadeTiming,
 		"candidate_sources", *candidateSources,
 		"emb_dmin", *embDMin, "emb_dmax", *embDMax, "emb_topk", *embTopK,
+		"gate_mode", *gateMode, "gate_alpha", *gateAlpha,
+		"forge_alpha", *alpha, "forge_dcap", *dCap,
+		"forge_rerank_exp", *rerankExp, "forge_concreteness_bonus_coef", *concBonus,
+		"forge_ortony_weight", *ortonyWeight, "forge_ortony_scoring", *ortonyScoring,
 		"forge_gamma", *gamma)
 
 	srv := &http.Server{

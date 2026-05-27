@@ -152,15 +152,19 @@ func TestCascadeCosineDistanceWithANorm_AcceptsGoodANorm(t *testing.T) {
 }
 
 func TestCascadeConfig_DefaultsMatchProductionWinner(t *testing.T) {
+	// Updated for Task 6: defaults are now the loop-tuned production values
+	// (Alpha=0.75, DCap=0.68, GateModeSoft) rather than the M03 sweep values.
+	// The detailed assertion lives in TestDefaultCascadeConfig_LoopTunedValues;
+	// this test retains the "shape is production-winner" smoke check.
 	c := DefaultCascadeConfig()
 	if c.ConcretenessThreshold != 1.0 {
 		t.Errorf("threshold: want 1.0, got %v", c.ConcretenessThreshold)
 	}
-	if c.Alpha != 1.0 {
-		t.Errorf("alpha: want 1.0, got %v", c.Alpha)
+	if c.Alpha != 0.75 {
+		t.Errorf("alpha: want 0.75 (loop-tuned), got %v", c.Alpha)
 	}
-	if c.DCap != 0.77 {
-		t.Errorf("d_cap: want 0.77, got %v", c.DCap)
+	if c.DCap != 0.68 {
+		t.Errorf("d_cap: want 0.68 (loop-tuned), got %v", c.DCap)
 	}
 	if c.Composition != CompositionAdditive {
 		t.Errorf("composition: want additive, got %v", c.Composition)
@@ -168,10 +172,15 @@ func TestCascadeConfig_DefaultsMatchProductionWinner(t *testing.T) {
 }
 
 func TestEvaluateCascadePair_GateDroppedOnLowSignedDelta(t *testing.T) {
+	// Pinned to GateModeHard: DefaultCascadeConfig now uses GateModeSoft, so
+	// this test pins GateModeHard explicitly to preserve the gate_dropped
+	// assertion. The soft-gate analogue is TestSoftGateRescuesPreviouslyDroppedPair.
+	cfg := DefaultCascadeConfig()
+	cfg.GateMode = GateModeHard
 	res := EvaluateCascadePair(CascadeInputs{
 		TopicConcreteness:   floatPtr(4.0),
 		VehicleConcreteness: floatPtr(4.5),
-	}, DefaultCascadeConfig())
+	}, cfg)
 	if res.Status != CascadeStatusGateDropped {
 		t.Errorf("want gate_dropped, got %v", res.Status)
 	}
@@ -206,7 +215,18 @@ func TestEvaluateCascadePair_NoPropertiesAfterGate(t *testing.T) {
 }
 
 func TestEvaluateCascadePair_ScoredAdditive_NoBonus(t *testing.T) {
-	// signed delta 2.5 → gate passes; jaccard=1; cos_dist=0 → bonus=0; final=1
+	// Pinned explicit config (M03 hard-gate shape): signed delta 2.5 → gate
+	// passes; jaccard=1; cos_dist=0 → bonus=0; final=1. DefaultCascadeConfig
+	// now adds OrtonyWeight=1.75 + soft gate + ConcretenessBonusCoef, which
+	// would change the expected value — pin the minimal config to preserve
+	// the original "additive, no bonus" arithmetic assertion.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Alpha:                 1.0,
+		DCap:                  0.77,
+		Composition:           CompositionAdditive,
+		GateMode:              GateModeHard,
+	}
 	res := EvaluateCascadePair(CascadeInputs{
 		TopicConcreteness:   floatPtr(2.0),
 		VehicleConcreteness: floatPtr(4.5),
@@ -214,7 +234,7 @@ func TestEvaluateCascadePair_ScoredAdditive_NoBonus(t *testing.T) {
 		VehicleProperties:   map[int64]float64{1: 1.0, 2: 1.0},
 		TopicCentroid:       []float32{1, 0, 0},
 		VehicleCentroid:     []float32{1, 0, 0},
-	}, DefaultCascadeConfig())
+	}, cfg)
 	if res.Status != CascadeStatusScored {
 		t.Fatalf("want scored, got %v", res.Status)
 	}
@@ -224,7 +244,18 @@ func TestEvaluateCascadePair_ScoredAdditive_NoBonus(t *testing.T) {
 }
 
 func TestEvaluateCascadePair_ScoredAdditive_WithBonus(t *testing.T) {
-	// jaccard=1; cos_dist=1 → bonus=clip(1/0.77)=1; additive: 1 + 1*1 = 2
+	// Pinned explicit config (M03 hard-gate shape): jaccard=1; cos_dist=1 →
+	// bonus=clip(1/0.77)=1; additive: 1 + 1*1 = 2. DefaultCascadeConfig now
+	// uses Alpha=0.75/DCap=0.68/OrtonyWeight=1.75/GateModeSoft, which changes
+	// the expected value — pin the original M03 config to preserve the
+	// "additive with saturated bonus" arithmetic assertion.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Alpha:                 1.0,
+		DCap:                  0.77,
+		Composition:           CompositionAdditive,
+		GateMode:              GateModeHard,
+	}
 	res := EvaluateCascadePair(CascadeInputs{
 		TopicConcreteness:   floatPtr(2.0),
 		VehicleConcreteness: floatPtr(4.5),
@@ -232,7 +263,7 @@ func TestEvaluateCascadePair_ScoredAdditive_WithBonus(t *testing.T) {
 		VehicleProperties:   map[int64]float64{1: 1.0, 2: 1.0},
 		TopicCentroid:       []float32{1, 0, 0},
 		VehicleCentroid:     []float32{0, 1, 0},
-	}, DefaultCascadeConfig())
+	}, cfg)
 	if res.Status != CascadeStatusScored {
 		t.Fatalf("want scored, got %v", res.Status)
 	}
@@ -242,6 +273,18 @@ func TestEvaluateCascadePair_ScoredAdditive_WithBonus(t *testing.T) {
 }
 
 func TestEvaluateCascadePair_FailOpenOnMissingCentroid(t *testing.T) {
+	// Pinned explicit config (M03 hard-gate shape, OrtonyWeight=1 identity):
+	// no centroid → no rerank bonus → final = ortony = 1.0. DefaultCascadeConfig
+	// now applies OrtonyWeight=1.75 + soft gate + ConcretenessBonusCoef, which
+	// would change the expected value — pin the minimal config to preserve the
+	// "fail-open on nil centroid" invariant without coupling to production weights.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Alpha:                 1.0,
+		DCap:                  0.77,
+		Composition:           CompositionAdditive,
+		GateMode:              GateModeHard,
+	}
 	res := EvaluateCascadePair(CascadeInputs{
 		TopicConcreteness:   floatPtr(2.0),
 		VehicleConcreteness: floatPtr(4.5),
@@ -249,7 +292,7 @@ func TestEvaluateCascadePair_FailOpenOnMissingCentroid(t *testing.T) {
 		VehicleProperties:   map[int64]float64{1: 1.0, 2: 1.0},
 		TopicCentroid:       nil,
 		VehicleCentroid:     nil,
-	}, DefaultCascadeConfig())
+	}, cfg)
 	if res.Status != CascadeStatusScored {
 		t.Fatalf("want scored (fail-open), got %v", res.Status)
 	}
@@ -583,9 +626,14 @@ func TestEvaluateCascadePair_GammaZeroSkipsTypeBonus(t *testing.T) {
 }
 
 func TestEvaluateCascadePair_GammaPositiveLiftsFinalScore(t *testing.T) {
-	// Same inputs as Gamma=0 but with Gamma=1.0 — final_score should
-	// increase by (gamma * type_diversity_bonus) = (1.0 * 0.2) = 0.2.
+	// Pinned to GateModeHard so the soft-gate sigmoid does not modulate the
+	// type-bonus addend. DefaultCascadeConfig now uses GateModeSoft, which
+	// multiplies ALL of final (including the gamma*typeBonus term) by the
+	// gate score — the delta from Gamma would be gamma*bonus*gate_score,
+	// not the clean gamma*bonus=0.2 assertion below. GateModeHard isolates
+	// the M05 arithmetic.
 	cfg := DefaultCascadeConfig()
+	cfg.GateMode = GateModeHard
 	cfg.Gamma = mustGamma(t, 0.0)
 	tConc := 3.0
 	vConc := 4.5
@@ -688,6 +736,213 @@ func TestEvaluateCascadePair_GammaPositiveNoClusterTypesIsZero(t *testing.T) {
 	}
 }
 
+func TestReRankBonusPow_LinearWhenExponentOne(t *testing.T) {
+	// exponent=1.0 must reproduce the historical linear shape.
+	got := ReRankBonusPow(0.5, 1.0, 1.0)
+	if math.Abs(got-0.5) > 1e-9 {
+		t.Errorf("expected 0.5 for d=0.5 dCap=1.0 exp=1.0, got %v", got)
+	}
+}
+
+func TestReRankBonusPow_ExponentBelowOneAmplifiesSmallDistances(t *testing.T) {
+	// d/dCap = 0.5; exp=0.5 → sqrt(0.5) ≈ 0.707.
+	got := ReRankBonusPow(0.5, 1.0, 0.5)
+	if math.Abs(got-math.Sqrt(0.5)) > 1e-9 {
+		t.Errorf("expected sqrt(0.5), got %v", got)
+	}
+}
+
+func TestReRankBonusPow_ExponentAboveOneSuppressesSmallDistances(t *testing.T) {
+	// d/dCap = 0.5; exp=2.0 → 0.25.
+	got := ReRankBonusPow(0.5, 1.0, 2.0)
+	if math.Abs(got-0.25) > 1e-9 {
+		t.Errorf("expected 0.25, got %v", got)
+	}
+}
+
+func TestReRankBonusPow_SaturatesAtOneRegardlessOfExponent(t *testing.T) {
+	for _, exp := range []float64{0.12, 0.5, 1.0, 2.0} {
+		got := ReRankBonusPow(2.0, 1.0, exp)
+		if math.Abs(got-1.0) > 1e-9 {
+			t.Errorf("exp=%v saturation broke: got %v", exp, got)
+		}
+	}
+}
+
+func TestReRankExponent_AppliedInEvaluateCascadePair(t *testing.T) {
+	// Build a pair that reaches the rerank stage. Use orthogonal-ish vectors
+	// to produce a measurable cos distance, then verify final-score = ortony +
+	// Alpha * (d/DCap)^exp using the actual computed distance.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0, Alpha: 0.75, DCap: 0.68,
+		Composition:    CompositionAdditive,
+		ReRankExponent: 0.12,
+	}
+	tc, vc := 2.0, 4.0
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0, 2: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0, 2: 1.0}, // ortony=1.0
+		TopicCentroid:       []float32{1.0, 0.0, 0.5},
+		VehicleCentroid:     []float32{0.7, 0.5, 0.5},
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if r.Status != CascadeStatusScored || r.FinalScore == nil {
+		t.Fatalf("expected scored, got %v", r.Status)
+	}
+	d, _ := CascadeCosineDistance(in.TopicCentroid, in.VehicleCentroid)
+	want := 1.0 + cfg.Alpha*math.Pow(d/cfg.DCap, cfg.ReRankExponent)
+	if math.Abs(*r.FinalScore-want) > 1e-6 {
+		t.Errorf("final mismatch: got %v want %v", *r.FinalScore, want)
+	}
+}
+
+func TestConcretenessBonusCoef_ZeroDisables(t *testing.T) {
+	// With coef=0, post-composition score equals pre-bonus score.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0, DCap: 0.68,
+		Composition: CompositionAdditive,
+		ConcretenessBonusCoef: 0.0,
+	}
+	tc, vc := 1.0, 4.0
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0}, // ortony=1.0
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if r.Status != CascadeStatusScored {
+		t.Fatalf("expected scored, got %v", r.Status)
+	}
+	if math.Abs(*r.FinalScore-1.0) > 1e-9 {
+		t.Errorf("coef=0 must not add bonus: got %v", *r.FinalScore)
+	}
+}
+
+func TestConcretenessBonusCoef_AppliedToResidual(t *testing.T) {
+	// vc - tc = 3.0; threshold = 1.0; residual = 2.0; coef = 0.1.
+	// Expected bonus = 0.1 * 2.0 = 0.2 added to final.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0, DCap: 0.68,
+		Composition: CompositionAdditive,
+		ConcretenessBonusCoef: 0.1,
+	}
+	tc, vc := 1.0, 4.0
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if r.Status != CascadeStatusScored {
+		t.Fatalf("expected scored, got %v", r.Status)
+	}
+	want := 1.0 + 0.1*2.0
+	if math.Abs(*r.FinalScore-want) > 1e-9 {
+		t.Errorf("expected %v, got %v", want, *r.FinalScore)
+	}
+}
+
+func TestConcretenessBonusCoef_OnlyAppliesAboveThreshold(t *testing.T) {
+	// Pair JUST at threshold: residual=0; bonus=0.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0, DCap: 0.68,
+		Composition: CompositionAdditive,
+		ConcretenessBonusCoef: 0.5,
+	}
+	tc, vc := 1.0, 2.0 // signed_delta = 1.0 = threshold
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if math.Abs(*r.FinalScore-1.0) > 1e-9 {
+		t.Errorf("at-threshold pair must not get bonus: got %v", *r.FinalScore)
+	}
+}
+
+func TestOrtonyWeight_MultipliesOrtonyTerm(t *testing.T) {
+	// ortony=0.5 raw, weight=1.75 → weighted=0.875.
+	// No centroid → final = weighted_ortony.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		OrtonyWeight:          1.75,
+	}
+	tc, vc := 1.0, 3.0
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 0.5, 2: 1.0},
+		VehicleProperties:   map[int64]float64{1: 0.5, 2: 0.0, 3: 1.0},
+		// no centroids → no rerank bonus
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if r.Status != CascadeStatusScored {
+		t.Fatalf("expected scored, got %v", r.Status)
+	}
+	// ortony (jaccard_salience) computed by JaccardSalience helper —
+	// compute expected the same way to stay decoupled from internal
+	// representation choices.
+	wantOrt := JaccardSalience(in.TopicProperties, in.VehicleProperties)
+	want := wantOrt * 1.75
+	if math.Abs(*r.FinalScore-want) > 1e-9 {
+		t.Errorf("expected weighted=%v, got final=%v", want, *r.FinalScore)
+	}
+	// Diagnostic: raw OrtonyScore field stays unweighted.
+	if math.Abs(*r.OrtonyScore-wantOrt) > 1e-9 {
+		t.Errorf("OrtonyScore diagnostic should be raw, got %v want %v",
+			*r.OrtonyScore, wantOrt)
+	}
+}
+
+func TestOrtonyScoring_ValidateRejectsUnknown(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.OrtonyScoring = OrtonyScoring("not_a_real_scoring")
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate should reject unknown scoring")
+	} else if !strings.Contains(err.Error(), "OrtonyScoring") {
+		t.Errorf("error should name field: %v", err)
+	}
+}
+
+func TestOrtonyScoring_EmptyValidatesAsDefault(t *testing.T) {
+	// Empty value (zero value of OrtonyScoring) must be accepted and
+	// behave identically to jaccard_salience. This keeps callers that
+	// don't set the field working.
+	cfg := DefaultCascadeConfig()
+	cfg.OrtonyScoring = ""
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("empty value should validate, got %v", err)
+	}
+}
+
+func TestOrtonyWeight_ZeroFallsBackToOne(t *testing.T) {
+	// Zero value means "not set" — apply identity (1.0) so existing
+	// configs that don't set OrtonyWeight behave unchanged.
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		OrtonyWeight:          0.0,
+	}
+	tc, vc := 1.0, 3.0
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if math.Abs(*r.FinalScore-1.0) > 1e-9 {
+		t.Errorf("OrtonyWeight=0 should behave as 1.0, got %v", *r.FinalScore)
+	}
+}
+
 func TestEvaluateCascadePair_EmptyClusterTypes_NoBonus(t *testing.T) {
 	// Doc on CascadeInputs.ClusterTypes promises that EvaluateCascadePair
 	// "skips the type-diversity bonus computation regardless of Gamma"
@@ -713,5 +968,246 @@ func TestEvaluateCascadePair_EmptyClusterTypes_NoBonus(t *testing.T) {
 	}
 	if res.SharedTypesCount != 0 {
 		t.Errorf("empty ClusterTypes: SharedTypesCount should be 0, got %d", res.SharedTypesCount)
+	}
+}
+
+// --- Task 6: DefaultCascadeConfig loop-tuned production values ---------------
+
+func TestDefaultCascadeConfig_LoopTunedValues(t *testing.T) {
+	c := DefaultCascadeConfig()
+	cases := []struct {
+		name string
+		got  float64
+		want float64
+	}{
+		{"ConcretenessThreshold", c.ConcretenessThreshold, 1.0},
+		{"Alpha", c.Alpha, 0.75},
+		{"DCap", c.DCap, 0.68},
+		{"ReRankExponent", c.ReRankExponent, 0.12},
+		{"ConcretenessBonusCoef", c.ConcretenessBonusCoef, 0.002},
+		{"OrtonyWeight", c.OrtonyWeight, 1.75},
+		{"GateAlpha", c.GateAlpha, 3.0},
+	}
+	for _, tc := range cases {
+		if math.Abs(tc.got-tc.want) > 1e-9 {
+			t.Errorf("%s: got %v, want %v", tc.name, tc.got, tc.want)
+		}
+	}
+	if c.Composition != CompositionAdditive {
+		t.Errorf("Composition: got %v, want additive", c.Composition)
+	}
+	if c.OrtonyScoring != OrtonyScoringJaccardSalience {
+		t.Errorf("OrtonyScoring: got %q, want jaccard_salience", c.OrtonyScoring)
+	}
+	if c.GateMode != GateModeSoft {
+		t.Errorf("GateMode: got %v, want GateModeSoft", c.GateMode)
+	}
+}
+
+// --- Task 5: sigmoid helper + GateMode soft-gate tests -----------------------
+
+func TestSigmoid_AtZeroReturnsHalf(t *testing.T) {
+	if got := sigmoid(0); math.Abs(got-0.5) > 1e-12 {
+		t.Errorf("sigmoid(0) = %v, want 0.5", got)
+	}
+}
+
+func TestSigmoid_StableAtLargePositive(t *testing.T) {
+	// math.Exp(1000) overflows; the stable form must return ~1.0.
+	if got := sigmoid(1000); got <= 0.99 || got > 1.0 {
+		t.Errorf("sigmoid(1000) = %v, want ~1.0", got)
+	}
+}
+
+func TestSigmoid_StableAtLargeNegative(t *testing.T) {
+	if got := sigmoid(-1000); got < 0.0 || got >= 0.01 {
+		t.Errorf("sigmoid(-1000) = %v, want ~0.0", got)
+	}
+}
+
+func TestSoftGateRescuesPreviouslyDroppedPair(t *testing.T) {
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		GateMode:              GateModeSoft,
+		GateAlpha:             3.0,
+	}
+	tc, vc := 4.0, 3.5 // signed=-0.5; sub-threshold but soft should still score
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if r.Status != CascadeStatusScored {
+		t.Fatalf("soft mode must keep status=scored even sub-threshold, got %v", r.Status)
+	}
+	if r.FinalScore == nil || *r.FinalScore <= 0 {
+		t.Fatalf("expected positive final, got %v", r.FinalScore)
+	}
+	// gate_score = sigmoid(3.0 * (-0.5 - 1.0)) = sigmoid(-4.5) ≈ 0.011.
+	// ortony = 1.0, final = 1.0 * 0.011 ≈ 0.011.
+	want := sigmoid(3.0 * (-1.5))
+	if math.Abs(*r.FinalScore-want) > 1e-6 {
+		t.Errorf("final %v != want %v", *r.FinalScore, want)
+	}
+}
+
+func TestSoftGatePreservesClearPassScore(t *testing.T) {
+	cfgHard := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		GateMode:              GateModeHard,
+	}
+	cfgSoft := cfgHard
+	cfgSoft.GateMode = GateModeSoft
+	cfgSoft.GateAlpha = 3.0
+	tc, vc := 1.0, 4.0 // signed=3.0; well above threshold
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	rh := EvaluateCascadePair(in, cfgHard)
+	rs := EvaluateCascadePair(in, cfgSoft)
+	if rh.FinalScore == nil || rs.FinalScore == nil {
+		t.Fatal("both modes must score this pair")
+	}
+	ratio := *rs.FinalScore / *rh.FinalScore
+	if ratio < 0.85 {
+		t.Errorf("soft mode lost too much score at clear pass: ratio=%v", ratio)
+	}
+}
+
+func TestSoftGateMissingConcretenessStillFailsClosed(t *testing.T) {
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		GateMode:              GateModeSoft,
+		GateAlpha:             3.0,
+	}
+	in := CascadeInputs{
+		TopicConcreteness:   nil,
+		VehicleConcreteness: nil,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	r := EvaluateCascadePair(in, cfg)
+	if r.Status != CascadeStatusMissingConcreteness {
+		t.Errorf("soft mode must NOT rescue missing-concreteness: got %v", r.Status)
+	}
+}
+
+func TestSoftGateGatePassedDiagnostic(t *testing.T) {
+	cfg := CascadeConfig{
+		ConcretenessThreshold: 1.0,
+		Composition:           CompositionAdditive,
+		GateMode:              GateModeSoft,
+		GateAlpha:             3.0,
+	}
+	// gate_score = sigmoid(3*(-0.5-1)) ≈ 0.011 → GatePassed=false
+	tc1, vc1 := 4.0, 3.5
+	in1 := CascadeInputs{TopicConcreteness: &tc1, VehicleConcreteness: &vc1,
+		TopicProperties: map[int64]float64{1: 1.0}, VehicleProperties: map[int64]float64{1: 1.0}}
+	r1 := EvaluateCascadePair(in1, cfg)
+	if r1.GatePassed {
+		t.Errorf("expected GatePassed=false at gate_score < 0.5, got true")
+	}
+	// gate_score = sigmoid(3*(3-1)) = sigmoid(6) ≈ 0.998 → GatePassed=true
+	tc2, vc2 := 1.0, 4.0
+	in2 := CascadeInputs{TopicConcreteness: &tc2, VehicleConcreteness: &vc2,
+		TopicProperties: map[int64]float64{1: 1.0}, VehicleProperties: map[int64]float64{1: 1.0}}
+	r2 := EvaluateCascadePair(in2, cfg)
+	if !r2.GatePassed {
+		t.Errorf("expected GatePassed=true at gate_score > 0.5, got false")
+	}
+}
+
+// --- Task 7: Validate() covers all loop-tuned config fields ------------------
+
+func TestValidate_ReRankExponentMustBePositiveOrZero(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.ReRankExponent = -0.1
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for negative ReRankExponent")
+	}
+	cfg.ReRankExponent = math.NaN()
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for NaN ReRankExponent")
+	}
+}
+
+func TestValidate_ConcretenessBonusCoefMustBeNonNegFinite(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.ConcretenessBonusCoef = -0.001
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for negative ConcretenessBonusCoef")
+	}
+	cfg.ConcretenessBonusCoef = math.Inf(1)
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for Inf ConcretenessBonusCoef")
+	}
+}
+
+func TestValidate_OrtonyWeightMustBeNonNegFinite(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.OrtonyWeight = -1.0
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for negative OrtonyWeight")
+	}
+}
+
+func TestValidate_GateModeMustBeValid(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.GateMode = GateMode(42)
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for invalid GateMode")
+	}
+}
+
+func TestValidate_GateAlphaMustBePositiveInSoftMode(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.GateMode = GateModeSoft
+	cfg.GateAlpha = 0.0
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for GateAlpha=0 in soft mode")
+	}
+	cfg.GateAlpha = -1.0
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for negative GateAlpha in soft mode")
+	}
+}
+
+func TestValidate_GateAlphaIgnoredInHardMode(t *testing.T) {
+	cfg := DefaultCascadeConfig()
+	cfg.GateMode = GateModeHard
+	cfg.GateAlpha = 0.0
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("hard mode should accept GateAlpha=0: %v", err)
+	}
+}
+
+func TestSoftGateMonotonicInGateAlpha(t *testing.T) {
+	// Fixed sub-threshold pair. Higher alpha → stricter penalty → lower final.
+	tc, vc := 4.0, 3.5
+	in := CascadeInputs{
+		TopicConcreteness:   &tc,
+		VehicleConcreteness: &vc,
+		TopicProperties:     map[int64]float64{1: 1.0},
+		VehicleProperties:   map[int64]float64{1: 1.0},
+	}
+	mk := func(a float64) float64 {
+		cfg := CascadeConfig{
+			ConcretenessThreshold: 1.0,
+			Composition:           CompositionAdditive,
+			GateMode:              GateModeSoft,
+			GateAlpha:             a,
+		}
+		return *EvaluateCascadePair(in, cfg).FinalScore
+	}
+	if !(mk(5.0) < mk(3.0) && mk(3.0) < mk(1.0)) {
+		t.Errorf("not monotonic: alpha 5=%v 3=%v 1=%v", mk(5.0), mk(3.0), mk(1.0))
 	}
 }

@@ -298,8 +298,10 @@ func (p *cascadePipeline) score() (phaseOutcome, int, error) {
 			ClusterTypes:        p.cache.ClusterTypes,
 		}, p.cfg)
 
-		// SQL CTE already filtered gate_dropped + missing_concreteness,
-		// so the only attrition we can see here is no_properties.
+		// SQL CTE only filters missing_concreteness (INNER JOIN on
+		// synset_concreteness). Gate decisions are made by EvaluateCascadePair
+		// — in hard mode we may see gate_dropped here; in soft mode every pair
+		// with concreteness returns scored (possibly with a sigmoid penalty).
 		if res.Status != forge.CascadeStatusScored {
 			droppedNonScored++
 			continue

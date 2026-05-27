@@ -1,0 +1,154 @@
+{
+  "seed": 20260527,
+  "n_picked": 20,
+  "exclusion_set_size": 1868,
+  "per_pos_targets": {
+    "n": 10,
+    "v": 4,
+    "a_or_s": 4,
+    "r": 2
+  },
+  "freq_rank_cap": 10000,
+  "topics": [
+    {
+      "synset_id": "44026",
+      "pos": "n",
+      "lemma": "armchair",
+      "gloss": "chair with a support on each side for arms",
+      "zipf": 3.3120293964058214
+    },
+    {
+      "synset_id": "35581",
+      "pos": "n",
+      "lemma": "beetle",
+      "gloss": "insect having biting mouthparts and front wings modified to form horny covers overlying the membranous rear wings",
+      "zipf": 3.716440627397129
+    },
+    {
+      "synset_id": "86468",
+      "pos": "n",
+      "lemma": "trainer",
+      "gloss": "one who trains other persons or animals",
+      "zipf": 3.9164489772008158
+    },
+    {
+      "synset_id": "91760",
+      "pos": "n",
+      "lemma": "charity",
+      "gloss": "pinnate-leaved European perennial having bright blue or white flowers",
+      "zipf": 4.784392660337518
+    },
+    {
+      "synset_id": "96064",
+      "pos": "n",
+      "lemma": "mate",
+      "gloss": "one of a pair",
+      "zipf": 5.103147170363561
+    },
+    {
+      "synset_id": "74040",
+      "pos": "n",
+      "lemma": "jacket",
+      "gloss": "the outer skin of a potato",
+      "zipf": 4.287811583701257
+    },
+    {
+      "synset_id": "64658",
+      "pos": "n",
+      "lemma": "suspicion",
+      "gloss": "an impression that something might be the case",
+      "zipf": 4.07719442545927
+    },
+    {
+      "synset_id": "72480",
+      "pos": "n",
+      "lemma": "diving",
+      "gloss": "an athletic competition that involves diving into water",
+      "zipf": 4.065851633346384
+    },
+    {
+      "synset_id": "95405",
+      "pos": "n",
+      "lemma": "in",
+      "gloss": "a unit of length equal to one twelfth of a foot",
+      "zipf": 7.1659072494263985
+    },
+    {
+      "synset_id": "71289",
+      "pos": "n",
+      "lemma": "plug",
+      "gloss": "blatant or sensational promotion",
+      "zipf": 3.9845521453492037
+    },
+    {
+      "synset_id": "34731",
+      "pos": "v",
+      "lemma": "divine",
+      "gloss": "perceive intuitively or through some inexplicable perceptive powers",
+      "zipf": 3.91749358259176
+    },
+    {
+      "synset_id": "15268",
+      "pos": "v",
+      "lemma": "overwhelm",
+      "gloss": "charge someone with too many tasks",
+      "zipf": 3.784569814931817
+    },
+    {
+      "synset_id": "19991",
+      "pos": "v",
+      "lemma": "spell",
+      "gloss": "place under a spell",
+      "zipf": 4.314127441461513
+    },
+    {
+      "synset_id": "41128",
+      "pos": "v",
+      "lemma": "shepherd",
+      "gloss": "watch over like a shepherd, as a teacher of their pupils",
+      "zipf": 3.892808067372708
+    },
+    {
+      "synset_id": "30793",
+      "pos": "s",
+      "lemma": "out",
+      "gloss": "not worth considering as a possibility",
+      "zipf": 6.4827676050981555
+    },
+    {
+      "synset_id": "15548",
+      "pos": "s",
+      "lemma": "direct",
+      "gloss": "having no intervening persons, agents, conditions",
+      "zipf": 4.523707049516854
+    },
+    {
+      "synset_id": "41244",
+      "pos": "s",
+      "lemma": "thirsty",
+      "gloss": "needing moisture",
+      "zipf": 3.6895155752470323
+    },
+    {
+      "synset_id": "32749",
+      "pos": "a",
+      "lemma": "periodic",
+      "gloss": "happening or recurring at regular intervals",
+      "zipf": 3.304605378326615
+    },
+    {
+      "synset_id": "3771",
+      "pos": "r",
+      "lemma": "daily",
+      "gloss": "gradually and progressively",
+      "zipf": 4.627791411806176
+    },
+    {
+      "synset_id": "8108",
+      "pos": "r",
+      "lemma": "freshly",
+      "gloss": "in an impudent or impertinent manner",
+      "zipf": 3.6104225018688614
+    }
+  ]
+}
