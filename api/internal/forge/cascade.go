@@ -364,14 +364,21 @@ type CascadeConfig struct {
 // through the Karpathy loop-3 review. Mirrors PRODUCTION_CASCADE_CONFIG in
 // data-pipeline/scripts/evaluate_loop_harness.py.
 //
-// History in one line: M03 Stage-2 sweep found Alpha=1.0/DCap=0.77; the
-// Karpathy loop then ratified Alpha=0.75/DCap=0.68/ReRankExponent=0.12/
-// OrtonyWeight=1.75/GateAlpha=3.0 and promoted GateModeSoft to the
-// production default. Gamma=1.0 is the M05 Phase 2 Lakoff γ-sweep ratified
-// value. Full loop history lives in the loop-meta branch.
+// History: M03 Stage-2 sweep found Alpha=1.0/DCap=0.77; the Karpathy loops
+// 1-3 then ratified Alpha=0.75/DCap=0.68/ReRankExponent=0.12/OrtonyWeight=1.75
+// /ConcretenessBonusCoef=0.002/GateAlpha=3.0 and promoted GateModeSoft to
+// the production default. On 2026-05-27 the product framing was clarified:
+// Forge targets *live/literary* metaphors for creative writing, not the
+// *dead/linguistic* metaphors Lakoff catalogues (blunt→direct etc).
+// The four Lakoff-tuned knobs (Alpha, DCap, OrtonyWeight,
+// ConcretenessBonusCoef) were therefore reverted to their M03 sweep shape.
+// ReRankExponent=0.12 stays (generic power-transform shape, benefits both
+// cohorts); GateModeSoft + GateAlpha=3.0 stay (Phase 2 OOD rescue).
+// Gamma=1.0 is the M05 Phase 2 Lakoff γ-sweep ratified value. Full loop
+// history lives in the loop-meta branch.
 //
 // GateMode=Soft makes soft-rescue the production default; operators can flip
-// back via METAFORGE_FORGE_GATE_MODE=hard (wired in task 11).
+// back via METAFORGE_FORGE_GATE_MODE=hard.
 //
 // In-package direct GammaWeight{} construction is idiomatic here: 1.0
 // is a compile-time-known valid literal, and NewGamma exists to guard
@@ -380,12 +387,12 @@ type CascadeConfig struct {
 func DefaultCascadeConfig() CascadeConfig {
 	return CascadeConfig{
 		ConcretenessThreshold: 1.0,
-		Alpha:                 0.75,
-		DCap:                  0.68,
+		Alpha:                 1.0,
+		DCap:                  0.77,
 		Composition:           CompositionAdditive,
 		ReRankExponent:        0.12,
-		ConcretenessBonusCoef: 0.002,
-		OrtonyWeight:          1.75,
+		ConcretenessBonusCoef: 0.0,
+		OrtonyWeight:          1.0,
 		OrtonyScoring:         OrtonyScoringJaccardSalience,
 		GateMode:              GateModeSoft,
 		GateAlpha:             3.0,

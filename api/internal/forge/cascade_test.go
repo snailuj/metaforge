@@ -152,19 +152,20 @@ func TestCascadeCosineDistanceWithANorm_AcceptsGoodANorm(t *testing.T) {
 }
 
 func TestCascadeConfig_DefaultsMatchProductionWinner(t *testing.T) {
-	// Updated for Task 6: defaults are now the loop-tuned production values
-	// (Alpha=0.75, DCap=0.68, GateModeSoft) rather than the M03 sweep values.
-	// The detailed assertion lives in TestDefaultCascadeConfig_LoopTunedValues;
-	// this test retains the "shape is production-winner" smoke check.
+	// 2026-05-27: defaults reverted from Lakoff-tuned loop values back to the
+	// M03 sweep shape (Alpha=1.0, DCap=0.77) plus soft-gate + rerank. See
+	// TestDefaultCascadeConfig_LiveMetaphorShippingValues for the detailed
+	// assertion and rationale; this test is the "shape is production-winner"
+	// smoke check.
 	c := DefaultCascadeConfig()
 	if c.ConcretenessThreshold != 1.0 {
 		t.Errorf("threshold: want 1.0, got %v", c.ConcretenessThreshold)
 	}
-	if c.Alpha != 0.75 {
-		t.Errorf("alpha: want 0.75 (loop-tuned), got %v", c.Alpha)
+	if c.Alpha != 1.0 {
+		t.Errorf("alpha: want 1.0 (live-metaphor shipping), got %v", c.Alpha)
 	}
-	if c.DCap != 0.68 {
-		t.Errorf("d_cap: want 0.68 (loop-tuned), got %v", c.DCap)
+	if c.DCap != 0.77 {
+		t.Errorf("d_cap: want 0.77 (live-metaphor shipping), got %v", c.DCap)
 	}
 	if c.Composition != CompositionAdditive {
 		t.Errorf("composition: want additive, got %v", c.Composition)
@@ -973,7 +974,22 @@ func TestEvaluateCascadePair_EmptyClusterTypes_NoBonus(t *testing.T) {
 
 // --- Task 6: DefaultCascadeConfig loop-tuned production values ---------------
 
-func TestDefaultCascadeConfig_LoopTunedValues(t *testing.T) {
+func TestDefaultCascadeConfig_LiveMetaphorShippingValues(t *testing.T) {
+	// 2026-05-27 product reframe: Forge targets live/literary metaphors for
+	// creative writing. The Lakoff cohort surfaces *dead* metaphors (frozen
+	// linguistic synonyms with metaphorical etymology — blunt→direct,
+	// warm→friendly). Loop 2-3 knobs that were tuned for Lakoff lift are
+	// reverted here; only the soft-gate (Phase 2 OOD rescue) and the rerank
+	// power transform (generic long-tail suppression) survive.
+	//
+	// Reverted (Lakoff-tuned, product-suspect):
+	//   Alpha 0.75 → 1.0           (loop-3-19)
+	//   DCap  0.68 → 0.77          (loop-1-6)
+	//   OrtonyWeight 1.75 → 1.0    (loop-2-17 Pareto, Lakoff lift)
+	//   ConcretenessBonusCoef 0.002 → 0.0 (loop-1-10)
+	// Kept:
+	//   ReRankExponent 0.12        (power-transform shape, benefits both cohorts)
+	//   GateMode Soft, GateAlpha 3.0 (Phase 2 OOD rescue)
 	c := DefaultCascadeConfig()
 	cases := []struct {
 		name string
@@ -981,11 +997,11 @@ func TestDefaultCascadeConfig_LoopTunedValues(t *testing.T) {
 		want float64
 	}{
 		{"ConcretenessThreshold", c.ConcretenessThreshold, 1.0},
-		{"Alpha", c.Alpha, 0.75},
-		{"DCap", c.DCap, 0.68},
+		{"Alpha", c.Alpha, 1.0},
+		{"DCap", c.DCap, 0.77},
 		{"ReRankExponent", c.ReRankExponent, 0.12},
-		{"ConcretenessBonusCoef", c.ConcretenessBonusCoef, 0.002},
-		{"OrtonyWeight", c.OrtonyWeight, 1.75},
+		{"ConcretenessBonusCoef", c.ConcretenessBonusCoef, 0.0},
+		{"OrtonyWeight", c.OrtonyWeight, 1.0},
 		{"GateAlpha", c.GateAlpha, 3.0},
 	}
 	for _, tc := range cases {

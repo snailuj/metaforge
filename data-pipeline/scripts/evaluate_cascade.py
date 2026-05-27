@@ -101,7 +101,13 @@ class CascadeConfig:
     # holds Phase 2 but the full-cohort ratio slips (3.37 -> 3.27). So 0.68
     # is the local optimum that respects both gates simultaneously. Tiny lift
     # but compounding direction — see iter5 note above for the search history.
-    d_cap: float = 0.68
+    # 2026-05-27 product reframe: reverted 0.68 -> 0.77 (the M03 sweep value).
+    # The 0.68 loop-iter6 nudge was tuned for the Lakoff cohort; given Lakoff
+    # surfaces dead/linguistic metaphors (blunt→direct, warm→friendly) that
+    # are misaligned with the Forge's creative-writing product goal, that
+    # tuning is product-suspect. Holds the M03 baseline shape while soft-gate
+    # + rerank carry the Phase 2 OOD-rescue signal.
+    d_cap: float = 0.77
     # 2026-05-26 loop-3 prep: bumped alpha default 0.5 -> 1.0 to match the
     # value previously pinned in PRODUCTION_CASCADE_CONFIG (now unpinned so
     # the loop agent can tune it). Pre-existing tests that depended on the
@@ -127,7 +133,10 @@ class CascadeConfig:
     #   alpha=0.8:  Phase 2 2.0855  Lakoff 0.8856 (path-a)
     #   alpha=1.0  (baseline):    Phase 2 2.0663  Lakoff 0.8438
     #   alpha=1.5:  Phase 2 2.0663  Lakoff 0.7650 (Lakoff fail)
-    alpha: float = 0.75
+    # 2026-05-27 product reframe: reverted 0.75 -> 1.0 (M03 baseline). The
+    # 0.75 was a Lakoff-aware path-a tune from loop-3-19; Lakoff is the
+    # dead-metaphor cohort and not the Forge's target. See d_cap note above.
+    alpha: float = 1.0
     composition: Literal["multiplicative", "additive"] = "multiplicative"
     # Exponent applied to the (d / d_cap) ratio before clipping. 1.0 keeps the
     # historical linear-up-to-cap shape; values > 1 suppress small distances
@@ -193,7 +202,14 @@ class CascadeConfig:
     # delta 2.03 vs inapt 1.73) but the Lakoff cohort's smaller inapt
     # delta spread means even tiny coefficients can flip apt↔inapt
     # promotions. 0.002 is the largest coef tested that preserves Lakoff.
-    concreteness_bonus_coef: float = 0.002
+    # 2026-05-27 product reframe: reverted 0.002 -> 0.0 (disabled). The
+    # iter11 enablement was a Phase-2-positive / Lakoff-negative trade kept
+    # at 0.002 because larger coefs fail Lakoff; with the dead-metaphor
+    # reframe Lakoff guardrails are no longer load-bearing, but the 0.002
+    # value itself was Lakoff-constrained rather than Phase-2-optimal.
+    # Disable here; re-tune if a literary-metaphor eval surfaces a reason
+    # to re-enable.
+    concreteness_bonus_coef: float = 0.0
     # --- Gate mode (2026-05-25, post-loop-1 eyeball finding) ----------------
     # Hard mode: signed-delta < threshold → gate_dropped (final_score=0.0).
     # Soft mode: sigmoid penalty centred at threshold; penalty multiplies
@@ -236,7 +252,11 @@ class CascadeConfig:
     # Probe sweep recorded in commit message. Applied to ortony_score
     # directly so it composes naturally with both additive and
     # multiplicative rerank composition modes.
-    ortony_weight: float = 1.75
+    # 2026-05-27 product reframe: reverted 1.75 -> 1.0 (identity weight,
+    # ortony score passes through unmodified). The iter17 lift to 1.75 was
+    # the explicit Pareto path-b commit chosen for +50 Lakoff flips; that's
+    # the dead-metaphor cohort the Forge no longer optimises for.
+    ortony_weight: float = 1.0
 
     def __post_init__(self) -> None:
         if self.composition not in _VALID_COMPOSITIONS:
