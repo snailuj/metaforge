@@ -21,6 +21,23 @@ import logging
 
 log = logging.getLogger(__name__)
 
+
+def _require_transactional(conn: sqlite3.Connection) -> None:
+    """Reject connections opened in autocommit mode (isolation_level=None).
+
+    Under autocommit each INSERT commits immediately, so `with conn:` becomes
+    a no-op and a mid-transaction failure leaves partial state. The bridge
+    writers depend on transactional rollback for their all-or-nothing
+    semantics. Callers who genuinely need autocommit must do their own
+    transaction discipline outside this module.
+    """
+    if conn.isolation_level is None:
+        raise RuntimeError(
+            "metaphor_graph writers require a transactional connection "
+            "(isolation_level != None); got autocommit"
+        )
+
+
 import nltk
 from nltk.stem import WordNetLemmatizer
 
@@ -37,10 +54,18 @@ def _get_lemmatiser() -> WordNetLemmatizer:
         except LookupError:
             log.info("snap_concept_string: WordNet corpus missing — downloading")
             try:
-                nltk.download("wordnet", quiet=True)
+                ok = nltk.download("wordnet", quiet=True)
             except Exception as e:
-                log.error("snap_concept_string: WordNet download failed: %s", e)
+                log.error("snap_concept_string: WordNet download raised: %s", e)
                 raise
+            if not ok:
+                # nltk.download returns False on network/permissions failure rather
+                # than raising — treat that as a fatal error rather than letting
+                # WordNetLemmatizer construction silently succeed against a missing
+                # corpus and then crash much later inside lemmatize().
+                msg = "snap_concept_string: nltk.download('wordnet') returned False"
+                log.error(msg)
+                raise RuntimeError(msg)
         _LEMMATISER = WordNetLemmatizer()
     return _LEMMATISER
 
@@ -100,13 +125,22 @@ CREATE INDEX IF NOT EXISTS idx_metaphor_judgments_judged_by
 def apply_schema(conn: sqlite3.Connection) -> None:
     """Apply metaphor-graph tables + indexes. Idempotent.
 
+    Enables PRAGMA foreign_keys=ON on the supplied connection (SQLite's
+    default is OFF per-connection, which would render the FK declarations
+    on these tables silently inert). The PRAGMA is connection-scoped, so
+    if a caller flips it back to OFF after apply_schema runs, FK
+    enforcement also flips off — but the common-case "fresh sqlite3.connect
+    + apply_schema" path is now safe by default.
+
     The graph_edges VIEW is added by a separate function (apply_graph_view)
     because the view depends on tables that may or may not exist in test
     fixtures (synset_metonyms, property_antonyms, etc.). Production DBs
     have all sources; tests opt in.
     """
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(METAPHOR_GRAPH_DDL)
     conn.commit()
+    log.info("apply_schema: metaphor-graph tables + indexes applied (FK enforcement on)")
 
 
 def compute_path_hash(step_synset_ids: list[str]) -> str:
@@ -151,6 +185,7 @@ def insert_bridge(
     insert fails the bridge row is rolled back too.
     """
     path_hash = compute_path_hash(path)
+    _require_transactional(conn)
 
     # Check for existing row first (idempotency). This is a read; do it before
     # opening the write transaction so we don't churn on common no-ops.
@@ -161,6 +196,10 @@ def insert_bridge(
         (topic_synset_id, vehicle_synset_id, proposer, path_hash),
     ).fetchone()
     if existing is not None:
+        log.debug(
+            "insert_bridge idempotent skip: bridge_id=%d topic=%s vehicle=%s proposer=%s",
+            existing[0], topic_synset_id, vehicle_synset_id, proposer,
+        )
         return existing[0]
 
     with conn:  # atomic: commit on success, rollback on exception
@@ -180,7 +219,43 @@ def insert_bridge(
             "VALUES (?, ?, ?)",
             [(bridge_id, i, via) for i, via in enumerate(path)],
         )
+    log.debug(
+        "insert_bridge: bridge_id=%d topic=%s vehicle=%s proposer=%s path_hops=%d",
+        bridge_id, topic_synset_id, vehicle_synset_id, proposer, len(path),
+    )
     return bridge_id
+
+
+def _morphological_variants(text: str) -> list[str]:
+    """Generate morphological variant candidates: NLTK lemmas per POS plus
+    suffix-stripped forms. Mirrors snap_properties.py:172-186 so callers
+    of this single-string helper see the same coverage as the batch snapper.
+
+    Returns a list of unique candidates that differ from the input.
+    """
+    variants: list[str] = []
+    seen: set[str] = set()
+
+    def _add(v: str) -> None:
+        if v and v != text and v not in seen:
+            seen.add(v)
+            variants.append(v)
+
+    lemmatiser = _get_lemmatiser()
+    for pos in ("a", "v", "n", "r"):
+        _add(lemmatiser.lemmatize(text, pos=pos))
+
+    if text.endswith("ing") and len(text) > 5:
+        _add(text[:-3])             # "flickering" -> "flicker"
+        _add(text[:-3] + "e")       # "absorbing" -> "absorbe" (likely no hit, harmless)
+    if text.endswith("ed") and len(text) > 4:
+        _add(text[:-2])             # "abridged" -> "abridg"
+        _add(text[:-1])             # "abridged" -> "abridge"
+        _add(text[:-2] + "e")
+    if text.endswith("ly") and len(text) > 4:
+        _add(text[:-2])             # "quickly" -> "quick"
+
+    return variants
 
 
 def snap_concept_string(conn: sqlite3.Connection, text: str) -> str | None:
@@ -188,7 +263,7 @@ def snap_concept_string(conn: sqlite3.Connection, text: str) -> str | None:
 
     Mirrors the first two stages of the snap_properties.py cascade:
         1. Exact match on property_vocab_curated.lemma (case-insensitive).
-        2. Morphological normalisation via NLTK WordNet lemmatiser, then exact.
+        2. Suffix-stripping variants and NLTK per-POS lemmatisation, then exact.
 
     Returns the synset_id of the matched curated vocab entry, or None if no
     match. Embedding-based fallback is deliberately NOT implemented here —
@@ -198,32 +273,42 @@ def snap_concept_string(conn: sqlite3.Connection, text: str) -> str | None:
     """
     if not text or not text.strip():
         return None
+
+    # Precondition: curated vocab must be built. If the table is missing the
+    # function would otherwise raise an unactionable OperationalError mid-query.
+    tbl = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='property_vocab_curated'"
+    ).fetchone()
+    if tbl is None:
+        msg = "snap_concept_string: property_vocab_curated missing — run build_vocab.py first"
+        log.error(msg)
+        raise RuntimeError(msg)
+
     normalised = text.strip().lower()
 
     # Stage 1: exact
     # TODO(perf): LOWER(lemma) bypasses idx_vocab_lemma. Acceptable at single-proposer
     # call frequency; revisit with an expression index if bridge proposal scales up.
     row = conn.execute(
-        "SELECT synset_id FROM property_vocab_curated WHERE LOWER(lemma) = ? LIMIT 1",
+        "SELECT synset_id FROM property_vocab_curated WHERE LOWER(lemma) = ? "
+        "ORDER BY vocab_id ASC LIMIT 1",
         (normalised,),
     ).fetchone()
     if row is not None:
         return row[0]
 
-    # Stage 2: morphological — try a/v/n/r lemmatisation, matching snap_properties.py order
-    lemmatiser = _get_lemmatiser()
-    for pos in ("a", "v", "n", "r"):
-        candidate = lemmatiser.lemmatize(normalised, pos=pos)
-        if candidate == normalised:
-            continue
+    # Stage 2: morphological — NLTK per-POS lemmatisation + suffix-stripping,
+    # mirroring snap_properties.py:172-186 so coverage matches the batch snapper.
+    for candidate in _morphological_variants(normalised):
         row = conn.execute(
-            "SELECT synset_id FROM property_vocab_curated WHERE LOWER(lemma) = ? LIMIT 1",
+            "SELECT synset_id FROM property_vocab_curated WHERE LOWER(lemma) = ? "
+            "ORDER BY vocab_id ASC LIMIT 1",
             (candidate,),
         ).fetchone()
         if row is not None:
             return row[0]
 
-    log.debug("snap_concept_string miss: text=%r normalised=%r", text, normalised)
+    log.info("snap_concept_string miss: text=%r normalised=%r", text, normalised)
     return None
 
 
@@ -262,6 +347,11 @@ def insert_bridge_with_raw_path(
         else:
             snapped.append(s)
     if failures:
+        log.warning(
+            "insert_bridge_with_raw_path: snap failure topic=%s vehicle=%s "
+            "proposer=%s failures=%r",
+            topic_synset_id, vehicle_synset_id, proposer, failures,
+        )
         raise BridgeSnapFailure(
             f"could not snap concept string(s) to curated vocab: {failures!r}"
         )
@@ -299,6 +389,7 @@ def record_judgment(
 
     Returns the new judgment_id.
     """
+    _require_transactional(conn)
     with conn:
         cur = conn.execute(
             "INSERT INTO metaphor_judgments "
@@ -306,6 +397,10 @@ def record_judgment(
             "VALUES (?, ?, ?, ?, ?, ?)",
             (bridge_id, label, judged_by, judged_at, confidence, notes),
         )
+    log.debug(
+        "record_judgment: judgment_id=%d bridge_id=%d label=%s judged_by=%s",
+        cur.lastrowid, bridge_id, label, judged_by,
+    )
     return cur.lastrowid
 
 
@@ -345,6 +440,7 @@ SELECT
     NULL                                                                    AS bridge_id
 FROM synset_metonyms sm
 JOIN syntagms s ON s.syntagm_id = sm.metonym_syntagm_id
+WHERE sm.synset_id IN (s.synset1id, s.synset2id)
 
 UNION ALL
 

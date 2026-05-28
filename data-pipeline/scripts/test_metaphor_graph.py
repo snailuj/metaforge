@@ -673,3 +673,66 @@ class TestGraphEdgesView:
         conn = _conn_with_full_sources()
         apply_graph_view(conn)
         apply_graph_view(conn)  # second call must not raise
+
+
+class TestSchemaSqlParity:
+    """Pin the Python METAPHOR_GRAPH_DDL constant to the canonical SCHEMA.sql.
+
+    Both must produce structurally identical tables, indexes, and views. A
+    column added or dropped in one but not the other would silently diverge
+    test fixtures from fresh DB rebuilds via import_raw.sh / restore_db.sh.
+    """
+
+    def _apply_schema_sql(self) -> sqlite3.Connection:
+        """Apply the full SCHEMA.sql to a fresh in-memory DB."""
+        schema_sql = Path(
+            "/home/agent/projects/metaforge/data-pipeline/SCHEMA.sql"
+        ).read_text()
+        conn = sqlite3.connect(":memory:")
+        conn.executescript(schema_sql)
+        return conn
+
+    def _apply_python_ddl(self) -> sqlite3.Connection:
+        """Apply METAPHOR_GRAPH_DDL + GRAPH_EDGES_VIEW_DDL on top of the
+        minimal upstream tables the view depends on."""
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        return conn
+
+    def _describe(self, conn: sqlite3.Connection, name: str) -> str:
+        """Canonical CREATE statement from sqlite_master."""
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name = ?",
+            (name,),
+        ).fetchone()
+        return row[0] if row else ""
+
+    def test_metaphor_bridges_ddl_matches(self):
+        sql_conn = self._apply_schema_sql()
+        py_conn = self._apply_python_ddl()
+        # Normalise whitespace so cosmetic formatting differences don't fail
+        # the test; structural content must match.
+        sql_def = " ".join(self._describe(sql_conn, "metaphor_bridges").split())
+        py_def = " ".join(self._describe(py_conn, "metaphor_bridges").split())
+        assert sql_def == py_def, f"SCHEMA.sql vs Python DDL diverged on metaphor_bridges:\nSQL: {sql_def}\nPY:  {py_def}"
+
+    def test_metaphor_bridge_steps_ddl_matches(self):
+        sql_conn = self._apply_schema_sql()
+        py_conn = self._apply_python_ddl()
+        sql_def = " ".join(self._describe(sql_conn, "metaphor_bridge_steps").split())
+        py_def = " ".join(self._describe(py_conn, "metaphor_bridge_steps").split())
+        assert sql_def == py_def
+
+    def test_metaphor_judgments_ddl_matches(self):
+        sql_conn = self._apply_schema_sql()
+        py_conn = self._apply_python_ddl()
+        sql_def = " ".join(self._describe(sql_conn, "metaphor_judgments").split())
+        py_def = " ".join(self._describe(py_conn, "metaphor_judgments").split())
+        assert sql_def == py_def
+
+    def test_graph_edges_view_ddl_matches(self):
+        sql_conn = self._apply_schema_sql()
+        py_conn = self._apply_python_ddl()
+        sql_def = " ".join(self._describe(sql_conn, "graph_edges").split())
+        py_def = " ".join(self._describe(py_conn, "graph_edges").split())
+        assert sql_def == py_def

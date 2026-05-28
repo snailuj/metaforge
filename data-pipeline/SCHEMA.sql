@@ -407,6 +407,7 @@ SELECT
     NULL                                                                    AS bridge_id
 FROM synset_metonyms sm
 JOIN syntagms s ON s.syntagm_id = sm.metonym_syntagm_id
+WHERE sm.synset_id IN (s.synset1id, s.synset2id)
 UNION ALL
 SELECT
     pa.synset_id   AS src_synset_id,
