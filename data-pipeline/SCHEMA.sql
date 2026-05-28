@@ -330,7 +330,7 @@ CREATE TABLE IF NOT EXISTS metaphor_bridges (
     vehicle_synset_id  TEXT NOT NULL REFERENCES synsets(synset_id),
     proposer           TEXT NOT NULL,
     proposed_at        TEXT NOT NULL,
-    path_hash          TEXT NOT NULL,
+    path_hash          TEXT NOT NULL CHECK (length(path_hash) = 64),
     rationale          TEXT,
     cosine_distance    REAL,
     ortony_score       REAL,
@@ -399,6 +399,12 @@ SELECT
 FROM synset_properties_curated spc
 JOIN property_vocab_curated pvc ON pvc.vocab_id = spc.vocab_id
 UNION ALL
+-- metonym_of: directional, src=sm.synset_id, dst=the OTHER endpoint of the
+-- syntagm. WHERE clause drops (a) rows whose sm.synset_id doesn't match
+-- either endpoint (phantom-edge fix, round 1) and (b) self-syntagms where
+-- synset1id == synset2id (self-loop fix, round 2). Upstream
+-- synset_metonyms direction convention is "synset_id IS a metonym of the
+-- other endpoint" — see import_syntagnet.py for the import semantics.
 SELECT
     sm.synset_id                                                            AS src_synset_id,
     CASE WHEN s.synset1id = sm.synset_id THEN s.synset2id ELSE s.synset1id END AS dst_synset_id,
@@ -408,6 +414,7 @@ SELECT
 FROM synset_metonyms sm
 JOIN syntagms s ON s.syntagm_id = sm.metonym_syntagm_id
 WHERE sm.synset_id IN (s.synset1id, s.synset2id)
+  AND s.synset1id != s.synset2id
 UNION ALL
 SELECT
     pa.synset_id   AS src_synset_id,

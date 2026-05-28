@@ -23,18 +23,38 @@ log = logging.getLogger(__name__)
 
 
 def _require_transactional(conn: sqlite3.Connection) -> None:
-    """Reject connections opened in autocommit mode (isolation_level=None).
+    """Reject connections opened in autocommit mode.
 
     Under autocommit each INSERT commits immediately, so `with conn:` becomes
     a no-op and a mid-transaction failure leaves partial state. The bridge
     writers depend on transactional rollback for their all-or-nothing
-    semantics. Callers who genuinely need autocommit must do their own
-    transaction discipline outside this module.
+    semantics.
+
+    Checks both the legacy `isolation_level=None` autocommit (pre-3.12) and
+    the new py3.12+ `autocommit=True` attribute. Either flag indicates the
+    connection won't honour `with conn:` rollback.
+
+    Also asserts PRAGMA foreign_keys is ON so FK integrity declared in the
+    schema is actually enforced at write time. FK enforcement is per-
+    connection in SQLite and can silently flip back off after apply_schema.
     """
     if conn.isolation_level is None:
         raise RuntimeError(
             "metaphor_graph writers require a transactional connection "
             "(isolation_level != None); got autocommit"
+        )
+    # py3.12+ added a separate `autocommit` attribute that bypasses
+    # isolation_level. getattr keeps this safe on older Pythons.
+    if getattr(conn, "autocommit", False) is True:
+        raise RuntimeError(
+            "metaphor_graph writers require a transactional connection "
+            "(autocommit=False); got autocommit=True (py3.12+ attribute)"
+        )
+    fk_on = conn.execute("PRAGMA foreign_keys").fetchone()
+    if not fk_on or fk_on[0] != 1:
+        raise RuntimeError(
+            "metaphor_graph writers require PRAGMA foreign_keys = ON; "
+            "either call apply_schema(conn) first or run it manually"
         )
 
 
@@ -77,7 +97,7 @@ CREATE TABLE IF NOT EXISTS metaphor_bridges (
     vehicle_synset_id  TEXT NOT NULL REFERENCES synsets(synset_id),
     proposer           TEXT NOT NULL,
     proposed_at        TEXT NOT NULL,
-    path_hash          TEXT NOT NULL,
+    path_hash          TEXT NOT NULL CHECK (length(path_hash) = 64),
     rationale          TEXT,
     cosine_distance    REAL,
     ortony_score       REAL,
@@ -227,11 +247,24 @@ def insert_bridge(
 
 
 def _morphological_variants(text: str) -> list[str]:
-    """Generate morphological variant candidates: NLTK lemmas per POS plus
-    suffix-stripped forms. Mirrors snap_properties.py:172-186 so callers
-    of this single-string helper see the same coverage as the batch snapper.
+    """Generate morphological variant candidates for the single-string snapper.
 
-    Returns a list of unique candidates that differ from the input.
+    Includes:
+        - NLTK lemmas per POS (a, v, n, r), order matches snap_properties.py
+        - Suffix-stripped forms: -ing, -ed, -ly, plus the +e variant for -ing/-ed
+
+    Closely mirrors snap_properties.py:172-186 with one deliberate
+    addition: the -ly branch is unique to this helper. snap_properties.py
+    does not strip -ly; we do so here because LLM-emitted concept strings
+    frequently surface adverbs that would otherwise miss the curated
+    vocab (e.g. "quickly" -> "quick"). The asymmetry is intentional —
+    do NOT remove the -ly branch to "achieve parity" without first
+    promoting it into snap_properties.py.
+
+    Returns a list of unique candidates that differ from the input. The
+    list ordering is load-bearing: snap_concept_string iterates in this
+    order and returns on the first SQL hit, so callers depending on
+    determinism rely on this order being stable.
     """
     variants: list[str] = []
     seen: set[str] = set()
@@ -432,6 +465,12 @@ JOIN property_vocab_curated pvc ON pvc.vocab_id = spc.vocab_id
 
 UNION ALL
 
+-- metonym_of: directional, src=sm.synset_id, dst=the OTHER endpoint of the
+-- syntagm. WHERE clause drops (a) rows whose sm.synset_id doesn't match
+-- either endpoint (phantom-edge fix, round 1) and (b) self-syntagms where
+-- synset1id == synset2id (self-loop fix, round 2). Upstream
+-- synset_metonyms direction convention is "synset_id IS a metonym of the
+-- other endpoint" — see import_syntagnet.py for the import semantics.
 SELECT
     sm.synset_id                                                            AS src_synset_id,
     CASE WHEN s.synset1id = sm.synset_id THEN s.synset2id ELSE s.synset1id END AS dst_synset_id,
@@ -441,6 +480,7 @@ SELECT
 FROM synset_metonyms sm
 JOIN syntagms s ON s.syntagm_id = sm.metonym_syntagm_id
 WHERE sm.synset_id IN (s.synset1id, s.synset2id)
+  AND s.synset1id != s.synset2id
 
 UNION ALL
 

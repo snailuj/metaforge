@@ -140,7 +140,7 @@ class TestForeignKeyEnforcement:
                 "INSERT INTO metaphor_bridges "
                 "(topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash) "
                 "VALUES (?, ?, ?, ?, ?)",
-                ("nonexistent-synset", "fire-n-1", "cascade_v1", "2026-05-28", "deadbeef"),
+                ("nonexistent-synset", "fire-n-1", "cascade_v1", "2026-05-28", "d" * 64),
             )
 
     def test_bridge_step_rejects_unknown_bridge(self):
@@ -174,7 +174,7 @@ class TestForeignKeyEnforcement:
             "INSERT INTO metaphor_bridges "
             "(topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash) "
             "VALUES (?, ?, ?, ?, ?)",
-            ("anger-n-1", "fire-n-1", "cascade_v1", "2026-05-28", "deadbeef"),
+            ("anger-n-1", "fire-n-1", "cascade_v1", "2026-05-28", "d" * 64),
         )
         bid = conn.execute("SELECT bridge_id FROM metaphor_bridges").fetchone()[0]
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
@@ -685,9 +685,7 @@ class TestSchemaSqlParity:
 
     def _apply_schema_sql(self) -> sqlite3.Connection:
         """Apply the full SCHEMA.sql to a fresh in-memory DB."""
-        schema_sql = Path(
-            "/home/agent/projects/metaforge/data-pipeline/SCHEMA.sql"
-        ).read_text()
+        schema_sql = (Path(__file__).resolve().parent.parent / "SCHEMA.sql").read_text()
         conn = sqlite3.connect(":memory:")
         conn.executescript(schema_sql)
         return conn
@@ -736,3 +734,196 @@ class TestSchemaSqlParity:
         sql_def = " ".join(self._describe(sql_conn, "graph_edges").split())
         py_def = " ".join(self._describe(py_conn, "graph_edges").split())
         assert sql_def == py_def
+
+    def _table_info(self, conn: sqlite3.Connection, name: str) -> list[tuple]:
+        """Structured column metadata: (cid, name, type, notnull, dflt_value, pk)."""
+        return list(conn.execute(f"PRAGMA table_info({name})"))
+
+    def _index_list(self, conn: sqlite3.Connection, name: str) -> set[tuple]:
+        """Index names + unique flag for a given table."""
+        return {(row[1], row[2]) for row in conn.execute(f"PRAGMA index_list({name})")}
+
+    def test_metaphor_bridges_columns_match(self):
+        sql_conn = self._apply_schema_sql()
+        py_conn = self._apply_python_ddl()
+        assert self._table_info(sql_conn, "metaphor_bridges") == self._table_info(py_conn, "metaphor_bridges")
+
+    def test_metaphor_bridge_steps_columns_match(self):
+        sql_conn = self._apply_schema_sql()
+        py_conn = self._apply_python_ddl()
+        assert self._table_info(sql_conn, "metaphor_bridge_steps") == self._table_info(py_conn, "metaphor_bridge_steps")
+
+    def test_metaphor_judgments_columns_match(self):
+        sql_conn = self._apply_schema_sql()
+        py_conn = self._apply_python_ddl()
+        assert self._table_info(sql_conn, "metaphor_judgments") == self._table_info(py_conn, "metaphor_judgments")
+
+    def test_metaphor_indexes_match(self):
+        """SCHEMA.sql and Python DDL must declare the SAME set of metaphor_* indexes
+        with the SAME uniqueness flags."""
+        sql_conn = self._apply_schema_sql()
+        py_conn = self._apply_python_ddl()
+        for tbl in ("metaphor_bridges", "metaphor_bridge_steps", "metaphor_judgments"):
+            assert self._index_list(sql_conn, tbl) == self._index_list(py_conn, tbl), (
+                f"index drift on {tbl}: "
+                f"sql={self._index_list(sql_conn, tbl)} "
+                f"py={self._index_list(py_conn, tbl)}"
+            )
+
+
+class TestRoundOneFixes:
+    """Regression tests for the Round 1 review fixes (commit 48ce49e3).
+
+    Each test pins a specific behaviour change so a future revert would
+    light up a Red test rather than silently re-introducing the bug.
+    """
+
+    def test_apply_schema_enables_foreign_keys(self):
+        """Fix 1 — apply_schema should turn FK enforcement on."""
+        conn = sqlite3.connect(":memory:")
+        # Don't pre-enable; verify apply_schema does it.
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.executescript("""
+            CREATE TABLE synsets (
+                synset_id TEXT PRIMARY KEY,
+                pos TEXT NOT NULL CHECK (pos IN ('n','v','a','r','s')),
+                definition TEXT NOT NULL
+            );
+        """)
+        apply_schema(conn)
+        fk_state = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        assert fk_state == 1, f"apply_schema should leave foreign_keys ON; got {fk_state}"
+
+    def test_snap_concept_string_raises_when_curated_vocab_missing(self):
+        """Fix 3 — clear error if property_vocab_curated table doesn't exist."""
+        conn = _conn()
+        apply_schema(conn)  # creates metaphor tables but NOT property_vocab_curated
+        with pytest.raises(RuntimeError, match="property_vocab_curated"):
+            snap_concept_string(conn, "heat")
+
+    def test_snap_concept_string_orders_by_vocab_id_asc_on_lemma_ties(self):
+        """Fix 4 — deterministic pick when two synsets share a lemma."""
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "fire-n-1", "fire-n-2")
+        _seed_curated(conn, [
+            (10, "fire-n-2", "fire", "n", 2),   # higher vocab_id
+            (5, "fire-n-1", "fire", "n", 1),    # lower vocab_id — wins
+        ])
+        # ORDER BY vocab_id ASC + LIMIT 1 -> the vocab_id=5 row wins
+        assert snap_concept_string(conn, "fire") == "fire-n-1"
+
+    def test_snap_concept_string_handles_ing_suffix(self):
+        """Fix 5 — suffix-stripping morphological variants land 'flickering' on 'flicker'."""
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "flicker-v-1")
+        _seed_curated(conn, [(1, "flicker-v-1", "flicker", "v", 1)])
+        assert snap_concept_string(conn, "flickering") == "flicker-v-1"
+
+    def test_snap_concept_string_handles_ly_suffix(self):
+        """Fix 5 — -ly branch (unique to this helper, not in snap_properties)."""
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "quick-a-1")
+        _seed_curated(conn, [(1, "quick-a-1", "quick", "a", 1)])
+        assert snap_concept_string(conn, "quickly") == "quick-a-1"
+
+    def test_require_transactional_rejects_isolation_level_none(self):
+        """Fix 6 — autocommit (isolation_level=None) is rejected before any DB write."""
+        conn = sqlite3.connect(":memory:", isolation_level=None)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.executescript("""
+            CREATE TABLE synsets (
+                synset_id TEXT PRIMARY KEY,
+                pos TEXT NOT NULL CHECK (pos IN ('n','v','a','r','s')),
+                definition TEXT NOT NULL
+            );
+        """)
+        # apply_schema runs executescript which commits regardless, so we
+        # can still set up the schema. The guard fires on writers.
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        with pytest.raises(RuntimeError, match="autocommit"):
+            insert_bridge(
+                conn,
+                topic_synset_id="anger-n-1",
+                vehicle_synset_id="fire-n-1",
+                proposer="cascade_v1",
+                proposed_at=_ts(),
+                path=["heat-n-1"],
+            )
+
+    def test_require_transactional_rejects_when_foreign_keys_off(self):
+        """Fix 3 (R2 extension) — FK off after apply_schema gets caught at writer entry."""
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        # Commit any implicit transaction Python's sqlite3 opened around the
+        # seed INSERTs — PRAGMA foreign_keys is a no-op inside an active
+        # transaction, so we must close it before flipping FK off.
+        conn.commit()
+        # Operator flips FK back off after apply_schema. _require_transactional
+        # in the writer must catch this.
+        conn.execute("PRAGMA foreign_keys = OFF")
+        with pytest.raises(RuntimeError, match="foreign_keys"):
+            insert_bridge(
+                conn,
+                topic_synset_id="anger-n-1",
+                vehicle_synset_id="fire-n-1",
+                proposer="cascade_v1",
+                proposed_at=_ts(),
+                path=["heat-n-1"],
+            )
+
+    def test_graph_edges_metonym_drops_phantom_orphan_rows(self):
+        """Fix 9 (R1) — synset_metonyms row whose synset_id isn't an endpoint
+        of the joined syntagm gets dropped from the view, not silently
+        emitted with wrong dst."""
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        _seed_synsets(conn, "crown-n-1", "king-n-1", "rogue-n-1")
+        # syntagm 1 connects crown-king
+        conn.execute(
+            "INSERT INTO syntagms (syntagm_id, synset1id, synset2id) VALUES (1, 'crown-n-1', 'king-n-1')"
+        )
+        # synset_metonyms claims rogue-n-1 is a metonym via syntagm 1 — but
+        # rogue-n-1 is not in (crown-n-1, king-n-1). View must drop the row.
+        conn.execute(
+            "INSERT INTO synset_metonyms VALUES ('rogue-n-1', 1, 1)"
+        )
+        rows = conn.execute(
+            "SELECT * FROM graph_edges WHERE relation='metonym_of'"
+        ).fetchall()
+        assert rows == [], f"phantom metonym should be dropped; got {rows}"
+
+    def test_graph_edges_metonym_drops_self_syntagm_rows(self):
+        """Fix 4 (R2) — self-syntagm (synset1id == synset2id) does not emit a
+        self-loop metonym edge."""
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        _seed_synsets(conn, "love-n-1")
+        # Pathological syntagm pointing at itself
+        conn.execute(
+            "INSERT INTO syntagms (syntagm_id, synset1id, synset2id) VALUES (1, 'love-n-1', 'love-n-1')"
+        )
+        conn.execute(
+            "INSERT INTO synset_metonyms VALUES ('love-n-1', 1, 1)"
+        )
+        rows = conn.execute(
+            "SELECT * FROM graph_edges WHERE relation='metonym_of'"
+        ).fetchall()
+        assert rows == [], f"self-syntagm should not emit self-loop metonym; got {rows}"
+
+    def test_path_hash_check_constraint_rejects_wrong_length(self):
+        """Fix 5 (R2) — schema CHECK rejects path_hash that isn't a 64-char sha256 hex."""
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1")
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "INSERT INTO metaphor_bridges "
+                "(topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("anger-n-1", "fire-n-1", "cascade_v1", "2026-05-28", "tooshort"),
+            )
