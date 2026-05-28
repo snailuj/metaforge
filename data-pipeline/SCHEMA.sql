@@ -330,7 +330,8 @@ CREATE TABLE IF NOT EXISTS metaphor_bridges (
     vehicle_synset_id  TEXT NOT NULL REFERENCES synsets(synset_id),
     proposer           TEXT NOT NULL,
     proposed_at        TEXT NOT NULL,
-    path_hash          TEXT NOT NULL CHECK (length(path_hash) = 64),
+    path_hash          TEXT NOT NULL CHECK (length(path_hash) = 64
+                                            AND NOT path_hash GLOB '*[^0-9a-f]*'),
     rationale          TEXT,
     cosine_distance    REAL,
     ortony_score       REAL,

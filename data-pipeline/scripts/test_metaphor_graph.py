@@ -743,6 +743,10 @@ class TestSchemaSqlParity:
         """Index names + unique flag for a given table."""
         return {(row[1], row[2]) for row in conn.execute(f"PRAGMA index_list({name})")}
 
+    def _index_columns(self, conn: sqlite3.Connection, idx_name: str) -> list[str]:
+        """Ordered list of column names that an index covers (via PRAGMA index_info)."""
+        return [row[2] for row in conn.execute(f"PRAGMA index_info({idx_name})")]
+
     def test_metaphor_bridges_columns_match(self):
         sql_conn = self._apply_schema_sql()
         py_conn = self._apply_python_ddl()
@@ -760,15 +764,24 @@ class TestSchemaSqlParity:
 
     def test_metaphor_indexes_match(self):
         """SCHEMA.sql and Python DDL must declare the SAME set of metaphor_* indexes
-        with the SAME uniqueness flags."""
+        with the SAME uniqueness flags AND the SAME indexed columns."""
         sql_conn = self._apply_schema_sql()
         py_conn = self._apply_python_ddl()
         for tbl in ("metaphor_bridges", "metaphor_bridge_steps", "metaphor_judgments"):
-            assert self._index_list(sql_conn, tbl) == self._index_list(py_conn, tbl), (
-                f"index drift on {tbl}: "
-                f"sql={self._index_list(sql_conn, tbl)} "
-                f"py={self._index_list(py_conn, tbl)}"
+            sql_idx = self._index_list(sql_conn, tbl)
+            py_idx = self._index_list(py_conn, tbl)
+            assert sql_idx == py_idx, (
+                f"index name/unique drift on {tbl}: sql={sql_idx} py={py_idx}"
             )
+            # Also compare per-index columns — same-named index on different
+            # columns is a real drift mode that name+unique alone misses.
+            for idx_name, _unique in sql_idx:
+                sql_cols = self._index_columns(sql_conn, idx_name)
+                py_cols = self._index_columns(py_conn, idx_name)
+                assert sql_cols == py_cols, (
+                    f"index column drift on {idx_name} (table {tbl}): "
+                    f"sql={sql_cols} py={py_cols}"
+                )
 
 
 class TestRoundOneFixes:
@@ -926,4 +939,35 @@ class TestRoundOneFixes:
                 "(topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash) "
                 "VALUES (?, ?, ?, ?, ?)",
                 ("anger-n-1", "fire-n-1", "cascade_v1", "2026-05-28", "tooshort"),
+            )
+
+    @pytest.mark.skipif(
+        sys.version_info < (3, 12),
+        reason="sqlite3 autocommit keyword is Python 3.12+",
+    )
+    def test_require_transactional_rejects_py312_autocommit_true(self):
+        """Fix 6 (R1) extended in R2 — py3.12+ autocommit=True attribute also
+        bypasses transactional rollback; writer must reject it."""
+        conn = sqlite3.connect(":memory:", autocommit=True)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.executescript("""
+            CREATE TABLE synsets (
+                synset_id TEXT PRIMARY KEY,
+                pos TEXT NOT NULL CHECK (pos IN ('n','v','a','r','s')),
+                definition TEXT NOT NULL
+            );
+        """)
+        # Skip apply_schema (which would raise from the PRAGMA verification
+        # under autocommit). Build the metaphor tables directly so the
+        # writer guard is the only thing standing between us and a write.
+        conn.executescript(__import__("metaphor_graph").METAPHOR_GRAPH_DDL)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        with pytest.raises(RuntimeError, match="autocommit"):
+            insert_bridge(
+                conn,
+                topic_synset_id="anger-n-1",
+                vehicle_synset_id="fire-n-1",
+                proposer="cascade_v1",
+                proposed_at=_ts(),
+                path=["heat-n-1"],
             )

@@ -97,7 +97,8 @@ CREATE TABLE IF NOT EXISTS metaphor_bridges (
     vehicle_synset_id  TEXT NOT NULL REFERENCES synsets(synset_id),
     proposer           TEXT NOT NULL,
     proposed_at        TEXT NOT NULL,
-    path_hash          TEXT NOT NULL CHECK (length(path_hash) = 64),
+    path_hash          TEXT NOT NULL CHECK (length(path_hash) = 64
+                                            AND NOT path_hash GLOB '*[^0-9a-f]*'),
     rationale          TEXT,
     cosine_distance    REAL,
     ortony_score       REAL,
@@ -145,12 +146,10 @@ CREATE INDEX IF NOT EXISTS idx_metaphor_judgments_judged_by
 def apply_schema(conn: sqlite3.Connection) -> None:
     """Apply metaphor-graph tables + indexes. Idempotent.
 
-    Enables PRAGMA foreign_keys=ON on the supplied connection (SQLite's
-    default is OFF per-connection, which would render the FK declarations
-    on these tables silently inert). The PRAGMA is connection-scoped, so
-    if a caller flips it back to OFF after apply_schema runs, FK
-    enforcement also flips off — but the common-case "fresh sqlite3.connect
-    + apply_schema" path is now safe by default.
+    Enables PRAGMA foreign_keys=ON and VERIFIES the write took effect —
+    SQLite silently no-ops the PRAGMA when issued inside an open
+    transaction, so a caller mid-write would otherwise get FK off without
+    any signal. We read the pragma back and raise if it isn't 1.
 
     The graph_edges VIEW is added by a separate function (apply_graph_view)
     because the view depends on tables that may or may not exist in test
@@ -158,6 +157,13 @@ def apply_schema(conn: sqlite3.Connection) -> None:
     have all sources; tests opt in.
     """
     conn.execute("PRAGMA foreign_keys = ON")
+    fk_after = conn.execute("PRAGMA foreign_keys").fetchone()
+    if not fk_after or fk_after[0] != 1:
+        raise RuntimeError(
+            "apply_schema: PRAGMA foreign_keys = ON had no effect — "
+            "the connection likely has an open transaction; commit "
+            "before calling apply_schema"
+        )
     conn.executescript(METAPHOR_GRAPH_DDL)
     conn.commit()
     log.info("apply_schema: metaphor-graph tables + indexes applied (FK enforcement on)")
