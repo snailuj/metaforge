@@ -420,6 +420,43 @@ Total rounds: 3 | Items resolved (fixed): 25 important (10 Round 1 + 11 Round 2 
 
 ---
 
+## Round 3.5 — CHECK cluster polish pass (commit 8e26de32, 2026-05-28T20:00:00Z)
+
+Operator lifted the fast-track policy for the schema-invariant CHECK cluster. Six CHECK constraints landed across `metaphor_bridges` and `metaphor_judgments` in lockstep across Python DDL and SCHEMA.sql:
+
+### Fixes Applied
+1. `metaphor_bridges` CHECK (topic_synset_id != vehicle_synset_id) — closes **L10** (no self-metaphors).
+2. `metaphor_bridges` CHECK (length(proposer) > 0) — closes **L15** (attributable proposer).
+3. `metaphor_bridges` CHECK (length(proposed_at) > 0) — closes **L15** (time-series ready).
+4. `metaphor_judgments` CHECK (confidence IS NULL OR confidence BETWEEN 0.0 AND 1.0) — closes **L11** (matches salience / concreteness CHECK precedent).
+5. `metaphor_judgments` CHECK (length(judged_by) > 0) — symmetry to (2).
+6. `metaphor_judgments` CHECK (length(judged_at) > 0) — symmetry to (3).
+
+New `TestSchemaCheckCluster` class adds 8 regression tests pinning each invariant plus a confidence-boundary acceptance test (0.0 / 1.0 / NULL all accepted).
+
+### Files Modified
+- `data-pipeline/scripts/metaphor_graph.py`
+- `data-pipeline/scripts/test_metaphor_graph.py`
+- `data-pipeline/SCHEMA.sql`
+
+### Test Results
+- `test_metaphor_graph.py`: 67/67 pass (was 59, +8)
+- Full project suite: 728/728 pass (was 720, +8)
+
+### Ledger Updates
+
+**L10 — closed (superseded-by-fix).** Status: `superseded`. superseded_by_commit_sha: 8e26de32, superseded_in_round: 3.5.
+
+**L11 — closed (superseded-by-fix).** Status: `superseded`. superseded_by_commit_sha: 8e26de32, superseded_in_round: 3.5.
+
+**L15 — closed (superseded-by-fix).** Status: `superseded`. superseded_by_commit_sha: 8e26de32, superseded_in_round: 3.5.
+
+### Cumulative
+
+Total rounds: 3.5 | Items resolved (fixed): 31 important (10 R1 + 11 R2 + 4 R3 + 6 R3.5) | Active deferrals: 37 (L01-L09, L12-L14, L16-L17, L19-L41; L10/L11/L15/L18 superseded) | Superseded deferrals: 4 | Elapsed: ~5.5h
+
+---
+
 ## Operator Stop — 2026-05-28T19:30:00Z
 
 **Loop terminated at operator request after Round 3.** The user's policy for this loop ("fix medium+ severity issues; low ones auto-defer for now") has been satisfied across three rounds:
