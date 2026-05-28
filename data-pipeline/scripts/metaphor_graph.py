@@ -304,3 +304,66 @@ def record_judgment(
             (bridge_id, label, judged_by, judged_at, confidence, notes),
         )
     return cur.lastrowid
+
+
+GRAPH_EDGES_VIEW_DDL = """
+DROP VIEW IF EXISTS graph_edges;
+
+CREATE VIEW graph_edges AS
+SELECT
+    spc.synset_id     AS src_synset_id,
+    pvc.synset_id     AS dst_synset_id,
+    'has_property'    AS relation,
+    spc.salience_sum  AS weight,
+    NULL              AS bridge_id
+FROM synset_properties_curated spc
+JOIN property_vocab_curated pvc ON pvc.vocab_id = spc.vocab_id
+
+UNION ALL
+
+SELECT
+    sm.synset_id                                                            AS src_synset_id,
+    CASE WHEN s.synset1id = sm.synset_id THEN s.synset2id ELSE s.synset1id END AS dst_synset_id,
+    'metonym_of'                                                            AS relation,
+    NULL                                                                    AS weight,
+    NULL                                                                    AS bridge_id
+FROM synset_metonyms sm
+JOIN syntagms s ON s.syntagm_id = sm.metonym_syntagm_id
+
+UNION ALL
+
+SELECT
+    pa.synset_id   AS src_synset_id,
+    pb.synset_id   AS dst_synset_id,
+    'antonym_of'   AS relation,
+    NULL           AS weight,
+    NULL           AS bridge_id
+FROM property_antonyms pant
+JOIN property_vocab_curated pa ON pa.vocab_id = pant.vocab_id_a
+JOIN property_vocab_curated pb ON pb.vocab_id = pant.vocab_id_b
+
+UNION ALL
+
+SELECT
+    mb.topic_synset_id   AS src_synset_id,
+    mb.vehicle_synset_id AS dst_synset_id,
+    'metaphor_link'      AS relation,
+    mj.confidence        AS weight,
+    mb.bridge_id         AS bridge_id
+FROM metaphor_bridges mb
+JOIN metaphor_judgments mj ON mj.bridge_id = mb.bridge_id
+WHERE mj.label = 'live';
+"""
+
+
+def apply_graph_view(conn: sqlite3.Connection) -> None:
+    """Create (or replace) the graph_edges VIEW. Depends on:
+      - synset_properties_curated, property_vocab_curated  (has_property)
+      - synset_metonyms, syntagms                          (metonym_of)
+      - property_antonyms, property_vocab_curated          (antonym_of)
+      - metaphor_bridges, metaphor_judgments               (metaphor_link)
+
+    Idempotent: DROPs and re-creates the view each call.
+    """
+    conn.executescript(GRAPH_EDGES_VIEW_DDL)
+    conn.commit()

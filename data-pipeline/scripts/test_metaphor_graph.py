@@ -495,3 +495,165 @@ class TestRecordJudgment:
         )
         assert j1 != j2
         assert conn.execute("SELECT COUNT(*) FROM metaphor_judgments").fetchone()[0] == 2
+
+
+from metaphor_graph import apply_graph_view
+
+
+def _conn_with_full_sources() -> sqlite3.Connection:
+    """In-memory DB with all the upstream tables the VIEW unions over."""
+    conn = _conn()
+    apply_schema(conn)
+    conn.executescript("""
+        CREATE TABLE property_vocab_curated (
+            vocab_id    INTEGER PRIMARY KEY,
+            synset_id   TEXT NOT NULL,
+            lemma       TEXT NOT NULL,
+            pos         TEXT NOT NULL,
+            polysemy    INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE TABLE synset_properties_curated (
+            synset_id    TEXT NOT NULL,
+            vocab_id     INTEGER NOT NULL,
+            cluster_id   INTEGER NOT NULL,
+            snap_method  TEXT NOT NULL,
+            snap_score   REAL,
+            salience_sum REAL NOT NULL DEFAULT 1.0,
+            PRIMARY KEY (synset_id, cluster_id)
+        );
+        CREATE TABLE syntagms (
+            syntagm_id INTEGER PRIMARY KEY,
+            synset1id  TEXT NOT NULL,
+            synset2id  TEXT NOT NULL,
+            sensekey1  TEXT NOT NULL DEFAULT '',
+            sensekey2  TEXT NOT NULL DEFAULT '',
+            word1id    INTEGER NOT NULL DEFAULT 0,
+            word2id    INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE synset_metonyms (
+            synset_id            TEXT NOT NULL,
+            metonym_syntagm_id   INTEGER NOT NULL,
+            metonym_rank         INTEGER NOT NULL,
+            PRIMARY KEY (synset_id, metonym_syntagm_id)
+        );
+        CREATE TABLE property_antonyms (
+            vocab_id_a  INTEGER NOT NULL,
+            vocab_id_b  INTEGER NOT NULL,
+            PRIMARY KEY (vocab_id_a, vocab_id_b)
+        );
+    """)
+    return conn
+
+
+class TestGraphEdgesView:
+    def test_view_exists_after_apply(self):
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='view' AND name='graph_edges'")
+        assert cur.fetchone() is not None
+
+    def test_emits_has_property_edges(self):
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        _seed_synsets(conn, "fire-n-1", "heat-n-1")
+        conn.execute("INSERT INTO property_vocab_curated VALUES (10, 'heat-n-1', 'heat', 'n', 1)")
+        conn.execute(
+            "INSERT INTO synset_properties_curated "
+            "(synset_id, vocab_id, cluster_id, snap_method, snap_score, salience_sum) "
+            "VALUES ('fire-n-1', 10, 100, 'exact', NULL, 0.8)"
+        )
+        rows = conn.execute(
+            "SELECT src_synset_id, dst_synset_id, relation, weight FROM graph_edges"
+        ).fetchall()
+        assert ("fire-n-1", "heat-n-1", "has_property", 0.8) in rows
+
+    def test_emits_metonym_edges(self):
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        _seed_synsets(conn, "crown-n-1", "king-n-1")
+        conn.execute(
+            "INSERT INTO syntagms (syntagm_id, synset1id, synset2id) VALUES (1, 'crown-n-1', 'king-n-1')"
+        )
+        conn.execute(
+            "INSERT INTO synset_metonyms VALUES ('crown-n-1', 1, 1)"
+        )
+        rows = conn.execute(
+            "SELECT src_synset_id, dst_synset_id, relation FROM graph_edges WHERE relation='metonym_of'"
+        ).fetchall()
+        assert ("crown-n-1", "king-n-1", "metonym_of") in rows
+
+    def test_emits_antonym_edges_via_curated_vocab(self):
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        _seed_synsets(conn, "hot-a-1", "cold-a-1")
+        conn.execute("INSERT INTO property_vocab_curated VALUES (1, 'hot-a-1', 'hot', 'a', 1)")
+        conn.execute("INSERT INTO property_vocab_curated VALUES (2, 'cold-a-1', 'cold', 'a', 1)")
+        conn.execute("INSERT INTO property_antonyms VALUES (1, 2)")
+        rows = conn.execute(
+            "SELECT src_synset_id, dst_synset_id, relation FROM graph_edges WHERE relation='antonym_of'"
+        ).fetchall()
+        assert ("hot-a-1", "cold-a-1", "antonym_of") in rows
+
+    def test_emits_metaphor_link_for_judged_live_bridge(self):
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        record_judgment(
+            conn, bridge_id=bid, label="live", judged_by="julian", judged_at=_ts(), confidence=0.9,
+        )
+        rows = conn.execute(
+            "SELECT src_synset_id, dst_synset_id, relation, weight, bridge_id "
+            "FROM graph_edges WHERE relation='metaphor_link'"
+        ).fetchall()
+        assert rows == [("anger-n-1", "fire-n-1", "metaphor_link", 0.9, bid)]
+
+    def test_excludes_unjudged_bridge(self):
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        rows = conn.execute(
+            "SELECT * FROM graph_edges WHERE relation='metaphor_link'"
+        ).fetchall()
+        assert rows == []
+
+    def test_excludes_judged_dead_bridge(self):
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        record_judgment(
+            conn, bridge_id=bid, label="dead_lakoff", judged_by="julian", judged_at=_ts(),
+        )
+        rows = conn.execute(
+            "SELECT * FROM graph_edges WHERE relation='metaphor_link'"
+        ).fetchall()
+        assert rows == []
+
+    def test_idempotent_apply(self):
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        apply_graph_view(conn)  # second call must not raise
