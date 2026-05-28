@@ -971,3 +971,148 @@ class TestRoundOneFixes:
                 proposed_at=_ts(),
                 path=["heat-n-1"],
             )
+
+
+class TestSchemaCheckCluster:
+    """Schema-invariant CHECK constraints: topic != vehicle, non-empty
+    text columns, confidence bounded to [0, 1] or NULL.
+
+    These pin the invariants the review-loop cluster L10+L11+L15 raised
+    so a future schema migration cannot silently relax them.
+    """
+
+    def test_bridge_rejects_self_metaphor(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1")
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "INSERT INTO metaphor_bridges "
+                "(topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("anger-n-1", "anger-n-1", "cascade_v1", "2026-05-28", "d" * 64),
+            )
+
+    def test_bridge_rejects_empty_proposer(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1")
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "INSERT INTO metaphor_bridges "
+                "(topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("anger-n-1", "fire-n-1", "", "2026-05-28", "d" * 64),
+            )
+
+    def test_bridge_rejects_empty_proposed_at(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1")
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "INSERT INTO metaphor_bridges "
+                "(topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("anger-n-1", "fire-n-1", "cascade_v1", "", "d" * 64),
+            )
+
+    def test_judgment_rejects_confidence_above_one(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "INSERT INTO metaphor_judgments "
+                "(bridge_id, label, judged_by, judged_at, confidence) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (bid, "live", "julian", _ts(), 1.5),
+            )
+
+    def test_judgment_rejects_confidence_below_zero(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "INSERT INTO metaphor_judgments "
+                "(bridge_id, label, judged_by, judged_at, confidence) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (bid, "live", "julian", _ts(), -0.1),
+            )
+
+    def test_judgment_accepts_confidence_at_boundaries(self):
+        """0.0, 1.0, and NULL must all be acceptable."""
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        # 0.0
+        record_judgment(conn, bridge_id=bid, label="live", judged_by="judge_a", judged_at=_ts(), confidence=0.0)
+        # 1.0
+        record_judgment(conn, bridge_id=bid, label="live", judged_by="judge_b", judged_at=_ts(), confidence=1.0)
+        # NULL (default)
+        record_judgment(conn, bridge_id=bid, label="live", judged_by="judge_c", judged_at=_ts())
+        count = conn.execute("SELECT COUNT(*) FROM metaphor_judgments").fetchone()[0]
+        assert count == 3
+
+    def test_judgment_rejects_empty_judged_by(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "INSERT INTO metaphor_judgments "
+                "(bridge_id, label, judged_by, judged_at) VALUES (?, ?, ?, ?)",
+                (bid, "live", "", _ts()),
+            )
+
+    def test_judgment_rejects_empty_judged_at(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "INSERT INTO metaphor_judgments "
+                "(bridge_id, label, judged_by, judged_at) VALUES (?, ?, ?, ?)",
+                (bid, "live", "julian", ""),
+            )

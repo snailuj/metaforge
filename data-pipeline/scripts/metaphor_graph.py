@@ -104,6 +104,9 @@ CREATE TABLE IF NOT EXISTS metaphor_bridges (
     ortony_score       REAL,
     cascade_score      REAL,
     signed_delta       REAL,
+    CHECK (topic_synset_id != vehicle_synset_id),
+    CHECK (length(proposer) > 0),
+    CHECK (length(proposed_at) > 0),
     UNIQUE (topic_synset_id, vehicle_synset_id, proposer, path_hash)
 );
 
@@ -133,6 +136,9 @@ CREATE TABLE IF NOT EXISTS metaphor_judgments (
     judged_at          TEXT NOT NULL,
     confidence         REAL,
     notes              TEXT,
+    CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
+    CHECK (length(judged_by) > 0),
+    CHECK (length(judged_at) > 0),
     UNIQUE (bridge_id, judged_by)
 );
 
