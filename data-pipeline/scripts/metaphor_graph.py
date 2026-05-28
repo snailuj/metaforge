@@ -309,6 +309,19 @@ def record_judgment(
 GRAPH_EDGES_VIEW_DDL = """
 DROP VIEW IF EXISTS graph_edges;
 
+-- Row-multiplicity note: this view does NOT deduplicate. UNION arms can emit
+-- multiple rows for the same logical edge:
+--   has_property:  one row per curated property-cluster shared (1:1 in practice
+--                  given the snap pipeline's idempotency, but not enforced here)
+--   metonym_of:    one row per (synset_id, metonym_syntagm_id); distinct
+--                  syntagms can link the same (src, dst) synset pair
+--   antonym_of:    property_antonyms stores both (a,b) and (b,a) — bidirectional
+--                  fan-out is preserved here, NOT collapsed
+--   metaphor_link: one row per (bridge_id, judge); with multiple judges (e.g.
+--                  julian + llm_judge_v1) the same live bridge emits N rows
+-- Consumers wanting unique (src, dst[, bridge_id]) edges must apply DISTINCT
+-- or aggregate. This preserves raw signal at the view layer; aggregation
+-- belongs in the consumer.
 CREATE VIEW graph_edges AS
 SELECT
     spc.synset_id     AS src_synset_id,
@@ -367,3 +380,4 @@ def apply_graph_view(conn: sqlite3.Connection) -> None:
     """
     conn.executescript(GRAPH_EDGES_VIEW_DDL)
     conn.commit()
+    log.info("apply_graph_view: graph_edges view (re)created")

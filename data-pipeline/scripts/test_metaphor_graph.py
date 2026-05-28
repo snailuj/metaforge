@@ -595,6 +595,22 @@ class TestGraphEdgesView:
         ).fetchall()
         assert ("hot-a-1", "cold-a-1", "antonym_of") in rows
 
+    def test_antonym_bidirectional_fan_out_preserved(self):
+        """property_antonyms stores both (a,b) and (b,a); the view passes both
+        through. Consumers must DISTINCT if they want undirected edges."""
+        conn = _conn_with_full_sources()
+        apply_graph_view(conn)
+        _seed_synsets(conn, "hot-a-1", "cold-a-1")
+        conn.execute("INSERT INTO property_vocab_curated VALUES (1, 'hot-a-1', 'hot', 'a', 1)")
+        conn.execute("INSERT INTO property_vocab_curated VALUES (2, 'cold-a-1', 'cold', 'a', 1)")
+        conn.execute("INSERT INTO property_antonyms VALUES (1, 2)")
+        conn.execute("INSERT INTO property_antonyms VALUES (2, 1)")
+        rows = conn.execute(
+            "SELECT src_synset_id, dst_synset_id FROM graph_edges WHERE relation='antonym_of'"
+        ).fetchall()
+        assert ("hot-a-1", "cold-a-1") in rows
+        assert ("cold-a-1", "hot-a-1") in rows
+
     def test_emits_metaphor_link_for_judged_live_bridge(self):
         conn = _conn_with_full_sources()
         apply_graph_view(conn)
