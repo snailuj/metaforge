@@ -329,3 +329,107 @@ Full transcript: agent ID abf12706ac86c9fd5.
 ### Cumulative
 
 Total rounds: 2 | Items resolved (fixed): 21 important (10 Round 1 + 11 Round 2) | Active deferrals: 31 (L01-L17, L19-L32; L18 superseded) | Superseded deferrals: 1 | Elapsed: ~3h
+
+---
+
+## Round 3 — pr-review-toolkit + superpowers + standards (2026-05-28T18:00:00Z)
+
+**Agents dispatched:** pr-review-toolkit (code-reviewer + silent-failure-hunter + type-design-analyzer in parallel) + superpowers:code-reviewer + standards (general-purpose). Total 5 reviewer dispatches in parallel.
+
+### Items Found (consolidated across 5 reviewers)
+
+**Important (fixed in Round 3 commit bb8e297c):**
+- **path_hash CHECK is length-only, not hex** (type-design O1, superpowers O1, silent-failure-hunter Fix-5 partial, standards R3-05) — multiple reviewers concur. Length=64 is necessary but not sufficient for a sha256-hex digest. A 64-char garbage string passes. Decision: **fix** (Round 3 Fix 1).
+- **`apply_schema` PRAGMA silent no-op when caller has open transaction** (silent-failure-hunter OF-R3-01 [critical], superpowers O2 [important], type-design "side-effect leak not eliminated"). SQLite's `PRAGMA foreign_keys = ON` is a no-op inside an in-flight transaction. The `apply_schema` log line claims "FK enforcement on" without verifying. Decision: **fix** (Round 3 Fix 2).
+- **TestSchemaSqlParity index_match is column-blind** (pr-review-CR R3-01, type-design index-column-drift, superpowers index parity). `_index_list` returns `(name, unique)` only — same-named indexes on different columns pass. Decision: **fix** (Round 3 Fix 3).
+- **py3.12+ `autocommit=True` branch of `_require_transactional` shipped without a test** (pr-review-CR R3-02, silent-failure-hunter OF-R3-02 [different angle on `autocommit=False`]). Decision: **fix** (Round 3 Fix 4 — version-gated test).
+
+**Low / Cosmetic (auto-deferred per operator policy):**
+- silent-failure-hunter OF-R3-03 — `_require_transactional` per-write PRAGMA roundtrip cost — Decision: **defer L33**
+- silent-failure-hunter OF-R3-04 — `nltk.download(quiet=True)` swallows diagnostics — Decision: **defer L34**
+- silent-failure-hunter OF-R3-05 — snap miss log doesn't include variants tried — Decision: **defer L35**
+- silent-failure-hunter OF-R3-06 — BridgeSnapFailure warning omits partial-snapped count — Decision: **defer L36**
+- silent-failure-hunter OF-R3-07 — insert_bridge log line outside `with conn:` reads as committed — Decision: **defer L37**
+- type-design O5 — `_morphological_variants` couples to NLTK init — Decision: **defer L24 (dup)**
+- type-design O9 — snap precondition column-blind — Decision: **defer L21 (dup)**
+- superpowers R3-04 — TestRoundOneFixes inlines synsets schema not using `_conn()` — Decision: **defer L38**
+- superpowers R3-05 — apply_schema log.info per call is noisy under test loop — Decision: **defer L39**
+- superpowers R3-06 — path_hash test only validates "too short" — Decision: **fold into Fix 1** (CHECK now catches non-hex; if a regression test for non-hex is wanted, see L40 below)
+- standards R3-01 — FK PRAGMA snapshot not structural invariant — Decision: **defer L40**
+- standards R3-02 (raw-path wrapper gates late) — Decision: **defer L26 (dup)**
+- standards R3-03 — "absorbing → absorbe" comment misleading — Decision: **defer L41**
+- standards R3-06 — DRY duplicated SELECT — Decision: **defer L30 (dup)**
+
+**Re-raised deferrals (paired challenges):**
+- L26 (insert_bridge_with_raw_path doesn't gate early) — re-raised as R3-02 by standards. Decision: **keep deferred** (operator policy; ledger unchanged).
+- L30 (DRY duplicated SELECT) — re-raised as R3-06 by standards. Decision: **keep deferred** (operator policy; ledger unchanged).
+
+### Critique Sections (verbatim references)
+
+All five reviewers persisted `PRIOR_FINDINGS_CRITIQUE`, `APPLIED_FIXES_CRITIQUE` (per Round 2 fix), and `DEFERRAL_LEDGER_REVIEW` (verdict per L01-L17 + L19-L32, with substantive concur/challenge rationale).
+
+**Headline critique themes:**
+- All 5 reviewers identified that several Round 2 fixes were structurally partial — addressed the consequence rather than the invariant. Specifically: Fix 5 (path_hash length-only), Fix 6 (index parity column-blind), Fix 3 (writer-side FK assertion is defence-in-depth, doesn't fix apply_schema side-effect).
+- Standards reviewer flagged that Round 2 Fix 7 is a "regression-pin" pattern (retroactive tests after the fact) rather than TDD-conformant Red→Green. This was acknowledged in the round 2 log; standards accepts this as a meta-finding (partial closure of R2-03).
+- All 5 reviewers verified the Round 2 metonym fix (Fix 4) and `Path(__file__)` portability fix (Fix 1) are clean root-cause solutions with no residual concerns.
+
+Transcripts preserved in agent IDs a47f14c9025609950 (pr-review-CR), ab74e268feb696e18 (silent-failure-hunter), a30b9722066438231 (type-design), a57bf6b790f58ea98 (superpowers), afd92469f82c292a3 (standards).
+
+**Substantive ledger challenges raised by Round 3 reviewers (sub-1h items):** L01, L02, L05, L06, L09, L10, L11, L13, L14, L15, L19, L20, L23, L26, L28, L29, L30, L32 — most challenged per the skill's hard sub-1h rule. Orchestrator override (operator policy: fast-track schema-base) keeps them deferred for this loop.
+
+---
+
+## Round 3 — Combined Fixes (commit bb8e297c)
+
+4 important findings merged across reviewers; all addressed in a single atomic commit.
+
+### Fixes Applied
+1. **path_hash CHECK adds hex GLOB:** `CHECK (length(path_hash) = 64 AND NOT path_hash GLOB '*[^0-9a-f]*')` in both Python DDL and SCHEMA.sql. Now structurally enforces the sha256-hex contract — non-hex 64-char strings are rejected at the schema layer.
+2. **apply_schema verifies PRAGMA foreign_keys actually took effect:** reads back the value after setting it; raises typed RuntimeError with actionable message ("commit any open transaction before calling apply_schema") if the write was a no-op. Closes the silent-fail surface where calling apply_schema mid-transaction would log "FK enforcement on" while leaving FK off.
+3. **TestSchemaSqlParity::test_metaphor_indexes_match also compares per-index columns:** added `_index_columns(conn, idx_name)` helper using PRAGMA index_info; the test now asserts both name+unique parity AND column-list parity. Same-named indexes on different columns now fail the test.
+4. **test_require_transactional_rejects_py312_autocommit_true:** new version-gated test exercising the py3.12+ `autocommit=True` branch added in Round 2 Fix 3. Skipped on Python <3.12 since the keyword isn't supported.
+
+### Files Modified
+- `data-pipeline/scripts/metaphor_graph.py`
+- `data-pipeline/scripts/test_metaphor_graph.py`
+- `data-pipeline/SCHEMA.sql`
+
+### Test Results
+- `data-pipeline/scripts/test_metaphor_graph.py`: 59/59 pass (was 58, +1 for py3.12 autocommit test)
+- Full project suite: 720/720 pass (was 719)
+
+### Ledger Updates
+
+**New low/cosmetic deferrals from Round 3:**
+
+| id | round | reviewer | severity | title | scope_boundary | status |
+|---|---|---|---|---|---|---|
+| L33 | 3 | silent-failure-hunter | low | `_require_transactional` per-write PRAGMA roundtrip cost at proposer-batch scale | operator policy | active |
+| L34 | 3 | silent-failure-hunter | low | `nltk.download(quiet=True)` swallows download diagnostics (DNS, disk-full, auth) | operator policy | active |
+| L35 | 3 | silent-failure-hunter | low | snap miss INFO log doesn't include morphological variants tried (not actionable per line) | operator policy | active |
+| L36 | 3 | silent-failure-hunter | low | BridgeSnapFailure warning log omits partial-snapped count + structured failure positions | operator policy | active |
+| L37 | 3 | silent-failure-hunter | low | insert_bridge debug-log line outside `with conn:` — semantics correct, reads ambiguously | operator policy | active |
+| L38 | 3 | superpowers | cosmetic | TestRoundOneFixes::test_apply_schema_enables_foreign_keys inlines synsets schema | operator policy | active |
+| L39 | 3 | superpowers | cosmetic | apply_schema log.info per call floods INFO under test re-application | operator policy | active |
+| L40 | 3 | standards | low | FK PRAGMA snapshot at writer entry not structural invariant; doesn't pin for write duration | operator policy | active |
+| L41 | 3 | standards | cosmetic | "absorbing → absorbe" inline-example comment misleads vs intent of +e variant | operator policy | active |
+
+### Cumulative
+
+Total rounds: 3 | Items resolved (fixed): 25 important (10 Round 1 + 11 Round 2 + 4 Round 3) | Active deferrals: 40 (L01-L17, L19-L41; L18 superseded) | Superseded deferrals: 1 | Elapsed: ~5h
+
+---
+
+## Operator Stop — 2026-05-28T19:30:00Z
+
+**Loop terminated at operator request after Round 3.** The user's policy for this loop ("fix medium+ severity issues; low ones auto-defer for now") has been satisfied across three rounds:
+- Round 1: 10 important findings fixed.
+- Round 2: 11 important findings fixed, including retroactive TDD coverage of Round 1.
+- Round 3: 4 important findings fixed, all stemming from Round 2 fixes being structurally partial (length-only CHECK, column-blind index parity, unverified PRAGMA, untested branch).
+
+Diminishing-returns trajectory: each round fixes some important items and reveals more important items that stem from the previous round's fixes being partial. The Round 3 fixes appear genuinely structural (hex content, PRAGMA verification, index column comparison, branch coverage), but a Round 4 would almost certainly surface further round-3-induced gaps. Per operator-policy fast-track halt.
+
+**The 40 active low/cosmetic deferrals carry the standard operator-policy scope_boundary** ("review-loop operator policy for the schema-base branch: low/cosmetic findings deferred to a future polish pass to keep this loop fast"). Many are sub-1h items legitimately deferred for batched cleanup; some (L01, L11, L15, L19, L26, L28) were flagged across multiple rounds as worth promoting if the operator policy lifts.
+
+See the Out-of-Scope Deferral Report below for the comprehensive ledger snapshot at terminal state.
+
