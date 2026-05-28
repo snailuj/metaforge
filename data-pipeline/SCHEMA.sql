@@ -315,3 +315,101 @@ CREATE TABLE IF NOT EXISTS synset_concreteness (
     source TEXT NOT NULL,
     FOREIGN KEY (synset_id) REFERENCES synsets(synset_id)
 );
+
+-- ============================================================
+-- Metaphor graph (2026-05-28)
+-- ============================================================
+-- Bridge-centric layer: a proposal is (topic, vehicle, path) where the
+-- path is an ordered list of intermediate synsets. Cascade and LLM
+-- proposers share one pool. Judgments attach per (bridge, judge).
+-- Spec: docs/superpowers/specs/2026-05-28-metaphor-graph-schema-design.md
+
+CREATE TABLE IF NOT EXISTS metaphor_bridges (
+    bridge_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_synset_id    TEXT NOT NULL REFERENCES synsets(synset_id),
+    vehicle_synset_id  TEXT NOT NULL REFERENCES synsets(synset_id),
+    proposer           TEXT NOT NULL,
+    proposed_at        TEXT NOT NULL,
+    path_hash          TEXT NOT NULL,
+    rationale          TEXT,
+    cosine_distance    REAL,
+    ortony_score       REAL,
+    cascade_score      REAL,
+    signed_delta       REAL,
+    UNIQUE (topic_synset_id, vehicle_synset_id, proposer, path_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridges_topic
+    ON metaphor_bridges(topic_synset_id);
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridges_vehicle
+    ON metaphor_bridges(vehicle_synset_id);
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridges_proposer
+    ON metaphor_bridges(proposer);
+
+CREATE TABLE IF NOT EXISTS metaphor_bridge_steps (
+    bridge_id          INTEGER NOT NULL REFERENCES metaphor_bridges(bridge_id) ON DELETE CASCADE,
+    step_index         INTEGER NOT NULL,
+    via_synset_id      TEXT NOT NULL REFERENCES synsets(synset_id),
+    PRIMARY KEY (bridge_id, step_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridge_steps_via
+    ON metaphor_bridge_steps(via_synset_id);
+
+CREATE TABLE IF NOT EXISTS metaphor_judgments (
+    judgment_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    bridge_id          INTEGER NOT NULL REFERENCES metaphor_bridges(bridge_id) ON DELETE CASCADE,
+    label              TEXT NOT NULL CHECK (label IN
+                         ('live','dead_synonym','dead_lakoff','irrelevant','edge_case')),
+    judged_by          TEXT NOT NULL,
+    judged_at          TEXT NOT NULL,
+    confidence         REAL,
+    notes              TEXT,
+    UNIQUE (bridge_id, judged_by)
+);
+
+CREATE INDEX IF NOT EXISTS idx_metaphor_judgments_label
+    ON metaphor_judgments(label);
+CREATE INDEX IF NOT EXISTS idx_metaphor_judgments_judged_by
+    ON metaphor_judgments(judged_by);
+
+-- Unified graph view: existing relation tables + judged-live metaphor links
+DROP VIEW IF EXISTS graph_edges;
+CREATE VIEW graph_edges AS
+SELECT
+    spc.synset_id     AS src_synset_id,
+    pvc.synset_id     AS dst_synset_id,
+    'has_property'    AS relation,
+    spc.salience_sum  AS weight,
+    NULL              AS bridge_id
+FROM synset_properties_curated spc
+JOIN property_vocab_curated pvc ON pvc.vocab_id = spc.vocab_id
+UNION ALL
+SELECT
+    sm.synset_id                                                            AS src_synset_id,
+    CASE WHEN s.synset1id = sm.synset_id THEN s.synset2id ELSE s.synset1id END AS dst_synset_id,
+    'metonym_of'                                                            AS relation,
+    NULL                                                                    AS weight,
+    NULL                                                                    AS bridge_id
+FROM synset_metonyms sm
+JOIN syntagms s ON s.syntagm_id = sm.metonym_syntagm_id
+UNION ALL
+SELECT
+    pa.synset_id   AS src_synset_id,
+    pb.synset_id   AS dst_synset_id,
+    'antonym_of'   AS relation,
+    NULL           AS weight,
+    NULL           AS bridge_id
+FROM property_antonyms pant
+JOIN property_vocab_curated pa ON pa.vocab_id = pant.vocab_id_a
+JOIN property_vocab_curated pb ON pb.vocab_id = pant.vocab_id_b
+UNION ALL
+SELECT
+    mb.topic_synset_id   AS src_synset_id,
+    mb.vehicle_synset_id AS dst_synset_id,
+    'metaphor_link'      AS relation,
+    mj.confidence        AS weight,
+    mb.bridge_id         AS bridge_id
+FROM metaphor_bridges mb
+JOIN metaphor_judgments mj ON mj.bridge_id = mb.bridge_id
+WHERE mj.label = 'live';
