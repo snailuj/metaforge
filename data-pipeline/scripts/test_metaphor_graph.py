@@ -419,3 +419,79 @@ class TestInsertBridgeWithRawPath:
                 raw_path=["heat", "spreading"],  # second one will fail to snap
             )
         assert conn.execute("SELECT COUNT(*) FROM metaphor_bridges").fetchone()[0] == 0
+
+
+from metaphor_graph import record_judgment
+
+
+class TestRecordJudgment:
+    def test_inserts_judgment(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+
+        jid = record_judgment(
+            conn,
+            bridge_id=bid,
+            label="live",
+            judged_by="julian",
+            judged_at=_ts(),
+            confidence=0.95,
+            notes="canonical fire-anger",
+        )
+
+        row = conn.execute(
+            "SELECT bridge_id, label, judged_by, confidence, notes "
+            "FROM metaphor_judgments WHERE judgment_id = ?",
+            (jid,),
+        ).fetchone()
+        assert row == (bid, "live", "julian", 0.95, "canonical fire-anger")
+
+    def test_unique_constraint_one_per_bridge_per_judge(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        record_judgment(
+            conn, bridge_id=bid, label="live", judged_by="julian", judged_at=_ts(),
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
+            record_judgment(
+                conn, bridge_id=bid, label="dead_lakoff", judged_by="julian", judged_at=_ts(),
+            )
+
+    def test_different_judges_same_bridge_both_allowed(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        j1 = record_judgment(
+            conn, bridge_id=bid, label="live", judged_by="julian", judged_at=_ts(),
+        )
+        j2 = record_judgment(
+            conn, bridge_id=bid, label="live", judged_by="llm_judge_v1", judged_at=_ts(),
+        )
+        assert j1 != j2
+        assert conn.execute("SELECT COUNT(*) FROM metaphor_judgments").fetchone()[0] == 2

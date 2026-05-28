@@ -275,3 +275,32 @@ def insert_bridge_with_raw_path(
         cascade_score=cascade_score,
         signed_delta=signed_delta,
     )
+
+
+def record_judgment(
+    conn: sqlite3.Connection,
+    *,
+    bridge_id: int,
+    label: str,
+    judged_by: str,
+    judged_at: str,
+    confidence: float | None = None,
+    notes: str | None = None,
+) -> int:
+    """Insert a judgment on a bridge by a named judge.
+
+    Raises sqlite3.IntegrityError if (bridge_id, judged_by) already has a
+    judgment — by spec, one verdict per judge per bridge. If a judge wants
+    to change their mind, that's an UPDATE on the existing row, not a new
+    insert (caller responsibility — this helper is insert-only).
+
+    Returns the new judgment_id.
+    """
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO metaphor_judgments "
+            "(bridge_id, label, judged_by, judged_at, confidence, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (bridge_id, label, judged_by, judged_at, confidence, notes),
+        )
+    return cur.lastrowid
