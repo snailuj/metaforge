@@ -222,3 +222,56 @@ def snap_concept_string(conn: sqlite3.Connection, text: str) -> str | None:
 
     log.debug("snap_concept_string miss: text=%r normalised=%r", text, normalised)
     return None
+
+
+class BridgeSnapFailure(ValueError):
+    """Raised when one or more raw concept strings on a proposed bridge fail
+    to snap to a curated synset. The bridge is not inserted."""
+
+
+def insert_bridge_with_raw_path(
+    conn: sqlite3.Connection,
+    *,
+    topic_synset_id: str,
+    vehicle_synset_id: str,
+    proposer: str,
+    proposed_at: str,
+    raw_path: list[str],
+    rationale: str | None = None,
+    cosine_distance: float | None = None,
+    ortony_score: float | None = None,
+    cascade_score: float | None = None,
+    signed_delta: float | None = None,
+) -> int:
+    """Snap each raw concept string in raw_path to a curated synset, then
+    insert the bridge via insert_bridge().
+
+    All-or-nothing: if ANY string fails to snap, BridgeSnapFailure is raised
+    and no row is inserted. Snap is done before the write transaction so the
+    failure does not leave a partial bridge.
+    """
+    snapped: list[str] = []
+    failures: list[str] = []
+    for raw in raw_path:
+        s = snap_concept_string(conn, raw)
+        if s is None:
+            failures.append(raw)
+        else:
+            snapped.append(s)
+    if failures:
+        raise BridgeSnapFailure(
+            f"could not snap concept string(s) to curated vocab: {failures!r}"
+        )
+    return insert_bridge(
+        conn,
+        topic_synset_id=topic_synset_id,
+        vehicle_synset_id=vehicle_synset_id,
+        proposer=proposer,
+        proposed_at=proposed_at,
+        path=snapped,
+        rationale=rationale,
+        cosine_distance=cosine_distance,
+        ortony_score=ortony_score,
+        cascade_score=cascade_score,
+        signed_delta=signed_delta,
+    )

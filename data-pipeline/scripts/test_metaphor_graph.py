@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from metaphor_graph import insert_bridge
 from metaphor_graph import snap_concept_string
+from metaphor_graph import insert_bridge_with_raw_path, BridgeSnapFailure
 
 
 def _seed_curated(conn: sqlite3.Connection, rows: list[tuple[int, str, str, str, int]]) -> None:
@@ -359,3 +360,62 @@ class TestSnapConceptString:
         _seed_curated(conn, [])
         assert snap_concept_string(conn, "") is None
         assert snap_concept_string(conn, "   ") is None
+
+
+class TestInsertBridgeWithRawPath:
+    def test_snaps_raw_concept_strings(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        _seed_curated(conn, [(1, "heat-n-1", "heat", "n", 1)])
+
+        bid = insert_bridge_with_raw_path(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="haiku_v1",
+            proposed_at=_ts(),
+            raw_path=["heat"],  # raw concept string, not synset_id
+            rationale="both consume",
+        )
+
+        step = conn.execute(
+            "SELECT via_synset_id FROM metaphor_bridge_steps WHERE bridge_id = ?",
+            (bid,),
+        ).fetchone()
+        assert step == ("heat-n-1",)
+
+    def test_raises_on_snap_failure(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1")
+        _seed_curated(conn, [(1, "heat-n-1", "heat", "n", 1)])
+        conn.execute("INSERT INTO synsets VALUES ('heat-n-1', 'n', 'heat')")
+
+        with pytest.raises(BridgeSnapFailure, match="qwertyfloof"):
+            insert_bridge_with_raw_path(
+                conn,
+                topic_synset_id="anger-n-1",
+                vehicle_synset_id="fire-n-1",
+                proposer="haiku_v1",
+                proposed_at=_ts(),
+                raw_path=["qwertyfloof"],
+            )
+        # nothing committed
+        assert conn.execute("SELECT COUNT(*) FROM metaphor_bridges").fetchone()[0] == 0
+
+    def test_partial_snap_failure_still_rejects_whole_bridge(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "rumour-n-1", "heat-n-1")
+        _seed_curated(conn, [(1, "heat-n-1", "heat", "n", 1)])
+        with pytest.raises(BridgeSnapFailure, match="spreading"):
+            insert_bridge_with_raw_path(
+                conn,
+                topic_synset_id="anger-n-1",
+                vehicle_synset_id="rumour-n-1",
+                proposer="haiku_v1",
+                proposed_at=_ts(),
+                raw_path=["heat", "spreading"],  # second one will fail to snap
+            )
+        assert conn.execute("SELECT COUNT(*) FROM metaphor_bridges").fetchone()[0] == 0
