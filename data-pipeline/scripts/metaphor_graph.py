@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import logging
+
+log = logging.getLogger(__name__)
 
 import nltk
 from nltk.stem import WordNetLemmatizer
@@ -26,11 +29,15 @@ _LEMMATISER: WordNetLemmatizer | None = None
 def _get_lemmatiser() -> WordNetLemmatizer:
     global _LEMMATISER
     if _LEMMATISER is None:
-        # ensure wordnet is downloaded — silent no-op if already present
         try:
             nltk.data.find("corpora/wordnet")
         except LookupError:
-            nltk.download("wordnet", quiet=True)
+            log.info("snap_concept_string: WordNet corpus missing — downloading")
+            try:
+                nltk.download("wordnet", quiet=True)
+            except Exception as e:
+                log.error("snap_concept_string: WordNet download failed: %s", e)
+                raise
         _LEMMATISER = WordNetLemmatizer()
     return _LEMMATISER
 
@@ -191,6 +198,8 @@ def snap_concept_string(conn: sqlite3.Connection, text: str) -> str | None:
     normalised = text.strip().lower()
 
     # Stage 1: exact
+    # TODO(perf): LOWER(lemma) bypasses idx_vocab_lemma. Acceptable at single-proposer
+    # call frequency; revisit with an expression index if bridge proposal scales up.
     row = conn.execute(
         "SELECT synset_id FROM property_vocab_curated WHERE LOWER(lemma) = ? LIMIT 1",
         (normalised,),
@@ -198,9 +207,9 @@ def snap_concept_string(conn: sqlite3.Connection, text: str) -> str | None:
     if row is not None:
         return row[0]
 
-    # Stage 2: morphological — try noun then verb lemmatisation
+    # Stage 2: morphological — try a/v/n/r lemmatisation, matching snap_properties.py order
     lemmatiser = _get_lemmatiser()
-    for pos in ("n", "v", "a", "r"):
+    for pos in ("a", "v", "n", "r"):
         candidate = lemmatiser.lemmatize(normalised, pos=pos)
         if candidate == normalised:
             continue
@@ -211,4 +220,5 @@ def snap_concept_string(conn: sqlite3.Connection, text: str) -> str | None:
         if row is not None:
             return row[0]
 
+    log.debug("snap_concept_string miss: text=%r normalised=%r", text, normalised)
     return None
