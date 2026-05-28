@@ -11,6 +11,18 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from metaphor_graph import compute_path_hash
 from metaphor_graph import apply_schema
+from datetime import datetime, timezone
+
+from metaphor_graph import insert_bridge
+
+
+def _seed_synsets(conn: sqlite3.Connection, *ids: str) -> None:
+    for sid in ids:
+        conn.execute("INSERT INTO synsets VALUES (?, 'n', ?)", (sid, f"defn of {sid}"))
+
+
+def _ts() -> str:
+    return datetime(2026, 5, 28, tzinfo=timezone.utc).isoformat()
 
 
 def _conn() -> sqlite3.Connection:
@@ -149,4 +161,139 @@ class TestForeignKeyEnforcement:
                 "INSERT INTO metaphor_judgments "
                 "(bridge_id, label, judged_by, judged_at) VALUES (?, ?, ?, ?)",
                 (bid, "maybe-live-ish", "julian", "2026-05-28"),
+            )
+
+
+class TestInsertBridge:
+    def test_inserts_bridge_and_steps_atomically(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+
+        row = conn.execute(
+            "SELECT topic_synset_id, vehicle_synset_id, proposer, path_hash "
+            "FROM metaphor_bridges WHERE bridge_id = ?",
+            (bid,),
+        ).fetchone()
+        assert row == ("anger-n-1", "fire-n-1", "cascade_v1", compute_path_hash(["heat-n-1"]))
+
+        steps = conn.execute(
+            "SELECT step_index, via_synset_id FROM metaphor_bridge_steps "
+            "WHERE bridge_id = ? ORDER BY step_index",
+            (bid,),
+        ).fetchall()
+        assert steps == [(0, "heat-n-1")]
+
+    def test_multi_hop_path_preserves_order(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "rumour-n-1", "heat-n-1", "spreading-n-1")
+
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="rumour-n-1",
+            proposer="haiku_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1", "spreading-n-1"],
+            rationale="both spread heat-like through social space",
+        )
+
+        steps = conn.execute(
+            "SELECT step_index, via_synset_id FROM metaphor_bridge_steps "
+            "WHERE bridge_id = ? ORDER BY step_index",
+            (bid,),
+        ).fetchall()
+        assert steps == [(0, "heat-n-1"), (1, "spreading-n-1")]
+
+        rationale = conn.execute(
+            "SELECT rationale FROM metaphor_bridges WHERE bridge_id = ?",
+            (bid,),
+        ).fetchone()[0]
+        assert rationale == "both spread heat-like through social space"
+
+    def test_idempotent_returns_existing_bridge_id(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        kwargs = dict(
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        first = insert_bridge(conn, **kwargs)
+        second = insert_bridge(conn, **kwargs)
+        assert first == second
+        assert conn.execute("SELECT COUNT(*) FROM metaphor_bridges").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM metaphor_bridge_steps").fetchone()[0] == 1
+
+    def test_same_path_different_proposers_are_separate_bridges(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        a = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        b = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="haiku_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+        )
+        assert a != b
+        assert conn.execute("SELECT COUNT(*) FROM metaphor_bridges").fetchone()[0] == 2
+
+    def test_cached_features_stored(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1", "heat-n-1")
+        bid = insert_bridge(
+            conn,
+            topic_synset_id="anger-n-1",
+            vehicle_synset_id="fire-n-1",
+            proposer="cascade_v1",
+            proposed_at=_ts(),
+            path=["heat-n-1"],
+            cosine_distance=0.27,
+            ortony_score=0.45,
+            cascade_score=0.18,
+            signed_delta=1.3,
+        )
+        row = conn.execute(
+            "SELECT cosine_distance, ortony_score, cascade_score, signed_delta "
+            "FROM metaphor_bridges WHERE bridge_id = ?",
+            (bid,),
+        ).fetchone()
+        assert row == (0.27, 0.45, 0.18, 1.3)
+
+    def test_rejects_empty_path(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "anger-n-1", "fire-n-1")
+        with pytest.raises(ValueError, match="empty"):
+            insert_bridge(
+                conn,
+                topic_synset_id="anger-n-1",
+                vehicle_synset_id="fire-n-1",
+                proposer="cascade_v1",
+                proposed_at=_ts(),
+                path=[],
             )

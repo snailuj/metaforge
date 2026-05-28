@@ -93,3 +93,62 @@ def compute_path_hash(step_synset_ids: list[str]) -> str:
         raise ValueError("path_hash: empty path — every bridge needs >=1 intermediate")
     joined = "|".join(step_synset_ids)
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+def insert_bridge(
+    conn: sqlite3.Connection,
+    *,
+    topic_synset_id: str,
+    vehicle_synset_id: str,
+    proposer: str,
+    proposed_at: str,
+    path: list[str],
+    rationale: str | None = None,
+    cosine_distance: float | None = None,
+    ortony_score: float | None = None,
+    cascade_score: float | None = None,
+    signed_delta: float | None = None,
+) -> int:
+    """Insert a metaphor bridge with its ordered intermediate steps. Idempotent.
+
+    `path` must be a non-empty list of pre-snapped synset_ids — the
+    intermediate nodes between topic and vehicle. Endpoints are NOT in the
+    path.
+
+    Returns the bridge_id (existing if a duplicate of (topic, vehicle,
+    proposer, path_hash) is already stored; newly created otherwise).
+
+    The whole operation runs inside a single transaction — if any step
+    insert fails the bridge row is rolled back too.
+    """
+    path_hash = compute_path_hash(path)
+
+    # Check for existing row first (idempotency). This is a read; do it before
+    # opening the write transaction so we don't churn on common no-ops.
+    existing = conn.execute(
+        "SELECT bridge_id FROM metaphor_bridges "
+        "WHERE topic_synset_id = ? AND vehicle_synset_id = ? "
+        "AND proposer = ? AND path_hash = ?",
+        (topic_synset_id, vehicle_synset_id, proposer, path_hash),
+    ).fetchone()
+    if existing is not None:
+        return existing[0]
+
+    with conn:  # atomic: commit on success, rollback on exception
+        cur = conn.execute(
+            "INSERT INTO metaphor_bridges "
+            "(topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash, "
+            " rationale, cosine_distance, ortony_score, cascade_score, signed_delta) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash,
+                rationale, cosine_distance, ortony_score, cascade_score, signed_delta,
+            ),
+        )
+        bridge_id = cur.lastrowid
+        conn.executemany(
+            "INSERT INTO metaphor_bridge_steps (bridge_id, step_index, via_synset_id) "
+            "VALUES (?, ?, ?)",
+            [(bridge_id, i, via) for i, via in enumerate(path)],
+        )
+    return bridge_id
