@@ -14,6 +14,26 @@ from metaphor_graph import apply_schema
 from datetime import datetime, timezone
 
 from metaphor_graph import insert_bridge
+from metaphor_graph import snap_concept_string
+
+
+def _seed_curated(conn: sqlite3.Connection, rows: list[tuple[int, str, str, str, int]]) -> None:
+    """rows: (vocab_id, synset_id, lemma, pos, polysemy)."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS property_vocab_curated (
+            vocab_id    INTEGER PRIMARY KEY,
+            synset_id   TEXT NOT NULL,
+            lemma       TEXT NOT NULL,
+            pos         TEXT NOT NULL,
+            polysemy    INTEGER NOT NULL,
+            UNIQUE(synset_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_vocab_lemma ON property_vocab_curated(lemma);
+    """)
+    conn.executemany(
+        "INSERT INTO property_vocab_curated (vocab_id, synset_id, lemma, pos, polysemy) VALUES (?, ?, ?, ?, ?)",
+        rows,
+    )
 
 
 def _seed_synsets(conn: sqlite3.Connection, *ids: str) -> None:
@@ -297,3 +317,45 @@ class TestInsertBridge:
                 proposed_at=_ts(),
                 path=[],
             )
+
+
+class TestSnapConceptString:
+    def test_exact_match(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "heat-n-1", "fire-n-1")
+        _seed_curated(conn, [
+            (1, "heat-n-1", "heat", "n", 1),
+            (2, "fire-n-1", "fire", "n", 1),
+        ])
+        assert snap_concept_string(conn, "heat") == "heat-n-1"
+
+    def test_exact_match_case_insensitive(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "heat-n-1")
+        _seed_curated(conn, [(1, "heat-n-1", "heat", "n", 1)])
+        assert snap_concept_string(conn, "HEAT") == "heat-n-1"
+        assert snap_concept_string(conn, "Heat") == "heat-n-1"
+
+    def test_morphological_match(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "burn-v-1")
+        _seed_curated(conn, [(1, "burn-v-1", "burn", "v", 1)])
+        # "burning" lemmatises to "burn" via NLTK
+        assert snap_concept_string(conn, "burning") == "burn-v-1"
+
+    def test_miss_returns_none(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_synsets(conn, "heat-n-1")
+        _seed_curated(conn, [(1, "heat-n-1", "heat", "n", 1)])
+        assert snap_concept_string(conn, "qwertyfloof") is None
+
+    def test_empty_string_returns_none(self):
+        conn = _conn()
+        apply_schema(conn)
+        _seed_curated(conn, [])
+        assert snap_concept_string(conn, "") is None
+        assert snap_concept_string(conn, "   ") is None

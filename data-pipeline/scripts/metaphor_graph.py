@@ -15,6 +15,25 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 
+import nltk
+from nltk.stem import WordNetLemmatizer
+
+# NLTK lemmatiser is thread-safe and cheap to instantiate but we cache the
+# instance to avoid repeated attribute lookups in tight loops.
+_LEMMATISER: WordNetLemmatizer | None = None
+
+
+def _get_lemmatiser() -> WordNetLemmatizer:
+    global _LEMMATISER
+    if _LEMMATISER is None:
+        # ensure wordnet is downloaded — silent no-op if already present
+        try:
+            nltk.data.find("corpora/wordnet")
+        except LookupError:
+            nltk.download("wordnet", quiet=True)
+        _LEMMATISER = WordNetLemmatizer()
+    return _LEMMATISER
+
 
 METAPHOR_GRAPH_DDL = """
 CREATE TABLE IF NOT EXISTS metaphor_bridges (
@@ -152,3 +171,44 @@ def insert_bridge(
             [(bridge_id, i, via) for i, via in enumerate(path)],
         )
     return bridge_id
+
+
+def snap_concept_string(conn: sqlite3.Connection, text: str) -> str | None:
+    """Map a raw LLM-emitted concept string to a curated synset_id.
+
+    Mirrors the first two stages of the snap_properties.py cascade:
+        1. Exact match on property_vocab_curated.lemma (case-insensitive).
+        2. Morphological normalisation via NLTK WordNet lemmatiser, then exact.
+
+    Returns the synset_id of the matched curated vocab entry, or None if no
+    match. Embedding-based fallback is deliberately NOT implemented here —
+    callers that need it can call the batch snapper directly. This single-
+    string helper is for proposer pipelines where exact+morphological
+    coverage suffices.
+    """
+    if not text or not text.strip():
+        return None
+    normalised = text.strip().lower()
+
+    # Stage 1: exact
+    row = conn.execute(
+        "SELECT synset_id FROM property_vocab_curated WHERE LOWER(lemma) = ? LIMIT 1",
+        (normalised,),
+    ).fetchone()
+    if row is not None:
+        return row[0]
+
+    # Stage 2: morphological — try noun then verb lemmatisation
+    lemmatiser = _get_lemmatiser()
+    for pos in ("n", "v", "a", "r"):
+        candidate = lemmatiser.lemmatize(normalised, pos=pos)
+        if candidate == normalised:
+            continue
+        row = conn.execute(
+            "SELECT synset_id FROM property_vocab_curated WHERE LOWER(lemma) = ? LIMIT 1",
+            (candidate,),
+        ).fetchone()
+        if row is not None:
+            return row[0]
+
+    return None
