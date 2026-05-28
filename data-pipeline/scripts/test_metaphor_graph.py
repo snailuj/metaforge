@@ -95,3 +95,58 @@ class TestComputePathHash:
         hash must not collide if hypothetical IDs share a prefix."""
         # ["a", "bc"] vs ["ab", "c"] — same concat without delimiter, different with
         assert compute_path_hash(["a", "bc"]) != compute_path_hash(["ab", "c"])
+
+
+class TestForeignKeyEnforcement:
+    def test_bridge_rejects_unknown_topic_synset(self):
+        conn = _conn()
+        apply_schema(conn)
+        conn.execute("INSERT INTO synsets VALUES ('fire-n-1', 'n', 'a fire')")
+        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+            conn.execute(
+                "INSERT INTO metaphor_bridges "
+                "(topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("nonexistent-synset", "fire-n-1", "cascade_v1", "2026-05-28", "deadbeef"),
+            )
+
+    def test_bridge_step_rejects_unknown_bridge(self):
+        conn = _conn()
+        apply_schema(conn)
+        conn.execute("INSERT INTO synsets VALUES ('heat-n-1', 'n', 'heat')")
+        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+            conn.execute(
+                "INSERT INTO metaphor_bridge_steps (bridge_id, step_index, via_synset_id) "
+                "VALUES (?, ?, ?)",
+                (9999, 0, "heat-n-1"),
+            )
+
+    def test_judgment_rejects_unknown_bridge(self):
+        conn = _conn()
+        apply_schema(conn)
+        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+            conn.execute(
+                "INSERT INTO metaphor_judgments "
+                "(bridge_id, label, judged_by, judged_at) VALUES (?, ?, ?, ?)",
+                (9999, "live", "julian", "2026-05-28"),
+            )
+
+    def test_judgment_rejects_unknown_label(self):
+        conn = _conn()
+        apply_schema(conn)
+        conn.execute("INSERT INTO synsets VALUES ('anger-n-1', 'n', 'anger')")
+        conn.execute("INSERT INTO synsets VALUES ('fire-n-1', 'n', 'a fire')")
+        conn.execute("INSERT INTO synsets VALUES ('heat-n-1', 'n', 'heat')")
+        conn.execute(
+            "INSERT INTO metaphor_bridges "
+            "(topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("anger-n-1", "fire-n-1", "cascade_v1", "2026-05-28", "deadbeef"),
+        )
+        bid = conn.execute("SELECT bridge_id FROM metaphor_bridges").fetchone()[0]
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "INSERT INTO metaphor_judgments "
+                "(bridge_id, label, judged_by, judged_at) VALUES (?, ?, ?, ?)",
+                (bid, "maybe-live-ish", "julian", "2026-05-28"),
+            )
