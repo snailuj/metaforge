@@ -4,11 +4,14 @@ Implements the bridge-centric metaphor graph layer specified in
 docs/superpowers/specs/2026-05-28-metaphor-graph-schema-design.md.
 
 Public surface:
-    compute_path_hash(step_synset_ids)        -> str        # idempotency hash
-    apply_schema(conn)                        -> None       # creates tables + view
-    snap_concept_string(conn, text)           -> str | None # exact + morphological
-    insert_bridge(conn, ...)                  -> int        # returns bridge_id
-    record_judgment(conn, ...)                -> int        # returns judgment_id
+    compute_path_hash(step_synset_ids)             -> str         # idempotency hash
+    apply_schema(conn)                             -> None        # tables + indexes only
+    apply_graph_view(conn)                         -> None        # graph_edges VIEW
+    snap_concept_string(conn, text)                -> str | None  # exact + morphological
+    insert_bridge(conn, ..., path=)                -> int         # pre-snapped path
+    insert_bridge_with_raw_path(conn, ..., raw_path=) -> int      # snaps then inserts
+    record_judgment(conn, ...)                     -> int         # returns judgment_id
+    BridgeSnapFailure                              -> Exception   # raised by raw-path inserter
 """
 from __future__ import annotations
 
