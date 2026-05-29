@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from metaphor_graph import snap_concept_string  # noqa: E402
+from metaphor_graph import lookup_primary_synset  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ def snap_topics(
     topics_json_path: str,
     output_json_path: str,
 ) -> dict:
-    """Snap each topic's `word` to a curated synset_id via snap_concept_string.
+    """Snap each topic's `word` to a synset_id via lookup_primary_synset.
 
     Returns the same dict written to output_json_path: counts, snap_rate, and
     the {snapped, dropped} partition.
@@ -36,9 +36,9 @@ def snap_topics(
     snapped: list[dict] = []
     dropped: list[dict] = []
     for t in topics_in:
-        sid = snap_concept_string(conn, t["word"])
+        sid = lookup_primary_synset(conn, t["word"])
         if sid is None:
-            dropped.append({**t, "reason": "no_curated_synset"})
+            dropped.append({**t, "reason": "no_synset"})
         else:
             snapped.append({**t, "topic_synset_id": sid})
 

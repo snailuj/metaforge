@@ -21,10 +21,10 @@ def conn() -> sqlite3.Connection:
     c.executescript("""
         CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT NOT NULL, gloss TEXT);
         CREATE TABLE lemmas (lemma TEXT NOT NULL, synset_id TEXT NOT NULL REFERENCES synsets(synset_id));
-        CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, synset_id TEXT NOT NULL UNIQUE REFERENCES synsets(synset_id), lemma TEXT NOT NULL);
-        INSERT INTO synsets VALUES ('s_anger', 'n', 'anger gloss'), ('s_time', 'n', 'time gloss');
-        INSERT INTO lemmas VALUES ('anger', 's_anger'), ('time', 's_time');
-        INSERT INTO property_vocab_curated VALUES (1, 's_anger', 'anger'), (2, 's_time', 'time');
+        CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, synset_id TEXT NOT NULL UNIQUE REFERENCES synsets(synset_id), lemma TEXT NOT NULL, pos TEXT, polysemy INTEGER);
+        INSERT INTO synsets VALUES ('s_anger', 'n', 'anger gloss'), ('s_time', 'n', 'time gloss'), ('s_rec', 'n', 'recursion gloss');
+        INSERT INTO lemmas VALUES ('anger', 's_anger'), ('time', 's_time'), ('recursion', 's_rec');
+        INSERT INTO property_vocab_curated VALUES (1, 's_anger', 'anger', 'n', 1), (2, 's_time', 'time', 'n', 1);
     """)
     apply_schema(c)
     yield c
@@ -38,6 +38,9 @@ def test_snap_topics_partitions_input(conn, tmp_path):
         "topics": [
             {"word": "anger", "gloss": "a strong feeling", "source": "phase_1b_spine"},
             {"word": "time", "gloss": "an indefinite period", "source": "phase_1b_spine"},
+            # Present in synsets+lemmas but absent from property_vocab_curated —
+            # must still resolve via lookup_primary_synset (100% coverage path).
+            {"word": "recursion", "gloss": "self-reference", "source": "test"},
             {"word": "qwertyfake", "gloss": "not real", "source": "test"},
         ],
     }))
@@ -45,15 +48,15 @@ def test_snap_topics_partitions_input(conn, tmp_path):
 
     report = snap_topics(conn, str(topics_path), str(output_path))
 
-    assert report["input_count"] == 3
-    assert report["snapped_count"] == 2
-    assert report["snap_rate"] == pytest.approx(2 / 3)
+    assert report["input_count"] == 4
+    assert report["snapped_count"] == 3
+    assert report["snap_rate"] == pytest.approx(3 / 4)
 
     written = json.loads(output_path.read_text())
-    assert {t["word"] for t in written["snapped"]} == {"anger", "time"}
+    assert {t["word"] for t in written["snapped"]} == {"anger", "time", "recursion"}
     assert all("topic_synset_id" in t for t in written["snapped"])
     assert {t["word"] for t in written["dropped"]} == {"qwertyfake"}
-    assert all(t["reason"] == "no_curated_synset" for t in written["dropped"])
+    assert all(t["reason"] == "no_synset" for t in written["dropped"])
 
 
 def test_snap_topics_idempotent_rewrites_output(conn, tmp_path):
