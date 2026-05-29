@@ -26,6 +26,7 @@ from metaphor_graph import (  # noqa: E402
     BridgeSnapFailure,
     compute_path_hash,
     insert_bridge_with_raw_path,
+    lookup_primary_synset,
     snap_concept_string,
 )
 
@@ -136,7 +137,11 @@ def ingest_inapt(
             if topic_sid is None:
                 continue
             topics_processed += 1
-            vehicle_sid = snap_concept_string(conn, entry["vehicle"])
+            # Endpoint (vehicle) resolution goes through the full resolver so
+            # exotic vehicles absent from property_vocab_curated still resolve
+            # via the lemmas table. The synthesised weak-dimension concept below
+            # stays on snap_concept_string — it's a property, not an endpoint.
+            vehicle_sid = lookup_primary_synset(conn, entry["vehicle"])
             if vehicle_sid is None:
                 bridges_skipped_snap_failure += 1
                 snap_failures.append({"topic": entry["topic"], "vehicle": entry["vehicle"],

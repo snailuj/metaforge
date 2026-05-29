@@ -26,16 +26,17 @@ def conn():
     c.executescript("""
         CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT NOT NULL, gloss TEXT);
         CREATE TABLE lemmas (lemma TEXT NOT NULL, synset_id TEXT NOT NULL REFERENCES synsets(synset_id));
-        CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, synset_id TEXT NOT NULL UNIQUE REFERENCES synsets(synset_id), lemma TEXT NOT NULL);
+        CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, synset_id TEXT NOT NULL UNIQUE REFERENCES synsets(synset_id), lemma TEXT NOT NULL, pos TEXT, polysemy INTEGER);
         INSERT INTO synsets VALUES
           ('s_anger', 'n', 'a'), ('s_passion', 'n', 'p'), ('s_heat', 'n', 'h'),
-          ('s_intensity', 'n', 'i');
+          ('s_intensity', 'n', 'i'), ('s_avalanche', 'n', 'av');
         INSERT INTO lemmas VALUES
           ('anger', 's_anger'), ('passion', 's_passion'),
-          ('heat', 's_heat'), ('intensity', 's_intensity');
+          ('heat', 's_heat'), ('intensity', 's_intensity'),
+          ('avalanche', 's_avalanche');
         INSERT INTO property_vocab_curated VALUES
-          (1, 's_anger', 'anger'), (2, 's_passion', 'passion'),
-          (3, 's_heat', 'heat'), (4, 's_intensity', 'intensity');
+          (1, 's_anger', 'anger', 'n', 1), (2, 's_passion', 'passion', 'n', 1),
+          (3, 's_heat', 'heat', 'n', 1), (4, 's_intensity', 'intensity', 'n', 1);
     """)
     apply_schema(c)
     yield c
@@ -103,6 +104,29 @@ def test_ingest_inapt_inserts_bridges_from_log(conn, snapped_path, tmp_path):
     ).fetchone()
     assert row[0] == "haiku_v1_inapt_synthesised"
     assert "Shares heat" in row[1]
+
+
+def test_ingest_inapt_resolves_exotic_vehicle_via_lookup(conn, snapped_path, tmp_path):
+    # 'avalanche' is present in synsets+lemmas but absent from
+    # property_vocab_curated, so snap_concept_string misses it. The endpoint
+    # resolver lookup_primary_synset recovers it via the lemmas table. The
+    # synthesised weak-dimension concept ('heat') is curated and snaps, so a
+    # bridge must now be produced rather than skipped as a snap failure.
+    log_path = tmp_path / "synth.jsonl"
+    log_path.write_text(json.dumps({
+        "topic": "anger", "vehicle": "avalanche",
+        "inapt_reason_type": "single_dimension",
+        "weak_concept": "heat",
+        "explanation": "Both build to a sudden release.",
+    }) + "\n")
+
+    report = ingest_inapt(conn, snapped_path, str(log_path))
+    assert report["bridges_inserted"] == 1
+    assert report["bridges_skipped_snap_failure"] == 0
+    row = conn.execute(
+        "SELECT vehicle_synset_id FROM metaphor_bridges"
+    ).fetchone()
+    assert row[0] == "s_avalanche"
 
 
 def test_ingest_inapt_idempotent(conn, snapped_path, tmp_path):
