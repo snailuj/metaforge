@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from metaphor_graph import BridgeSnapFailure, insert_bridge_with_raw_path, snap_concept_string  # noqa: E402
+from metaphor_graph import BridgeSnapFailure, insert_bridge_with_raw_path, lookup_primary_synset  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +51,21 @@ Return JSON:
 """
 
 
+def _load_audited_topics(audit_jsonl_path: str) -> set[str]:
+    """Topics already present in the audit log — skipped on re-runs so Sonnet
+    is not re-spent (mirrors synthesise_paths' log-skip in the inapt ingest)."""
+    seen: set[str] = set()
+    p = Path(audit_jsonl_path)
+    if not p.exists():
+        return seen
+    for line in p.read_text().splitlines():
+        if not line.strip():
+            continue
+        entry = json.loads(line)
+        seen.add(entry["topic"])
+    return seen
+
+
 def run_sonnet_edits(
     claude_client,
     snapped_topics_json_path: str,
@@ -59,6 +74,7 @@ def run_sonnet_edits(
 ) -> dict:
     snapped = json.loads(Path(snapped_topics_json_path).read_text())
     topic_set = {t["word"] for t in snapped["snapped"]}
+    seen = _load_audited_topics(audit_jsonl_path)
 
     calls_made = 0
     with open(audit_jsonl_path, "a") as audit:
@@ -71,6 +87,8 @@ def run_sonnet_edits(
                 topic = entry["topic"]
                 if topic not in topic_set:
                     continue
+                if topic in seen:
+                    continue
                 draft = [{"vehicle": m["vehicle"], "dimensions": [s["concept"] for s in m.get("shared_features", [])]}
                          for m in entry.get("metaphors", [])]
                 prompt = SONNET_EDIT_PROMPT.format(
@@ -82,6 +100,7 @@ def run_sonnet_edits(
                 calls_made += 1
                 audit.write(json.dumps(resp) + "\n")
                 audit.flush()
+                seen.add(topic)
     return {"calls_made": calls_made}
 
 
@@ -115,7 +134,7 @@ def ingest_sonnet(
             topics_processed += 1
             for v in entry.get("vehicles", []):
                 vehicle_raw = v["vehicle"]
-                vehicle_sid = snap_concept_string(conn, vehicle_raw)
+                vehicle_sid = lookup_primary_synset(conn, vehicle_raw)
                 if vehicle_sid is None:
                     bridges_skipped_snap_failure += 1
                     snap_failures.append({"topic": entry["topic"], "vehicle": vehicle_raw,
