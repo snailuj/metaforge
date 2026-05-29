@@ -32,6 +32,20 @@ def conn():
     c.close()
 
 
+def test_cli_imports_resolve():
+    """main() lazily imports claude_client from the repo-root lib/ dir. The
+    module must put lib/ on sys.path at import time or the CLI entrypoint dies
+    with ModuleNotFoundError at runtime (regression: dry-run 2026-05-29 — the
+    unit tests inject mocks and never exercise main()'s real imports).
+    """
+    import metaphor_graph_enrich_run  # noqa: F401 — runs module-level path inserts
+    from claude_client import prompt_json  # noqa: F401
+    from metaphor_graph_enrich_haiku import ingest_haiku_apt  # noqa: F401
+    from metaphor_graph_enrich_inapt import synthesise_paths, ingest_inapt  # noqa: F401
+    from metaphor_graph_enrich_cascade import ingest_cascade, make_go_suggest_fn  # noqa: F401
+    from metaphor_graph_enrich_sonnet import run_sonnet_edits, ingest_sonnet  # noqa: F401
+
+
 def test_chunk_topics_partitions_evenly():
     snapped = {"snapped": [{"word": f"t{i}"} for i in range(50)]}
     chunks = chunk_topics(snapped, batch_size=20)

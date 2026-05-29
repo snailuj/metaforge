@@ -16,6 +16,9 @@ from pathlib import Path
 from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Repo-root lib/ holds claude_client, imported lazily in main(). Mirror the
+# convention in enrich_properties.py so the CLI entrypoint resolves it.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
 
 log = logging.getLogger(__name__)
 
