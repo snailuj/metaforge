@@ -1,9 +1,12 @@
-# Captures Inbox
+# Captures Inbox — RETIRED
 
-_Loose ideas and observations captured during work. Triage periodically: promote, defer, or discard._
+**This file is retired.** Captures now live in a single funnel in `docs/roadmap/PIPELINE.md` under **`## Inbox (untriaged captures)`**. Capture there; triage promotes down through Backlog → Queued → Next. See the Conventions section of PIPELINE.md for the full flow. (Decommissioned 2026-05-29 — the capture/backlog system was consolidated to one source of truth.)
 
-_Migrated from `.gsd/CAPTURES.md` on 2026-05-03 during GSD decommission._
+Do not add new captures here. Pointer kept to avoid breaking references; the archived entry below is preserved for provenance.
 
+---
+
+## Archived (resolved, pre-retirement)
 
 ### CAP-b55cb5d1
 **Text:** adding CI is probably something we should do sooner than later
@@ -16,8 +19,4 @@ _Migrated from `.gsd/CAPTURES.md` on 2026-05-03 during GSD decommission._
 **Milestone:** M002-kitkng
 **Executed:** 2026-05-02T07:12:23.806Z
 
-### CAP-snap-recon
-**Text:** Snapping reconciliation + sense-accuracy (DEFERRED — must return soon). The Go `/forge/suggest` endpoint and the Python eval harness sometimes snap the same topic to different synsets (a significant Karpathy-loop deviation source). Separately, polysemy means a lemma can have genuinely different senses; the current `lookup_primary_synset` heuristic (noun-preferred/least-polysemous) fixes coverage but ignores the per-topic `_gloss` and so does not solve sense-accuracy. The gloss (present in `spike_2_topics.json` and the phase2 dumps) is the lever for accurate, gloss-grounded disambiguation. Need a single deterministic snapper shared by Go + Python (or Go accepting a pre-resolved synset_id), gloss-based sense selection, and a re-evaluation of whether prior loop results shift once unified. Stage A handles this minimally (single-source the Python side, flag the cascade-score-sense caveat); full reconciliation is the follow-up.
-**Captured:** 2026-05-29
-**Status:** open
-**Classification:** defer (must return — verify snapping is as tight as realistically possible)
+_(The live CAP-snap-recon capture was promoted verbatim to PIPELINE.md → Backlog on 2026-05-29.)_

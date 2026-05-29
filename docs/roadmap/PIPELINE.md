@@ -98,8 +98,15 @@ The single source of truth for what comes next. Always read this when starting m
   - Dependency on M04: M04's ANN index over `synset_centroids` IS the Bridge's embedding-prefilter A* layer. Building M04 first reduces the Bridge from "2 days from scratch" to ~1.5 days of orchestration on top of shared infrastructure.
   - Cost: ~2 days to shippable demo if built before M04; ~1.5 days if built after.
 
+## Inbox (untriaged captures)
+
+Zero-friction landing zone for raw ideas/observations captured mid-work — **no triage required at capture time**. This is the single capture lane (supersedes the old `docs/inbox/captures.md`). Triage periodically: promote each item down into **Backlog** (or **Queued**/**Next** if a slot is obvious), move it to `docs/decisions/log.md` if it's actually a decision, raise a GitHub issue only if it's external-facing (licensing, public infra, community), or discard. On promotion, move the text **verbatim** and delete the inbox line. Keep entries short; one bullet each, newest first.
+
+*(empty)*
+
 ## Backlog (no clear slot yet)
 
+- **Snapping reconciliation + sense-accuracy** *(DEFERRED 2026-05-29 — must return soon; CAP-snap-recon)* — The Go `/forge/suggest` endpoint and the Python eval harness sometimes snap the same topic to different synsets (a significant Karpathy-loop deviation source). Separately, polysemy means a lemma can have genuinely different senses; the current `lookup_primary_synset` heuristic (noun-preferred/least-polysemous) fixes coverage but ignores the per-topic `_gloss` and so does not solve sense-accuracy. The gloss (present in `spike_2_topics.json` and the phase2 dumps) is the lever for accurate, gloss-grounded disambiguation. Need a single deterministic snapper shared by Go + Python (or Go accepting a pre-resolved synset_id), gloss-based sense selection, and a re-evaluation of whether prior loop results shift once unified. Stage A handles this minimally (single-source the Python side, flag the cascade-score-sense caveat); full reconciliation is the follow-up. Operator flagged this must not slip — verify snapping is as tight as realistically possible. See memory `snapping-reconciliation-deferred`.
 - **Sense-gloss-only metaphor enrichment variant** *(captured 2026-05-24 during the metaphor-enrichment spike brainstorm)* — option (c) from the input-granularity decision: feed the LLM only the sense definition, no word. Tests whether the model is metaphor-mapping the *concept* or pattern-matching the *word*. Deferred to backlog (budget-bound, not priority-bound) — promote to a small ablation experiment once the main spike has shipped and we have a reusable runner. Production-awkward (the word is what users type) but useful research signal for understanding whether future enrichment can ride on glosses alone (cheaper, less polysemy-coupled) or fundamentally needs the lexical anchor.
 - **Snap-tuning research** — see project memories `project_metaforge_snap_threshold_curve` and `project_metaforge_signal_weighted_snap_JSJSJS`
   - ~~Threshold default change 0.70 → 0.48~~ — **promoted into M02 — Asymmetric Ortony Scoring S04-D (in progress 2026-05-15)**.
@@ -165,6 +172,13 @@ The single source of truth for what comes next. Always read this when starting m
 
 ## Conventions
 
+- **This file is the single funnel** for all forward work. The whole lifecycle lives here: **Inbox → Backlog → Queued → Next → Active → Done**. There is no separate captures file and no parallel backlog. Capture raw ideas into **Inbox** with zero friction; everything else flows downward through triage.
+- **Capture vs decision vs issue:**
+  - Raw idea/observation/limitation surfaced mid-work → **Inbox** (here).
+  - Settled architectural/convention choice → `docs/decisions/log.md` (append-only).
+  - Externally-facing work only (licensing, public infra, community-visible) → GitHub issue. Internal engineering work does **not** go to issues — it lives in Backlog.
+  - Findings / working notes / spike reports → dated `docs/inbox/*.md` docs (these are reference material, not backlog items).
+- **Promotion moves text verbatim** (per the verbatim-copy standard) and deletes the source line, so nothing is duplicated across tiers.
 - **Next is always the immediate next job.** It can be a milestone, a code-review-loop on a recently-merged milestone, a tooling task, a pre-flight blocker — whatever genuinely comes first. Do not assume Next must be a milestone.
 - New milestones land in **Queued** with at minimum: name, why, depends-on, detail-doc link.
 - Move to **Next** when its prerequisites are met (M-1 done, blocking tasks resolved, etc.).
