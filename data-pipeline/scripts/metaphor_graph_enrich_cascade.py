@@ -77,12 +77,16 @@ def ingest_cascade(
             log.warning("cascade suggest failed for topic %r (%s): %s",
                         t["word"], t["topic_synset_id"], exc)
             continue
-        candidates = resp.get("candidates", [])
+        # Go /forge/suggest returns vehicles under "suggestions", each with the
+        # vehicle lemma under "word" (verified against the live binary 2026-05-29
+        # — the earlier "candidates"/"vehicle" assumption was a mock fiction that
+        # silently yielded zero bridges).
+        candidates = resp.get("suggestions", [])
         if not candidates:
             topics_empty_response += 1
             continue
         for c in candidates:
-            vehicle_raw = c["vehicle"]
+            vehicle_raw = c["word"]
             vehicle_sid = lookup_primary_synset(conn, vehicle_raw)
             if vehicle_sid is None:
                 bridges_skipped_snap_failure += 1

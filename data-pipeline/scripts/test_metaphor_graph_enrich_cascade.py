@@ -60,8 +60,8 @@ def snapped_path(tmp_path):
 
 def test_ingest_cascade_inserts_one_bridge_per_shared_property(conn, snapped_path):
     fetcher = MagicMock(return_value={
-        "candidates": [
-            {"vehicle": "fire", "shared_properties": [
+        "suggestions": [
+            {"word":"fire", "shared_properties": [
                 {"property": "heat"},
                 {"property": "destruction"},
             ]},
@@ -78,7 +78,7 @@ def test_ingest_cascade_inserts_one_bridge_per_shared_property(conn, snapped_pat
 
 
 def test_ingest_cascade_handles_empty_response(conn, snapped_path):
-    fetcher = MagicMock(return_value={"candidates": []})
+    fetcher = MagicMock(return_value={"suggestions": []})
     report = ingest_cascade(conn, snapped_path, suggest_fn=fetcher, limit=10)
     assert report["bridges_inserted"] == 0
     assert report["topics_processed"] == 1
@@ -87,7 +87,7 @@ def test_ingest_cascade_handles_empty_response(conn, snapped_path):
 
 def test_ingest_cascade_idempotent(conn, snapped_path):
     fetcher = MagicMock(return_value={
-        "candidates": [{"vehicle": "fire", "shared_properties": [{"property": "heat"}]}],
+        "suggestions": [{"word":"fire", "shared_properties": [{"property": "heat"}]}],
     })
     ingest_cascade(conn, snapped_path, suggest_fn=fetcher, limit=10)
     r2 = ingest_cascade(conn, snapped_path, suggest_fn=fetcher, limit=10)
@@ -123,7 +123,7 @@ def test_ingest_cascade_passes_curated_lemma_when_present(conn, snapped_path):
 
     def _fetch(*, topic, limit):
         seen.append(topic)
-        return {"candidates": []}
+        return {"suggestions": []}
 
     ingest_cascade(conn, snapped_path, suggest_fn=_fetch, limit=10)
     # s_anger's curated lemma is "rage"; raw word is "anger".
@@ -142,7 +142,7 @@ def test_ingest_cascade_falls_back_to_raw_word_without_curated_lemma(conn, tmp_p
 
     def _fetch(*, topic, limit):
         seen.append(topic)
-        return {"candidates": []}
+        return {"suggestions": []}
 
     ingest_cascade(conn, str(p), suggest_fn=_fetch, limit=10)
     assert seen == ["palimpsest"]
@@ -151,7 +151,7 @@ def test_ingest_cascade_falls_back_to_raw_word_without_curated_lemma(conn, tmp_p
 def test_ingest_cascade_resolves_exotic_vehicle(conn, snapped_path):
     """Vehicle in synsets+lemmas but not curated still produces a bridge."""
     fetcher = MagicMock(return_value={
-        "candidates": [{"vehicle": "palimpsest", "shared_properties": [{"property": "heat"}]}],
+        "suggestions": [{"word":"palimpsest", "shared_properties": [{"property": "heat"}]}],
     })
     report = ingest_cascade(conn, snapped_path, suggest_fn=fetcher, limit=10)
     assert report["bridges_inserted"] == 1
@@ -173,7 +173,7 @@ def test_ingest_cascade_isolates_per_topic_errors(conn, tmp_path):
     def _fetch(*, topic, limit):
         if topic == "rage":  # s_anger's curated lemma
             raise RuntimeError("boom")
-        return {"candidates": [{"vehicle": "palimpsest",
+        return {"suggestions": [{"word":"palimpsest",
                                 "shared_properties": [{"property": "heat"}]}]}
 
     report = ingest_cascade(conn, str(p), suggest_fn=_fetch, limit=10)
