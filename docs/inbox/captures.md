@@ -15,3 +15,9 @@ _Migrated from `.gsd/CAPTURES.md` on 2026-05-03 during GSD decommission._
 **Resolved:** 2026-05-02T07:11:39.000Z
 **Milestone:** M002-kitkng
 **Executed:** 2026-05-02T07:12:23.806Z
+
+### CAP-snap-recon
+**Text:** Snapping reconciliation + sense-accuracy (DEFERRED — must return soon). The Go `/forge/suggest` endpoint and the Python eval harness sometimes snap the same topic to different synsets (a significant Karpathy-loop deviation source). Separately, polysemy means a lemma can have genuinely different senses; the current `lookup_primary_synset` heuristic (noun-preferred/least-polysemous) fixes coverage but ignores the per-topic `_gloss` and so does not solve sense-accuracy. The gloss (present in `spike_2_topics.json` and the phase2 dumps) is the lever for accurate, gloss-grounded disambiguation. Need a single deterministic snapper shared by Go + Python (or Go accepting a pre-resolved synset_id), gloss-based sense selection, and a re-evaluation of whether prior loop results shift once unified. Stage A handles this minimally (single-source the Python side, flag the cascade-score-sense caveat); full reconciliation is the follow-up.
+**Captured:** 2026-05-29
+**Status:** open
+**Classification:** defer (must return — verify snapping is as tight as realistically possible)
