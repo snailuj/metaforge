@@ -63,13 +63,24 @@ def run_batches(
         batch_snapped_path = f"{snapped_topics_json_path}.batch{idx}"
         Path(batch_snapped_path).write_text(json.dumps({"snapped": batch, "dropped": []}))
 
+        # Per-proposer isolation: one proposer raising (e.g. a forge 404) must
+        # not abort the batch or the remaining proposers/batches. Record the
+        # failure and continue — the run is idempotent, so a later targeted
+        # re-run fills the gap without redoing successful proposers.
+        proposer_fns = (
+            ("haiku_v1", "ingest_haiku_apt"),
+            ("haiku_v1_inapt_synthesised", "ingest_inapt"),
+            ("cascade_v1", "ingest_cascade"),
+            ("haiku_sonnet_v1", "ingest_sonnet"),
+        )
+        batch_reports: dict[str, dict] = {}
         try:
-            batch_reports = {
-                "haiku_v1": ingest_fns["ingest_haiku_apt"](conn, batch_snapped_path),
-                "haiku_v1_inapt_synthesised": ingest_fns["ingest_inapt"](conn, batch_snapped_path),
-                "cascade_v1": ingest_fns["ingest_cascade"](conn, batch_snapped_path),
-                "haiku_sonnet_v1": ingest_fns["ingest_sonnet"](conn, batch_snapped_path),
-            }
+            for proposer, fn_key in proposer_fns:
+                try:
+                    batch_reports[proposer] = ingest_fns[fn_key](conn, batch_snapped_path)
+                except Exception as exc:  # noqa: BLE001 — isolate any proposer failure
+                    log.error("proposer %s failed in batch %d: %s", proposer, idx, exc, exc_info=True)
+                    batch_reports[proposer] = {"proposer": proposer, "error": str(exc), "bridges_inserted": 0}
         finally:
             Path(batch_snapped_path).unlink(missing_ok=True)
 

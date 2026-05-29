@@ -86,6 +86,41 @@ def test_run_batches_invokes_each_proposer_per_batch(conn, tmp_path):
     assert "haiku_v1" in md and "cascade_v1" in md
 
 
+def test_run_batches_isolates_a_failing_proposer(conn, tmp_path):
+    """One proposer raising must not abort the batch: the other three still run,
+    the failure is recorded, and the run completes. (Dry-run regression: a cascade
+    404 aborted the whole run before the sonnet ingest.)"""
+    snapped_path = tmp_path / "snapped.json"
+    snapped_path.write_text(json.dumps({
+        "snapped": [{"word": "t1", "gloss": "g", "source": "s", "topic_synset_id": "s_t1"}],
+        "dropped": [],
+    }))
+    progress_path = tmp_path / "progress.md"
+
+    def boom(conn, path):
+        raise RuntimeError("forge 404")
+
+    mocks = {
+        "ingest_haiku_apt": MagicMock(return_value={"proposer": "haiku_v1", "bridges_inserted": 3}),
+        "ingest_inapt": MagicMock(return_value={"proposer": "haiku_v1_inapt_synthesised", "bridges_inserted": 2}),
+        "ingest_cascade": boom,  # raises
+        "ingest_sonnet": MagicMock(return_value={"proposer": "haiku_sonnet_v1", "bridges_inserted": 4}),
+    }
+
+    report = run_batches(conn, str(snapped_path), batch_size=20,
+                         progress_md_path=str(progress_path), ingest_fns=mocks)
+
+    # Did not propagate; the three healthy proposers still ran.
+    assert report["batches_run"] == 1
+    assert report["totals"]["haiku_v1"] == 3
+    assert report["totals"]["haiku_sonnet_v1"] == 4  # ran despite cascade failing first
+    assert report["totals"]["cascade_v1"] == 0
+    mocks["ingest_sonnet"].assert_called_once()
+    # Failure recorded in the progress markdown.
+    md = progress_path.read_text()
+    assert "cascade_v1" in md
+
+
 def test_run_batches_appends_progress_on_rerun(conn, tmp_path):
     snapped_path = tmp_path / "snapped.json"
     snapped_path.write_text(json.dumps({
