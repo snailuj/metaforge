@@ -76,3 +76,79 @@ def run_batches(
         _write_progress_row(progress_md_path, idx, batch_reports)
 
     return {"batches_run": len(batches), "totals": totals}
+
+
+def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    p = argparse.ArgumentParser()
+    p.add_argument("--db", required=True)
+    p.add_argument("--snapped-topics", required=True,
+                   help="Path to metaphor_graph_topics_snapped.json")
+    p.add_argument("--haiku-apt-jsonl", required=True)
+    p.add_argument("--haiku-inapt-jsonl", required=True)
+    p.add_argument("--inapt-synth-log", required=True,
+                   help="Path to haiku_v1_inapt_synthesised_paths.jsonl (created if missing)")
+    p.add_argument("--sonnet-audit", required=True)
+    p.add_argument("--go-binary", required=True)
+    p.add_argument("--progress-md", required=True)
+    p.add_argument("--batch-size", type=int, default=20)
+    p.add_argument("--port", type=int, default=9192)
+    args = p.parse_args()
+
+    from claude_client import prompt_json
+    from metaphor_graph_enrich_haiku import ingest_haiku_apt
+    from metaphor_graph_enrich_inapt import synthesise_paths, ingest_inapt
+    from metaphor_graph_enrich_cascade import ingest_cascade, make_go_suggest_fn
+    from metaphor_graph_enrich_sonnet import run_sonnet_edits, ingest_sonnet
+
+    class _CC:
+        def prompt_json(self, prompt: str) -> dict:
+            return prompt_json(prompt, model="claude-haiku-4-5-20251001")
+
+    cc_haiku = _CC()
+
+    class _CC_Sonnet:
+        def prompt_json(self, prompt: str) -> dict:
+            return prompt_json(prompt, model="claude-sonnet-4-6")
+
+    cc_sonnet = _CC_Sonnet()
+
+    synthesise_paths(cc_haiku, args.snapped_topics, args.haiku_inapt_jsonl, args.inapt_synth_log)
+    run_sonnet_edits(cc_sonnet, args.snapped_topics, args.haiku_apt_jsonl, args.sonnet_audit)
+
+    suggest_fn = make_go_suggest_fn(args.go_binary, args.db, port=args.port)
+    try:
+        # Transactional connection (NOT autocommit): metaphor_graph writers call
+        # _require_transactional and self-commit via `with conn:` per insert. An
+        # autocommit connection would raise at the first bridge insert.
+        conn = sqlite3.connect(args.db)
+        conn.execute("PRAGMA foreign_keys = ON")
+
+        def _haiku_ingest(c, snapped_path):
+            return ingest_haiku_apt(c, snapped_path, args.haiku_apt_jsonl)
+        def _inapt_ingest(c, snapped_path):
+            return ingest_inapt(c, snapped_path, args.inapt_synth_log)
+        def _cascade_ingest(c, snapped_path):
+            return ingest_cascade(c, snapped_path, suggest_fn=suggest_fn)
+        def _sonnet_ingest(c, snapped_path):
+            return ingest_sonnet(c, snapped_path, args.sonnet_audit)
+
+        report = run_batches(
+            conn, args.snapped_topics,
+            batch_size=args.batch_size,
+            progress_md_path=args.progress_md,
+            ingest_fns={
+                "ingest_haiku_apt": _haiku_ingest,
+                "ingest_inapt": _inapt_ingest,
+                "ingest_cascade": _cascade_ingest,
+                "ingest_sonnet": _sonnet_ingest,
+            },
+        )
+        log.info("Stage A complete: %s", report)
+    finally:
+        suggest_fn._proc.terminate()  # type: ignore[attr-defined]
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -17,12 +17,15 @@ from metaphor_graph_enrich_run import run_batches, chunk_topics
 
 @pytest.fixture
 def conn():
-    c = sqlite3.connect(":memory:", isolation_level=None, autocommit=True)
+    # Transactional connection: metaphor_graph writers reject autocommit (they
+    # rely on `with conn:` rollback). The run_batches tests pass conn only to
+    # mocked ingest fns, but the integration test invokes a real writer.
+    c = sqlite3.connect(":memory:")
     c.execute("PRAGMA foreign_keys = ON")
     c.executescript("""
         CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT NOT NULL, gloss TEXT);
         CREATE TABLE lemmas (lemma TEXT NOT NULL, synset_id TEXT NOT NULL REFERENCES synsets(synset_id));
-        CREATE TABLE property_vocab_curated (synset_id TEXT NOT NULL UNIQUE REFERENCES synsets(synset_id), lemma TEXT NOT NULL);
+        CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, synset_id TEXT NOT NULL UNIQUE REFERENCES synsets(synset_id), lemma TEXT NOT NULL);
     """)
     apply_schema(c)
     yield c
@@ -84,3 +87,51 @@ def test_run_batches_appends_progress_on_rerun(conn, tmp_path):
                 progress_md_path=str(progress_path), ingest_fns=mocks)
     md = progress_path.read_text()
     assert md.count("batch 1") == 2
+
+
+def test_integration_no_judgments_means_no_metaphor_link_rows(conn, tmp_path):
+    """After Stage A runs end-to-end against mocked proposers, the graph_edges
+    view should expose zero metaphor_link rows because no judgments exist.
+
+    This is the load-bearing invariant: Stage A populates the proposal pool;
+    Stage B (eyeballer) is what turns proposals into graph structure.
+    """
+    snapped_path = tmp_path / "snapped.json"
+    # graph_edges UNIONs has_property / metonym_of / antonym_of sources; those
+    # tables must exist (empty is fine) or the view query errors. Stubbed here
+    # rather than in the shared fixture so the run_batches tests stay minimal.
+    conn.executescript("""
+        CREATE TABLE synset_properties_curated (
+            synset_id TEXT NOT NULL, vocab_id INTEGER NOT NULL, cluster_id INTEGER NOT NULL,
+            snap_method TEXT NOT NULL, snap_score REAL, salience_sum REAL NOT NULL DEFAULT 1.0,
+            PRIMARY KEY (synset_id, cluster_id));
+        CREATE TABLE syntagms (
+            syntagm_id INTEGER PRIMARY KEY, synset1id TEXT NOT NULL, synset2id TEXT NOT NULL,
+            sensekey1 TEXT NOT NULL DEFAULT '', sensekey2 TEXT NOT NULL DEFAULT '',
+            word1id INTEGER NOT NULL DEFAULT 0, word2id INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE synset_metonyms (
+            synset_id TEXT NOT NULL, metonym_syntagm_id INTEGER NOT NULL, metonym_rank INTEGER NOT NULL,
+            PRIMARY KEY (synset_id, metonym_syntagm_id));
+        CREATE TABLE property_antonyms (
+            vocab_id_a INTEGER NOT NULL, vocab_id_b INTEGER NOT NULL,
+            PRIMARY KEY (vocab_id_a, vocab_id_b));
+        INSERT INTO synsets VALUES
+          ('s_anger', 'n', 'a'), ('s_fire', 'n', 'f'), ('s_heat', 'n', 'h');
+        INSERT INTO lemmas VALUES
+          ('anger', 's_anger'), ('fire', 's_fire'), ('heat', 's_heat');
+        INSERT INTO property_vocab_curated VALUES
+          (1, 's_anger', 'anger'), (2, 's_fire', 'fire'), (3, 's_heat', 'heat');
+    """)
+    from metaphor_graph import insert_bridge_with_raw_path, apply_graph_view
+    apply_graph_view(conn)
+    insert_bridge_with_raw_path(
+        conn, topic_synset_id="s_anger", vehicle_synset_id="s_fire",
+        proposer="cascade_v1", proposed_at="2026-05-29T00:00:00Z",
+        raw_path=["heat"],
+    )
+    n_bridges = conn.execute("SELECT COUNT(*) FROM metaphor_bridges").fetchone()[0]
+    n_metaphor_links = conn.execute(
+        "SELECT COUNT(*) FROM graph_edges WHERE relation = 'metaphor_link'"
+    ).fetchone()[0]
+    assert n_bridges == 1
+    assert n_metaphor_links == 0
