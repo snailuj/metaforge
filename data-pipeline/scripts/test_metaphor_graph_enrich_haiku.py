@@ -25,19 +25,19 @@ def conn() -> sqlite3.Connection:
     c.executescript("""
         CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT NOT NULL, gloss TEXT);
         CREATE TABLE lemmas (lemma TEXT NOT NULL, synset_id TEXT NOT NULL REFERENCES synsets(synset_id));
-        CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, synset_id TEXT NOT NULL UNIQUE REFERENCES synsets(synset_id), lemma TEXT NOT NULL);
+        CREATE TABLE property_vocab_curated (vocab_id INTEGER PRIMARY KEY, synset_id TEXT NOT NULL UNIQUE REFERENCES synsets(synset_id), lemma TEXT NOT NULL, pos TEXT, polysemy INTEGER);
         INSERT INTO synsets VALUES
           ('s_anger', 'n', 'anger'), ('s_fire', 'n', 'fire'),
           ('s_heat', 'n', 'heat'), ('s_destruction', 'n', 'destruction'),
-          ('s_passion', 'n', 'passion');
+          ('s_passion', 'n', 'passion'), ('s_ferm', 'n', 'fermentation');
         INSERT INTO lemmas VALUES
           ('anger', 's_anger'), ('fire', 's_fire'),
           ('heat', 's_heat'), ('destruction', 's_destruction'),
-          ('passion', 's_passion');
+          ('passion', 's_passion'), ('fermentation', 's_ferm');
         INSERT INTO property_vocab_curated VALUES
-          (1, 's_anger', 'anger'), (2, 's_fire', 'fire'),
-          (3, 's_heat', 'heat'), (4, 's_destruction', 'destruction'),
-          (5, 's_passion', 'passion');
+          (1, 's_anger', 'anger', 'n', 1), (2, 's_fire', 'fire', 'n', 1),
+          (3, 's_heat', 'heat', 'n', 1), (4, 's_destruction', 'destruction', 'n', 1),
+          (5, 's_passion', 'passion', 'n', 1);
     """)
     apply_schema(c)
     yield c
@@ -122,3 +122,26 @@ def test_ingest_skips_topics_not_in_snapped_set(conn, snapped_topics_path, tmp_p
     report = ingest_haiku_apt(conn, snapped_topics_path, str(p))
     assert report["topics_processed"] == 0
     assert report["bridges_inserted"] == 0
+
+
+def test_ingest_resolves_exotic_vehicle_via_lemmas(conn, snapped_topics_path, tmp_path):
+    # 'fermentation' is a creative vehicle present in synsets+lemmas but absent
+    # from property_vocab_curated. snap_concept_string (property-vocab only)
+    # silently drops it; lookup_primary_synset must resolve it via the lemmas
+    # table so the bridge is produced. Its shared-feature concept ('heat') is a
+    # curated property that snaps cleanly, isolating the vehicle-resolution fix.
+    p = tmp_path / "exotic.jsonl"
+    p.write_text(json.dumps({
+        "topic": "anger",
+        "metaphors": [{"vehicle": "fermentation", "shared_features": [
+            {"dimension": "functional", "concept": "heat"},
+        ]}],
+        "_gloss": "g",
+    }) + "\n")
+    report = ingest_haiku_apt(conn, snapped_topics_path, str(p))
+    assert report["bridges_skipped_snap_failure"] == 0
+    assert report["bridges_inserted"] == 1
+    rows = conn.execute(
+        "SELECT vehicle_synset_id FROM metaphor_bridges"
+    ).fetchall()
+    assert rows == [("s_ferm",)]

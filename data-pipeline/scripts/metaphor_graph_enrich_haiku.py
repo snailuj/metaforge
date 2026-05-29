@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from metaphor_graph import (  # noqa: E402
     BridgeSnapFailure,
     insert_bridge_with_raw_path,
-    snap_concept_string,
+    lookup_primary_synset,
 )
 
 log = logging.getLogger(__name__)
@@ -59,7 +59,13 @@ def ingest_haiku_apt(
             topics_processed += 1
             for m in entry.get("metaphors", []):
                 vehicle_raw = m["vehicle"]
-                vehicle_sid = snap_concept_string(conn, vehicle_raw)
+                # Endpoint resolution: route the vehicle through the endpoint
+                # resolver (curated → lemmas → lemmatised variants) rather than
+                # snap_concept_string, which is property-vocab-only and silently
+                # drops creative vehicles absent from the curated set. The
+                # shared-feature PATH concepts inside insert_bridge_with_raw_path
+                # remain on snap_concept_string — they are properties.
+                vehicle_sid = lookup_primary_synset(conn, vehicle_raw)
                 if vehicle_sid is None:
                     bridges_skipped_snap_failure += 1
                     snap_failures.append({"topic": topic, "vehicle": vehicle_raw, "failing_concepts": ["<vehicle>"]})
