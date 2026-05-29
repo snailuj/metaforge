@@ -20,9 +20,28 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from metaphor_graph import BridgeSnapFailure, insert_bridge_with_raw_path, snap_concept_string  # noqa: E402
+from metaphor_graph import (  # noqa: E402
+    BridgeSnapFailure,
+    insert_bridge_with_raw_path,
+    lookup_primary_synset,
+)
 
 log = logging.getLogger(__name__)
+
+
+def curated_lemma_for(conn: sqlite3.Connection, synset_id: str) -> str | None:
+    """Return the curated-vocab lemma for a synset, or None if uncurated.
+
+    Used to align the topic word handed to Go's exact-match lookup with the
+    pre-flight synset: a Go-friendly surface form for the same sense. The
+    bridge label itself stays pinned to topic_synset_id (single source of
+    truth) — this only affects the *score* path through the cascade.
+    """
+    row = conn.execute(
+        "SELECT lemma FROM property_vocab_curated WHERE synset_id = ?",
+        (synset_id,),
+    ).fetchone()
+    return row[0] if row else None
 
 
 def ingest_cascade(
@@ -40,19 +59,31 @@ def ingest_cascade(
     snap_failures: list[dict] = []
     topics_processed = 0
     topics_empty_response = 0
+    topics_errored = 0
+    topic_failures: list[dict] = []
 
     proposed_at = datetime.now(timezone.utc).isoformat()
 
     for t in snapped["snapped"]:
         topics_processed += 1
-        resp = suggest_fn(topic=t["word"], limit=limit)
+        # Hand Go a surface form for the pre-flight sense. The bridge label
+        # below stays pinned to topic_synset_id — this only steers the score.
+        go_topic = curated_lemma_for(conn, t["topic_synset_id"]) or t["word"]
+        try:
+            resp = suggest_fn(topic=go_topic, limit=limit)
+        except Exception as exc:  # noqa: BLE001 — one bad topic must not abort the batch
+            topics_errored += 1
+            topic_failures.append({"topic": t["word"], "error": str(exc)})
+            log.warning("cascade suggest failed for topic %r (%s): %s",
+                        t["word"], t["topic_synset_id"], exc)
+            continue
         candidates = resp.get("candidates", [])
         if not candidates:
             topics_empty_response += 1
             continue
         for c in candidates:
             vehicle_raw = c["vehicle"]
-            vehicle_sid = snap_concept_string(conn, vehicle_raw)
+            vehicle_sid = lookup_primary_synset(conn, vehicle_raw)
             if vehicle_sid is None:
                 bridges_skipped_snap_failure += 1
                 snap_failures.append({"topic": t["word"], "vehicle": vehicle_raw,
@@ -98,10 +129,12 @@ def ingest_cascade(
         "proposer": proposer,
         "topics_processed": topics_processed,
         "topics_empty_response": topics_empty_response,
+        "topics_errored": topics_errored,
         "bridges_inserted": bridges_inserted,
         "bridges_skipped_existing": bridges_skipped_existing,
         "bridges_skipped_snap_failure": bridges_skipped_snap_failure,
         "snap_failures": snap_failures,
+        "topic_failures": topic_failures,
     }
 
 
@@ -111,8 +144,11 @@ def make_go_suggest_fn(binary_path: str, db_path: str, port: int = 9192) -> Call
     Caller is responsible for terminating via the returned fn's `_proc` attr.
     """
     import requests  # local import — tests do not need this dependency
+    # --cascade selects the M03 cascade scorer (S05 parity-tested winner
+    # config defaults); without it the binary runs the legacy scorer. Do NOT
+    # re-pass the knob flags — rely on the build's blessed defaults.
     proc = subprocess.Popen(
-        [binary_path, "--db", db_path, "--port", str(port)],
+        [binary_path, "--db", db_path, "--port", str(port), "--cascade"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     base = f"http://127.0.0.1:{port}"
