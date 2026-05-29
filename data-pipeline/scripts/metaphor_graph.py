@@ -357,6 +357,142 @@ def snap_concept_string(conn: sqlite3.Connection, text: str) -> str | None:
     return None
 
 
+def _lemma_variants(word: str) -> list[str]:
+    """Return distinct lemmatised variants of `word`, base-form first.
+
+    Order: noun-lemma, verb-lemma, then heuristic '-ing'/'-s' strips
+    for cases the WordNet lemmatiser misses (e.g. 'smelting' → 'smelt'
+    is not in WordNet's exception list). The caller iterates this in
+    order and stops at the first match — so noun reading is preferred,
+    then verb, then suffix heuristics. Lower-cased; the input surface
+    form is excluded so callers never re-try the direct match.
+
+    Distinct from `_morphological_variants` (used by snap_concept_string for
+    property concepts): this one is noun-first and entity-oriented, for
+    resolving metaphor topic/vehicle endpoints. Do not merge the two.
+    """
+    try:
+        lemmatiser = _get_lemmatiser()
+    except RuntimeError:
+        # No WordNet corpus — degrade gracefully (direct hits still resolve).
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    # POS order — noun first because metaphor vehicles are
+    # overwhelmingly nominal in the cohort. 'a'/'r' add little value
+    # and risk false positives on rare adjective stems.
+    for pos in ("n", "v"):
+        v = lemmatiser.lemmatize(word, pos=pos)
+        if v != word and v not in seen:
+            seen.add(v)
+            out.append(v)
+    # Heuristic suffix strips for WordNet gaps. Conservative bounds
+    # (len > 5 for -ing, len > 4 for -s) avoid generating short noise
+    # stems like 'in' from 'sing'.
+    if word.endswith("ing") and len(word) > 5:
+        for cand in (word[:-3], word[:-3] + "e"):
+            if cand not in seen:
+                seen.add(cand)
+                out.append(cand)
+    if word.endswith("s") and not word.endswith("ss") and len(word) > 4:
+        cand = word[:-1]
+        if cand not in seen:
+            seen.add(cand)
+            out.append(cand)
+    return out
+
+
+def lookup_primary_synset(conn: sqlite3.Connection, lemma: str) -> str | None:
+    """Resolve a lemma to its primary synset_id.
+
+    Prefers the curated vocabulary entry (least-polysemous lemma per synset).
+    Within curated/lemmas, prefers NOUN synsets when any exist for the
+    surface form — metaphor topics and vehicles are overwhelmingly nominal
+    (LakoffM01/Phase2 cohort), so picking the verb sense (e.g. 'anger' →
+    "make angry"; 'storm' → "take by force"; 'tide' → "rise or move")
+    yields property profiles built around action frames rather than the
+    intended entity-domain. Falls back to any-POS if no noun synset exists
+    so cases like a verb-only vehicle still resolve.
+    Falls back to the first synset in the lemmas table when curated vocab
+    has no entry. When neither match the surface form, falls back to
+    lemmatised variants (noun-lemma, then verb-lemma, then '-ing'/'-s'
+    heuristic strips) — recovers ~9% of cohort vehicles that arrive as
+    plurals or gerunds (FU-2 from the metaphor-enrichment spike).
+    Returns None if no variant resolves.
+
+    Canonical home is metaphor_graph (relocated 2026-05-29, Stage A hardening);
+    evaluate_aptness re-imports it. This is the ENDPOINT resolver (topics +
+    vehicles). Property/path concepts use snap_concept_string instead.
+    """
+    if not lemma:
+        return None
+    needle = lemma.strip().lower()
+
+    def _direct(form: str) -> str | None:
+        # Curated noun-preferred. Some legacy fixture DBs lack the `pos`
+        # column on property_vocab_curated; fail-open to the any-POS
+        # query in that case (matches the lemmas-table fail-open below).
+        try:
+            row = conn.execute(
+                "SELECT synset_id FROM property_vocab_curated "
+                "WHERE LOWER(lemma) = ? AND pos = 'n' "
+                "ORDER BY polysemy ASC LIMIT 1",
+                (form,),
+            ).fetchone()
+            if row:
+                return row[0]
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "no such column" not in msg and "no such table" not in msg:
+                raise
+        # Curated any-POS fallback (original behaviour).
+        row = conn.execute(
+            "SELECT synset_id FROM property_vocab_curated "
+            "WHERE LOWER(lemma) = ? "
+            "ORDER BY polysemy ASC LIMIT 1",
+            (form,),
+        ).fetchone()
+        if row:
+            return row[0]
+        # Lemmas table noun-preferred — requires JOIN with synsets which
+        # may be absent on fixture DBs that pre-date this schema column.
+        # Fail-open to the original any-POS query on missing-table so
+        # legacy fixtures keep passing without mirroring production schema.
+        try:
+            row = conn.execute(
+                "SELECT l.synset_id FROM lemmas l "
+                "JOIN synsets s ON l.synset_id = s.synset_id "
+                "WHERE LOWER(l.lemma) = ? AND s.pos = 'n' "
+                "ORDER BY l.synset_id LIMIT 1",
+                (form,),
+            ).fetchone()
+            if row:
+                return row[0]
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc).lower():
+                raise
+        row = conn.execute(
+            "SELECT synset_id FROM lemmas "
+            "WHERE LOWER(lemma) = ? "
+            "ORDER BY synset_id LIMIT 1",
+            (form,),
+        ).fetchone()
+        return row[0] if row else None
+
+    sid = _direct(needle)
+    if sid is not None:
+        return sid
+
+    # Lemmatised fallback — only triggered when the surface form is
+    # OOV in BOTH curated vocab and the lemmas table.
+    for variant in _lemma_variants(needle):
+        sid = _direct(variant)
+        if sid is not None:
+            return sid
+
+    return None
+
+
 class BridgeSnapFailure(ValueError):
     """Raised when one or more raw concept strings on a proposed bridge fail
     to snap to a curated synset. The bridge is not inserted."""

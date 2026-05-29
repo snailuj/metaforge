@@ -1116,3 +1116,38 @@ class TestSchemaCheckCluster:
                 "(bridge_id, label, judged_by, judged_at) VALUES (?, ?, ?, ?)",
                 (bid, "live", "julian", ""),
             )
+
+
+class TestLookupPrimarySynset:
+    """lookup_primary_synset relocated into metaphor_graph (Stage A hardening Task A)."""
+
+    @staticmethod
+    def _conn():
+        c = sqlite3.connect(":memory:")
+        c.executescript(
+            """
+            CREATE TABLE synsets (synset_id TEXT PRIMARY KEY, pos TEXT NOT NULL, gloss TEXT);
+            CREATE TABLE lemmas (lemma TEXT NOT NULL, synset_id TEXT NOT NULL);
+            CREATE TABLE property_vocab_curated (
+                vocab_id INTEGER PRIMARY KEY, synset_id TEXT NOT NULL UNIQUE,
+                lemma TEXT NOT NULL, pos TEXT, polysemy INTEGER);
+            INSERT INTO synsets VALUES ('s_anger','n','anger gloss'), ('s_rec','n','recursion gloss');
+            INSERT INTO lemmas VALUES ('anger','s_anger'), ('recursion','s_rec');
+            INSERT INTO property_vocab_curated VALUES (1,'s_anger','anger','n',1);
+            """
+        )
+        return c
+
+    def test_resolves_curated_lemma(self):
+        from metaphor_graph import lookup_primary_synset
+        assert lookup_primary_synset(self._conn(), "anger") == "s_anger"
+
+    def test_resolves_via_lemmas_table_when_not_curated(self):
+        # 'recursion' is in lemmas/synsets but NOT property_vocab_curated —
+        # the exact case snap_concept_string misses (63.5% topic coverage).
+        from metaphor_graph import lookup_primary_synset
+        assert lookup_primary_synset(self._conn(), "recursion") == "s_rec"
+
+    def test_returns_none_for_unknown(self):
+        from metaphor_graph import lookup_primary_synset
+        assert lookup_primary_synset(self._conn(), "zzznotaword") is None
