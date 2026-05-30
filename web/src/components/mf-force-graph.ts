@@ -16,6 +16,27 @@ const LABEL_FONT = 'Georgia, "Times New Roman", serif'
 // with avoiding false double-click detection on slower clickers
 const DBLCLICK_THRESHOLD_MS = 300
 
+// Grade-mode node/edge styling (spec "Force-graph node visuals"). Browse mode
+// uses rarity colours; grade nodes carry a `role` instead, so they need their
+// own palette + sizes, and edges colour by verdict.
+const GRADE_NODE_COLOURS: Record<'topic' | 'vehicle' | 'step', string> = {
+  topic: '#e2b07d',   // orange
+  vehicle: '#6fb8e0', // blue
+  step: '#c8c8c8',    // grey
+}
+const GRADE_NODE_VAL: Record<'topic' | 'vehicle' | 'step', number> = {
+  topic: 6,
+  vehicle: 4,
+  step: 2,
+}
+const GRADE_EDGE_COLOURS: Record<string, string> = {
+  live: '#6db86d',
+  dead: '#c47a7a',
+  bad_path: '#d6a560',
+  irrelevant: '#5a5f6a',
+  ungraded: '#e8e8e8',
+}
+
 // Grade-mode graph node — keyed by synset_id or head to ensure dedup across chains
 interface GradeNode {
   id: string
@@ -49,6 +70,7 @@ export class MfForceGraph extends LitElement {
   private clickTimer: ReturnType<typeof setTimeout> | null = null
   private resizeObserver: ResizeObserver | null = null
   private previousHoveredNode: GraphNode | null = null
+  private gradeFrameTimer: ReturnType<typeof setTimeout> | null = null
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
   @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
@@ -149,6 +171,8 @@ export class MfForceGraph extends LitElement {
   // --- Browse-mode helpers ---
 
   private isNodeVisible = (n: unknown): boolean => {
+    // Grade nodes carry no rarity — the rarity filter would hide them all.
+    if (this.mode === 'grade') return true
     const node = n as GraphNode
     if (node.relationType === 'central') return true
     const rarity = node.rarity ?? 'unusual'
@@ -167,21 +191,35 @@ export class MfForceGraph extends LitElement {
     this.graph = ForceGraph3D({ controlType: 'orbit' })(this.container)
       .backgroundColor('#1a1a2e')
       .nodeColor((n: unknown) => {
+        if (this.mode === 'grade') return GRADE_NODE_COLOURS[(n as GradeNode).role]
         const node = n as GraphNode
         if (node.relationType === 'central') return NODE_COLOURS.central
         return RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
       })
-      .nodeVal((n: unknown) => (n as GraphNode).val)
+      .nodeVal((n: unknown) => (
+        this.mode === 'grade' ? GRADE_NODE_VAL[(n as GradeNode).role] : (n as GraphNode).val
+      ))
       .nodeOpacity(0.9)
       .nodeRelSize(0.5)
       .nodeThreeObjectExtend(true)
       .nodeThreeObject((n: unknown) => {
-        const node = n as GraphNode
-        const colour = node.relationType === 'central'
-          ? NODE_COLOURS.central
-          : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
-        const fontSize = node.order === 2 ? 2 : 3
-        const sprite = new SpriteText(node.word, fontSize, colour)
+        let label: string
+        let colour: string
+        let fontSize: number
+        if (this.mode === 'grade') {
+          const gn = n as GradeNode
+          label = gn.phrase
+          colour = GRADE_NODE_COLOURS[gn.role]
+          fontSize = gn.role === 'step' ? 2 : 3
+        } else {
+          const node = n as GraphNode
+          colour = node.relationType === 'central'
+            ? NODE_COLOURS.central
+            : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
+          fontSize = node.order === 2 ? 2 : 3
+          label = node.word
+        }
+        const sprite = new SpriteText(label, fontSize, colour)
         sprite.fontFace = LABEL_FONT
         sprite.backgroundColor = false
         sprite.material.transparent = true
@@ -194,8 +232,16 @@ export class MfForceGraph extends LitElement {
       .d3AlphaDecay(0.005)
       .cooldownTime(30000)
       .warmupTicks(50)
-      .linkColor((l: unknown) => (l as GraphLink).order === 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR)
-      .linkWidth((l: unknown) => (l as GraphLink).order === 2 ? 0.5 : 1)
+      .linkColor((l: unknown) => {
+        if (this.mode === 'grade') {
+          const verdict = this.getEdgeColour((l as GradeLink).chainSig)
+          return GRADE_EDGE_COLOURS[verdict ?? 'ungraded']
+        }
+        return (l as GraphLink).order === 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR
+      })
+      .linkWidth((l: unknown) => (
+        this.mode === 'grade' ? 1.5 : ((l as GraphLink).order === 2 ? 0.5 : 1)
+      ))
       .linkOpacity(0.6)
       .onNodeClick((n: unknown) => {
         // In grade mode, node clicks route to handleNodeClick for chain-selected emission.
@@ -290,9 +336,48 @@ export class MfForceGraph extends LitElement {
     this.graph.nodeVisibility(this.isNodeVisible)
     this.graph.linkVisibility(this.isLinkVisible)
 
-    if (this.graphData.nodes.length) {
-      this.graph.graphData(this.graphData)
+    this.feedGraph()
+  }
+
+  /**
+   * The node/link set actually handed to the 3D renderer: the grade graph in
+   * grade mode, the browse graph otherwise. This is the decision that was
+   * missing — grade nodes/links were computed but never fed to the library,
+   * so grade mode rendered an empty graph.
+   */
+  activeGraphData(): { nodes: unknown[]; links: unknown[] } {
+    if (this.mode === 'grade') {
+      return { nodes: this.gradeNodes, links: this.gradeLinks }
     }
+    return this.graphData
+  }
+
+  /** Feed the active graph to the library, and (grade mode) frame it. */
+  private feedGraph(): void {
+    if (!this.graph) return
+    const data = this.activeGraphData()
+    if (this.mode === 'grade') {
+      this.graph.graphData(data as GraphData)
+      this.frameGradeGraph()
+    } else if (data.nodes.length) {
+      this.graph.graphData(data as GraphData)
+    }
+  }
+
+  /**
+   * Frame the grade constellation after the force sim has had a moment to
+   * spread nodes out from the origin. Without this the camera can sit
+   * zoomed-out / panned away from the cluster (the reported "nothing on
+   * screen" symptom once data is flowing).
+   */
+  private frameGradeGraph(): void {
+    if (this.gradeFrameTimer) clearTimeout(this.gradeFrameTimer)
+    this.gradeFrameTimer = setTimeout(() => {
+      // zoomToFit is a real runtime method but missing from 3d-force-graph's
+      // (inaccurate) .d.ts — cast through, as the camera()/controls() calls do.
+      ;(this.graph as unknown as { zoomToFit?: (ms: number, px: number) => void })
+        .zoomToFit?.(400, 30)
+    }, 700)
   }
 
   /** Toggle rounded-rectangle border on the SpriteText label for hover feedback */
@@ -333,8 +418,14 @@ export class MfForceGraph extends LitElement {
   }
 
   updated(changed: PropertyValues<this>): void {
-    if (changed.has('graphData') && this.graph) {
-      this.graph.graphData(this.graphData)
+    // Re-feed the renderer when the browse graph, the mode, the grade chains,
+    // or the judgements (edge colours) change. Grade-mode data flows here —
+    // gradeChains arrives via prop after a topic is selected.
+    if (this.graph && (
+      changed.has('graphData') || changed.has('mode') ||
+      changed.has('gradeChains') || changed.has('judgements')
+    )) {
+      this.feedGraph()
     }
     if (changed.has('hiddenRarities') && this.graph) {
       this.graph.nodeVisibility(this.isNodeVisible)
@@ -345,6 +436,7 @@ export class MfForceGraph extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback()
     if (this.clickTimer) clearTimeout(this.clickTimer)
+    if (this.gradeFrameTimer) clearTimeout(this.gradeFrameTimer)
     if (this.resizeObserver) {
       this.resizeObserver.disconnect()
       this.resizeObserver = null

@@ -459,6 +459,27 @@ describe('MfForceGraph', () => {
       expect(gradeEl.gradeNodes).toEqual([])
     })
 
+    it('activeGraphData feeds the grade graph in grade mode (regression: grade data was never rendered)', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      const data = gradeEl.activeGraphData()
+      // grade graph: anger(topic) + heat(shared) + venom + fire = 4 nodes
+      expect(data.nodes.length).toBe(4)
+      expect(data.links.length).toBe(gradeEl.gradeLinks.length)
+      expect(data.links.length).toBeGreaterThan(0)
+      // and it must NOT be the (empty) browse graphData
+      expect(data.nodes).not.toBe(gradeEl.graphData.nodes)
+    })
+
+    it('activeGraphData feeds the browse graph in browse mode', async () => {
+      gradeEl.mode = 'browse'
+      const browse = { nodes: [{ id: 'x' }], links: [] }
+      gradeEl.graphData = browse as any
+      await gradeEl.updateComplete
+      expect(gradeEl.activeGraphData()).toBe(browse)
+    })
+
     it('does not emit chain-selected in browse mode', async () => {
       gradeEl.mode = 'browse'
       gradeEl.gradeChains = CHAINS
