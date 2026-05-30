@@ -337,6 +337,177 @@ describe('MfForceGraph', () => {
     expect(capturedLinkVisibility!({ source: centralNode, target: commonNode })).toBe(true)
   })
 
+  describe('grade mode', () => {
+    // ChainRecord fixtures — two chains sharing the 'heat' intermediate node
+    const CHAINS: import('../types/grading').ChainRecord[] = [
+      {
+        schema_version: 'chain.v1',
+        topic: 'anger', topic_synset_id: '1',
+        vehicle: 'venom', vehicle_synset_id: '3',
+        proposer: 'sonnet_v1', round: 1,
+        chain_signature: 'a'.repeat(64),
+        generated_at: 'x',
+        chain: [
+          { phrase: 'anger', head: 'anger', synset_id: '1' },
+          { phrase: 'heat', head: 'heat', synset_id: '2' },
+          { phrase: 'venom', head: 'venom', synset_id: '3' },
+        ],
+      },
+      {
+        schema_version: 'chain.v1',
+        topic: 'anger', topic_synset_id: '1',
+        vehicle: 'fire', vehicle_synset_id: '5',
+        proposer: 'sonnet_v1', round: 1,
+        chain_signature: 'b'.repeat(64),
+        generated_at: 'x',
+        chain: [
+          { phrase: 'anger', head: 'anger', synset_id: '1' },
+          { phrase: 'heat', head: 'heat', synset_id: '2' }, // shared with above
+          { phrase: 'fire', head: 'fire', synset_id: '5' },
+        ],
+      },
+    ]
+
+    let gradeEl: MfForceGraph
+
+    beforeEach(async () => {
+      gradeEl = document.createElement('mf-force-graph') as MfForceGraph
+      document.body.appendChild(gradeEl)
+      await gradeEl.updateComplete
+    })
+
+    afterEach(() => {
+      document.body.removeChild(gradeEl)
+    })
+
+    it('builds dedup nodes by synset_id in grade mode', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      // Both chains pass through heat (synset_id=2) — node count should be 4:
+      // anger (topic), heat (shared intermediate), venom, fire
+      expect(gradeEl.gradeNodes.length).toBe(4)
+      const heatNodes = gradeEl.gradeNodes.filter((n: any) => n.id === 'syn:2')
+      expect(heatNodes.length).toBe(1)
+    })
+
+    it('dedupes by head when synset_id is null', async () => {
+      const nullSyn: import('../types/grading').ChainRecord[] = [{
+        ...CHAINS[0],
+        chain: [
+          { phrase: 'anger', head: 'anger', synset_id: '1' },
+          { phrase: 'unsnappable phrase', head: 'unsnappable', synset_id: null },
+          { phrase: 'venom', head: 'venom', synset_id: '3' },
+        ],
+      }]
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = nullSyn
+      await gradeEl.updateComplete
+      // Should produce a node keyed by head:unsnappable
+      const headKeyed = gradeEl.gradeNodes.filter((n: any) => n.id === 'head:unsnappable')
+      expect(headKeyed.length).toBe(1)
+    })
+
+    it('emits chain-selected on vehicle node click', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      let captured: any = null
+      gradeEl.addEventListener('chain-selected', (e: any) => { captured = e.detail })
+      gradeEl.handleNodeClick({ id: 'syn:3', isVehicle: true })
+      // venom vehicle should match chain[0] (anger->heat->venom)
+      expect(captured?.chain_signature).toBe('a'.repeat(64))
+    })
+
+    it('does not load 3D below 900px viewport', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.viewportWidth = 800
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      expect(gradeEl.threeDLoaded).toBe(false)
+    })
+
+    it('builds edge colour map from judgements', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      gradeEl.judgements = [{
+        schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+        topic: 'anger', topic_synset_id: '1',
+        vehicle: 'venom', vehicle_synset_id: '3',
+        proposer: 'sonnet_v1',
+        chain_signature: 'a'.repeat(64),
+        label: 'live', confidence: 'high', notes: '', supersedes_ts: null,
+        ts: '2026-05-30T00:00:00Z',
+      }]
+      await gradeEl.updateComplete
+      const verdict = gradeEl.getEdgeColour('a'.repeat(64))
+      expect(verdict).toBe('live')
+    })
+
+    it('returns null from getEdgeColour for unjudged chain', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      gradeEl.judgements = []
+      await gradeEl.updateComplete
+      expect(gradeEl.getEdgeColour('a'.repeat(64))).toBeNull()
+    })
+
+    it('gradeNodes returns empty array in browse mode', async () => {
+      gradeEl.mode = 'browse'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      expect(gradeEl.gradeNodes).toEqual([])
+    })
+
+    it('does not emit chain-selected in browse mode', async () => {
+      gradeEl.mode = 'browse'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      let fired = false
+      gradeEl.addEventListener('chain-selected', () => { fired = true })
+      gradeEl.handleNodeClick({ id: 'syn:3', isVehicle: true })
+      expect(fired).toBe(false)
+    })
+
+    it('does not emit chain-selected on non-vehicle node click', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      let fired = false
+      gradeEl.addEventListener('chain-selected', () => { fired = true })
+      // heat is an intermediate step, not a vehicle
+      gradeEl.handleNodeClick({ id: 'syn:2', isVehicle: false })
+      expect(fired).toBe(false)
+    })
+
+    it('latest judgement wins when two exist for same signature', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      gradeEl.judgements = [
+        {
+          schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+          topic: 'anger', topic_synset_id: '1',
+          vehicle: 'venom', vehicle_synset_id: '3',
+          proposer: 'sonnet_v1',
+          chain_signature: 'a'.repeat(64),
+          label: 'dead', confidence: 'low', notes: '', supersedes_ts: null,
+          ts: '2026-05-29T00:00:00Z',
+        },
+        {
+          schema_version: 'judgement.v1', judged_by: 'julian', round: 2,
+          topic: 'anger', topic_synset_id: '1',
+          vehicle: 'venom', vehicle_synset_id: '3',
+          proposer: 'sonnet_v1',
+          chain_signature: 'a'.repeat(64),
+          label: 'live', confidence: 'high', notes: '', supersedes_ts: null,
+          ts: '2026-05-30T00:00:00Z',
+        },
+      ]
+      await gradeEl.updateComplete
+      expect(gradeEl.getEdgeColour('a'.repeat(64))).toBe('live')
+    })
+  })
+
   describe('order-2 visual differentiation', () => {
     it('sets nodeOpacity as a static number', () => {
       // nodeOpacity must be a number — 3d-force-graph v1.79 uses it

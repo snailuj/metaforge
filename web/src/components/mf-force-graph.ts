@@ -6,6 +6,7 @@ import type { ForceGraph3DInstance } from '3d-force-graph'
 import SpriteText from 'three-spritetext'
 import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
+import type { ChainRecord, JudgementRecord } from '../types/grading'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
 const EDGE_COLOUR_DIM = 'rgba(232, 224, 212, 0.08)'
@@ -14,6 +15,20 @@ const LABEL_FONT = 'Georgia, "Times New Roman", serif'
 // 300ms matches typical OS double-click threshold; balances responsiveness
 // with avoiding false double-click detection on slower clickers
 const DBLCLICK_THRESHOLD_MS = 300
+
+// Grade-mode graph node — keyed by synset_id or head to ensure dedup across chains
+interface GradeNode {
+  id: string
+  phrase: string
+  role: 'topic' | 'vehicle' | 'step'
+}
+
+// Grade-mode graph link — retains originating chain signature for colouring
+interface GradeLink {
+  source: string
+  target: string
+  chainSig: string
+}
 
 @customElement('mf-force-graph')
 export class MfForceGraph extends LitElement {
@@ -37,6 +52,101 @@ export class MfForceGraph extends LitElement {
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
   @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
+  @property({ attribute: false }) mode: 'browse' | 'grade' = 'browse'
+  @property({ attribute: false }) gradeChains: ChainRecord[] = []
+  @property({ attribute: false }) judgements: JudgementRecord[] = []
+  @property({ type: Number }) viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
+
+  // Whether the 3D library should be loaded. Derived from mode + viewportWidth —
+  // kept as a getter so Lit never schedules a secondary update cycle from updated().
+  // Rendered by the template (controls flat fallback), so changes propagate via
+  // the reactive props it depends on (mode, viewportWidth) — no @state needed.
+  get threeDLoaded(): boolean {
+    return this.mode === 'browse' || this.viewportWidth >= 900
+  }
+
+  // --- Grade-mode derived accessors ---
+
+  /** Deduplicated node list for grade mode. Keyed by synset_id (preferred) or head. */
+  get gradeNodes(): GradeNode[] {
+    if (this.mode !== 'grade') return []
+    return this.buildGradeGraph().nodes
+  }
+
+  /** Edge list for grade mode, one link per consecutive chain step pair. */
+  get gradeLinks(): GradeLink[] {
+    if (this.mode !== 'grade') return []
+    return this.buildGradeGraph().links
+  }
+
+  private buildGradeGraph(): { nodes: GradeNode[]; links: GradeLink[] } {
+    const nodes = new Map<string, GradeNode>()
+    const links: GradeLink[] = []
+    for (const chain of this.gradeChains) {
+      const stepIds: string[] = []
+      for (let i = 0; i < chain.chain.length; i++) {
+        const step = chain.chain[i]
+        const id = step.synset_id ? `syn:${step.synset_id}` : `head:${step.head}`
+        const role: GradeNode['role'] =
+          i === 0 ? 'topic' : (i === chain.chain.length - 1 ? 'vehicle' : 'step')
+        if (!nodes.has(id)) {
+          nodes.set(id, { id, phrase: step.phrase, role })
+        }
+        stepIds.push(id)
+      }
+      for (let i = 0; i < stepIds.length - 1; i++) {
+        links.push({ source: stepIds[i], target: stepIds[i + 1], chainSig: chain.chain_signature })
+      }
+    }
+    return { nodes: [...nodes.values()], links }
+  }
+
+  /**
+   * Called when a node is clicked in grade mode. Emits `chain-selected` with
+   * the matching ChainRecord if the clicked node is a vehicle endpoint.
+   * Non-vehicle clicks are silently ignored — callers should set `isVehicle`
+   * based on node role in the grade graph.
+   */
+  handleNodeClick(node: { id: string; isVehicle?: boolean }): void {
+    if (this.mode !== 'grade' || !node.isVehicle) return
+    const matches = this.gradeChains.filter(c => {
+      const last = c.chain[c.chain.length - 1]
+      const lastId = last.synset_id ? `syn:${last.synset_id}` : `head:${last.head}`
+      return lastId === node.id
+    })
+    if (matches.length === 0) return
+    // v1: emit first match; multi-match disambiguation is a v1.1 affordance
+    this.dispatchEvent(new CustomEvent('chain-selected', {
+      detail: matches[0],
+      bubbles: true,
+      composed: true,
+    }))
+  }
+
+  /**
+   * Latest-per-signature verdict derived from the judgements prop.
+   * Newer ts string wins; undefined ts sorts last (treated as empty string).
+   */
+  private get latestVerdicts(): Map<string, JudgementRecord> {
+    const m = new Map<string, JudgementRecord>()
+    for (const j of this.judgements) {
+      const existing = m.get(j.chain_signature)
+      if (!existing || (j.ts ?? '') > (existing.ts ?? '')) {
+        m.set(j.chain_signature, j)
+      }
+    }
+    return m
+  }
+
+  /**
+   * Returns the label for a chain signature, or null if unjudged.
+   * Used by the 3D renderer to colour edges per verdict.
+   */
+  getEdgeColour(chainSig: string): string | null {
+    return this.latestVerdicts.get(chainSig)?.label ?? null
+  }
+
+  // --- Browse-mode helpers ---
 
   private isNodeVisible = (n: unknown): boolean => {
     const node = n as GraphNode
