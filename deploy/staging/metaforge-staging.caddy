@@ -4,23 +4,21 @@ metaforge-next.julianit.me {
         reverse_proxy 127.0.0.1:53775
     }
 
-    # Grading API — auth + rate limit + body cap + secret injection.
-    # Requires caddy-ratelimit plugin: sudo caddy add-package github.com/mholt/caddy-ratelimit
+    # Grading API — basic-auth + body cap + secret injection.
+    # __JULIAN_BCRYPT_HASH__ and __GRADING_SECRET__ are sed-substituted by the
+    # deploy step (caddy.service has no EnvironmentFile, so Caddy's {$VAR}
+    # substitution is unavailable — we render the values into this root-owned
+    # snippet directly, the same mechanism as __WORKTREE__).
+    # NOTE: per-IP rate_limit deferred — requires the caddy-ratelimit plugin,
+    # which would mean rebuilding the shared Caddy binary serving all sites.
+    # basic-auth already blocks crawlers; revisit if bcrypt-CPU-DoS becomes real.
     handle /api/grading/* {
         basicauth {
-            julian {$JULIAN_BCRYPT_HASH}
+            julian __JULIAN_BCRYPT_HASH__
         }
 
         request_body {
             max_size 1MB
-        }
-
-        rate_limit {
-            zone grading_ip {
-                key {remote_host}
-                events 10
-                window 10s
-            }
         }
 
         log {
@@ -29,7 +27,7 @@ metaforge-next.julianit.me {
         }
 
         reverse_proxy 127.0.0.1:53775 {
-            header_up X-Grading-Secret {$GRADING_SECRET}
+            header_up X-Grading-Secret __GRADING_SECRET__
         }
     }
 
