@@ -29,10 +29,14 @@ const GRADE_NODE_VAL: Record<'topic' | 'vehicle' | 'step', number> = {
   vehicle: 7,
   step: 4,
 }
-// Constant on-screen label height (px-ish via sizeAttenuation=false) so labels
-// never shrink to illegibility when zoomed out — they just overlap, which is
-// the accepted trade-off. Endpoints slightly larger than intermediate steps.
-const GRADE_LABEL_HEIGHT = { endpoint: 9, step: 7 }
+// Base label height in WORLD units (sprites scale with distance normally).
+// A per-frame clamp (startLabelClampLoop) then enforces a minimum on-screen
+// size so labels never shrink to illegibility when zoomed out — they just
+// overlap, the accepted trade-off. Endpoints slightly larger than steps.
+const GRADE_LABEL_HEIGHT = { endpoint: 4, step: 3 }
+// Minimum on-screen label height in CSS px (~10pt). Below this the clamp scales
+// the sprite up; above it the label keeps its natural distance-based size.
+const GRADE_LABEL_MIN_PX = 11
 const GRADE_EDGE_COLOURS: Record<string, string> = {
   live: '#6db86d',
   dead: '#c47a7a',
@@ -75,6 +79,7 @@ export class MfForceGraph extends LitElement {
   private resizeObserver: ResizeObserver | null = null
   private previousHoveredNode: GraphNode | null = null
   private gradeFrameTimer: ReturnType<typeof setTimeout> | null = null
+  private labelClampRAF: number | null = null
   // Chain signature of the path currently hovered (grade mode) — whole-path highlight.
   private hoveredChainSig: string | null = null
 
@@ -232,10 +237,6 @@ export class MfForceGraph extends LitElement {
         sprite.material.depthWrite = false
         sprite.padding = [0.5, 2]
         sprite.position.y = 2
-        if (this.mode === 'grade') {
-          // Constant screen size — label legibility is independent of zoom.
-          sprite.material.sizeAttenuation = false
-        }
         return sprite
       })
       .d3VelocityDecay(0.85)
@@ -353,6 +354,7 @@ export class MfForceGraph extends LitElement {
       this.graph.nodeRelSize(2)
       this.graph.d3Force('charge')?.strength?.(-22)
       this.graph.d3Force('link')?.distance?.(18)
+      this.startLabelClampLoop()
     }
 
     // Sync renderer dimensions to actual container size (fixes hit-test offset)
@@ -395,6 +397,53 @@ export class MfForceGraph extends LitElement {
       return { nodes: this.gradeNodes, links: this.gradeLinks }
     }
     return this.graphData
+  }
+
+  /**
+   * Per-frame clamp keeping grade labels at >= GRADE_LABEL_MIN_PX on screen.
+   * Sprites scale with distance normally; when a label would render smaller
+   * than the floor (zoomed out), it's scaled up to the floor. Self-corrects
+   * each frame, so zooming back in releases the boost. Verifiable numerically
+   * (projected px) without needing a screenshot.
+   */
+  private startLabelClampLoop(): void {
+    const loop = () => {
+      this.labelClampRAF = requestAnimationFrame(loop)
+      if (this.mode !== 'grade' || !this.graph || !this.container) return
+      const cam = this.graph.camera() as
+        { fov?: number; position: { x: number; y: number; z: number } }
+      const h = this.container.clientHeight
+      if (!h || !cam || cam.fov == null) return
+      const projFactor = h / (2 * Math.tan((cam.fov * Math.PI / 180) / 2))
+      const data = this.graph.graphData() as unknown as {
+        nodes: Array<{
+          x?: number; y?: number; z?: number
+          __threeObj?: { children?: Array<{
+            isSprite?: boolean
+            scale: { x: number; y: number; set(x: number, y: number, z: number): void }
+            userData: Record<string, unknown>
+          }> }
+        }>
+      }
+      for (const n of data.nodes) {
+        if (n.x == null) continue
+        const sprite = n.__threeObj?.children?.find(c => c.isSprite)
+        if (!sprite) continue
+        let base = sprite.userData.__baseScale as { x: number; y: number } | undefined
+        if (!base) {
+          base = { x: sprite.scale.x, y: sprite.scale.y }
+          sprite.userData.__baseScale = base
+        }
+        const dx = cam.position.x - (n.x ?? 0)
+        const dy = cam.position.y - (n.y ?? 0)
+        const dz = cam.position.z - (n.z ?? 0)
+        const dist = Math.hypot(dx, dy, dz) || 1
+        const apparentPx = (base.y * projFactor) / dist
+        const mult = apparentPx < GRADE_LABEL_MIN_PX ? GRADE_LABEL_MIN_PX / apparentPx : 1
+        sprite.scale.set(base.x * mult, base.y * mult, 1)
+      }
+    }
+    this.labelClampRAF = requestAnimationFrame(loop)
   }
 
   /** Re-apply link accessors so the library re-evaluates colour/width
@@ -486,6 +535,7 @@ export class MfForceGraph extends LitElement {
     super.disconnectedCallback()
     if (this.clickTimer) clearTimeout(this.clickTimer)
     if (this.gradeFrameTimer) clearTimeout(this.gradeFrameTimer)
+    if (this.labelClampRAF) cancelAnimationFrame(this.labelClampRAF)
     if (this.resizeObserver) {
       this.resizeObserver.disconnect()
       this.resizeObserver = null
