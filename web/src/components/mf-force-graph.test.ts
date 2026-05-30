@@ -12,6 +12,7 @@ let capturedLinkColor: ((link: unknown) => string) | null = null
 let capturedLinkWidth: ((link: unknown) => number) | null = null
 let capturedNodeThreeObject: ((node: unknown) => unknown) | null = null
 let capturedOnNodeClick: ((node: unknown) => void) | null = null
+let capturedOnLinkClick: ((link: unknown) => void) | null = null
 let capturedOnNodeHover: ((node: unknown | null, previousNode: unknown | null) => void) | null = null
 let capturedControlType: string | undefined = undefined
 
@@ -68,6 +69,12 @@ const chainable: Record<string, unknown> = new Proxy({}, {
     if (prop === 'onNodeClick') {
       return (fn: (node: unknown) => void) => {
         capturedOnNodeClick = fn
+        return chainable
+      }
+    }
+    if (prop === 'onLinkClick') {
+      return (fn: (link: unknown) => void) => {
+        capturedOnLinkClick = fn
         return chainable
       }
     }
@@ -134,6 +141,7 @@ describe('MfForceGraph', () => {
     capturedLinkWidth = null
     capturedNodeThreeObject = null
     capturedOnNodeClick = null
+    capturedOnLinkClick = null
     capturedOnNodeHover = null
     capturedControlType = undefined
     mockCamera.position.z = 100
@@ -521,6 +529,27 @@ describe('MfForceGraph', () => {
       gradeEl.addEventListener('chain-selected', () => { fired = true })
       // heat (syn:2) is an intermediate step, not a vehicle
       capturedOnNodeClick!({ id: 'syn:2', word: 'heat' })
+      expect(fired).toBe(false)
+    })
+
+    it('onLinkClick in grade mode emits chain-selected for the link\'s chain', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      let captured: any = null
+      gradeEl.addEventListener('chain-selected', (e: any) => { captured = e.detail })
+      // Clicking any segment of a path selects that chain (same as the vehicle).
+      capturedOnLinkClick!({ chainSig: 'a'.repeat(64) })
+      expect(captured?.chain_signature).toBe('a'.repeat(64))
+    })
+
+    it('onLinkClick in browse mode does not emit chain-selected', async () => {
+      gradeEl.mode = 'browse'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      let fired = false
+      gradeEl.addEventListener('chain-selected', () => { fired = true })
+      capturedOnLinkClick!({ chainSig: 'a'.repeat(64) })
       expect(fired).toBe(false)
     })
 

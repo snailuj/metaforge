@@ -82,9 +82,17 @@ export class MfGradePanel extends LitElement {
     }
 
     private _onKeydown(e: KeyboardEvent) {
-        // Don't intercept keys when the user is typing in the notes textarea
-        const target = e.target as HTMLElement | null;
-        if (target && target.tagName === 'TEXTAREA') return;
+        // Don't intercept grading keys when the user is typing in ANY editable
+        // field — including ones in other shadow roots (design-notes textarea,
+        // topic-picker input). e.target retargets to the shadow host across
+        // boundaries, so a plain tagName check on e.target misses them; the
+        // composed path includes the real focused element regardless of root.
+        const editable = e.composedPath().some(el => {
+            const node = el as HTMLElement;
+            return node && (node.tagName === 'TEXTAREA' || node.tagName === 'INPUT'
+                || node.isContentEditable === true);
+        });
+        if (editable) return;
 
         const k = e.key.toLowerCase();
         if (k in VERDICT_KEYS) {

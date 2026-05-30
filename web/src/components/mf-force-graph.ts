@@ -25,10 +25,14 @@ const GRADE_NODE_COLOURS: Record<'topic' | 'vehicle' | 'step', string> = {
   step: '#c8c8c8',    // grey
 }
 const GRADE_NODE_VAL: Record<'topic' | 'vehicle' | 'step', number> = {
-  topic: 6,
-  vehicle: 4,
-  step: 2,
+  topic: 10,
+  vehicle: 7,
+  step: 4,
 }
+// Constant on-screen label height (px-ish via sizeAttenuation=false) so labels
+// never shrink to illegibility when zoomed out — they just overlap, which is
+// the accepted trade-off. Endpoints slightly larger than intermediate steps.
+const GRADE_LABEL_HEIGHT = { endpoint: 9, step: 7 }
 const GRADE_EDGE_COLOURS: Record<string, string> = {
   live: '#6db86d',
   dead: '#c47a7a',
@@ -71,6 +75,8 @@ export class MfForceGraph extends LitElement {
   private resizeObserver: ResizeObserver | null = null
   private previousHoveredNode: GraphNode | null = null
   private gradeFrameTimer: ReturnType<typeof setTimeout> | null = null
+  // Chain signature of the path currently hovered (grade mode) — whole-path highlight.
+  private hoveredChainSig: string | null = null
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
   @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
@@ -210,7 +216,7 @@ export class MfForceGraph extends LitElement {
           const gn = n as GradeNode
           label = gn.phrase
           colour = GRADE_NODE_COLOURS[gn.role]
-          fontSize = gn.role === 'step' ? 2 : 3
+          fontSize = gn.role === 'step' ? GRADE_LABEL_HEIGHT.step : GRADE_LABEL_HEIGHT.endpoint
         } else {
           const node = n as GraphNode
           colour = node.relationType === 'central'
@@ -226,6 +232,10 @@ export class MfForceGraph extends LitElement {
         sprite.material.depthWrite = false
         sprite.padding = [0.5, 2]
         sprite.position.y = 2
+        if (this.mode === 'grade') {
+          // Constant screen size — label legibility is independent of zoom.
+          sprite.material.sizeAttenuation = false
+        }
         return sprite
       })
       .d3VelocityDecay(0.85)
@@ -234,15 +244,41 @@ export class MfForceGraph extends LitElement {
       .warmupTicks(50)
       .linkColor((l: unknown) => {
         if (this.mode === 'grade') {
-          const verdict = this.getEdgeColour((l as GradeLink).chainSig)
-          return GRADE_EDGE_COLOURS[verdict ?? 'ungraded']
+          const sig = (l as GradeLink).chainSig
+          const verdict = this.getEdgeColour(sig)
+          const base = GRADE_EDGE_COLOURS[verdict ?? 'ungraded']
+          // Whole-path highlight: links sharing the hovered chain glow white.
+          return sig === this.hoveredChainSig ? '#ffffff' : base
         }
         return (l as GraphLink).order === 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR
       })
-      .linkWidth((l: unknown) => (
-        this.mode === 'grade' ? 1.5 : ((l as GraphLink).order === 2 ? 0.5 : 1)
-      ))
+      .linkWidth((l: unknown) => {
+        if (this.mode === 'grade') {
+          return (l as GradeLink).chainSig === this.hoveredChainSig ? 3 : 1.5
+        }
+        return (l as GraphLink).order === 2 ? 0.5 : 1
+      })
       .linkOpacity(0.6)
+      .onLinkHover((l: unknown) => {
+        if (this.mode !== 'grade') return
+        const sig = l ? (l as GradeLink).chainSig : null
+        if (sig !== this.hoveredChainSig) {
+          this.hoveredChainSig = sig
+          this.refreshLinkStyles()
+        }
+        if (this.container) this.container.style.cursor = l ? 'pointer' : 'default'
+      })
+      .onLinkClick((l: unknown) => {
+        if (this.mode !== 'grade' || !l) return
+        // Click anywhere on a path selects it — same as clicking the vehicle.
+        const sig = (l as GradeLink).chainSig
+        const chain = this.gradeChains.find(c => c.chain_signature === sig)
+        if (chain) {
+          this.dispatchEvent(new CustomEvent('chain-selected', {
+            detail: chain, bubbles: true, composed: true,
+          }))
+        }
+      })
       .onNodeClick((n: unknown) => {
         // In grade mode, node clicks route to handleNodeClick for chain-selected emission.
         // The grade graph uses `id` keys of the form `syn:<id>` or `head:<name>`.
@@ -310,6 +346,15 @@ export class MfForceGraph extends LitElement {
         this.previousHoveredNode = node
       })
 
+    // Grade mode: tighter constellation + bigger hit-spheres so nodes are
+    // closer together and easier to click. (Browse mode keeps its defaults —
+    // this is a separate element instance from the browse graph.)
+    if (this.mode === 'grade' && this.graph) {
+      this.graph.nodeRelSize(2)
+      this.graph.d3Force('charge')?.strength?.(-22)
+      this.graph.d3Force('link')?.distance?.(18)
+    }
+
     // Sync renderer dimensions to actual container size (fixes hit-test offset)
     requestAnimationFrame(() => {
       this.syncDimensions()
@@ -352,6 +397,13 @@ export class MfForceGraph extends LitElement {
     return this.graphData
   }
 
+  /** Re-apply link accessors so the library re-evaluates colour/width
+   *  (used for whole-path hover highlight). */
+  private refreshLinkStyles(): void {
+    if (!this.graph) return
+    this.graph.linkColor(this.graph.linkColor()).linkWidth(this.graph.linkWidth())
+  }
+
   /** Feed the active graph to the library, and (grade mode) frame it. */
   private feedGraph(): void {
     if (!this.graph) return
@@ -373,10 +425,7 @@ export class MfForceGraph extends LitElement {
   private frameGradeGraph(): void {
     if (this.gradeFrameTimer) clearTimeout(this.gradeFrameTimer)
     this.gradeFrameTimer = setTimeout(() => {
-      // zoomToFit is a real runtime method but missing from 3d-force-graph's
-      // (inaccurate) .d.ts — cast through, as the camera()/controls() calls do.
-      ;(this.graph as unknown as { zoomToFit?: (ms: number, px: number) => void })
-        .zoomToFit?.(400, 30)
+      this.graph?.zoomToFit(400, 30)
     }, 700)
   }
 

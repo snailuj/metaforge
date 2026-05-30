@@ -97,4 +97,17 @@ describe('mf-grade-panel', () => {
         expect(captured?.confidence).toBe('high');
         expect(captured?.label).toBe('live');
     });
+
+    it('does NOT fire a verdict when a grading key is pressed inside an editable field', async () => {
+        let captured: any = null;
+        el.addEventListener('verdict-submit', (e: any) => { captured = e.detail; });
+        // A keydown whose composed path includes a TEXTAREA (e.g. the design-notes
+        // textarea in another shadow root) must not trigger grading.
+        const ta = document.createElement('textarea');
+        document.body.appendChild(ta);
+        ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', bubbles: true, composed: true }));
+        await new Promise(r => setTimeout(r, 0));
+        expect(captured).toBeNull();
+        document.body.removeChild(ta);
+    });
 });
