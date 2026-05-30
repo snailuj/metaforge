@@ -20,6 +20,7 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 | `docs/plans/` | Detailed implementation plans |
 | `docs/designs/metaphor-forge.md` | Sprint Zero feature |
 | `MetaforgeConcept.png` | Visual reference (antique + cosmic themes) |
+| `data-pipeline/grading/` + `data-pipeline/grading_sidecar/` | Metaphor Grading Tool — bootstrap-loop instrument (single-user web grading mode + FastAPI sidecar). See spec at `docs/superpowers/specs/2026-05-30-metaphor-grading-tool-design.md` and plan at `docs/superpowers/plans/2026-05-30-metaphor-grading-tool.md`. |
 
 ## Architecture
 
@@ -47,6 +48,10 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 - 20k word enrichment
 - CI/CD pipeline
 - Testing, Polish for MVP
+
+## Grading tool — when active
+
+The Metaphor Grading Tool (`data-pipeline/grading_sidecar/` + grading mode in `mf-app`) is an active-learning bootstrap-loop instrument: Julian grades Sonnet-generated metaphor chains (live/dead/bad_path/irrelevant), bad_path examples feed the next round's prompt. Deployed at `metaforge-next.julianit.me` via path-scoped Caddy routing (`/api/grading/*`); the production URL graceful-degrades via the `/api/grading/healthz` probe. JSONL data committed under `data-pipeline/grading/` with `_provisional` markers (auto-commit every 15 min while sidecar runs). See `docs/superpowers/specs/2026-05-30-metaphor-grading-tool-design.md` for the authoritative design.
 
 ---
 
