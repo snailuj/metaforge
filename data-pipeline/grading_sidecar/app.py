@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from .routes import healthz, judgements, chains, topics, stats, calibration
+from .routes import healthz, judgements, chains, topics, stats, calibration, design_notes
 
 ALLOWED_HOSTS = {
     "metaforge-next.julianit.me",
@@ -64,4 +64,5 @@ def create_app() -> FastAPI:
     app.include_router(topics.router)
     app.include_router(stats.router)
     app.include_router(calibration.router)
+    app.include_router(design_notes.router)
     return app
