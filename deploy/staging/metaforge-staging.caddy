@@ -1,4 +1,39 @@
 metaforge-next.julianit.me {
+    # Healthz — public, no auth (frontend probe).
+    handle /api/grading/healthz {
+        reverse_proxy 127.0.0.1:53775
+    }
+
+    # Grading API — auth + rate limit + body cap + secret injection.
+    # Requires caddy-ratelimit plugin: sudo caddy add-package github.com/mholt/caddy-ratelimit
+    handle /api/grading/* {
+        basicauth {
+            julian {$JULIAN_BCRYPT_HASH}
+        }
+
+        request_body {
+            max_size 1MB
+        }
+
+        rate_limit {
+            zone grading_ip {
+                key {remote_host}
+                events 10
+                window 10s
+            }
+        }
+
+        log {
+            output file /var/log/caddy/metaforge-next.julianit.me.log
+            format json
+        }
+
+        reverse_proxy 127.0.0.1:53775 {
+            header_up X-Grading-Secret {$GRADING_SECRET}
+        }
+    }
+
+    # Thesaurus / Forge / Strings / Health — existing Go API.
     handle /thesaurus/* {
         reverse_proxy 127.0.0.1:8081
     }
@@ -11,6 +46,8 @@ metaforge-next.julianit.me {
     handle /health {
         reverse_proxy 127.0.0.1:8081
     }
+
+    # Default — SPA catch-all with immutable asset cache.
     handle {
         root * __WORKTREE__/web/dist
         try_files {path} /index.html
