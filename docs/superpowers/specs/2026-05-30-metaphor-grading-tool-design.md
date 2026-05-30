@@ -5,7 +5,7 @@
 **PIPELINE.md filing:** new Backlog entry — promoted to Next when grading-tool work starts (see *PIPELINE filing* section near the end).
 **Predecessors:**
 - Stage A hardening spec — `docs/superpowers/specs/2026-05-29-metaphor-graph-stage-a-hardening.md`
-- Chain-spike outcome — 20-topic Sonnet ordered-chain test, `/tmp/stagea_spike/sonnet_chains.jsonl` (200 chains, mean 5.3 steps, near-zero adjacent substring-overlap padding hint, 57% multi-word steps, qualitatively rich but non-trivial `bad_path` rate visible on eyeball — see `dev.julianit.me` rendering of the spike output)
+- Chain-spike outcome — 20-topic Sonnet ordered-chain test, `/tmp/stagea_spike/sonnet_chains.jsonl` (200 chains, mean 5.3 steps, near-zero adjacent substring-overlap padding hint, 57% multi-word steps, qualitatively rich but non-trivial `bad_path` rate visible on eyeball — see `metaforge-next.julianit.me` rendering of the spike output)
 - Metaphor-graph schema base — `docs/superpowers/specs/2026-05-28-metaphor-graph-schema-design.md`
 
 **Memory anchors:** `eval_as_preference_tracking_instrument`, `metaphor_graph_vs_property_graph`, `metaphor_graph_schema_base_landed`, `loop2_cohort_haiku_only`, `mobile_remote_brevity`, `critique_when_invited`, `snapping_reconciliation_deferred`.
@@ -68,30 +68,36 @@ The grading tool is the **instrument** of this loop. It is also the deliberate *
 ```
 Browser (mobile or desktop)
     ↕ HTTPS
-Caddy on dev.julianit.me
-    ├─ basicauth (Julian only) — fails-closed; cost-12 bcrypt
-    ├─ rate-limit per-IP (1 r/s, burst 10)
-    ├─ request_body max_size 1MB
-    ├─ header_up X-Grading-Secret {env.GRADING_SECRET}  — fail-closed if unset
-    ├─ log access (no headers, no body) → journald
-    └─ reverse_proxy 127.0.0.1:53775
+Caddy on metaforge-next.julianit.me  (existing site block; path-scoped routing added)
+    │
+    ├─ /api/grading/healthz   → reverse_proxy 127.0.0.1:53775         (NO auth — probe path)
+    │
+    ├─ /api/grading/*         → basicauth (cost-12 bcrypt)
+    │                            request_body { max_size 1MB }
+    │                            rate_limit per-IP (1 r/s, burst 10)
+    │                            log access (no headers, no body) → journald
+    │                            reverse_proxy 127.0.0.1:53775 {
+    │                                header_up X-Grading-Secret {env.GRADING_SECRET}
+    │                            }
+    │
+    └─ (default)              → reverse_proxy 127.0.0.1:8081           (existing Metaforge Go API
+                                  serving SPA + /forge/* + /thesaurus/*)
                           │
                           ▼
-              Python sidecar (FastAPI, systemd service)
-              ├─ Auth: X-Grading-Secret required (hmac.compare_digest);
-              │        UNLESS GRADING_DEV=1 (dev-only, asserted unset in prod systemd unit)
-              ├─ Host-header allowlist: dev.julianit.me, localhost:5173 (dev)
+              Python sidecar (FastAPI, systemd service — API only, no static serving)
+              ├─ Auth: X-Grading-Secret required on every non-healthz route
+              │        (hmac.compare_digest; UNLESS GRADING_DEV=1, asserted unset in prod systemd)
+              ├─ Host-header allowlist: metaforge-next.julianit.me, localhost:5173 (dev)
               ├─ CORS: Access-Control-Allow-Origin = same origin only
-              ├─ Static: serves web/dist/ (vite build output)
-              ├─ /api/healthz       → unauth'd, 127.0.0.1-only (Caddy doesn't proxy this)
-              ├─ /api/stats         → counts, last-write timestamp, schema_version
-              ├─ /api/topics        → topic list (lean: no per-topic counts; UI derives)
-              ├─ /api/chains        → unions sonnet_chains_provisional_r*.jsonl (with optional topic filter)
-              ├─ /api/judgements    → reads judgements_provisional.jsonl (UI applies latest-per-signature)
-              ├─ /api/judgements    → POST: append (fcntl-flock + plain append + fsync)
-              ├─ /api/design-notes  → GET full markdown content
-              ├─ /api/design-notes  → POST: append timestamped block
-              └─ /api/calibration-sample?n=10 → returns N round-1 chains for re-grading
+              ├─ GET  /api/grading/healthz             → 200; no auth; frontend probe
+              ├─ GET  /api/grading/stats               → counts, last-write timestamp, schema_version
+              ├─ GET  /api/grading/topics              → lean topic list (no per-topic counts; UI derives)
+              ├─ GET  /api/grading/chains?topic=…      → unions sonnet_chains_provisional_r*.jsonl
+              ├─ GET  /api/grading/judgements?topic=…  → raw stream (UI applies latest-per-signature)
+              ├─ POST /api/grading/judgements          → append (fcntl-flock + plain append + fsync)
+              ├─ GET  /api/grading/design-notes        → full markdown content
+              ├─ POST /api/grading/design-notes        → append timestamped block
+              └─ GET  /api/grading/calibration-sample?n=10&round=1 → re-grading sample
                           │
                           ▼
                   data-pipeline/grading/  (committed, _provisional)
@@ -105,6 +111,8 @@ Caddy on dev.julianit.me
                   Auto-commit timer (sidecar runs `git add … && git commit -m "wip(grading): autosave"`
                   every 15 min if any file changed; logs to journald)
 ```
+
+**Subdomain decision (2026-05-30):** grading deploys on `metaforge-next.julianit.me` (the existing staging tier) via **path-scoped routing** within its existing Caddy block — NOT a new subdomain. `dev.julianit.me` is freed up as scratch. The frontend (with grading mode baked into `mf-app`) ships unchanged to both `production` and `next` worktrees via the existing deploy convention. On `metaforge.julianit.me` (prod), the grading toggle is hidden because the frontend probes `/api/grading/healthz` at mount and that path is not routed there (returns 404 from the Go API). On `metaforge-next.julianit.me` the probe returns 200 (sidecar) and the toggle shows. Same SPA artifact, different deploy targets, graceful degradation. Promotion of grading to prod is a future Caddy snippet edit on `metaforge.julianit.me`, not a re-architecture.
 
 **Why** every layer:
 
@@ -123,35 +131,56 @@ Caddy on dev.julianit.me
 
 **Threat model:** opportunistic crawlers / scripts discovering the subdomain via DNS, CT logs, or scan. Not protecting against targeted attacker.
 
-### Layer 1 — Caddy HTTP Basic Auth
+### Layer 1 — Caddy HTTP Basic Auth (path-scoped)
 
-`deploy/caddy/dev.caddy` (committed to repo, no secret content):
+We patch the **existing** `metaforge-next.julianit.me` Caddy snippet (which currently reverse-proxies everything to the thesaurus Go API on 127.0.0.1:8081) to add two new path-scoped blocks for grading. Default-path behaviour (thesaurus + SPA) is preserved.
+
+`deploy/caddy/metaforge-next.caddy.template` (committed; rendered to `/etc/caddy/conf.d/metaforge-next.caddy.active` at deploy time):
 
 ```caddy
-dev.julianit.me {
-    @ratelimit_exceeded {
-        # per-IP rate-limit: 1 r/s sustained, burst 10
+metaforge-next.julianit.me {
+    # 1) Healthz: NO auth — used by the frontend to probe whether grading is available.
+    handle /api/grading/healthz {
+        reverse_proxy 127.0.0.1:53775
     }
 
-    basicauth {
-        julian {$JULIAN_BCRYPT_HASH}
+    # 2) Grading API: auth + rate-limit + body cap + secret-injection.
+    handle /api/grading/* {
+        basicauth {
+            julian {$JULIAN_BCRYPT_HASH}
+        }
+
+        request_body {
+            max_size 1MB
+        }
+
+        # rate_limit per-IP, 1 r/s sustained, burst 10 (caddy-ratelimit plugin)
+        rate_limit {
+            zone grading_ip {
+                key {remote_host}
+                events 10
+                window 10s
+            }
+        }
+
+        log {
+            output file /var/log/caddy/metaforge-next.julianit.me.log
+            format json
+            # do NOT log headers or body — both contain credentials
+        }
+
+        reverse_proxy 127.0.0.1:53775 {
+            header_up X-Grading-Secret {$GRADING_SECRET}
+        }
     }
 
-    request_body {
-        max_size 1MB
-    }
-
-    log {
-        output file /var/log/caddy/dev.julianit.me.log
-        format json
-        # do NOT log headers or body — both contain credentials
-    }
-
-    reverse_proxy 127.0.0.1:53775 {
-        header_up X-Grading-Secret {$GRADING_SECRET}
-    }
+    # 3) Default: existing thesaurus + SPA via the Go API.
+    reverse_proxy 127.0.0.1:8081
+    # ... (existing cache headers, error-page directives, etc. — preserved from current snippet)
 }
 ```
+
+The `production` worktree's `metaforge.julianit.me` snippet is NOT modified — its `/api/grading/*` paths simply 404 (no handle block), the frontend probe sees that, and the grading toggle stays hidden on prod.
 
 - `JULIAN_BCRYPT_HASH` and `GRADING_SECRET` come from `/etc/default/caddy` (Caddy systemd EnvironmentFile, mode `0640 caddy:caddy`).
 - **Password requirement:** Julian generates a 24-char password via `openssl rand -base64 24`, stores it ONLY in his password manager. Bcrypt hash via `caddy hash-password` at cost 12. The hash is safe in the repo because the password is high-entropy.
@@ -170,7 +199,7 @@ if not SECRET:
 
 Every request must carry `X-Grading-Secret: <secret>`. Sidecar compares via `hmac.compare_digest` (constant-time). Mismatch → 401.
 
-**`/api/healthz`** is exempted from the secret check AND bound only to 127.0.0.1 from a separate route — Caddy does not proxy it. systemd/monitoring can probe `http://127.0.0.1:53775/api/healthz` directly.
+**`/api/grading/healthz`** is exempted from the secret check inside the sidecar (the route handler bypasses the auth dependency). Caddy proxies it publicly without basic-auth so the frontend can probe `grading-availability` cheaply on every mount. Probe response is intentionally minimal (`{"ok": true}`) — leaks no state. systemd/monitoring on the VPS can also hit `http://127.0.0.1:53775/api/grading/healthz` directly.
 
 ### Dev-mode bypass (explicit and asserted)
 
@@ -190,7 +219,7 @@ def verify_secret(req: Request, x_grading_secret: str = Header(default="")):
 
 FastAPI middleware:
 
-- `Host:` must be `dev.julianit.me` (prod), `localhost:53775`, or `localhost:5173` (dev). Otherwise 421 Misdirected.
+- `Host:` must be `metaforge-next.julianit.me` (prod), `localhost:53775`, or `localhost:5173` (dev). Otherwise 421 Misdirected.
 - `Access-Control-Allow-Origin` = same-origin only. No cross-origin XHR/fetch.
 
 Defends against DNS-rebinding attacks targeting `127.0.0.1:53775` from a hostile origin in Julian's browser.
@@ -210,8 +239,8 @@ The frontend bundle MUST NOT contain `X-Grading-Secret` — Caddy injects it; th
 
 ### Auth smoke tests (CI)
 
-- `curl -s -o /dev/null -w "%{http_code}" https://dev.julianit.me` → 401 (no basic auth)
-- `curl -u julian:wrongpass https://dev.julianit.me/api/healthz` → 401 (path is unproxied; Caddy basic-auth still blocks)
+- `curl -s -o /dev/null -w "%{http_code}" https://metaforge-next.julianit.me` → 401 (no basic auth)
+- `curl -u julian:wrongpass https://metaforge-next.julianit.me/api/grading/healthz` → 401 (path is unproxied; Caddy basic-auth still blocks)
 - Production startup: `GRADING_DEV=1 systemctl start metaforge-grading` → service fails to start (assertion).
 - Empty-secret tests: clear `/etc/default/caddy`, reload → reload fails. Clear `/etc/metaforge/grading_secret`, restart sidecar → sidecar refuses to start.
 - Constant-time test: hmac.compare_digest in place (unit test).
@@ -312,15 +341,25 @@ Plus a one-line UI hint near both note inputs: *"Public repo — no secrets, nam
 
 ## UI integration
 
+### Grading-availability probe (graceful degrade)
+
+On mount, `mf-app` fires a single GET to `/api/grading/healthz`:
+
+- **200** → grading is available here; render the mode toggle; respect last-used `localStorage` mode (default `grade` on `metaforge-next.julianit.me`).
+- **401** → grading is available but the user hasn't authed yet; render the toggle (browser shows the basic-auth prompt when the user clicks any auth'd grading endpoint).
+- **404 / network error / 5xx** → grading is NOT available here (prod URL, sidecar down, local dev without `GRADING_DEV=1`); the toggle is hidden entirely and `mode` is forced to `browse`. The SPA collapses cleanly to the read-only thesaurus.
+
+This means the SAME `web/dist/` artifact ships to both the `production` and `next` worktrees: it's the path-routing on the Caddy host that determines whether grading mode is reachable. No URL-aware build-time flags.
+
 ### Default landing state
 
-`dev.julianit.me` defaults to **Grading Mode** on first load (no need to discover a toggle). `localStorage` remembers the last-used mode. A header button **[Grading Mode] ↔ [Browse Mode]** flips. On `localhost:5173` (dev), default is still `browse` to preserve normal thesaurus dev flow.
+`metaforge-next.julianit.me` defaults to **Grading Mode** on first load when the probe returns 200/401 (no need to discover a toggle). `localStorage` remembers the last-used mode within a host. A header button **[Grading Mode] ↔ [Browse Mode]** flips. On `localhost:5173` (dev), default is `browse` to preserve normal thesaurus dev flow; `grade` becomes accessible once `GRADING_DEV=1` is set and the local sidecar is running.
 
 ### Components
 
 **New** (under `web/src/components/`):
 
-- `mf-topic-picker.ts` — filterable combobox (not bare dropdown) of topics with chain data. Each entry shows topic phrase only. Emits `topic-selected` with `{topic, topic_synset_id}`. UI derives judgement counts from cached `/api/judgements` (no server-side topic-count endpoint).
+- `mf-topic-picker.ts` — filterable combobox (not bare dropdown) of topics with chain data. Each entry shows topic phrase only. Emits `topic-selected` with `{topic, topic_synset_id}`. UI derives judgement counts from cached `/api/grading/judgements` (no server-side topic-count endpoint).
 - `mf-grade-panel.ts` — verdict controls + per-chain notes textarea. Visible when a chain is selected.
   - **Four verdict buttons** (Live / Dead / Bad Path / Irrelevant), with **keyboard shortcuts L / D / B / I** as primary input. Keyboard binding shown next to each button label.
   - **Confidence picker:** three buttons (High / Med / Low), default High; keyboard 1/2/3.
@@ -350,7 +389,7 @@ In grade mode the force-graph contains:
 1. Click a vehicle node (or tap a card).
 2. Force-graph highlights the specific chain's edges (looked up from chain data; not graph traversal). Other chains' edges dim. **If multiple chains terminate at the same vehicle (multi-proposer or path variation), a small "1 of N chains for this vehicle" selector appears at the top of the grade panel — left/right arrows or up/down keys cycle.**
 3. `mf-grade-panel` opens (right column desktop / bottom modal mobile).
-4. Verdict shortcut key or click → POST `/api/judgements`. On success: edge re-colour to verdict colour; toast "Saved"; panel advances to next un-judged chain (Enter / Right arrow).
+4. Verdict shortcut key or click → POST `/api/grading/judgements`. On success: edge re-colour to verdict colour; toast "Saved"; panel advances to next un-judged chain (Enter / Right arrow).
 5. On POST failure: client retries 3× with exponential backoff (1s, 3s, 9s). If all fail, toast "Failed — your verdict will retry on next save attempt"; verdict held in localStorage `pending_judgements` queue, flushed on next successful POST or page reload.
 6. Already-judged chains stay coloured (un-judged = bright; verdict-coloured = dimmed). Click re-opens with the re-grade banner.
 7. **Shared-edge verdict conflict rule:** edges belong to *chains*, not abstract graph edges. Two chains sharing a step but with different verdicts render as two coloured edges between the same node pair (offset slightly visually). The selected-path glow overrides verdict colour for the active chain only.
@@ -373,20 +412,20 @@ In grade mode the force-graph contains:
 ### Dual-device sync
 
 - Sidecar is authoritative; localStorage caches only UI state (mode, last-topic, pending_judgements queue), never canonical data.
-- On topic load: re-fetches `/api/judgements?topic=…` even if a cached version exists.
+- On topic load: re-fetches `/api/grading/judgements?topic=…` even if a cached version exists.
 - If two POSTs for the same `chain_signature` arrive (e.g. phone + desktop both grading), both append; UI's latest-per-signature picks the latest `ts`. Acceptable.
 
 ### Error states
 
 | State | Render |
 |-------|--------|
-| `/api/topics` returns empty | Banner: "No grading data yet — run a round" + link to docs |
-| `/api/chains?topic=…` returns empty | "This topic has no chains" + back button |
-| `/api/judgements` 5xx | Banner: "Couldn't load history — retry"; verdict actions disabled until recovered |
+| `/api/grading/topics` returns empty | Banner: "No grading data yet — run a round" + link to docs |
+| `/api/grading/chains?topic=…` returns empty | "This topic has no chains" + back button |
+| `/api/grading/judgements` 5xx | Banner: "Couldn't load history — retry"; verdict actions disabled until recovered |
 | POST verdict 5xx | Inline toast retry (3×); on final failure → pending_judgements queue + persistent banner "N verdicts pending" |
 | 401 from any endpoint | Force `mode = 'browse'` + banner: "Auth expired — refresh to re-authenticate" |
 | Sidecar unreachable (network error) | Banner: "Grading service unavailable — verdicts will queue locally" |
-| Auto-commit failed (logged from sidecar `/api/stats`) | Subtle indicator: "Last autosave 32 min ago" (instead of green "Up to date") |
+| Auto-commit failed (logged from sidecar `/api/grading/stats`) | Subtle indicator: "Last autosave 32 min ago" (instead of green "Up to date") |
 
 ---
 
@@ -398,15 +437,15 @@ In grade mode the force-graph contains:
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| GET | `/api/healthz` | none (127.0.0.1 only) | Health probe |
-| GET | `/api/stats` | secret | Counts, last-write ts, schema_version, autocommit_last_run |
-| GET | `/api/topics` | secret | Lean topic list (no per-topic counts) |
-| GET | `/api/chains?topic=<lemma>` | secret | Unions all `sonnet_chains_provisional_r*.jsonl`, filters by topic if given. Skips malformed lines (logged). |
-| GET | `/api/judgements?topic=<lemma>` | secret | Raw stream of judgement lines (UI applies latest-per-signature). |
-| POST | `/api/judgements` | secret | Append a verdict (Pydantic-validated). |
-| GET | `/api/design-notes` | secret | Full markdown content of design_notes_provisional.md. |
-| POST | `/api/design-notes` | secret | Append a timestamped block. |
-| GET | `/api/calibration-sample?n=10&round=1` | secret | Returns N random round-K chains for re-grading (calibration drift workflow). |
+| GET | `/api/grading/healthz` | none (public; Caddy proxies without auth) | Probe; minimal response (`{"ok": true}`); used by frontend graceful-degrade |
+| GET | `/api/grading/stats` | secret | Counts, last-write ts, schema_version, autocommit_last_run |
+| GET | `/api/grading/topics` | secret | Lean topic list (no per-topic counts) |
+| GET | `/api/grading/chains?topic=<lemma>` | secret | Unions all `sonnet_chains_provisional_r*.jsonl`, filters by topic if given. Skips malformed lines (logged). |
+| GET | `/api/grading/judgements?topic=<lemma>` | secret | Raw stream of judgement lines (UI applies latest-per-signature). |
+| POST | `/api/grading/judgements` | secret | Append a verdict (Pydantic-validated). |
+| GET | `/api/grading/design-notes` | secret | Full markdown content of design_notes_provisional.md. |
+| POST | `/api/grading/design-notes` | secret | Append a timestamped block. |
+| GET | `/api/grading/calibration-sample?n=10&round=1` | secret | Returns N random round-K chains for re-grading (calibration drift workflow). |
 
 ### Persistence — corrected atomicity
 
@@ -462,7 +501,7 @@ Does NOT push automatically (would require credentials on the VPS). Julian pushe
 
 - Structured JSON logs per request: `method, path, status, latency_ms, user_agent`.
 - Structured log per POST verdict: `topic, vehicle, chain_signature, label, confidence`.
-- `/api/stats` returns counters (POST count, error count) and last-write timestamps.
+- `/api/grading/stats` returns counters (POST count, error count) and last-write timestamps.
 - Frontend shows "Last sync 4s ago" indicator next to mode toggle.
 
 ### Systemd unit
@@ -493,7 +532,7 @@ CapabilityBoundingSet=
 |---------|----------|----------|
 | Sidecar crash | systemd Restart=on-failure | restart; pending_judgements in browser localStorage retries |
 | JSONL line malformed | GET endpoint skips + logs at WARN | `scripts/validate_grading_jsonl.py` reports count; manual fix from git history |
-| Auto-commit fails | sidecar log + `/api/stats` returns degraded; banner in UI | manual `git add && git commit` from VPS; investigate (probably hook failure) |
+| Auto-commit fails | sidecar log + `/api/grading/stats` returns degraded; banner in UI | manual `git add && git commit` from VPS; investigate (probably hook failure) |
 | Disk full | sidecar 5xx on POST | UI queues verdicts; banner; ops alert via journald |
 | Concurrent write race | (defended by flock; should not happen) | logged; no data loss expected |
 | Stale localStorage from a prior session | server is authoritative; sidecar's `chain_signature` is canonical | UI always re-fetches on topic load |
@@ -555,7 +594,7 @@ The 0.05 absolute floor is now framed as *aspirational*, not a stop signal — t
 ### Calibration-drift workflow
 
 At round 3 (and every round thereafter), the script `scripts/calibration_drift_check.py`:
-- Fetches `/api/calibration-sample?n=10&round=1` (sidecar returns 10 random round-1 chains).
+- Fetches `/api/grading/calibration-sample?n=10&round=1` (sidecar returns 10 random round-1 chains).
 - Marks them in a separate `calibration_targets.json` file.
 - UI surfaces a "Calibration drift check" button next to the topic picker — opens a focused view of those 10 chains with their prior verdict shown alongside.
 - Julian re-grades them (re-grade banner shows prior verdict).
@@ -616,26 +655,42 @@ Output:
 
 ## Deployment & CI
 
-### Caddy snippet management
+### Caddy snippet management (patch existing metaforge-next snippet)
 
-`deploy/caddy/dev.caddy.template` is committed (env-var placeholders for secrets). `deploy/grading/deploy.sh`:
+The existing `next` worktree already manages a `metaforge-next.caddy.template` for the staging host. The grading-tool work **adds the two path-scoped `handle` blocks above** (`/api/grading/healthz` and `/api/grading/*`) to that template, alongside the existing default `reverse_proxy 127.0.0.1:8081`. No new subdomain, no new Caddy site block.
+
+`deploy/grading/deploy.sh` extends the existing `next` worktree's deploy convention:
 
 ```bash
 set -euo pipefail
-test -n "${JULIAN_BCRYPT_HASH:?}"   # fail-closed
+test -n "${JULIAN_BCRYPT_HASH:?}"   # fail-closed on missing
 test -n "${GRADING_SECRET:?}"
-envsubst < deploy/caddy/dev.caddy.template > /etc/caddy/conf.d/dev.caddy
+
+# Render the patched metaforge-next snippet (template lives in deploy/caddy/)
+envsubst < deploy/caddy/metaforge-next.caddy.template \
+    > /etc/caddy/conf.d/metaforge-next.caddy.active
+
+# Validate before reload so a broken snippet doesn't take the staging site down.
 caddy validate --config /etc/caddy/Caddyfile
+
+# Apply
 systemctl reload caddy
 systemctl restart metaforge-grading
-curl -fsS http://127.0.0.1:53775/api/healthz
+
+# Post-deploy smoke
+curl -fsS http://127.0.0.1:53775/api/grading/healthz
+curl -fsS https://metaforge-next.julianit.me/api/grading/healthz
+curl -fsS -u julian:wrongpass https://metaforge-next.julianit.me/api/grading/stats \
+    && { echo "FAIL: auth bypass" >&2; exit 1; } || true   # expected 401
 ```
 
-`.active` rendered file is gitignored (matches existing two-site deploy convention).
+`.active` rendered file is gitignored (matches existing two-site deploy convention). `dev.julianit.me` snippet is unchanged — it stays scratch as Julian wants.
 
 ### Frontend build → VPS
 
-Built locally (`cd web && npm run build`) → `web/dist/` rsync'd to `/var/lib/metaforge-grading/dist/`. Sidecar serves from there. Deploy step appends to `deploy/grading/deploy.sh`.
+The frontend is **served by the existing Metaforge Go API** on `127.0.0.1:8081` (per the existing `production`/`next` worktree convention), NOT by the sidecar. The grading mode toggle is baked into `mf-app`, so the same `web/dist/` artifact ships to both worktrees via the existing deploy scripts. On the `next` worktree the grading toggle activates (because the sidecar is reachable); on `production` it stays hidden via the healthz probe.
+
+This means: no new frontend deploy plumbing. Re-run the existing `next` worktree's deploy after building `web/` and the updated SPA lands. The sidecar is API-only — it does not serve static files.
 
 ### CI checks (project pre-commit / future GitHub Actions)
 
@@ -690,14 +745,18 @@ Promote to Next when implementation work starts.
 | Decision | Outcome |
 |----------|---------|
 | Form factor | Grading toggle in the existing thesaurus app; NOT a separate route. |
-| Default mode on dev.julianit.me | `grade` (no toggle discovery needed). |
+| Deployment subdomain | `metaforge-next.julianit.me` (existing staging tier). Path-scoped routing within the existing Caddy site block — NOT a new subdomain. `dev.julianit.me` stays untouched as scratch. Promotion to prod (`metaforge.julianit.me`) is a future Caddy snippet edit, not a re-architecture. |
+| Frontend distribution | Same `web/dist/` artifact ships to both `production` and `next` worktrees via existing deploy. Grading toggle activates only where the sidecar is reachable (graceful-degrade via `/api/grading/healthz` probe). |
+| API path namespace | All grading endpoints live under `/api/grading/*`. Default `/` and `/forge/*` / `/thesaurus/*` paths still hit the existing Go API on 8081 unchanged. |
+| Sidecar serves static files? | NO — sidecar is API-only. The existing Go API on 8081 serves `web/dist/` (per existing thesaurus convention). |
+| Default mode on metaforge-next.julianit.me | `grade` (no toggle discovery needed). |
 | Persistence layer | Repo-committed JSONL + markdown, `_provisional` filename markers, under `data-pipeline/grading/`. UTF-8 NFC, no BOM. Schema-versioned. |
 | Auto-commit | Sidecar runs `git add … && git commit -m 'wip(grading): autosave'` every 15 min if any change. No push. |
 | Auth | Caddy HTTP Basic (cost-12 bcrypt + high-entropy 24-char password) + defense-in-depth `X-Grading-Secret` (fail-closed both ends) + rate limit + host allowlist + request-body cap + no header logging. |
-| Caddy snippet location | `deploy/caddy/dev.caddy.template` in repo; rendered to `/etc/caddy/conf.d/dev.caddy` at deploy time. `.active` file gitignored per existing convention. |
+| Caddy snippet location | `deploy/caddy/metaforge-next.caddy.template` (patched copy of the existing next-worktree template) in repo; rendered to `/etc/caddy/conf.d/metaforge-next.caddy.active` at deploy time. `.active` file gitignored per existing convention. `dev.caddy` snippet unchanged. |
 | Local-dev auth bypass | `GRADING_DEV=1` env-gated; production systemd unit asserts unset and fails to start if set. |
-| Backend | Python FastAPI sidecar, bound to 127.0.0.1:53775, served by systemd, port chosen for Caddy reverse-proxy adjacency (8082-style alternatives also acceptable; 53775 retained because Caddy snippet already exists at that port). |
-| Port number rationale | Existing `dev.caddy` already proxies 127.0.0.1:53775. Avoid Caddy reconfig. |
+| Backend | Python FastAPI sidecar, bound to 127.0.0.1:53775, served by systemd. API only — no static-file serving. |
+| Port number rationale | 53775 inherited from the chain-spike's HTTP server (no specific tie to that infra anymore now that the dev subdomain is freed; the port is just an available high-port. Adjusting to e.g. 8082 is fine if a more memorable choice is preferred during implementation). |
 | 3D rendering | Reuses existing `mf-force-graph` (3d-force-graph). Desktop ≥900px only. Lazy-loaded. |
 | Mobile | Flat-text grading cards + bottom-sheet design-notes overlay. No 3D library load. |
 | Chain step shape | `{phrase, head, synset_id}` — backfilled for existing data via subagent + Haiku; new rounds emit directly via updated Sonnet prompt. `synset_id` is bare integer-as-text (matching `synsets` PK). |
@@ -739,7 +798,7 @@ Promote to Next when implementation work starts.
 | Verdict POST failure → lost click | medium | 3× retry + localStorage `pending_judgements` queue + persistent banner. |
 | JSONL line corruption | low | line-level skip + log + `validate_grading_jsonl.py` pre-commit check. |
 | Dual-device verdict race | low | server authoritative; latest-`ts` wins on read. Acceptable. |
-| Auto-commit failure (e.g. permissions) | low | sidecar log + `/api/stats` exposes last successful commit; UI surfaces "stale" indicator. |
+| Auto-commit failure (e.g. permissions) | low | sidecar log + `/api/grading/stats` exposes last successful commit; UI surfaces "stale" indicator. |
 | WIP loss between commits | low | 15-min auto-commit window; banner shows time-since-last-commit. |
 | Calibration drift | medium | `calibration_drift_check.py` at round 3+; flip-rate ≥0.30 triggers wider re-sample. |
 | Bad_path-rate convergence noise at n=20 | medium | Wilson CI test, not point comparison; 8-round hard ceiling. |
@@ -750,15 +809,19 @@ Promote to Next when implementation work starts.
 | Mobile force-graph performance | n/a | Disabled below 900px; flat-text fallback. |
 | Dense graph (>40 nodes per topic) | low | per-topic chain ceiling explicit (40 chains per topic) — assert and error if exceeded. |
 | UTF-8/Unicode in phrases | low | NFC normalisation pinned; non-ASCII heads may snap null (acceptable). |
+| Caddy directive ordering — `handle` blocks must be evaluated BEFORE the default `reverse_proxy 127.0.0.1:8081`, or grading paths silently get the Go API's 404 | medium | Caddy evaluates `handle` blocks by specificity (longest path prefix wins) — `/api/grading/*` outranks `/`. Pinned in deploy.sh smoke-test (curl `/api/grading/healthz` must hit sidecar, not Go API). |
+| Caddy reload to rotate grading secrets briefly affects thesaurus paths too (single Caddy reload reloads the whole config) | low | Reload is <1s; thesaurus serves stale connections through the reload. Acceptable for staging-tier work. |
+| Production Caddy snippet drifts behind staging's grading additions, then a future "promote grading to prod" edit forgets a path | medium | Document the staging↔prod snippet relationship in `deploy/caddy/README.md` so the eventual promotion is a documented diff, not a re-derivation. |
+| Frontend graceful-degrade probe leaks "grading is here" to anyone hitting prod/staging | low | `/api/grading/healthz` returns a static `{"ok": true}` — no state leak. Acknowledged as expected behaviour for the probe pattern. |
 
 ---
 
 ## Implementation order (sketch for `writing-plans`)
 
-1. **Auth foundation** — `deploy/caddy/dev.caddy.template`, `deploy/grading/deploy.sh`, generate 24-char password (Julian's password manager) + bcrypt hash; populate `/etc/default/caddy` env-vars; create `/etc/metaforge/grading_secret` (mode 0600); validate Caddy config; smoke-test 401 / 200; assert empty-secret fail-closed.
-2. **Sidecar skeleton** — FastAPI app in `data-pipeline/grading_sidecar/`, all endpoints stubbed; pytest scaffolding green; auth dependency (`hmac.compare_digest`, dev-bypass via `GRADING_DEV=1`); host-allowlist middleware; `/api/healthz` 127.0.0.1-only.
+1. **Auth foundation** — patch `deploy/caddy/metaforge-next.caddy.template` with the two `handle /api/grading/*` blocks (healthz + auth'd); add `deploy/grading/deploy.sh`; generate 24-char password (Julian's password manager) + bcrypt hash; populate `/etc/default/caddy` env-vars (`JULIAN_BCRYPT_HASH`, `GRADING_SECRET`); create `/etc/metaforge/grading_secret` (mode 0600); validate Caddy config; smoke-test that existing thesaurus paths still 200, grading paths 401 without auth and 200 with; assert empty-secret fail-closed.
+2. **Sidecar skeleton** — FastAPI app in `data-pipeline/grading_sidecar/`, all endpoints stubbed; pytest scaffolding green; auth dependency (`hmac.compare_digest`, dev-bypass via `GRADING_DEV=1`); host-allowlist middleware; `/api/grading/healthz` 127.0.0.1-only.
 3. **Sidecar persistence + locking** — `append_jsonl` helper (flock + fsync), `read_jsonl_skip_malformed`, schema-version validation; full pytest coverage.
-4. **Auto-commit task** — asyncio loop, subprocess `git add && git commit`, log + `/api/stats` integration.
+4. **Auto-commit task** — asyncio loop, subprocess `git add && git commit`, log + `/api/grading/stats` integration.
 5. **Head-extraction backfill subagent** — produces `data-pipeline/grading/sonnet_chains_provisional_r1.jsonl`, committed.
 6. **Systemd service install** — `metaforge-grading.service`, dedicated user, hardening pinned (no ProtectHome), verify autocommit runs.
 7. **Frontend mode toggle + topic picker (combobox)** — `mf-app` mode state, `mf-topic-picker` combobox, localStorage persist.
