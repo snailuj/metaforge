@@ -7,23 +7,25 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# 1. Create dedicated user if not present (idempotent).
-if ! id metaforge-grading &>/dev/null; then
-    sudo useradd --system --shell /sbin/nologin --no-create-home metaforge-grading
-fi
+# The sidecar runs as `agent` (the repo owner — see metaforge-grading.service
+# for why a dedicated user breaks code-read + git-autocommit). The secret file
+# is therefore owned by agent.
+SIDECAR_USER="${SIDECAR_USER:-agent}"
 
-# 2. Ensure secret-file path exists with 0700 dir (operator populates the file).
-sudo install -d -m 0700 -o root -g root /etc/metaforge
+# 1. Ensure secret-file path exists. Dir is 0711 (NOT 0700): agent must traverse
+# this root-owned dir to read its own 0600 secret by exact path; 0700 blocks the
+# traversal → PermissionError. 0711 allows traversal without enumeration.
+sudo install -d -m 0711 -o root -g root /etc/metaforge
 if [ ! -f /etc/metaforge/grading_secret ]; then
     echo "ERROR: /etc/metaforge/grading_secret does not exist." >&2
-    echo "Create it manually (and match the GRADING_SECRET env in /etc/default/caddy):" >&2
+    echo "Create it manually (and match the GRADING_SECRET in the rendered Caddy snippet):" >&2
     echo "  openssl rand -hex 32 | sudo tee /etc/metaforge/grading_secret >/dev/null" >&2
     echo "  sudo chmod 600 /etc/metaforge/grading_secret" >&2
-    echo "  sudo chown metaforge-grading:metaforge-grading /etc/metaforge/grading_secret" >&2
+    echo "  sudo chown ${SIDECAR_USER}:${SIDECAR_USER} /etc/metaforge/grading_secret" >&2
     exit 1
 fi
 sudo chmod 0600 /etc/metaforge/grading_secret
-sudo chown metaforge-grading:metaforge-grading /etc/metaforge/grading_secret
+sudo chown "${SIDECAR_USER}:${SIDECAR_USER}" /etc/metaforge/grading_secret
 
 # 3. Ensure /etc/default/metaforge-grading exists (operator populates).
 if [ ! -f /etc/default/metaforge-grading ]; then

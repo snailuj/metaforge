@@ -12,18 +12,17 @@ metaforge-next.julianit.me {
     # NOTE: per-IP rate_limit deferred — requires the caddy-ratelimit plugin,
     # which would mean rebuilding the shared Caddy binary serving all sites.
     # basic-auth already blocks crawlers; revisit if bcrypt-CPU-DoS becomes real.
+    # Access logging uses Caddy's global logger (no per-handle `log` block — it
+    # isn't an ordered HTTP handler inside `handle`). Global logging does not
+    # record request headers by default, so the basic-auth + X-Grading-Secret
+    # values stay out of the logs.
     handle /api/grading/* {
-        basicauth {
+        basic_auth {
             julian __JULIAN_BCRYPT_HASH__
         }
 
         request_body {
             max_size 1MB
-        }
-
-        log {
-            output file /var/log/caddy/metaforge-next.julianit.me.log
-            format json
         }
 
         reverse_proxy 127.0.0.1:53775 {

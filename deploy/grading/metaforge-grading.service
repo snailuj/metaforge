@@ -2,9 +2,13 @@
 Description=Metaforge Grading Sidecar
 After=network.target
 
+# Runs as `agent` — the repo owner. A dedicated user can't read the agent-owned
+# venv/code nor write the agent-owned grading JSONL + run the git autocommit, so
+# the dedicated-user isolation breaks both code-read and autocommit. agent owns
+# the whole tree; this is the working choice for a single-user box.
 [Service]
 Type=simple
-User=metaforge-grading
+User=agent
 WorkingDirectory=/home/agent/projects/metaforge
 EnvironmentFile=/etc/default/metaforge-grading
 Environment=GRADING_DEV=
@@ -15,7 +19,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 # Do NOT use ProtectHome=read-only — known gotcha that broke metaforge-api (see deploy-servers memory)
-ReadWritePaths=/home/agent/projects/metaforge/data-pipeline/grading/ /home/agent/projects/metaforge/.git/
+# Whole repo is RW: covers grading JSONL writes AND the git autocommit (which
+# pokes .git/index, refs, lock files — narrower ReadWritePaths breaks it under
+# ProtectSystem=strict).
+ReadWritePaths=/home/agent/projects/metaforge
 CapabilityBoundingSet=
 
 [Install]
