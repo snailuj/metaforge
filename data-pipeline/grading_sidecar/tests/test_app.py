@@ -29,3 +29,10 @@ def test_host_allowlist_runs_before_cors(client):
         headers={"Host": "evil.example.com", "Origin": "http://evil.example.com"},
     )
     assert r.status_code == 421
+
+
+def test_host_header_allowlist_accepts_vite_dev_host(client):
+    """localhost:5173 (Vite dev server) must be in the allowlist so the
+    frontend can talk to a locally-running sidecar in dev."""
+    r = client.get("/api/grading/healthz", headers={"Host": "localhost:5173"})
+    assert r.status_code == 200

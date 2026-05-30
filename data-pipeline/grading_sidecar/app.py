@@ -33,6 +33,9 @@ class HostAllowlistMiddleware(BaseHTTPMiddleware):
     is first-executed).
     """
 
+    # BaseHTTPMiddleware buffers request body for streaming responses; this
+    # sidecar is JSON-only so the trade-off is acceptable in exchange for
+    # explicit add_middleware ordering control.
     async def dispatch(self, request: Request, call_next):
         host = request.headers.get("host", "").lower()
         if host not in ALLOWED_HOSTS:

@@ -1,4 +1,8 @@
-"""Canonical filesystem paths for grading data."""
+"""Canonical filesystem paths for grading data.
+
+Resolved relative to the repo root at import time so tests can monkey-patch
+GRADING_DIR for isolation.
+"""
 from __future__ import annotations
 from pathlib import Path
 
