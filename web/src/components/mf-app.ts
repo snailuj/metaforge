@@ -4,6 +4,7 @@ import { lookupWord, ApiError } from '@/api/client'
 import { transformLookupToGraph, mergeSecondOrderGraph, stripSecondOrderNodes } from '@/graph/transform'
 import { computeCrossLinks } from '@/graph/cross-links'
 import { initStrings, getString } from '@/lib/strings'
+import { GradingClient } from '@/api/grading-client'
 import type { LookupResult } from '@/types/api'
 import type { GraphData, GraphNode, Rarity } from '@/graph/types'
 import type { MfToast } from './mf-toast'
@@ -13,6 +14,9 @@ import './mf-search-bar'
 import './mf-force-graph'
 import './mf-results-panel'
 import './mf-toast'
+import './mf-error-banner'
+
+type AppMode = 'browse' | 'grade'
 
 type AppState = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -105,6 +109,35 @@ export class MfApp extends LitElement {
     .rarity-toggle.unusual input { accent-color: #c4956a; }
     .rarity-toggle.rare { color: #a88bc4; }
     .rarity-toggle.rare input { accent-color: #a88bc4; }
+
+    .mode-toggle-bar {
+      position: absolute;
+      top: var(--space-md, 1rem);
+      right: var(--space-md, 1rem);
+      z-index: 30;
+    }
+
+    .grade-toggle {
+      background: var(--colour-accent-gold-dim, rgba(212, 175, 55, 0.2));
+      border: 1px solid var(--colour-accent-gold, #d4af37);
+      color: var(--colour-accent-gold, #d4af37);
+      border-radius: 4px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+
+    .grade-toggle:hover {
+      background: var(--colour-accent-gold-dim, rgba(212, 175, 55, 0.35));
+    }
+
+    .banner-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      z-index: 40;
+    }
   `
 
   @state() private appState: AppState = 'idle'
@@ -114,11 +147,14 @@ export class MfApp extends LitElement {
   @state() private showCommon = true
   @state() private showUnusual = true
   @state() private showRare = true
+  @state() mode: AppMode = 'browse'
+  @state() private gradingAvailable = false
 
   private currentWord = ''
   private lookupId = 0
   private selectId = 0
   private baseGraphData: GraphData = { nodes: [], links: [] }
+  private gradingClient = new GradingClient()
 
   private hiddenRarities: Set<Rarity> = new Set()
 
@@ -136,6 +172,27 @@ export class MfApp extends LitElement {
     super.connectedCallback()
     await initStrings()
     this.requestUpdate() // re-render now that strings are loaded
+
+    // Probe grading availability and resolve initial mode
+    this.gradingClient.probe().then(available => {
+      this.gradingAvailable = available
+      if (available) {
+        const stored = localStorage.getItem('mf-mode')
+        if (stored === 'grade' || stored === 'browse') {
+          this.mode = stored
+        } else {
+          // Default to grade on the staging/next host, browse everywhere else
+          this.mode = window.location.host === 'metaforge-next.julianit.me' ? 'grade' : 'browse'
+        }
+      } else {
+        // Grading unavailable — force browse and hide toggle
+        this.mode = 'browse'
+      }
+    }).catch(err => {
+      console.warn('[mf-app] grading probe failed', err)
+      this.gradingAvailable = false
+      this.mode = 'browse'
+    })
 
     // Check URL hash for initial word
     const hashWord = this.getWordFromHash()
@@ -205,6 +262,17 @@ export class MfApp extends LitElement {
     toast?.show(getString('toast-copied', { word: e.detail.word }))
   }
 
+  handleAuthExpired(): void {
+    this.mode = 'browse'
+    this.errorMessage = 'Auth expired — refresh to re-authenticate'
+  }
+
+  private toggleMode(): void {
+    const next: AppMode = this.mode === 'browse' ? 'grade' : 'browse'
+    this.mode = next
+    localStorage.setItem('mf-mode', next)
+  }
+
   private async doLookup(word: string) {
     const id = ++this.lookupId
     ++this.selectId // invalidate any in-flight second-order select
@@ -236,6 +304,21 @@ export class MfApp extends LitElement {
 
   render() {
     return html`
+      ${this.errorMessage
+        ? html`<div class="banner-container"><mf-error-banner .message=${this.errorMessage}></mf-error-banner></div>`
+        : ''}
+
+      ${this.gradingAvailable
+        ? html`
+          <div class="mode-toggle-bar">
+            <button
+              class="grade-toggle"
+              data-testid="grade-toggle"
+              @click=${this.toggleMode}
+            >${this.mode === 'grade' ? 'Browse mode' : 'Grade mode'}</button>
+          </div>`
+        : ''}
+
       <div class="search-container">
         <mf-search-bar
           .placeholder=${getString('search-placeholder')}

@@ -636,3 +636,58 @@ describe('MfApp', () => {
     })
   })
 })
+
+describe('mf-app grading mode', () => {
+  let el: MfApp
+
+  beforeEach(async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200 } as Response)
+    localStorage.clear()
+    window.location.hash = ''
+    el = new MfApp()
+    document.body.appendChild(el)
+    await el.updateComplete
+    // let probe resolve
+    await new Promise(r => setTimeout(r, 50))
+    await el.updateComplete
+  })
+
+  afterEach(() => {
+    document.body.removeChild(el)
+    vi.restoreAllMocks()
+    window.location.hash = ''
+    localStorage.clear()
+  })
+
+  it('shows toggle when probe returns 200', async () => {
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-toggle"]')).toBeTruthy()
+  })
+
+  it('hides toggle when probe returns 404', async () => {
+    document.body.removeChild(el)
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: false, status: 404 } as Response)
+    el = new MfApp()
+    document.body.appendChild(el)
+    await el.updateComplete
+    await new Promise(r => setTimeout(r, 50))
+    await el.updateComplete
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-toggle"]')).toBeFalsy()
+  })
+
+  it('forces mode to browse on handleAuthExpired', async () => {
+    ;(el as any).mode = 'grade'
+    await el.updateComplete
+    ;(el as any).handleAuthExpired()
+    await el.updateComplete
+    expect((el as any).mode).toBe('browse')
+    expect((el as any).errorMessage).toContain('Auth expired')
+  })
+
+  it('persists mode to localStorage on toggle click', async () => {
+    const btn = el.shadowRoot!.querySelector('[data-testid="grade-toggle"]') as HTMLButtonElement
+    expect(btn).toBeTruthy()
+    btn.click()
+    await el.updateComplete
+    expect(localStorage.getItem('mf-mode')).toBeTruthy()
+  })
+})
