@@ -7,6 +7,7 @@ import { initStrings, getString } from '@/lib/strings'
 import { GradingClient } from '@/api/grading-client'
 import type { LookupResult } from '@/types/api'
 import type { GraphData, GraphNode, Rarity } from '@/graph/types'
+import type { ChainRecord, JudgementRecord, TopicSummary } from '@/types/grading'
 import type { MfToast } from './mf-toast'
 
 // Import components so they register
@@ -15,6 +16,10 @@ import './mf-force-graph'
 import './mf-results-panel'
 import './mf-toast'
 import './mf-error-banner'
+import './mf-topic-picker'
+import './mf-grade-panel'
+import './mf-design-notes'
+import './mf-mobile-notes-overlay'
 
 type AppMode = 'browse' | 'grade'
 
@@ -138,6 +143,110 @@ export class MfApp extends LitElement {
       width: 100%;
       z-index: 40;
     }
+
+    /* ── Grade mode layout ─────────────────────────────────── */
+    .grade-layout {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .grade-top {
+      padding: var(--space-md, 1rem);
+      padding-right: 9rem; /* leave room for mode-toggle-bar */
+      flex-shrink: 0;
+    }
+
+    .grade-main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      gap: var(--space-md, 1rem);
+      padding: 0 var(--space-md, 1rem);
+    }
+
+    /* Desktop: graph takes the remaining space, panel is fixed width */
+    .grade-graph-pane {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+    }
+
+    .grade-graph-pane mf-force-graph {
+      position: absolute;
+      inset: 0;
+    }
+
+    .grade-panel-pane {
+      width: 320px;
+      flex-shrink: 0;
+      overflow-y: auto;
+    }
+
+    .grade-notes-row {
+      flex-shrink: 0;
+      padding: var(--space-md, 1rem);
+      border-top: 1px solid #2a3140;
+    }
+
+    /* Mobile flat-text chain list */
+    .chain-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--space-md, 1rem);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .chain-card {
+      background: #181b22;
+      border: 1px solid #2a3140;
+      border-radius: 4px;
+      padding: 0.6rem 0.8rem;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: #c8c8c8;
+      line-height: 1.5;
+    }
+
+    .chain-card:hover {
+      background: #1e2330;
+      border-color: #3a4150;
+    }
+
+    .chain-card.selected {
+      border-color: var(--colour-accent-gold, #d4af37);
+      background: #1e2330;
+    }
+
+    .grade-mobile-panel {
+      flex-shrink: 0;
+      padding: var(--space-md, 1rem);
+      border-top: 1px solid #2a3140;
+    }
+
+    .grade-mobile-notes-btn {
+      position: fixed;
+      bottom: 1rem;
+      right: 1rem;
+      z-index: 50;
+      background: var(--colour-accent-gold-dim, rgba(212, 175, 55, 0.2));
+      border: 1px solid var(--colour-accent-gold, #d4af37);
+      color: var(--colour-accent-gold, #d4af37);
+      border-radius: 4px;
+      padding: 0.5rem 1rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    .grade-empty {
+      color: var(--colour-text-muted, #6b6560);
+      font-size: 0.95rem;
+      padding: 2rem;
+      text-align: center;
+    }
   `
 
   @state() private appState: AppState = 'idle'
@@ -150,6 +259,15 @@ export class MfApp extends LitElement {
   @state() mode: AppMode = 'browse'
   @state() private gradingAvailable = false
 
+  // Grade-mode state
+  @state() private gradeTopics: TopicSummary[] = []
+  @state() private gradeChains: ChainRecord[] = []
+  @state() private gradeJudgements: JudgementRecord[] = []
+  @state() private selectedChain: ChainRecord | null = null
+  @state() private notesHistory = ''
+  @state() private notesOverlayOpen = false
+  @state() private viewportWidth = window.innerWidth
+
   private currentWord = ''
   private lookupId = 0
   private selectId = 0
@@ -157,6 +275,7 @@ export class MfApp extends LitElement {
   private gradingClient = new GradingClient()
 
   private hiddenRarities: Set<Rarity> = new Set()
+  private handleResize = () => { this.viewportWidth = window.innerWidth }
 
   protected willUpdate(changed: PropertyValues): void {
     if (changed.has('showCommon') || changed.has('showUnusual') || changed.has('showRare')) {
@@ -184,6 +303,9 @@ export class MfApp extends LitElement {
           // Default to grade on the staging/next host, browse everywhere else
           this.mode = window.location.host === 'metaforge-next.julianit.me' ? 'grade' : 'browse'
         }
+        if (this.mode === 'grade') {
+          void this.initGradeMode()
+        }
       } else {
         // Grading unavailable — force browse and hide toggle
         this.mode = 'browse'
@@ -201,11 +323,13 @@ export class MfApp extends LitElement {
     }
 
     window.addEventListener('hashchange', this.handleHashChange)
+    window.addEventListener('resize', this.handleResize)
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback()
     window.removeEventListener('hashchange', this.handleHashChange)
+    window.removeEventListener('resize', this.handleResize)
   }
 
   private handleHashChange = () => {
@@ -271,6 +395,103 @@ export class MfApp extends LitElement {
     const next: AppMode = this.mode === 'browse' ? 'grade' : 'browse'
     this.mode = next
     localStorage.setItem('mf-mode', next)
+    if (next === 'grade') {
+      void this.initGradeMode()
+    }
+  }
+
+  /** Fetch topics and design-notes history when entering grade mode. */
+  private async initGradeMode(): Promise<void> {
+    try {
+      const [topicsRes, notesRes] = await Promise.all([
+        this.gradingClient.getTopics(),
+        this.gradingClient.getDesignNotes(),
+      ])
+      this.gradeTopics = topicsRes.topics
+      this.notesHistory = notesRes.content
+    } catch (err) {
+      console.warn('[mf-app] initGradeMode failed', err)
+      this.errorMessage = 'Failed to load grading data'
+    }
+  }
+
+  private async handleTopicSelected(e: CustomEvent<TopicSummary>): Promise<void> {
+    const topic = e.detail.topic
+    this.selectedChain = null
+    this.gradeChains = []
+    this.gradeJudgements = []
+    try {
+      const [chainsRes, judgementsRes] = await Promise.all([
+        this.gradingClient.getChains(topic),
+        this.gradingClient.getJudgements(topic),
+      ])
+      this.gradeChains = chainsRes.records
+      this.gradeJudgements = judgementsRes.records
+    } catch (err) {
+      console.warn('[mf-app] handleTopicSelected failed', { topic }, err)
+      this.errorMessage = 'Failed to load chains for topic'
+    }
+  }
+
+  private handleChainSelected(e: CustomEvent<ChainRecord>): void {
+    this.selectedChain = e.detail
+  }
+
+  private async handleVerdictSubmit(e: CustomEvent<{ label: string; confidence: string; notes: string }>): Promise<void> {
+    if (!this.selectedChain) return
+    const chain = this.selectedChain
+    const judgement: JudgementRecord = {
+      schema_version: 'judgement.v1',
+      judged_by: 'human',
+      round: chain.round,
+      topic: chain.topic,
+      topic_synset_id: chain.topic_synset_id,
+      vehicle: chain.vehicle,
+      vehicle_synset_id: chain.vehicle_synset_id,
+      proposer: chain.proposer,
+      chain_signature: chain.chain_signature,
+      label: e.detail.label as JudgementRecord['label'],
+      confidence: e.detail.confidence as JudgementRecord['confidence'],
+      notes: e.detail.notes,
+      supersedes_ts: null,
+    }
+    try {
+      await this.gradingClient.postJudgement(judgement)
+      // Refetch judgements for the current topic so the UI reflects the new verdict
+      const judgementsRes = await this.gradingClient.getJudgements(chain.topic)
+      this.gradeJudgements = judgementsRes.records
+      this.selectedChain = null
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status ?? (err instanceof Error && err.message.includes('401') ? 401 : 0)
+      if (status === 401 || (err instanceof Error && err.message.includes('401'))) {
+        this.handleAuthExpired()
+      } else {
+        console.warn('[mf-app] handleVerdictSubmit failed', err)
+        this.errorMessage = 'Failed to submit verdict'
+      }
+    }
+  }
+
+  private async handleSaveNote(e: CustomEvent<{ content: string }>): Promise<void> {
+    try {
+      await this.gradingClient.postDesignNote(e.detail.content)
+      const notesRes = await this.gradingClient.getDesignNotes()
+      this.notesHistory = notesRes.content
+    } catch (err) {
+      console.warn('[mf-app] handleSaveNote failed', err)
+      this.errorMessage = 'Failed to save design note'
+    }
+  }
+
+  /** Look up whether a chain has already been judged by the current user. */
+  private priorVerdict(chain: ChainRecord): { label: JudgementRecord['label']; ts: string } | null {
+    const j = this.gradeJudgements.find(j => j.chain_signature === chain.chain_signature)
+    return j ? { label: j.label, ts: j.ts ?? '' } : null
+  }
+
+  /** Render the flat-text chain label for mobile cards. */
+  private chainLabel(chain: ChainRecord): string {
+    return chain.chain.map(s => s.phrase).join(' → ')
   }
 
   private async doLookup(word: string) {
@@ -302,23 +523,8 @@ export class MfApp extends LitElement {
     }
   }
 
-  render() {
+  private renderBrowseMode() {
     return html`
-      ${this.errorMessage
-        ? html`<div class="banner-container"><mf-error-banner .message=${this.errorMessage}></mf-error-banner></div>`
-        : ''}
-
-      ${this.gradingAvailable
-        ? html`
-          <div class="mode-toggle-bar">
-            <button
-              class="grade-toggle"
-              data-testid="grade-toggle"
-              @click=${this.toggleMode}
-            >${this.mode === 'grade' ? 'Browse mode' : 'Grade mode'}</button>
-          </div>`
-        : ''}
-
       <div class="search-container">
         <mf-search-bar
           .placeholder=${getString('search-placeholder')}
@@ -382,6 +588,122 @@ export class MfApp extends LitElement {
         @mf-word-navigate=${this.handleWordNavigate}
         @mf-word-copy=${this.handleCopy}
       ></mf-results-panel>
+    `
+  }
+
+  private renderGradeModeDesktop() {
+    return html`
+      <div class="grade-layout" data-testid="grade-layout">
+        <div class="grade-top">
+          <mf-topic-picker
+            .topics=${this.gradeTopics}
+            @topic-selected=${this.handleTopicSelected}
+          ></mf-topic-picker>
+        </div>
+
+        <div class="grade-main">
+          <div class="grade-graph-pane">
+            <mf-force-graph
+              .graphData=${this.graphData}
+              .hiddenRarities=${this.hiddenRarities}
+              @mf-node-select=${this.handleNodeSelect}
+              @mf-node-navigate=${this.handleNodeNavigate}
+              @mf-node-copy=${this.handleCopy}
+              @chain-selected=${this.handleChainSelected}
+            ></mf-force-graph>
+          </div>
+
+          ${this.selectedChain
+            ? html`
+              <div class="grade-panel-pane">
+                <mf-grade-panel
+                  .chain=${this.selectedChain}
+                  .priorVerdict=${this.priorVerdict(this.selectedChain)}
+                  @verdict-submit=${this.handleVerdictSubmit}
+                ></mf-grade-panel>
+              </div>`
+            : ''}
+        </div>
+
+        <div class="grade-notes-row">
+          <mf-design-notes
+            .history=${this.notesHistory}
+            @save-note=${this.handleSaveNote}
+          ></mf-design-notes>
+        </div>
+      </div>
+    `
+  }
+
+  private renderGradeModeMobile() {
+    return html`
+      <div class="grade-layout" data-testid="grade-layout-mobile">
+        <div class="grade-top">
+          <mf-topic-picker
+            .topics=${this.gradeTopics}
+            @topic-selected=${this.handleTopicSelected}
+          ></mf-topic-picker>
+        </div>
+
+        <div class="chain-list" data-testid="chain-list">
+          ${this.gradeChains.length === 0
+            ? html`<div class="grade-empty">Select a topic to load chains.</div>`
+            : this.gradeChains.map(chain => html`
+                <div
+                  class="chain-card ${this.selectedChain?.chain_signature === chain.chain_signature ? 'selected' : ''}"
+                  data-testid="chain-card"
+                  @click=${() => { this.selectedChain = chain }}
+                >${this.chainLabel(chain)}</div>
+              `)}
+        </div>
+
+        ${this.selectedChain
+          ? html`
+            <div class="grade-mobile-panel">
+              <mf-grade-panel
+                .chain=${this.selectedChain}
+                .priorVerdict=${this.priorVerdict(this.selectedChain)}
+                @verdict-submit=${this.handleVerdictSubmit}
+              ></mf-grade-panel>
+            </div>`
+          : ''}
+
+        <button
+          class="grade-mobile-notes-btn"
+          data-testid="notes-btn"
+          @click=${() => { this.notesOverlayOpen = true }}
+        >Notes</button>
+
+        <mf-mobile-notes-overlay
+          .open=${this.notesOverlayOpen}
+          .history=${this.notesHistory}
+          @close=${() => { this.notesOverlayOpen = false }}
+          @save-note=${this.handleSaveNote}
+        ></mf-mobile-notes-overlay>
+      </div>
+    `
+  }
+
+  render() {
+    return html`
+      ${this.errorMessage
+        ? html`<div class="banner-container"><mf-error-banner .message=${this.errorMessage}></mf-error-banner></div>`
+        : ''}
+
+      ${this.gradingAvailable
+        ? html`
+          <div class="mode-toggle-bar">
+            <button
+              class="grade-toggle"
+              data-testid="grade-toggle"
+              @click=${this.toggleMode}
+            >${this.mode === 'grade' ? 'Browse mode' : 'Grade mode'}</button>
+          </div>`
+        : ''}
+
+      ${this.mode === 'grade'
+        ? (this.viewportWidth >= 900 ? this.renderGradeModeDesktop() : this.renderGradeModeMobile())
+        : this.renderBrowseMode()}
 
       <mf-toast></mf-toast>
     `

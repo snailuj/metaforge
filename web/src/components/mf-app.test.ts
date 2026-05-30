@@ -691,3 +691,187 @@ describe('mf-app grading mode', () => {
     expect(localStorage.getItem('mf-mode')).toBeTruthy()
   })
 })
+
+describe('mf-app grade-mode integration', () => {
+  let el: MfApp
+
+  // Minimal stub for a grading fetch that returns the right shapes per endpoint
+  function makeFetchStub() {
+    return vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = input.toString()
+      if (url.includes('/healthz')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response
+      }
+      if (url.includes('/topics')) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ topics: [{ topic: 'fire', topic_synset_id: 's1' }] }),
+        } as Response
+      }
+      if (url.includes('/chains')) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({
+            count: 1,
+            records: [{
+              schema_version: 'chain.v1',
+              topic: 'fire', topic_synset_id: 's1',
+              vehicle: 'blaze', vehicle_synset_id: 'v1',
+              proposer: 'test', round: 1,
+              chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }, { phrase: 'blaze', head: 'blaze', synset_id: 'v1' }],
+              chain_signature: 'sig1',
+              generated_at: '2026-01-01T00:00:00Z',
+            }],
+          }),
+        } as Response
+      }
+      if (url.includes('/judgements') && (input as Request).method === 'POST') {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ schema_version: 'judgement.v1', ts: '2026-01-01T00:00:00Z' }),
+        } as Response
+      }
+      if (url.includes('/judgements')) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ count: 0, records: [] }),
+        } as Response
+      }
+      if (url.includes('/design-notes') && (input as Request).method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ ts: '2026-01-01T00:00:00Z' }) } as Response
+      }
+      if (url.includes('/design-notes')) {
+        return { ok: true, status: 200, json: async () => ({ content: 'existing note' }) } as Response
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response
+    })
+  }
+
+  beforeEach(async () => {
+    makeFetchStub()
+    localStorage.clear()
+    window.location.hash = ''
+    el = new MfApp()
+    document.body.appendChild(el)
+    await el.updateComplete
+    // let probe resolve
+    await new Promise(r => setTimeout(r, 50))
+    await el.updateComplete
+  })
+
+  afterEach(() => {
+    document.body.removeChild(el)
+    vi.restoreAllMocks()
+    window.location.hash = ''
+    localStorage.clear()
+  })
+
+  it('renders mobile flat-text layout when viewportWidth < 900', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 600
+    await el.updateComplete
+    const mobileLayout = el.shadowRoot!.querySelector('[data-testid="grade-layout-mobile"]')
+    expect(mobileLayout).not.toBeNull()
+    const desktopLayout = el.shadowRoot!.querySelector('[data-testid="grade-layout"]')
+    expect(desktopLayout).toBeNull()
+  })
+
+  it('renders desktop layout when viewportWidth >= 900', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 1200
+    await el.updateComplete
+    const desktopLayout = el.shadowRoot!.querySelector('[data-testid="grade-layout"]')
+    expect(desktopLayout).not.toBeNull()
+    const mobileLayout = el.shadowRoot!.querySelector('[data-testid="grade-layout-mobile"]')
+    expect(mobileLayout).toBeNull()
+  })
+
+  it('topic-selected event fetches chains and judgements then populates gradeChains', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 600
+    await el.updateComplete
+
+    const picker = el.shadowRoot!.querySelector('mf-topic-picker')
+    picker!.dispatchEvent(new CustomEvent('topic-selected', {
+      detail: { topic: 'fire', topic_synset_id: 's1' },
+      bubbles: true,
+      composed: true,
+    }))
+
+    await new Promise(r => setTimeout(r, 50))
+    await el.updateComplete
+
+    const cards = el.shadowRoot!.querySelectorAll('[data-testid="chain-card"]')
+    expect(cards.length).toBeGreaterThan(0)
+    expect(cards[0].textContent).toContain('fire')
+  })
+
+  it('verdict-submit POSTs to judgements and clears selectedChain', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 600
+    // Simulate a chain being loaded and selected
+    ;(el as any).gradeChains = [{
+      schema_version: 'chain.v1',
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', round: 1,
+      chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }, { phrase: 'blaze', head: 'blaze', synset_id: 'v1' }],
+      chain_signature: 'sig1',
+      generated_at: '2026-01-01T00:00:00Z',
+    }]
+    ;(el as any).selectedChain = (el as any).gradeChains[0]
+    await el.updateComplete
+
+    const gradePanel = el.shadowRoot!.querySelector('mf-grade-panel')
+    expect(gradePanel).not.toBeNull()
+    gradePanel!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { label: 'live', confidence: 'high', notes: '' },
+      bubbles: true,
+      composed: true,
+    }))
+
+    await new Promise(r => setTimeout(r, 50))
+    await el.updateComplete
+
+    // After submit, selectedChain should be cleared
+    expect((el as any).selectedChain).toBeNull()
+  })
+
+  it('401 from postJudgement forces browse mode and sets errorMessage', async () => {
+    // Override the fetch mock so any call to /judgements returns 401
+    // (GradingClient.postJudgement calls fetch(url, {method:'POST'}) — the 4xx branch
+    // throws immediately without retry, which propagates to handleVerdictSubmit)
+    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = input.toString()
+      if (url.includes('/judgements')) {
+        return { ok: false, status: 401, json: async () => ({}) } as Response
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response
+    })
+
+    ;(el as any).mode = 'grade'
+    ;(el as any).selectedChain = {
+      schema_version: 'chain.v1',
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', round: 1,
+      chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }],
+      chain_signature: 'sig1',
+      generated_at: '2026-01-01T00:00:00Z',
+    }
+    await el.updateComplete
+
+    // Directly call the handler — this avoids depending on DOM event routing
+    await (el as any).handleVerdictSubmit(
+      new CustomEvent('verdict-submit', {
+        detail: { label: 'live', confidence: 'high', notes: '' },
+        bubbles: true,
+        composed: true,
+      })
+    )
+    await el.updateComplete
+
+    expect((el as any).mode).toBe('browse')
+    expect((el as any).errorMessage).toContain('Auth expired')
+  })
+})
