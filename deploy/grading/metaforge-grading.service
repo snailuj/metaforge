@@ -1,0 +1,22 @@
+[Unit]
+Description=Metaforge Grading Sidecar
+After=network.target
+
+[Service]
+Type=simple
+User=metaforge-grading
+WorkingDirectory=/home/agent/projects/metaforge
+EnvironmentFile=/etc/default/metaforge-grading
+Environment=GRADING_DEV=
+ExecStart=/home/agent/projects/metaforge/data-pipeline/.venv/bin/python -m grading_sidecar.main
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+# Do NOT use ProtectHome=read-only — known gotcha that broke metaforge-api (see deploy-servers memory)
+ReadWritePaths=/home/agent/projects/metaforge/data-pipeline/grading/ /home/agent/projects/metaforge/.git/
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
