@@ -9,12 +9,32 @@ and HostAllowlistMiddleware second so the host check is the outer gate —
 unknown Host returns 421 before CORS ever sees the request.
 """
 from __future__ import annotations
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from .autocommit import autocommit_loop
+from . import paths as paths_mod
 from .routes import healthz, judgements, chains, topics, stats, calibration, design_notes
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start the 15-min auto-commit background task; cancel cleanly on shutdown."""
+    task = asyncio.create_task(
+        autocommit_loop(str(paths_mod.REPO_ROOT), "data-pipeline/grading/")
+    )
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
 
 ALLOWED_HOSTS = {
     "metaforge-next.julianit.me",
@@ -46,7 +66,7 @@ class HostAllowlistMiddleware(BaseHTTPMiddleware):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Metaforge Grading Sidecar", version="0.1.0")
+    app = FastAPI(title="Metaforge Grading Sidecar", version="0.1.0", lifespan=lifespan)
 
     # Register CORS first — it will be inner (host check must pass first).
     app.add_middleware(
