@@ -4,6 +4,7 @@ docs/superpowers/specs/2026-05-30-metaphor-grading-tool-design.md
 Sections: "Data shapes -> Chain record" / "Judgement record" / "Design-note block".
 """
 from __future__ import annotations
+import datetime as dt
 import hashlib
 import unicodedata
 from typing import Literal, Optional
@@ -63,7 +64,8 @@ class ChainRecord(BaseModel):
 
 class JudgementRecord(BaseModel):
     schema_version: JudgementSchemaVersion
-    ts: str
+    # Server injects ts when the client omits it — clients should not set this field.
+    ts: str = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc).isoformat())
     judged_by: str
     round: int = Field(ge=1)
     topic: str

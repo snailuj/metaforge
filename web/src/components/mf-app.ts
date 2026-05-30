@@ -267,6 +267,7 @@ export class MfApp extends LitElement {
   @state() private notesHistory = ''
   @state() private notesOverlayOpen = false
   @state() private viewportWidth = window.innerWidth
+  @state() private pendingQueue: JudgementRecord[] = []
 
   private currentWord = ''
   private lookupId = 0
@@ -400,8 +401,41 @@ export class MfApp extends LitElement {
     }
   }
 
+  // --- Pending-queue helpers ---
+
+  private static readonly PENDING_KEY = 'pending_judgements'
+
+  private loadPendingQueue(): void {
+    try {
+      const raw = localStorage.getItem(MfApp.PENDING_KEY)
+      this.pendingQueue = raw ? (JSON.parse(raw) as JudgementRecord[]) : []
+    } catch {
+      this.pendingQueue = []
+    }
+  }
+
+  private savePendingQueue(): void {
+    localStorage.setItem(MfApp.PENDING_KEY, JSON.stringify(this.pendingQueue))
+  }
+
+  private async flushPendingQueue(): Promise<void> {
+    if (this.pendingQueue.length === 0) return
+    const queue = [...this.pendingQueue]
+    const remaining: JudgementRecord[] = []
+    for (const j of queue) {
+      try {
+        await this.gradingClient.postJudgement(j)
+      } catch {
+        remaining.push(j)
+      }
+    }
+    this.pendingQueue = remaining
+    this.savePendingQueue()
+  }
+
   /** Fetch topics and design-notes history when entering grade mode. */
   private async initGradeMode(): Promise<void> {
+    this.loadPendingQueue()
     try {
       const [topicsRes, notesRes] = await Promise.all([
         this.gradingClient.getTopics(),
@@ -442,7 +476,7 @@ export class MfApp extends LitElement {
     const chain = this.selectedChain
     const judgement: JudgementRecord = {
       schema_version: 'judgement.v1',
-      judged_by: 'human',
+      judged_by: 'julian',
       round: chain.round,
       topic: chain.topic,
       topic_synset_id: chain.topic_synset_id,
@@ -461,13 +495,27 @@ export class MfApp extends LitElement {
       const judgementsRes = await this.gradingClient.getJudgements(chain.topic)
       this.gradeJudgements = judgementsRes.records
       this.selectedChain = null
+      // Flush any verdicts that failed during a previous session
+      await this.flushPendingQueue()
+      if (this.pendingQueue.length > 0) {
+        this.errorMessage = `${this.pendingQueue.length} verdict${this.pendingQueue.length === 1 ? '' : 's'} pending — will retry on next save`
+      } else {
+        // Clear a stale pending-banner if the queue is now empty
+        if (this.errorMessage.includes('pending')) {
+          this.errorMessage = ''
+        }
+      }
     } catch (err: unknown) {
       const status = (err as { status?: number }).status ?? (err instanceof Error && err.message.includes('401') ? 401 : 0)
       if (status === 401 || (err instanceof Error && err.message.includes('401'))) {
         this.handleAuthExpired()
       } else {
         console.warn('[mf-app] handleVerdictSubmit failed', err)
-        this.errorMessage = 'Failed to submit verdict'
+        // Push to queue so the judgement is not lost; advance past this chain
+        this.pendingQueue = [...this.pendingQueue, judgement]
+        this.savePendingQueue()
+        this.selectedChain = null
+        this.errorMessage = `${this.pendingQueue.length} verdict${this.pendingQueue.length === 1 ? '' : 's'} pending — will retry on next save`
       }
     }
   }
@@ -605,7 +653,10 @@ export class MfApp extends LitElement {
           <div class="grade-graph-pane">
             <mf-force-graph
               .graphData=${this.graphData}
-              .hiddenRarities=${this.hiddenRarities}
+              .mode=${'grade'}
+              .gradeChains=${this.gradeChains}
+              .judgements=${this.gradeJudgements}
+              .viewportWidth=${this.viewportWidth}
               @mf-node-select=${this.handleNodeSelect}
               @mf-node-navigate=${this.handleNodeNavigate}
               @mf-node-copy=${this.handleCopy}

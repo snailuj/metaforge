@@ -16,7 +16,7 @@ def get_stats() -> dict:
         recs, _ = read_jsonl_skip_malformed(p)
         chain_count += len(recs)
     judgements, _ = read_jsonl_skip_malformed(paths_mod.JUDGEMENTS_PATH)
-    last_judgement_ts = max((j["ts"] for j in judgements), default=None)
+    last_judgement_ts = max((j.get("ts", "") for j in judgements), default="") or None
     return {
         "chain_count": chain_count,
         "judgement_count": len(judgements),

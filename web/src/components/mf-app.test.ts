@@ -837,6 +837,149 @@ describe('mf-app grade-mode integration', () => {
     expect((el as any).selectedChain).toBeNull()
   })
 
+  it('desktop grade layout passes .mode, .gradeChains, .judgements, .viewportWidth to force-graph', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 1200
+    ;(el as any).gradeChains = [{
+      schema_version: 'chain.v1',
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', round: 1,
+      chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }, { phrase: 'blaze', head: 'blaze', synset_id: 'v1' }],
+      chain_signature: 'sig1',
+      generated_at: '2026-01-01T00:00:00Z',
+    }]
+    ;(el as any).gradeJudgements = [{
+      schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', chain_signature: 'sig1',
+      label: 'live', confidence: 'high', notes: '', supersedes_ts: null,
+    }]
+    await el.updateComplete
+
+    const desktopLayout = el.shadowRoot!.querySelector('[data-testid="grade-layout"]')
+    expect(desktopLayout).not.toBeNull()
+
+    const fg = el.shadowRoot!.querySelector('.grade-graph-pane mf-force-graph') as any
+    expect(fg).not.toBeNull()
+    expect(fg.mode).toBe('grade')
+    expect(fg.gradeChains).toHaveLength(1)
+    expect(fg.judgements).toHaveLength(1)
+    expect(fg.viewportWidth).toBe(1200)
+  })
+
+  describe('pending-judgements queue (I2)', () => {
+    const CHAIN = {
+      schema_version: 'chain.v1' as const,
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', round: 1,
+      chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }, { phrase: 'blaze', head: 'blaze', synset_id: 'v1' }],
+      chain_signature: 'sig1',
+      generated_at: '2026-01-01T00:00:00Z',
+    }
+
+    it('failed POST after retries pushes judgement to localStorage and sets banner', async () => {
+      // Simulate exhausted retries — all POST calls fail with 500
+      vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+        const url = input.toString()
+        if (url.includes('/healthz')) {
+          return { ok: true, status: 200, json: async () => ({}) } as Response
+        }
+        if (url.includes('/judgements')) {
+          return { ok: false, status: 500, json: async () => ({}) } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({}) } as Response
+      })
+
+      ;(el as any).mode = 'grade'
+      ;(el as any).selectedChain = CHAIN
+      await el.updateComplete
+
+      // Directly call the handler to bypass retry delays
+      // We monkeypatch the client's postJudgement to throw immediately
+      const clientSpy = vi.spyOn((el as any).gradingClient, 'postJudgement').mockRejectedValue(
+        new Error('postJudgement: 500')
+      )
+
+      await (el as any).handleVerdictSubmit(
+        new CustomEvent('verdict-submit', {
+          detail: { label: 'live', confidence: 'high', notes: '' },
+          bubbles: true,
+          composed: true,
+        })
+      )
+      await el.updateComplete
+
+      // Queue should have 1 entry
+      expect((el as any).pendingQueue).toHaveLength(1)
+      // localStorage should be written
+      const stored = JSON.parse(localStorage.getItem('pending_judgements') ?? '[]')
+      expect(stored).toHaveLength(1)
+      expect(stored[0].chain_signature).toBe('sig1')
+      // Banner should mention pending
+      expect((el as any).errorMessage).toContain('pending')
+      // selectedChain cleared so grading can continue
+      expect((el as any).selectedChain).toBeNull()
+
+      clientSpy.mockRestore()
+    })
+
+    it('successful POST flushes the pending queue', async () => {
+      // Pre-populate the queue with one pending entry
+      const pendingJudgement = {
+        schema_version: 'judgement.v1' as const,
+        judged_by: 'julian', round: 1,
+        topic: 'fire', topic_synset_id: 's1',
+        vehicle: 'smoke', vehicle_synset_id: 'v2',
+        proposer: 'test', chain_signature: 'sig_pending',
+        label: 'dead' as const, confidence: 'high' as const, notes: '', supersedes_ts: null,
+      }
+      ;(el as any).pendingQueue = [pendingJudgement]
+      ;(el as any).savePendingQueue()
+
+      ;(el as any).mode = 'grade'
+      ;(el as any).selectedChain = CHAIN
+      await el.updateComplete
+
+      // POST succeeds for both the current judgement and the pending one
+      const clientSpy = vi.spyOn((el as any).gradingClient, 'postJudgement').mockResolvedValue({
+        schema_version: 'judgement.v1', ts: '2026-01-01T00:00:00Z',
+      } as any)
+      const getJudgementsSpy = vi.spyOn((el as any).gradingClient, 'getJudgements').mockResolvedValue({ count: 0, records: [] })
+
+      await (el as any).handleVerdictSubmit(
+        new CustomEvent('verdict-submit', {
+          detail: { label: 'live', confidence: 'high', notes: '' },
+          bubbles: true,
+          composed: true,
+        })
+      )
+      await el.updateComplete
+
+      // Queue should now be empty
+      expect((el as any).pendingQueue).toHaveLength(0)
+      const stored = JSON.parse(localStorage.getItem('pending_judgements') ?? '[]')
+      expect(stored).toHaveLength(0)
+
+      clientSpy.mockRestore()
+      getJudgementsSpy.mockRestore()
+    })
+
+    it('initGradeMode loads pending queue from localStorage', async () => {
+      const existing = [{ schema_version: 'judgement.v1', chain_signature: 'queued1' }]
+      localStorage.setItem('pending_judgements', JSON.stringify(existing))
+
+      // Trigger initGradeMode by calling it directly
+      ;(el as any).pendingQueue = []
+      await (el as any).initGradeMode()
+
+      expect((el as any).pendingQueue).toHaveLength(1)
+      expect((el as any).pendingQueue[0].chain_signature).toBe('queued1')
+    })
+  })
+
   it('401 from postJudgement forces browse mode and sets errorMessage', async () => {
     // Override the fetch mock so any call to /judgements returns 401
     // (GradingClient.postJudgement calls fetch(url, {method:'POST'}) — the 4xx branch

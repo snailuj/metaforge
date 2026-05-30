@@ -198,6 +198,16 @@ export class MfForceGraph extends LitElement {
       .linkWidth((l: unknown) => (l as GraphLink).order === 2 ? 0.5 : 1)
       .linkOpacity(0.6)
       .onNodeClick((n: unknown) => {
+        // In grade mode, node clicks route to handleNodeClick for chain-selected emission.
+        // The grade graph uses `id` keys of the form `syn:<id>` or `head:<name>`.
+        if (this.mode === 'grade') {
+          const gn = this.gradeNodes.find(node => node.id === (n as { id?: string }).id)
+          if (gn && gn.role === 'vehicle') {
+            this.handleNodeClick({ id: gn.id, isVehicle: true })
+          }
+          return
+        }
+        // Browse-mode behaviour — unchanged.
         const node = n as GraphNode
         if (node.order === 2) {
           if (this.clickTimer) {

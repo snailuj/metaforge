@@ -64,3 +64,15 @@ def test_get_judgements_empty_when_no_file(judgements_client):
     r = judgements_client.get("/api/grading/judgements")
     assert r.status_code == 200
     assert r.json()["count"] == 0
+
+def test_post_judgement_injects_ts_when_missing(judgements_client):
+    """Server must inject ts when the client omits it — fixes 422 on every frontend POST."""
+    payload = {k: v for k, v in VALID.items() if k != "ts"}
+    r = judgements_client.post("/api/grading/judgements", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert "ts" in body
+    # Should be an ISO-8601 UTC timestamp
+    ts = body["ts"]
+    assert "T" in ts
+    assert ts.endswith("+00:00") or ts.endswith("Z")

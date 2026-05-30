@@ -480,6 +480,46 @@ describe('MfForceGraph', () => {
       expect(fired).toBe(false)
     })
 
+    it('onNodeClick in grade mode emits chain-selected when vehicle is clicked', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      let captured: any = null
+      gradeEl.addEventListener('chain-selected', (e: any) => { captured = e.detail })
+      // capturedOnNodeClick is set by gradeEl's firstUpdated (created after outer el)
+      // Simulate the 3D library calling back with the vehicle node id for chain[0]: venom (syn:3)
+      capturedOnNodeClick!({ id: 'syn:3', word: 'venom' })
+      expect(captured?.chain_signature).toBe('a'.repeat(64))
+    })
+
+    it('onNodeClick in grade mode does NOT emit chain-selected for non-vehicle node', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      let fired = false
+      gradeEl.addEventListener('chain-selected', () => { fired = true })
+      // heat (syn:2) is an intermediate step, not a vehicle
+      capturedOnNodeClick!({ id: 'syn:2', word: 'heat' })
+      expect(fired).toBe(false)
+    })
+
+    it('onNodeClick in browse mode still dispatches mf-node-select (not chain-selected)', async () => {
+      gradeEl.mode = 'browse'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      vi.useFakeTimers()
+      let chainSelectedFired = false
+      let nodeSelectFired = false
+      gradeEl.addEventListener('chain-selected', () => { chainSelectedFired = true })
+      gradeEl.addEventListener('mf-node-select', () => { nodeSelectFired = true })
+      const order1Node = { id: 'venom', word: 'venom', relationType: 'synonym', val: 4, order: 1 }
+      capturedOnNodeClick!(order1Node)
+      vi.advanceTimersByTime(400)
+      expect(chainSelectedFired).toBe(false)
+      expect(nodeSelectFired).toBe(true)
+      vi.useRealTimers()
+    })
+
     it('latest judgement wins when two exist for same signature', async () => {
       gradeEl.mode = 'grade'
       gradeEl.gradeChains = CHAINS

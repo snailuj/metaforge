@@ -22,6 +22,8 @@ export interface ChainRecord {
 
 export interface JudgementRecord {
     schema_version: 'judgement.v1';
+    // Omit ts on construction — the server injects a UTC timestamp via default_factory.
+    // Existing JSONL records with ts continue to deserialise correctly.
     ts?: string;
     judged_by: string;
     round: number;
