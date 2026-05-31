@@ -62,6 +62,26 @@ export class MfForceGraph extends LitElement {
       left: 0;
       touch-action: none;
     }
+    /* three-render-objects injects its .scene-nav-info style into document.head,
+       which cannot cross our shadow boundary — so inside the shadow root the hint
+       is unstyled and renders as an in-flow ~18px text block that pushes the
+       <canvas> (and the whole WebGL scene) down 18px. That desynchronises the
+       canvas frame from the CSS2D label overlay (labels float ~18px above their
+       nodes) and from three's DragControls raycaster (hover registers ~18px low —
+       the long-standing "aim below the node" bug). Re-declaring the rule here
+       takes the hint out of flow and restores top:0 alignment for all three.
+       Guarded by web/e2e/raycaster-offset.spec.ts (canvasTopMinusContainerTop). */
+    .scene-nav-info {
+      position: absolute;
+      bottom: 5px;
+      width: 100%;
+      text-align: center;
+      color: slategrey;
+      opacity: 0.7;
+      font-size: 10px;
+      pointer-events: none;
+      user-select: none;
+    }
     /* Labels live in this shadow root (CSS2DRenderer overlay), so the hover
        highlight rule applies here. */
     .mf-graph-label {

@@ -191,3 +191,38 @@ Apply **Option 1** (container-local CSS to remove the canvas baseline gap) once
 Julian green-lights a fix, and keep this diagnostic spec as a regression guard on
 `canvasTopMinusContainerTop === 0`. Optionally file Option 4 upstream in parallel.
 The dPR hypothesis can be closed.
+
+---
+
+## UPDATE 2026-05-31 — Option 1 applied + verified: fixes alignment, NOT hover
+
+Refined root cause of the 18px gap (more precise than "canvas baseline gap"):
+`three-render-objects` injects its `.scene-nav-info { position:absolute; ... }`
+rule into **`document.head`, which cannot cross the component's shadow boundary**.
+So inside the shadow root the "Left-click: rotate…" hint is *unstyled*, renders as
+an **in-flow ~18px text block above the canvas**, and pushes the `<canvas>` (and
+the whole WebGL scene) down 18px. Fix shipped: re-declare `.scene-nav-info`
+(position:absolute, bottom) in the component's `static styles`.
+
+**Verified with the instrument (this is the important part):**
+- `canvasTopMinusContainerTop`: **18 → 0** ✓. The canvas, container and CSS2D
+  overlay now share top:0. This **fixes the DOM label-to-node alignment** (labels
+  were rendering ~18px above their WebGL spheres) and restores the nav hint to its
+  intended subtle bottom position. The Playwright label suite stays green.
+- **Real-mouse hover band: UNCHANGED** — still centre ≈ **+9px (dPR1) / +12px
+  (dPR2)** after the gap collapsed to 0. So collapsing the canvas/container frame
+  split did **NOT** move the hover hit-zone.
+
+**Consequence — the hover diagnosis above is INCOMPLETE.** The "DragControls keyed
+to the canvas at top:18 → 18px hover offset" mechanism is contradicted by
+experiment: with the canvas now at top:0, the hover offset persists at ~+12px. So
+the long-standing "aim below the node" hover bug has a **separate, still-unidentified
+cause** (it is NOT the canvas frame split, and NOT dPR). The +12px is systematic
+and downward, and is unlikely to be the sim-sync measurement artifact that affected
+the grade label test (that artifact displaces to the origin, not by a steady 12px).
+
+**Status:** label/canvas alignment + nav hint = FIXED and shipped. Hover hit-test
+offset = REOPENED, needs a second diagnostic pass (candidates to probe next:
+the hover raycaster's actual sphere intersection vs `graph2ScreenCoords`, node
+sphere radius/`nodeRelSize` vs hit geometry, whether the offset scales with node
+`val`/size — the user's "≈ 1 item-height" hint suggests size-dependence).
