@@ -42,25 +42,50 @@
       el.gradeChains = chains
       document.getElementById('host').appendChild(el)
 
-      // Wait until: the element has updated, the graph instance exists, data is
-      // fed, AND the force sim has pushed nodes off the origin (so labels project
-      // to distinct screen positions). Then freeze and flag ready.
+      const raf = () => new Promise((r) => requestAnimationFrame(() => r()))
+
+      // Deterministic readiness. Relying on the d3 force sim is racy: the data
+      // coords (node.x/y/z — what graph2ScreenCoords projects) and the three.js
+      // object positions (what the labels ride on) sync a frame apart, so pausing
+      // mid-warmup can leave labels at the origin while data is already spread.
+      // Instead we PIN each node to a fixed spread (fx/fy/fz on a circle) and wait
+      // until every node's __threeObj has actually synced to its pinned data
+      // position before freezing — no stochastic timing, no lag window.
       async function ready() {
         await el.updateComplete
+        const g = el.__test_graph
         const start = performance.now()
+        // Wait for the graph to be fed.
         while (performance.now() - start < 8000) {
-          const g = el.__test_graph
           const nodes = g && g.graphData && g.graphData().nodes
-          if (nodes && nodes.length > 0) {
-            // Spread check: at least one node has a non-trivial offset from origin.
-            const spread = nodes.some(
-              (n) => Math.hypot(n.x ?? 0, n.y ?? 0, n.z ?? 0) > 1,
-            )
-            if (spread) break
-          }
+          if (nodes && nodes.length > 0) break
           await new Promise((r) => setTimeout(r, 50))
         }
-        // Freeze the sim + render one CSS2D frame against the resting camera.
+        const nodes = g.graphData().nodes
+        // Pin nodes to a deterministic circle in the XY plane (radius 100, z=0).
+        nodes.forEach((n, i) => {
+          const a = (i / nodes.length) * Math.PI * 2
+          n.fx = Math.cos(a) * 100
+          n.fy = Math.sin(a) * 100
+          n.fz = 0
+        })
+        // Re-feed so d3 picks up the fixed coords, then advance frames until every
+        // node's three-object position matches its pinned data coord (synced).
+        const synced = () => nodes.every((n) => {
+          const o = n.__threeObj
+          // Spread gate: avoid the frame-0 false positive where both data and
+          // object sit at the origin before the sim applies the pin.
+          const spread = Math.hypot(n.x ?? 0, n.y ?? 0, n.z ?? 0) > 1
+          return spread && o && Math.abs(o.position.x - (n.x ?? 0)) < 0.01 &&
+            Math.abs(o.position.y - (n.y ?? 0)) < 0.01 &&
+            Math.abs(o.position.z - (n.z ?? 0)) < 0.01
+        })
+        const syncStart = performance.now()
+        while (performance.now() - syncStart < 4000 && !synced()) {
+          await raf()
+        }
+        // Freeze (pauses sim, cancels grade zoomToFit, disables damping) + render
+        // one CSS2D frame against the resting camera.
         el.__test_pauseAndRenderFrame()
         window.mfGraphEl = el
         window.mfReady = true

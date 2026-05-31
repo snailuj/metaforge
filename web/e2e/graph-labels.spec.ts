@@ -24,6 +24,15 @@ test('every visible label sits on its node projected position (independent code 
   const mismatches = await page.evaluate((cfg) => {
     const el: any = document.querySelector('mf-force-graph')
     const graph = el.__test_graph
+    // Freeze a deterministic frame SYNCHRONOUSLY before measuring: grade mode
+    // fires a 700ms-delayed zoomToFit(400ms tween) that pauseAnimation doesn't
+    // cancel, so the fixture's resting camera may still be moving. Re-pin the
+    // current camera with duration 0 (kills any in-flight tween) then render one
+    // CSS2D frame — both code paths below now read the same frozen camera. (The
+    // node positions, not the camera path, are what we're validating.)
+    const cam = graph.camera()
+    graph.cameraPosition({ x: cam.position.x, y: cam.position.y, z: cam.position.z }, { x: 0, y: 0, z: 0 }, 0)
+    el.__test_pauseAndRenderFrame()
     // graph2ScreenCoords reports coordinates in the renderer/overlay frame — its
     // origin is the CSS2DRenderer overlay's top-left, NOT the <canvas> box (which
     // an inline-layout line-box shifts down by ~18px). Use the overlay's page

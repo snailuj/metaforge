@@ -490,9 +490,19 @@ export class MfForceGraph extends LitElement {
   }
 
   /** Test hook: freeze the sim and render exactly one label frame against the
-   *  current camera, so DOM-label geometry can be measured deterministically. */
+   *  current camera, so DOM-label geometry can be measured deterministically.
+   *  Also cancels the pending grade-mode zoomToFit (which would resume animation
+   *  mid-measurement) and disables orbit damping (which lerps the camera over
+   *  frames) — without these two, the projector read and the layout read can see
+   *  cameras one frame apart and disagree. */
   __test_pauseAndRenderFrame(): void {
     if (!this.graph || !this.labelRenderer) return
+    if (this.gradeFrameTimer) {
+      clearTimeout(this.gradeFrameTimer)
+      this.gradeFrameTimer = null
+    }
+    const controls = this.graph.controls() as { enableDamping?: boolean } | undefined
+    if (controls) controls.enableDamping = false
     this.graph.pauseAnimation()
     this.labelRenderer.render(this.graph.scene() as never, this.graph.camera() as never)
   }
