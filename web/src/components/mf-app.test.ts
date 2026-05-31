@@ -821,16 +821,32 @@ describe('mf-app grade-mode integration', () => {
     ;(el as any).selectedChain = (el as any).gradeChains[0]
     await el.updateComplete
 
+    const postSpy = vi.spyOn((el as any).gradingClient, 'postJudgement')
+
     const gradePanel = el.shadowRoot!.querySelector('mf-grade-panel')
     expect(gradePanel).not.toBeNull()
     gradePanel!.dispatchEvent(new CustomEvent('verdict-submit', {
-      detail: { label: 'live', confidence: 'high', notes: '' },
+      detail: { linkage: 'good', metaphor: 'live', tier: null, confidence: 'high', notes: '' },
       bubbles: true,
       composed: true,
     }))
 
     await new Promise(r => setTimeout(r, 50))
     await el.updateComplete
+
+    // The posted judgement is a v2 record built from the two-axis detail
+    expect(postSpy).toHaveBeenCalledTimes(1)
+    const posted = postSpy.mock.calls[0][0] as any
+    expect(posted).toMatchObject({
+      schema_version: 'judgement.v2',
+      judged_by: 'julian',
+      chain_signature: 'sig1',
+      linkage: 'good',
+      metaphor: 'live',
+      tier: null,
+      confidence: 'high',
+    })
+    expect(posted).not.toHaveProperty('label')
 
     // After submit, selectedChain should be cleared
     expect((el as any).selectedChain).toBeNull()
@@ -1002,7 +1018,7 @@ describe('mf-app grade-mode integration', () => {
 
       await (el as any).handleVerdictSubmit(
         new CustomEvent('verdict-submit', {
-          detail: { label: 'live', confidence: 'high', notes: '' },
+          detail: { linkage: 'good', metaphor: 'live', tier: null, confidence: 'high', notes: '' },
           bubbles: true,
           composed: true,
         })
@@ -1011,10 +1027,14 @@ describe('mf-app grade-mode integration', () => {
 
       // Queue should have 1 entry
       expect((el as any).pendingQueue).toHaveLength(1)
-      // localStorage should be written
+      // localStorage should be written with a v2 record (two axes, no flat label)
       const stored = JSON.parse(localStorage.getItem('pending_judgements') ?? '[]')
       expect(stored).toHaveLength(1)
       expect(stored[0].chain_signature).toBe('sig1')
+      expect(stored[0].schema_version).toBe('judgement.v2')
+      expect(stored[0].linkage).toBe('good')
+      expect(stored[0].metaphor).toBe('live')
+      expect(stored[0]).not.toHaveProperty('label')
       // Banner should mention pending
       expect((el as any).errorMessage).toContain('pending')
       // selectedChain cleared so grading can continue
@@ -1026,12 +1046,13 @@ describe('mf-app grade-mode integration', () => {
     it('successful POST flushes the pending queue', async () => {
       // Pre-populate the queue with one pending entry
       const pendingJudgement = {
-        schema_version: 'judgement.v1' as const,
+        schema_version: 'judgement.v2' as const,
         judged_by: 'julian', round: 1,
         topic: 'fire', topic_synset_id: 's1',
         vehicle: 'smoke', vehicle_synset_id: 'v2',
         proposer: 'test', chain_signature: 'sig_pending',
-        label: 'dead' as const, confidence: 'high' as const, notes: '', supersedes_ts: null,
+        linkage: 'good' as const, metaphor: 'dead' as const, tier: null,
+        confidence: 'high' as const, notes: '', supersedes_ts: null,
       }
       ;(el as any).pendingQueue = [pendingJudgement]
       ;(el as any).savePendingQueue()
@@ -1042,13 +1063,13 @@ describe('mf-app grade-mode integration', () => {
 
       // POST succeeds for both the current judgement and the pending one
       const clientSpy = vi.spyOn((el as any).gradingClient, 'postJudgement').mockResolvedValue({
-        schema_version: 'judgement.v1', ts: '2026-01-01T00:00:00Z',
+        schema_version: 'judgement.v2', ts: '2026-01-01T00:00:00Z',
       } as any)
       const getJudgementsSpy = vi.spyOn((el as any).gradingClient, 'getJudgements').mockResolvedValue({ count: 0, records: [] })
 
       await (el as any).handleVerdictSubmit(
         new CustomEvent('verdict-submit', {
-          detail: { label: 'live', confidence: 'high', notes: '' },
+          detail: { linkage: 'good', metaphor: 'live', tier: null, confidence: 'high', notes: '' },
           bubbles: true,
           composed: true,
         })
@@ -1104,7 +1125,7 @@ describe('mf-app grade-mode integration', () => {
     // Directly call the handler — this avoids depending on DOM event routing
     await (el as any).handleVerdictSubmit(
       new CustomEvent('verdict-submit', {
-        detail: { label: 'live', confidence: 'high', notes: '' },
+        detail: { linkage: 'good', metaphor: 'live', tier: null, confidence: 'high', notes: '' },
         bubbles: true,
         composed: true,
       })
@@ -1126,22 +1147,24 @@ describe('mf-app grade-mode integration', () => {
       generated_at: '2026-01-01T00:00:00Z',
     }
 
+    // v2 judgement factory — the two axes + optional tier replace the flat label.
     const judgement = (overrides: Record<string, unknown>) => ({
-      schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+      schema_version: 'judgement.v2', judged_by: 'julian', round: 1,
       topic: 'fire', topic_synset_id: 's1',
       vehicle: 'blaze', vehicle_synset_id: 'v1',
       proposer: 'test', chain_signature: 'sig1',
-      label: 'dead', confidence: 'high', notes: '', supersedes_ts: null,
+      linkage: 'good', metaphor: 'dead', tier: null,
+      confidence: 'high', notes: '', supersedes_ts: null,
       ...overrides,
     })
 
-    it('threads the latest judgement notes into the grade-panel priorVerdict prop', async () => {
+    it('threads the latest judgement axes, tier and notes into the priorVerdict prop', async () => {
       ;(el as any).mode = 'grade'
       ;(el as any).viewportWidth = 1200
       ;(el as any).gradeChains = [chain]
       ;(el as any).gradeJudgements = [
-        judgement({ label: 'bad_path', notes: 'first pass — padding', ts: '2026-05-30T00:00:00Z' }),
-        judgement({ label: 'dead', notes: 'merge: too literal', ts: '2026-05-31T00:00:00Z' }),
+        judgement({ linkage: 'bad', metaphor: 'live', notes: 'first pass — padding', ts: '2026-05-30T00:00:00Z' }),
+        judgement({ linkage: 'good', metaphor: 'dead', tier: 'obvious', notes: 'merge: too literal', ts: '2026-05-31T00:00:00Z' }),
       ]
       ;(el as any).selectedChain = chain
       await el.updateComplete
@@ -1149,15 +1172,38 @@ describe('mf-app grade-mode integration', () => {
       const panel = el.shadowRoot!.querySelector('mf-grade-panel') as any
       expect(panel).not.toBeNull()
       expect(panel.priorVerdict).not.toBeNull()
-      expect(panel.priorVerdict.label).toBe('dead')
-      expect(panel.priorVerdict.notes).toBe('merge: too literal')
+      expect(panel.priorVerdict).toMatchObject({
+        linkage: 'good', metaphor: 'dead', tier: 'obvious', notes: 'merge: too literal',
+      })
+      expect(panel.priorVerdict.ts).toBe('2026-05-31T00:00:00Z')
+      expect(panel.priorVerdict).not.toHaveProperty('label')
+    })
+
+    it('maps a stored v1 label into the v2 priorVerdict shape via normaliseJudgement', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeChains = [chain]
+      // A legacy v1 record carrying `label` (no axes) — read-compat path.
+      ;(el as any).gradeJudgements = [{
+        schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+        topic: 'fire', topic_synset_id: 's1', vehicle: 'blaze', vehicle_synset_id: 'v1',
+        proposer: 'test', chain_signature: 'sig1',
+        label: 'dead', confidence: 'high', notes: 'old pass', ts: '2026-05-31T00:00:00Z', supersedes_ts: null,
+      }]
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+
+      const panel = el.shadowRoot!.querySelector('mf-grade-panel') as any
+      expect(panel.priorVerdict).toMatchObject({
+        linkage: 'good', metaphor: 'dead', tier: null, notes: 'old pass',
+      })
     })
 
     it('threads empty notes when the latest judgement has none', async () => {
       ;(el as any).mode = 'grade'
       ;(el as any).viewportWidth = 1200
       ;(el as any).gradeChains = [chain]
-      ;(el as any).gradeJudgements = [judgement({ label: 'live', notes: '', ts: '2026-05-31T00:00:00Z' })]
+      ;(el as any).gradeJudgements = [judgement({ linkage: 'good', metaphor: 'live', notes: '', ts: '2026-05-31T00:00:00Z' })]
       ;(el as any).selectedChain = chain
       await el.updateComplete
 

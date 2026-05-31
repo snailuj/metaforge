@@ -7,7 +7,16 @@ import { initStrings, getString } from '@/lib/strings'
 import { GradingClient } from '@/api/grading-client'
 import type { LookupResult } from '@/types/api'
 import type { GraphData, GraphNode, Rarity } from '@/graph/types'
-import type { ChainRecord, JudgementRecord, TopicSummary } from '@/types/grading'
+import type {
+  ChainRecord,
+  JudgementRecord,
+  TopicSummary,
+  VerdictSubmitDetail,
+  Linkage,
+  MetaphorVerdict,
+  Tier,
+} from '@/types/grading'
+import { normaliseJudgement } from '@/types/grading'
 import type { MfToast } from './mf-toast'
 
 // Import components so they register
@@ -580,11 +589,11 @@ export class MfApp extends LitElement {
     `
   }
 
-  private async handleVerdictSubmit(e: CustomEvent<{ label: string; confidence: string; notes: string }>): Promise<void> {
+  private async handleVerdictSubmit(e: CustomEvent<VerdictSubmitDetail>): Promise<void> {
     if (!this.selectedChain) return
     const chain = this.selectedChain
     const judgement: JudgementRecord = {
-      schema_version: 'judgement.v1',
+      schema_version: 'judgement.v2',
       judged_by: 'julian',
       round: chain.round,
       topic: chain.topic,
@@ -593,8 +602,10 @@ export class MfApp extends LitElement {
       vehicle_synset_id: chain.vehicle_synset_id,
       proposer: chain.proposer,
       chain_signature: chain.chain_signature,
-      label: e.detail.label as JudgementRecord['label'],
-      confidence: e.detail.confidence as JudgementRecord['confidence'],
+      linkage: e.detail.linkage,
+      metaphor: e.detail.metaphor,
+      tier: e.detail.tier,
+      confidence: e.detail.confidence,
       notes: e.detail.notes,
       supersedes_ts: null,
     }
@@ -644,14 +655,31 @@ export class MfApp extends LitElement {
    * Look up whether a chain has already been judged by the current user.
    * Judgements arrive as an append-log, so the latest verdict for a signature
    * is the last matching record — re-grades supersede earlier passes. We surface
-   * its notes too, so the re-grade banner can echo the grader's prior reasoning.
+   * both axes, the optional tier and the notes so the re-grade banner can echo
+   * the grader's prior verdict and reasoning.
+   *
+   * Stored records may be v1 (flat `label`) or v2 (two axes); `normaliseJudgement`
+   * maps either to the uniform two-axis view the panel expects. The handful of v1
+   * labels that carry no signal on an axis (`bad_path` → metaphor unknown,
+   * `irrelevant` → linkage moot) are coalesced to their closest concrete value for
+   * display — these ≈5 legacy records are slated for an operator re-grade under v2.
    */
-  private priorVerdict(chain: ChainRecord): { label: JudgementRecord['label']; ts: string; notes: string } | null {
+  private priorVerdict(
+    chain: ChainRecord,
+  ): { linkage: Linkage; metaphor: MetaphorVerdict; tier: Tier | null; ts: string; notes: string } | null {
     let latest: JudgementRecord | null = null
     for (const j of this.gradeJudgements) {
       if (j.chain_signature === chain.chain_signature) latest = j
     }
-    return latest ? { label: latest.label, ts: latest.ts ?? '', notes: latest.notes ?? '' } : null
+    if (!latest) return null
+    const { linkage, metaphor, tier } = normaliseJudgement(latest)
+    return {
+      linkage: linkage ?? 'bad',
+      metaphor: metaphor ?? 'irrelevant',
+      tier,
+      ts: latest.ts ?? '',
+      notes: latest.notes ?? '',
+    }
   }
 
   /** Signatures that carry at least one verdict — the hide-graded predicate. */
