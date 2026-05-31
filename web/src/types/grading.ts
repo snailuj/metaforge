@@ -1,4 +1,16 @@
+// Flat v1 verdict — retained only for reading legacy records via normaliseJudgement.
 export type Label = 'live' | 'dead' | 'bad_path' | 'irrelevant';
+// v2 two-axis verdict: linkage (are the hops accurate?) + metaphor (is the endpoint apt?).
+export type Linkage = 'good' | 'bad';
+export type MetaphorVerdict = 'live' | 'dead' | 'irrelevant';
+export type Tier =
+    | 'legendary'
+    | 'complex'
+    | 'interesting'
+    | 'ironic'
+    | 'strong'
+    | 'obvious'
+    | 'unlikely';
 export type Confidence = 'high' | 'med' | 'low';
 
 export interface ChainStep {
@@ -21,7 +33,7 @@ export interface ChainRecord {
 }
 
 export interface JudgementRecord {
-    schema_version: 'judgement.v1';
+    schema_version: 'judgement.v2';
     // Omit ts on construction — the server injects a UTC timestamp via default_factory.
     // Existing JSONL records with ts continue to deserialise correctly.
     ts?: string;
@@ -33,13 +45,62 @@ export interface JudgementRecord {
     vehicle_synset_id: string;
     proposer: string;
     chain_signature: string;
-    label: Label;
+    // Two orthogonal axes replace the flat v1 `label`; tier is an optional supplement.
+    linkage: Linkage;
+    metaphor: MetaphorVerdict;
+    tier: Tier | null;
     confidence: Confidence;
     notes: string;
     supersedes_ts: string | null;
 }
 
+// Emitted by mf-grade-panel on a metaphor submit. Carries both axes, optional tier,
+// confidence and notes — mf-app assembles the v2 JudgementRecord from this.
+export interface VerdictSubmitDetail {
+    linkage: Linkage;
+    metaphor: MetaphorVerdict;
+    tier: Tier | null;
+    confidence: Confidence;
+    notes: string;
+}
+
 export interface TopicSummary {
     topic: string;
     topic_synset_id: string;
+}
+
+// Normalised two-axis view of a stored judgement, regardless of v1/v2 source.
+// linkage/metaphor may be null where a flat v1 label carried no signal on that axis.
+export interface NormalisedJudgement {
+    linkage: Linkage | null;
+    metaphor: MetaphorVerdict | null;
+    tier: Tier | null;
+}
+
+// v1 `label` → (linkage, metaphor). None where the flat label carried no signal on that
+// axis: bad_path only asserted a broken route (metaphor unknown); irrelevant means the
+// pairing is unconnected (linkage moot). Mirrors _V1_LABEL_MAP in the Python sidecar.
+const V1_LABEL_MAP: Record<Label, [Linkage | null, MetaphorVerdict | null]> = {
+    live: ['good', 'live'],
+    dead: ['good', 'dead'],
+    bad_path: ['bad', null],
+    irrelevant: [null, 'irrelevant'],
+};
+
+// Read-side mirror of the Python normalise_judgement: maps a stored record (v1 `label`
+// or v2 axes) to the uniform two-axis view consumers expect. Non-destructive.
+export function normaliseJudgement(
+    raw: { linkage?: Linkage; metaphor?: MetaphorVerdict; tier?: Tier | null; label?: Label },
+): NormalisedJudgement {
+    if (raw.linkage !== undefined || raw.metaphor !== undefined) {
+        return {
+            linkage: raw.linkage ?? null,
+            metaphor: raw.metaphor ?? null,
+            tier: raw.tier ?? null,
+        };
+    }
+    const [linkage, metaphor] = raw.label
+        ? V1_LABEL_MAP[raw.label]
+        : [null, null];
+    return { linkage, metaphor, tier: null };
 }
