@@ -2,6 +2,8 @@
 // Lit-agnostic and mode-agnostic: callers pass a LabelStyle + LabelSizeConfig,
 // so one code path serves both grade and browse palettes.
 
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+
 export type LabelSizeMode = 'constant' | 'distance-floor'
 
 export interface LabelSizeConfig {
@@ -71,4 +73,62 @@ export function buildLabelEl(style: LabelStyle, cfg: LabelSizeConfig): HTMLDivEl
   span.style.textShadow = '0 0 2px #000, 0 0 3px #000' // outline for legibility
   el.appendChild(span)
   return el
+}
+
+/** Construct the overlay renderer. Pass it to ForceGraph3D({ extraRenderers }) —
+ *  three-render-objects positions/sizes/renders it automatically. */
+export function makeLabelRenderer(width: number, height: number): CSS2DRenderer {
+  const r = new CSS2DRenderer()
+  r.setSize(width, height)
+  return r
+}
+
+/**
+ * One label per node, returned from nodeThreeObject (with extend=true so the
+ * raycast sphere survives). The element rides on the node group, so the force
+ * tick positions it and the extraRenderers pass projects it — no manual maths.
+ * `getCfg`/`getRefDist` are read live each frame so reactive changes apply.
+ */
+export function makeLabelObject(
+  style: LabelStyle,
+  getCfg: () => LabelSizeConfig,
+  getRefDist: () => number,
+): CSS2DObject {
+  const el = buildLabelEl(style, getCfg())
+  const span = el.querySelector('span.mf-graph-label__text') as HTMLSpanElement
+  const obj = new CSS2DObject(el)
+  obj.center.set(LABEL_CENTER.x, LABEL_CENTER.y)
+  // Same-frame per-object hook CSS2DRenderer calls during render (verified
+  // CSS2DRenderer.js:236). Scales the INNER span (renderer overwrites the outer
+  // transform). constant mode → scale 1 (cheap no-op).
+  obj.onBeforeRender = (_r: unknown, _s: unknown, camera: unknown) => {
+    const cfg = getCfg()
+    const cam = camera as { position: { x: number; y: number; z: number } }
+    const dx = cam.position.x - obj.position.x
+    const dy = cam.position.y - obj.position.y
+    const dz = cam.position.z - obj.position.z
+    const dist = Math.hypot(dx, dy, dz) || 1
+    span.style.transform = `scale(${labelScale(cfg, dist, getRefDist())})`
+  }
+  return obj
+}
+
+/**
+ * Mirror a node-visibility predicate onto label DOM, defeating the
+ * CSS2DRenderer orphan-element pitfall (it only toggles display while
+ * traversing; a node filtered out of the scene leaves its label stuck visible).
+ * Sets BOTH CSS2DObject.visible (honoured when traversed) and element.display
+ * (belt-and-braces for filtered-out nodes).
+ */
+export function syncLabelVisibility(
+  nodes: Array<{ __threeObj?: { children?: Array<{ isCSS2DObject?: boolean; visible: boolean; element: HTMLElement }> } }>,
+  isVisible: (n: unknown) => boolean,
+): void {
+  for (const n of nodes) {
+    const label = n.__threeObj?.children?.find(c => c.isCSS2DObject)
+    if (!label) continue
+    const vis = isVisible(n)
+    label.visible = vis
+    label.element.style.display = vis ? '' : 'none'
+  }
 }

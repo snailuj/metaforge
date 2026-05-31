@@ -1,4 +1,19 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+vi.mock('three/addons/renderers/CSS2DRenderer.js', () => ({
+  CSS2DRenderer: vi.fn().mockImplementation(() => ({
+    domElement: document.createElement('div'),
+    setSize: vi.fn(),
+    render: vi.fn(),
+  })),
+  CSS2DObject: vi.fn().mockImplementation((el?: HTMLElement) => ({
+    element: el ?? document.createElement('div'),
+    isCSS2DObject: true,
+    visible: true,
+    position: { x: 0, y: 0, z: 0, set(x: number, y: number, z: number) { this.x = x; this.y = y; this.z = z } },
+    center: { x: 0.5, y: 0.5, set(x: number, y: number) { this.x = x; this.y = y } },
+    onBeforeRender: undefined as undefined | ((r: unknown, s: unknown, c: unknown) => void),
+  })),
+}))
 import {
   labelScale, buildLabelEl, DEFAULT_LABEL_SIZE, LABEL_CENTER,
   type LabelSizeConfig,
@@ -57,5 +72,58 @@ describe('defaults', () => {
   })
   it('label anchor floats just above the node', () => {
     expect(LABEL_CENTER).toEqual({ x: 0.5, y: 1.1 })
+  })
+})
+
+import { makeLabelRenderer, makeLabelObject, syncLabelVisibility } from './label-layer'
+
+describe('makeLabelRenderer', () => {
+  it('creates a renderer and sizes it', () => {
+    const r = makeLabelRenderer(800, 600) as unknown as { setSize: ReturnType<typeof vi.fn> }
+    expect(r.setSize).toHaveBeenCalledWith(800, 600)
+  })
+})
+
+describe('makeLabelObject', () => {
+  it('wraps the styled element and sets the anchor centre', () => {
+    const obj = makeLabelObject(
+      { text: 'venom', colour: '#6fb8e0', role: 'vehicle' },
+      () => DEFAULT_LABEL_SIZE.grade, () => 200,
+    ) as unknown as { element: HTMLElement; center: { x: number; y: number } }
+    expect(obj.element.querySelector('span')!.textContent).toBe('venom')
+    expect(obj.center.x).toBe(LABEL_CENTER.x)
+    expect(obj.center.y).toBe(LABEL_CENTER.y)
+  })
+  it('distance-floor mode scales the inner span on render; constant mode leaves it at scale(1)', () => {
+    const distObj = makeLabelObject(
+      { text: 'x', colour: '#fff', role: 'step' },
+      () => ({ mode: 'distance-floor', basePx: 13, minPx: 10 }), () => 200,
+    ) as unknown as { element: HTMLElement; position: { y: number }; onBeforeRender: (r: unknown, s: unknown, c: { position: { x: number; y: number; z: number } }) => void }
+    const span = distObj.element.querySelector('span') as HTMLSpanElement
+    const cam = { position: { x: 0, y: distObj.position.y, z: 400 } } // dist 400 from origin
+    distObj.onBeforeRender({}, {}, cam)
+    expect(span.style.transform).toBe(`scale(${10 / 13})`) // floored
+
+    const constObj = makeLabelObject(
+      { text: 'x', colour: '#fff', role: 'step' },
+      () => ({ mode: 'constant', basePx: 13, minPx: 11 }), () => 200,
+    ) as unknown as { element: HTMLElement; onBeforeRender: (r: unknown, s: unknown, c: { position: { x: number; y: number; z: number } }) => void }
+    const cspan = constObj.element.querySelector('span') as HTMLSpanElement
+    constObj.onBeforeRender({}, {}, { position: { x: 0, y: 0, z: 400 } })
+    expect(cspan.style.transform).toBe('scale(1)')
+  })
+})
+
+describe('syncLabelVisibility', () => {
+  it('hides labels for nodes failing the predicate, shows the rest', () => {
+    const mk = () => ({ isCSS2DObject: true, visible: true, element: document.createElement('div') })
+    const a = mk(); const b = mk()
+    const nodes = [
+      { id: 'a', __threeObj: { children: [a] } },
+      { id: 'b', __threeObj: { children: [b] } },
+    ]
+    syncLabelVisibility(nodes, n => (n as { id: string }).id === 'a')
+    expect(a.visible).toBe(true); expect(a.element.style.display).toBe('')
+    expect(b.visible).toBe(false); expect(b.element.style.display).toBe('none')
   })
 })
