@@ -317,39 +317,14 @@ describe('MfForceGraph', () => {
     expect(mockControls.dampingFactor).toBeCloseTo(0.05)
   })
 
-  it('shows rounded-rect border and background on hover', () => {
-    const spriteChild = { isSprite: true, borderWidth: 0, borderRadius: 0, borderColor: 'white', backgroundColor: false as string | false }
-    const node = {
-      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1, rarity: 'common',
-      __threeObj: { isMesh: true, children: [spriteChild] },
-    }
-    capturedOnNodeHover!(node)
-    expect(spriteChild.borderWidth).toBe(0.15)
-    expect(spriteChild.borderRadius).toBe(0.3)
-    expect(spriteChild.borderColor).toBe(RARITY_COLOURS.common)
-    expect(spriteChild.backgroundColor).toBe('rgba(0, 0, 0, 0.2)')
-  })
-
-  it('removes border and background on hover-out', () => {
-    const spriteChild = { isSprite: true, borderWidth: 0, borderRadius: 0, borderColor: 'white', backgroundColor: false as string | false }
-    const node = {
-      id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1, rarity: 'common',
-      __threeObj: { isMesh: true, children: [spriteChild] },
-    }
-    capturedOnNodeHover!(node) // hover in
-    capturedOnNodeHover!(null) // hover out
-    expect(spriteChild.borderWidth).toBe(0)
-    expect(spriteChild.backgroundColor).toBe(false)
-  })
-
-  it('uses gold border for central node on hover', () => {
-    const spriteChild = { isSprite: true, borderWidth: 0, borderRadius: 0, borderColor: 'white', backgroundColor: false as string | false }
-    const node = {
-      id: 'fire', word: 'fire', relationType: 'central', val: 8, order: 0,
-      __threeObj: { isMesh: true, children: [spriteChild] },
-    }
-    capturedOnNodeHover!(node)
-    expect(spriteChild.borderColor).toBe('#d4af37')
+  it('toggles .label-hovered on the node label div on hover in/out (browse)', () => {
+    const labelEl = document.createElement('div')
+    const node = { id: 'blaze', word: 'blaze', relationType: 'synonym', rarity: 'common', order: 1,
+      __threeObj: { children: [{ isCSS2DObject: true, element: labelEl }] } }
+    capturedOnNodeHover!(node, null)
+    expect(labelEl.classList.contains('label-hovered')).toBe(true)
+    capturedOnNodeHover!(null, node)
+    expect(labelEl.classList.contains('label-hovered')).toBe(false)
   })
 
   it('hides links when either endpoint is hidden', async () => {

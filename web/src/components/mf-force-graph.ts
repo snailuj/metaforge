@@ -62,6 +62,15 @@ export class MfForceGraph extends LitElement {
       left: 0;
       touch-action: none;
     }
+    /* Labels live in this shadow root (CSS2DRenderer overlay), so the hover
+       highlight rule applies here. */
+    .mf-graph-label {
+      transition: background 120ms ease;
+    }
+    .mf-graph-label.label-hovered {
+      background: rgba(255, 255, 255, 0.18);
+      outline: 1px solid rgba(255, 255, 255, 0.5);
+    }
   `
 
   private graph: ForceGraph3DInstance | null = null
@@ -333,10 +342,10 @@ export class MfForceGraph extends LitElement {
         }
 
         if (this.previousHoveredNode) {
-          this.setNodeHoverBorder(this.previousHoveredNode, false)
+          this.setLabelHover(this.previousHoveredNode, false)
         }
         if (node) {
-          this.setNodeHoverBorder(node, true)
+          this.setLabelHover(node, true)
         }
         this.previousHoveredNode = node
       })
@@ -426,33 +435,11 @@ export class MfForceGraph extends LitElement {
     }, 700)
   }
 
-  /** Toggle rounded-rectangle border on the SpriteText label for hover feedback */
-  private setNodeHoverBorder(node: GraphNode, hover: boolean): void {
-    type SpriteLike = {
-      isSprite?: boolean
-      borderWidth: number
-      borderRadius: number
-      borderColor: string
-      backgroundColor: string | false
-    }
-    type ObjLike = { children?: SpriteLike[] }
-    const threeObj = (node as unknown as { __threeObj?: ObjLike }).__threeObj
-    if (!threeObj) return
-    const sprite = threeObj.children?.find(c => c.isSprite)
-    if (!sprite) return
-
-    if (hover) {
-      const colour = node.relationType === 'central'
-        ? NODE_COLOURS.central
-        : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
-      sprite.borderWidth = 0.15
-      sprite.borderRadius = 0.3
-      sprite.borderColor = colour
-      sprite.backgroundColor = 'rgba(0, 0, 0, 0.2)'
-    } else if (sprite.borderWidth !== 0) {
-      sprite.borderWidth = 0
-      sprite.backgroundColor = false
-    }
+  /** Toggle the hover highlight class on a node's DOM label. */
+  private setLabelHover(node: GraphNode, hover: boolean): void {
+    const threeObj = (node as unknown as { __threeObj?: { children?: Array<{ isCSS2DObject?: boolean; element: HTMLElement }> } }).__threeObj
+    const label = threeObj?.children?.find(c => c.isCSS2DObject)
+    if (label) label.element.classList.toggle('label-hovered', hover)
   }
 
   private syncDimensions() {
