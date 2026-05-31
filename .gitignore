@@ -84,3 +84,8 @@ vendor/
 *.log
 .cache/
 tmp/
+
+# Playwright e2e scratch + reports
+.playwright-mcp/
+web/test-results/
+web/playwright-report/

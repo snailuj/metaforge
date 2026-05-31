@@ -40,7 +40,7 @@ declare module '3d-force-graph' {
   }
 
   function ForceGraph3D(
-    options?: { controlType?: string },
+    options?: { controlType?: string; extraRenderers?: unknown[] },
   ): (container: HTMLElement) => ForceGraph3DInstance
 
   export default ForceGraph3D
