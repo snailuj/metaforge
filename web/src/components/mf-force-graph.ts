@@ -5,7 +5,7 @@ import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
 import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
-import { makeLabelRenderer, makeLabelObject, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle } from '@/graph/label-layer'
+import { makeLabelRenderer, makeLabelObject, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle } from '@/graph/label-layer'
 import type { ChainRecord, JudgementRecord } from '../types/grading'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
@@ -463,6 +463,11 @@ export class MfForceGraph extends LitElement {
     if (changed.has('hiddenRarities') && this.graph) {
       this.graph.nodeVisibility(this.isNodeVisible)
       this.graph.linkVisibility(this.isLinkVisible)
+      // Mirror the predicate onto label DOM: nodeVisibility removes a hidden
+      // node's group from the scene, so CSS2DRenderer never re-traverses its
+      // label and would otherwise leave it stuck visible at its last position.
+      const data = this.graph.graphData() as unknown as { nodes: Parameters<typeof syncLabelVisibility>[0] }
+      syncLabelVisibility(data.nodes, this.isNodeVisible)
     }
   }
 
@@ -480,6 +485,20 @@ export class MfForceGraph extends LitElement {
       if (renderer) renderer.dispose()
       this.graph = null
     }
+  }
+
+  /** Test hook: freeze the sim and render exactly one label frame against the
+   *  current camera, so DOM-label geometry can be measured deterministically. */
+  __test_pauseAndRenderFrame(): void {
+    if (!this.graph || !this.labelRenderer) return
+    this.graph.pauseAnimation()
+    this.labelRenderer.render(this.graph.scene() as never, this.graph.camera() as never)
+  }
+
+  /** Test hook: the live label `<div>`s in the overlay. */
+  __test_labelEls(): HTMLElement[] {
+    if (!this.labelRenderer) return []
+    return Array.from(this.labelRenderer.domElement.querySelectorAll('.mf-graph-label'))
   }
 
   render() {

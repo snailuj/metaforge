@@ -19,6 +19,9 @@ let capturedExtraRenderers: unknown[] | undefined = undefined
 
 const mockCamera = { position: { x: 0, y: 0, z: 100 } }
 const mockControls = { enableDamping: false, dampingFactor: 0 }
+// Backs the chainable Proxy's graphData() getter so tests can stub the node set
+// the library reports back (visibility mirror reads graph.graphData().nodes).
+let mockGraphData: { nodes: unknown[]; links: unknown[] } = { nodes: [], links: [] }
 
 const chainable: Record<string, unknown> = new Proxy({}, {
   get: (_t, prop) => {
@@ -83,6 +86,13 @@ const chainable: Record<string, unknown> = new Proxy({}, {
       // Real library calls: fn(node | null, previousNode | null)
       return (fn: (node: unknown | null, previousNode: unknown | null) => void) => {
         capturedOnNodeHover = fn
+        return chainable
+      }
+    }
+    if (prop === 'graphData') {
+      // graph.graphData() → current stub; graph.graphData(data) → chainable (setter form)
+      return (data?: { nodes: unknown[]; links: unknown[] }) => {
+        if (data === undefined) return mockGraphData
         return chainable
       }
     }
@@ -158,6 +168,7 @@ describe('MfForceGraph', () => {
     capturedOnNodeHover = null
     capturedControlType = undefined
     capturedExtraRenderers = undefined
+    mockGraphData = { nodes: [], links: [] }
     mockCamera.position.z = 100
     mockControls.enableDamping = false
     mockControls.dampingFactor = 0
@@ -192,6 +203,25 @@ describe('MfForceGraph', () => {
   it('no longer runs a sprite clamp loop (startLabelClampLoop removed)', () => {
     expect((el as unknown as Record<string, unknown>).startLabelClampLoop).toBeUndefined()
     expect((el as unknown as Record<string, unknown>).labelClampRAF).toBeUndefined()
+  })
+
+  it('syncs label visibility when hiddenRarities changes (browse)', async () => {
+    // Give two fed nodes mock label children, then hide 'rare'. The library
+    // reports these back via graph.graphData() (stubbed through mockGraphData).
+    const mkNode = (id: string, rarity: string) => ({ id, rarity, relationType: 'synonym',
+      __threeObj: { children: [{ isCSS2DObject: true, visible: true, element: document.createElement('div') }] } })
+    const nodes = [mkNode('blaze', 'common'), mkNode('conflagration', 'rare')]
+    mockGraphData = { nodes, links: [] }
+    el.hiddenRarities = new Set(['rare'])
+    await el.updateComplete
+    const rareLabel = nodes[1].__threeObj.children[0]
+    expect(rareLabel.visible).toBe(false)
+    expect(rareLabel.element.style.display).toBe('none')
+  })
+
+  it('exposes __test_pauseAndRenderFrame and __test_labelEls', () => {
+    expect(typeof el.__test_pauseAndRenderFrame).toBe('function')
+    expect(Array.isArray(el.__test_labelEls())).toBe(true)
   })
 
   it('shows all nodes when hiddenRarities is empty', () => {
