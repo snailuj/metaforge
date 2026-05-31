@@ -189,6 +189,11 @@ describe('MfForceGraph', () => {
     expect(capturedExtraRenderers!.length).toBe(1)
   })
 
+  it('no longer runs a sprite clamp loop (startLabelClampLoop removed)', () => {
+    expect((el as unknown as Record<string, unknown>).startLabelClampLoop).toBeUndefined()
+    expect((el as unknown as Record<string, unknown>).labelClampRAF).toBeUndefined()
+  })
+
   it('shows all nodes when hiddenRarities is empty', () => {
     expect(capturedNodeVisibility).not.toBeNull()
     for (const node of testData.nodes) {
