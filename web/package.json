@@ -18,6 +18,7 @@
     "three": "0.182.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/three": "^0.182.0",
     "@vitest/coverage-v8": "^3.2.4",
     "happy-dom": "^17.0.0",

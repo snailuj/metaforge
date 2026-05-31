@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>mf-force-graph e2e fixture — grade mode</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #1a1a2e; }
+      /* Fixed host size so the canvas + label overlay have real dimensions and
+         the projector/layout comparison is deterministic. */
+      #host { position: absolute; inset: 0; }
+      mf-force-graph { display: block; width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <script type="module">
+      import '/src/components/mf-force-graph.ts'
+
+      // Three fixed grade chains. Distinct heads → distinct deduped nodes, so the
+      // force sim spreads a real constellation rather than stacking at the origin.
+      const mkChain = (topic, vehicle, steps, sig) => ({
+        schema_version: 'chain.v1',
+        topic,
+        topic_synset_id: `syn-${topic}`,
+        vehicle,
+        vehicle_synset_id: `syn-${vehicle}`,
+        proposer: 'fixture',
+        round: 1,
+        chain: steps.map((s) => ({ phrase: s, head: s, synset_id: `syn-${s}` })),
+        chain_signature: sig,
+        generated_at: '2026-05-31T00:00:00Z',
+      })
+
+      const chains = [
+        mkChain('grief', 'anchor', ['grief', 'weight', 'depth', 'anchor'], 'sig-a'),
+        mkChain('joy', 'wildfire', ['joy', 'spark', 'blaze', 'wildfire'], 'sig-b'),
+        mkChain('memory', 'archive', ['memory', 'fragment', 'archive'], 'sig-c'),
+      ]
+
+      const el = document.createElement('mf-force-graph')
+      el.mode = 'grade'
+      el.gradeChains = chains
+      document.getElementById('host').appendChild(el)
+
+      // Wait until: the element has updated, the graph instance exists, data is
+      // fed, AND the force sim has pushed nodes off the origin (so labels project
+      // to distinct screen positions). Then freeze and flag ready.
+      async function ready() {
+        await el.updateComplete
+        const start = performance.now()
+        while (performance.now() - start < 8000) {
+          const g = el.__test_graph
+          const nodes = g && g.graphData && g.graphData().nodes
+          if (nodes && nodes.length > 0) {
+            // Spread check: at least one node has a non-trivial offset from origin.
+            const spread = nodes.some(
+              (n) => Math.hypot(n.x ?? 0, n.y ?? 0, n.z ?? 0) > 1,
+            )
+            if (spread) break
+          }
+          await new Promise((r) => setTimeout(r, 50))
+        }
+        // Freeze the sim + render one CSS2D frame against the resting camera.
+        el.__test_pauseAndRenderFrame()
+        window.mfGraphEl = el
+        window.mfReady = true
+      }
+      ready()
+    </script>
+  </body>
+</html>

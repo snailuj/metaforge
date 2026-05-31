@@ -503,6 +503,14 @@ export class MfForceGraph extends LitElement {
     return Array.from(this.labelRenderer.domElement.querySelectorAll('.mf-graph-label'))
   }
 
+  /** Test hook: the underlying ForceGraph3D instance, so e2e can call the
+   *  library's own projector (`graph2ScreenCoords`) and camera driver
+   *  (`cameraPosition`) — the independent code path the position assertion
+   *  checks the DOM layout against. */
+  get __test_graph(): ForceGraph3DInstance | null {
+    return this.graph
+  }
+
   render() {
     return html`<div id="graph-container" style="width:100%;height:100%;touch-action:none;"></div>`
   }
