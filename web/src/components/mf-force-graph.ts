@@ -6,12 +6,11 @@ import type { ForceGraph3DInstance } from '3d-force-graph'
 import SpriteText from 'three-spritetext'
 import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
-import { makeLabelRenderer } from '@/graph/label-layer'
+import { makeLabelRenderer, makeLabelObject, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle } from '@/graph/label-layer'
 import type { ChainRecord, JudgementRecord } from '../types/grading'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
 const EDGE_COLOUR_DIM = 'rgba(232, 224, 212, 0.08)'
-const LABEL_FONT = 'Georgia, "Times New Roman", serif'
 
 // 300ms matches typical OS double-click threshold; balances responsiveness
 // with avoiding false double-click detection on slower clickers
@@ -30,11 +29,6 @@ const GRADE_NODE_VAL: Record<'topic' | 'vehicle' | 'step', number> = {
   vehicle: 7,
   step: 4,
 }
-// Base label height in WORLD units (sprites scale with distance normally).
-// A per-frame clamp (startLabelClampLoop) then enforces a minimum on-screen
-// size so labels never shrink to illegibility when zoomed out — they just
-// overlap, the accepted trade-off. Endpoints slightly larger than steps.
-const GRADE_LABEL_HEIGHT = { endpoint: 4, step: 3 }
 // Minimum on-screen label height in CSS px (~10pt). Below this the clamp scales
 // the sprite up; above it the label keeps its natural distance-based size.
 const GRADE_LABEL_MIN_PX = 11
@@ -82,6 +76,9 @@ export class MfForceGraph extends LitElement {
   private previousHoveredNode: GraphNode | null = null
   private gradeFrameTimer: ReturnType<typeof setTimeout> | null = null
   private labelClampRAF: number | null = null
+  // Distance at which distance-floor labels render at full basePx (captured from
+  // the framing camera in Task 6; the sensible default here keeps the getter pure).
+  private labelRefDist = 200
   // Chain signature of the path currently hovered (grade mode) — whole-path highlight.
   private hoveredChainSig: string | null = null
 
@@ -90,6 +87,7 @@ export class MfForceGraph extends LitElement {
   @property({ attribute: false }) mode: 'browse' | 'grade' = 'browse'
   @property({ attribute: false }) gradeChains: ChainRecord[] = []
   @property({ attribute: false }) judgements: JudgementRecord[] = []
+  @property({ attribute: false }) labelSize: LabelSizeConfig | null = null
   @property({ type: Number }) viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
 
   // Whether the 3D library should be loaded. Derived from mode + viewportWidth —
@@ -197,6 +195,25 @@ export class MfForceGraph extends LitElement {
     return this.isNodeVisible(link.source) && this.isNodeVisible(link.target)
   }
 
+  /** Resolved label sizing: explicit prop overrides the per-mode default. */
+  get effectiveLabelSize(): LabelSizeConfig {
+    return this.labelSize ?? DEFAULT_LABEL_SIZE[this.mode]
+  }
+
+  /** Style descriptor for a node's DOM label — reuses the sprite-era colour logic
+   *  so grade and browse palettes flow through one label code path. */
+  private labelStyleFor(n: unknown): LabelStyle {
+    if (this.mode === 'grade') {
+      const gn = n as GradeNode
+      return { text: gn.phrase, colour: GRADE_NODE_COLOURS[gn.role], role: gn.role }
+    }
+    const node = n as GraphNode
+    const colour = node.relationType === 'central'
+      ? NODE_COLOURS.central
+      : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
+    return { text: node.word, colour, role: node.relationType === 'central' ? 'central' : (node.rarity ?? 'unusual') }
+  }
+
   protected firstUpdated(): void {
     this.container = this.renderRoot.querySelector('#graph-container') as HTMLDivElement
     if (!this.container) return
@@ -216,32 +233,11 @@ export class MfForceGraph extends LitElement {
       .nodeOpacity(0.9)
       .nodeRelSize(0.5)
       .nodeThreeObjectExtend(true)
-      .nodeThreeObject((n: unknown) => {
-        let label: string
-        let colour: string
-        let fontSize: number
-        if (this.mode === 'grade') {
-          const gn = n as GradeNode
-          label = gn.phrase
-          colour = GRADE_NODE_COLOURS[gn.role]
-          fontSize = gn.role === 'step' ? GRADE_LABEL_HEIGHT.step : GRADE_LABEL_HEIGHT.endpoint
-        } else {
-          const node = n as GraphNode
-          colour = node.relationType === 'central'
-            ? NODE_COLOURS.central
-            : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
-          fontSize = node.order === 2 ? 2 : 3
-          label = node.word
-        }
-        const sprite = new SpriteText(label, fontSize, colour)
-        sprite.fontFace = LABEL_FONT
-        sprite.backgroundColor = false
-        sprite.material.transparent = true
-        sprite.material.depthWrite = false
-        sprite.padding = [0.5, 2]
-        sprite.position.y = 2
-        return sprite
-      })
+      .nodeThreeObject((n: unknown) => makeLabelObject(
+        this.labelStyleFor(n),
+        () => this.effectiveLabelSize,
+        () => this.labelRefDist,
+      ))
       .d3VelocityDecay(0.85)
       .d3AlphaDecay(0.005)
       .cooldownTime(30000)

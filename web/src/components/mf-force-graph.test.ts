@@ -661,13 +661,21 @@ describe('MfForceGraph', () => {
       expect(capturedNodeVisibility!(ember)).toBe(false)
     })
 
-    it('uses smaller label sprite for order-2 nodes', () => {
-      expect(capturedNodeThreeObject).toBeTypeOf('function')
-      vi.mocked(SpriteText).mockClear()
-      const ember = testData.nodes.find(n => n.id === 'ember')!
-      capturedNodeThreeObject!(ember)
-      const calls = vi.mocked(SpriteText).mock.calls
-      expect(calls[0][1]).toBe(2)
+    it('nodeThreeObject builds a DOM label with the node word and rarity colour (browse)', () => {
+      const ember = { id: 'ember', word: 'ember', relationType: 'synonym', rarity: 'common', order: 2 }
+      const obj = capturedNodeThreeObject!(ember) as { element: HTMLElement }
+      const span = obj.element.querySelector('span.mf-graph-label__text') as HTMLSpanElement
+      expect(span.textContent).toBe('ember')
+      // happy-dom 17 preserves the hex literal (it does not normalise to rgb()).
+      expect(span.style.color).toBe(RARITY_COLOURS.common) // #8bb89a
+    })
+
+    it('effective label config defaults to browse distance-floor / grade constant', async () => {
+      expect(el.effectiveLabelSize).toEqual({ mode: 'distance-floor', basePx: 13, minPx: 10 })
+      const g = new MfForceGraph(); g.mode = 'grade'
+      document.body.appendChild(g); await g.updateComplete
+      expect(g.effectiveLabelSize).toEqual({ mode: 'constant', basePx: 13, minPx: 11 })
+      document.body.removeChild(g)
     })
 
     it('uses standard label sprite for order-1 nodes', () => {
