@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import pytest
 from grading_sidecar.models import (
     ChainRecord, ChainStep, JudgementRecord, DesignNotePost,
-    compute_chain_signature, normalise_phrase,
+    compute_chain_signature, normalise_phrase, normalise_judgement,
 )
 
 def _step(phrase, head, synset_id):
@@ -54,39 +54,114 @@ def test_chain_record_accepts_valid():
     r = ChainRecord(**_valid_chain())
     assert r.topic == "anger"
 
-def test_judgement_record_rejects_bad_label():
+def test_judgement_record_rejects_bad_metaphor_verdict():
     with pytest.raises(ValueError):
         JudgementRecord(
-            schema_version="judgement.v1",
+            schema_version="judgement.v2",
             ts="2026-05-30T07:14:00Z", judged_by="julian", round=1,
             topic="anger", topic_synset_id="12345",
             vehicle="venom", vehicle_synset_id="67890",
             proposer="sonnet_v1", chain_signature="a" * 64,
-            label="bogus", confidence="high",
+            linkage="good", metaphor="bogus", confidence="high",
+        )
+
+def test_judgement_record_rejects_bad_linkage():
+    with pytest.raises(ValueError):
+        JudgementRecord(
+            schema_version="judgement.v2",
+            ts="2026-05-30T07:14:00Z", judged_by="julian", round=1,
+            topic="anger", topic_synset_id="12345",
+            vehicle="venom", vehicle_synset_id="67890",
+            proposer="sonnet_v1", chain_signature="a" * 64,
+            linkage="maybe", metaphor="live", confidence="high",
         )
 
 def test_judgement_record_rejects_bad_confidence():
     with pytest.raises(ValueError):
         JudgementRecord(
-            schema_version="judgement.v1",
+            schema_version="judgement.v2",
             ts="2026-05-30T07:14:00Z", judged_by="julian", round=1,
             topic="anger", topic_synset_id="12345",
             vehicle="venom", vehicle_synset_id="67890",
             proposer="sonnet_v1", chain_signature="a" * 64,
-            label="live", confidence="enthusiastic",
+            linkage="good", metaphor="live", confidence="enthusiastic",
         )
 
 def test_judgement_notes_max_length():
     with pytest.raises(ValueError):
         JudgementRecord(
-            schema_version="judgement.v1",
+            schema_version="judgement.v2",
             ts="2026-05-30T07:14:00Z", judged_by="julian", round=1,
             topic="anger", topic_synset_id="12345",
             vehicle="venom", vehicle_synset_id="67890",
             proposer="sonnet_v1", chain_signature="a" * 64,
-            label="bad_path", confidence="high",
+            linkage="bad", metaphor="dead", confidence="high",
             notes="x" * 1001,
         )
+
+# --- v2 two-axis model + v1 read-compat normaliser ---
+
+_ID = dict(
+    schema_version="judgement.v1", judged_by="julian", round=1,
+    topic="anger", topic_synset_id="12345",
+    vehicle="venom", vehicle_synset_id="67890",
+    proposer="sonnet_v1", chain_signature="a" * 64,
+)
+
+def _axes(raw: dict) -> tuple:
+    d = normalise_judgement(raw)
+    return (d["linkage"], d["metaphor"], d["tier"])
+
+def test_v2_record_roundtrips_two_axes_and_optional_tier():
+    rec = JudgementRecord(
+        schema_version="judgement.v2", judged_by="julian", round=1,
+        topic="anchor", topic_synset_id="syn-anchor", vehicle="stone",
+        vehicle_synset_id="syn-stone", proposer="sonnet_v1",
+        chain_signature="a" * 64, linkage="good", metaphor="dead", tier="obvious",
+    )
+    assert rec.linkage == "good" and rec.metaphor == "dead" and rec.tier == "obvious"
+
+def test_v2_tier_optional_defaults_none():
+    rec = JudgementRecord(
+        schema_version="judgement.v2", judged_by="j", round=1,
+        topic="t", topic_synset_id="s", vehicle="v", vehicle_synset_id="s2",
+        proposer="p", chain_signature="b" * 64, linkage="good", metaphor="live",
+    )
+    assert rec.tier is None
+
+def test_v2_record_rejects_bad_tier():
+    with pytest.raises(ValueError):
+        JudgementRecord(
+            schema_version="judgement.v2", judged_by="j", round=1,
+            topic="t", topic_synset_id="s", vehicle="v", vehicle_synset_id="s2",
+            proposer="p", chain_signature="b" * 64,
+            linkage="good", metaphor="live", tier="bogus",
+        )
+
+def test_normalise_v1_label_maps_to_axes():
+    assert _axes({**_ID, "label": "live"}) == ("good", "live", None)
+    assert _axes({**_ID, "label": "bad_path"}) == ("bad", None, None)
+    assert _axes({**_ID, "label": "irrelevant"}) == (None, "irrelevant", None)
+    assert _axes({**_ID, "label": "dead"}) == ("good", "dead", None)
+
+def test_normalise_v2_record_passes_axes_through():
+    raw = {
+        "schema_version": "judgement.v2", **{k: v for k, v in _ID.items() if k != "schema_version"},
+        "linkage": "good", "metaphor": "dead", "tier": "obvious",
+    }
+    assert _axes(raw) == ("good", "dead", "obvious")
+
+def test_normalise_v2_record_without_tier_defaults_none():
+    raw = {
+        "schema_version": "judgement.v2", **{k: v for k, v in _ID.items() if k != "schema_version"},
+        "linkage": "bad", "metaphor": "live",
+    }
+    assert _axes(raw) == ("bad", "live", None)
+
+def test_normalise_is_non_destructive():
+    raw = {**_ID, "label": "live", "notes": "keep me"}
+    out = normalise_judgement(raw)
+    assert out["label"] == "live" and out["notes"] == "keep me"
 
 def test_compute_chain_signature_stable_across_case_and_whitespace():
     s1 = compute_chain_signature("sonnet_v1", ["Anger", " hostility ", "venom"])

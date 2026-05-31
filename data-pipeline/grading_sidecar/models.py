@@ -11,8 +11,15 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 ChainSchemaVersion = Literal["chain.v1"]
-JudgementSchemaVersion = Literal["judgement.v1"]
+JudgementSchemaVersion = Literal["judgement.v1", "judgement.v2"]
+# Flat v1 verdict — retained only for reading legacy records via normalise_judgement.
 Label = Literal["live", "dead", "bad_path", "irrelevant"]
+# v2 two-axis verdict: linkage (are the hops accurate?) + metaphor (is the endpoint apt?).
+Linkage = Literal["good", "bad"]
+MetaphorVerdict = Literal["live", "dead", "irrelevant"]
+Tier = Literal[
+    "legendary", "complex", "interesting", "ironic", "strong", "obvious", "unlikely"
+]
 Confidence = Literal["high", "med", "low"]
 
 
@@ -63,6 +70,12 @@ class ChainRecord(BaseModel):
 
 
 class JudgementRecord(BaseModel):
+    """v2 grading verdict — bridge-scoped (keyed by chain_signature, never on a node).
+
+    Replaces the flat v1 `label` with two orthogonal axes — `linkage` (are the path's
+    edges accurate?) + `metaphor` (is the endpoint pairing apt?) — plus an optional
+    single-select `tier`. v1 records (carrying `label`) are read via normalise_judgement.
+    """
     schema_version: JudgementSchemaVersion
     # Server injects ts when the client omits it — clients should not set this field.
     ts: str = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc).isoformat())
@@ -74,10 +87,37 @@ class JudgementRecord(BaseModel):
     vehicle_synset_id: str
     proposer: str
     chain_signature: str = Field(pattern=r"^[0-9a-f]{64}$")
-    label: Label
+    linkage: Linkage
+    metaphor: MetaphorVerdict
+    tier: Optional[Tier] = None
     confidence: Confidence = "high"
     notes: str = Field(default="", max_length=1000)
     supersedes_ts: Optional[str] = None
+
+
+# v1 `label` → (linkage, metaphor). None where the flat label carried no signal on that
+# axis: bad_path only asserted a broken route (metaphor unknown); irrelevant means the
+# pairing is unconnected (linkage moot). See the design doc's migration table.
+_V1_LABEL_MAP: dict[str, tuple[Optional[str], Optional[str]]] = {
+    "live": ("good", "live"),
+    "dead": ("good", "dead"),
+    "bad_path": ("bad", None),
+    "irrelevant": (None, "irrelevant"),
+}
+
+
+def normalise_judgement(raw: dict) -> dict:
+    """Return a dict carrying linkage/metaphor/tier regardless of v1/v2 source.
+
+    Non-destructive — used on read so old `label` records and new axis records are
+    uniform to consumers (latest-verdict, stats, edge colour). v2 records pass through
+    (defaulting tier to None); v1 records gain axes via _V1_LABEL_MAP and tier=None.
+    The original keys (incl. `label`) are preserved.
+    """
+    if "linkage" in raw or "metaphor" in raw:
+        return {**raw, "tier": raw.get("tier")}
+    linkage, metaphor = _V1_LABEL_MAP.get(raw.get("label"), (None, None))
+    return {**raw, "linkage": linkage, "metaphor": metaphor, "tier": None}
 
 
 class DesignNotePost(BaseModel):
