@@ -452,12 +452,13 @@ describe('MfForceGraph', () => {
       gradeEl.mode = 'grade'
       gradeEl.gradeChains = CHAINS
       gradeEl.judgements = [{
-        schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+        schema_version: 'judgement.v2', judged_by: 'julian', round: 1,
         topic: 'anger', topic_synset_id: '1',
         vehicle: 'venom', vehicle_synset_id: '3',
         proposer: 'sonnet_v1',
         chain_signature: 'a'.repeat(64),
-        label: 'live', confidence: 'high', notes: '', supersedes_ts: null,
+        linkage: 'good', metaphor: 'live', tier: null,
+        confidence: 'high', notes: '', supersedes_ts: null,
         ts: '2026-05-30T00:00:00Z',
       }]
       await gradeEl.updateComplete
@@ -471,6 +472,36 @@ describe('MfForceGraph', () => {
       gradeEl.judgements = []
       await gradeEl.updateComplete
       expect(gradeEl.getEdgeColour('a'.repeat(64))).toBeNull()
+    })
+
+    it('edge colour key: linkage bad → bad_path; good+dead → dead; good+live → live; none → ungraded', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      const sig = 'a'.repeat(64)
+      const base = {
+        schema_version: 'judgement.v2' as const, judged_by: 'julian', round: 1,
+        topic: 'anger', topic_synset_id: '1',
+        vehicle: 'venom', vehicle_synset_id: '3',
+        proposer: 'sonnet_v1', chain_signature: sig,
+        tier: null, confidence: 'high' as const, notes: '', supersedes_ts: null,
+        ts: '2026-05-30T00:00:00Z',
+      }
+      // linkage:bad dominates — a broken route reads as bad_path regardless of metaphor.
+      gradeEl.judgements = [{ ...base, linkage: 'bad', metaphor: 'live' }]
+      await gradeEl.updateComplete
+      expect(gradeEl.getEdgeColour(sig)).toBe('bad_path')
+      // good linkage → colour by metaphor.
+      gradeEl.judgements = [{ ...base, linkage: 'good', metaphor: 'dead' }]
+      await gradeEl.updateComplete
+      expect(gradeEl.getEdgeColour(sig)).toBe('dead')
+      gradeEl.judgements = [{ ...base, linkage: 'good', metaphor: 'live' }]
+      await gradeEl.updateComplete
+      expect(gradeEl.getEdgeColour(sig)).toBe('live')
+      gradeEl.judgements = [{ ...base, linkage: 'good', metaphor: 'irrelevant' }]
+      await gradeEl.updateComplete
+      expect(gradeEl.getEdgeColour(sig)).toBe('irrelevant')
+      // No verdict for this signature → null so the renderer applies the ungraded colour.
+      expect(gradeEl.getEdgeColour('missing')).toBeNull()
     })
 
     it('gradeNodes returns empty array in browse mode', async () => {
@@ -588,12 +619,13 @@ describe('MfForceGraph', () => {
       gradeEl.gradeChains = CHAINS
       // Verdict only the first chain (anger->heat->venom)
       gradeEl.judgements = [{
-        schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+        schema_version: 'judgement.v2', judged_by: 'julian', round: 1,
         topic: 'anger', topic_synset_id: '1',
         vehicle: 'venom', vehicle_synset_id: '3',
         proposer: 'sonnet_v1',
         chain_signature: 'a'.repeat(64),
-        label: 'live', confidence: 'high', notes: '', supersedes_ts: null,
+        linkage: 'good', metaphor: 'live', tier: null,
+        confidence: 'high', notes: '', supersedes_ts: null,
         ts: '2026-05-30T00:00:00Z',
       }]
       gradeEl.hideGraded = true
@@ -619,12 +651,13 @@ describe('MfForceGraph', () => {
       gradeEl.mode = 'grade'
       gradeEl.gradeChains = CHAINS
       gradeEl.judgements = [{
-        schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+        schema_version: 'judgement.v2', judged_by: 'julian', round: 1,
         topic: 'anger', topic_synset_id: '1',
         vehicle: 'venom', vehicle_synset_id: '3',
         proposer: 'sonnet_v1',
         chain_signature: 'a'.repeat(64),
-        label: 'live', confidence: 'high', notes: '', supersedes_ts: null,
+        linkage: 'good', metaphor: 'live', tier: null,
+        confidence: 'high', notes: '', supersedes_ts: null,
         ts: '2026-05-30T00:00:00Z',
       }]
       // hideGraded defaults to false — verdicted chain still shows
@@ -640,21 +673,23 @@ describe('MfForceGraph', () => {
       gradeEl.gradeChains = CHAINS
       gradeEl.judgements = [
         {
-          schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+          schema_version: 'judgement.v2', judged_by: 'julian', round: 1,
           topic: 'anger', topic_synset_id: '1',
           vehicle: 'venom', vehicle_synset_id: '3',
           proposer: 'sonnet_v1',
           chain_signature: 'a'.repeat(64),
-          label: 'dead', confidence: 'low', notes: '', supersedes_ts: null,
+          linkage: 'good', metaphor: 'dead', tier: null,
+          confidence: 'low', notes: '', supersedes_ts: null,
           ts: '2026-05-29T00:00:00Z',
         },
         {
-          schema_version: 'judgement.v1', judged_by: 'julian', round: 2,
+          schema_version: 'judgement.v2', judged_by: 'julian', round: 2,
           topic: 'anger', topic_synset_id: '1',
           vehicle: 'venom', vehicle_synset_id: '3',
           proposer: 'sonnet_v1',
           chain_signature: 'a'.repeat(64),
-          label: 'live', confidence: 'high', notes: '', supersedes_ts: null,
+          linkage: 'good', metaphor: 'live', tier: null,
+          confidence: 'high', notes: '', supersedes_ts: null,
           ts: '2026-05-30T00:00:00Z',
         },
       ]

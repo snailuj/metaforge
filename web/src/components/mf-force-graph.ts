@@ -204,11 +204,16 @@ export class MfForceGraph extends LitElement {
   }
 
   /**
-   * Returns the label for a chain signature, or null if unjudged.
-   * Used by the 3D renderer to colour edges per verdict.
+   * Returns the GRADE_EDGE_COLOURS key for a chain signature, or null if unjudged
+   * (so the renderer applies the `ungraded` colour). Derived from the two verdict
+   * axes: a broken route (linkage:bad) dominates as `bad_path`; otherwise the
+   * endpoint's metaphor verdict (live/dead/irrelevant) keys the colour.
    */
   getEdgeColour(chainSig: string): string | null {
-    return this.latestVerdicts.get(chainSig)?.label ?? null
+    const verdict = this.latestVerdicts.get(chainSig)
+    if (!verdict) return null
+    if (verdict.linkage === 'bad') return 'bad_path'
+    return verdict.metaphor
   }
 
   // --- Browse-mode helpers ---
