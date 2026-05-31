@@ -6,6 +6,7 @@ import type { ForceGraph3DInstance } from '3d-force-graph'
 import SpriteText from 'three-spritetext'
 import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
+import { makeLabelRenderer } from '@/graph/label-layer'
 import type { ChainRecord, JudgementRecord } from '../types/grading'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
@@ -74,6 +75,7 @@ export class MfForceGraph extends LitElement {
   `
 
   private graph: ForceGraph3DInstance | null = null
+  private labelRenderer: ReturnType<typeof makeLabelRenderer> | null = null
   private container: HTMLDivElement | null = null
   private clickTimer: ReturnType<typeof setTimeout> | null = null
   private resizeObserver: ResizeObserver | null = null
@@ -199,7 +201,8 @@ export class MfForceGraph extends LitElement {
     this.container = this.renderRoot.querySelector('#graph-container') as HTMLDivElement
     if (!this.container) return
 
-    this.graph = ForceGraph3D({ controlType: 'orbit' })(this.container)
+    this.labelRenderer = makeLabelRenderer(this.container.clientWidth, this.container.clientHeight)
+    this.graph = ForceGraph3D({ controlType: 'orbit', extraRenderers: [this.labelRenderer] })(this.container)
       .backgroundColor('#1a1a2e')
       .nodeColor((n: unknown) => {
         if (this.mode === 'grade') return GRADE_NODE_COLOURS[(n as GradeNode).role]

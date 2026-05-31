@@ -15,6 +15,7 @@ let capturedOnNodeClick: ((node: unknown) => void) | null = null
 let capturedOnLinkClick: ((link: unknown) => void) | null = null
 let capturedOnNodeHover: ((node: unknown | null, previousNode: unknown | null) => void) | null = null
 let capturedControlType: string | undefined = undefined
+let capturedExtraRenderers: unknown[] | undefined = undefined
 
 const mockCamera = { position: { x: 0, y: 0, z: 100 } }
 const mockControls = { enableDamping: false, dampingFactor: 0 }
@@ -92,10 +93,22 @@ const chainable: Record<string, unknown> = new Proxy({}, {
 })
 
 vi.mock('3d-force-graph', () => ({
-  default: (opts?: { controlType?: string }) => {
+  default: (opts?: { controlType?: string; extraRenderers?: unknown[] }) => {
     capturedControlType = opts?.controlType
+    capturedExtraRenderers = opts?.extraRenderers
     return () => chainable
   },
+}))
+vi.mock('three/addons/renderers/CSS2DRenderer.js', () => ({
+  CSS2DRenderer: vi.fn().mockImplementation(() => ({
+    domElement: document.createElement('div'), setSize: vi.fn(), render: vi.fn(),
+  })),
+  CSS2DObject: vi.fn().mockImplementation((el?: HTMLElement) => ({
+    element: el ?? document.createElement('div'), isCSS2DObject: true, visible: true,
+    position: { x: 0, y: 0, z: 0, set() {} },
+    center: { x: 0.5, y: 0.5, set(this: { x: number; y: number }, x: number, y: number) { this.x = x; this.y = y } },
+    onBeforeRender: undefined,
+  })),
 }))
 vi.mock('three-spritetext', () => ({
   default: vi.fn().mockImplementation(() => ({
@@ -144,6 +157,7 @@ describe('MfForceGraph', () => {
     capturedOnLinkClick = null
     capturedOnNodeHover = null
     capturedControlType = undefined
+    capturedExtraRenderers = undefined
     mockCamera.position.z = 100
     mockControls.enableDamping = false
     mockControls.dampingFactor = 0
@@ -168,6 +182,11 @@ describe('MfForceGraph', () => {
 
   it('sets linkVisibility accessor on firstUpdated', () => {
     expect(capturedLinkVisibility).toBeTypeOf('function')
+  })
+
+  it('constructs the graph with a CSS2D extra renderer', () => {
+    expect(Array.isArray(capturedExtraRenderers)).toBe(true)
+    expect(capturedExtraRenderers!.length).toBe(1)
   })
 
   it('shows all nodes when hiddenRarities is empty', () => {
