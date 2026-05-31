@@ -69,11 +69,27 @@ describe('mf-grade-panel', () => {
     });
 
     it('shows re-grade banner when priorVerdict prop is set', async () => {
-        el.priorVerdict = { label: 'bad_path', ts: '2026-05-30T00:00:00Z' };
+        el.priorVerdict = { label: 'bad_path', ts: '2026-05-30T00:00:00Z', notes: '' };
         await el.updateComplete;
         const banner = el.shadowRoot!.querySelector('[data-testid="re-grade-banner"]');
         expect(banner).toBeTruthy();
         expect(banner!.textContent).toContain('bad_path');
+    });
+
+    it('shows prior notes in the re-grade banner when priorVerdict carries notes', async () => {
+        el.priorVerdict = { label: 'dead', ts: '2026-05-30T00:00:00Z', notes: 'merge: too literal' };
+        await el.updateComplete;
+        const priorNotes = el.shadowRoot!.querySelector('[data-testid="prior-notes"]');
+        expect(priorNotes).toBeTruthy();
+        expect(priorNotes!.textContent).toContain('merge: too literal');
+    });
+
+    it('renders no prior-notes line when priorVerdict has empty notes', async () => {
+        el.priorVerdict = { label: 'live', ts: '2026-05-30T00:00:00Z', notes: '' };
+        await el.updateComplete;
+        const banner = el.shadowRoot!.querySelector('[data-testid="re-grade-banner"]');
+        expect(banner).toBeTruthy();
+        expect(el.shadowRoot!.querySelector('[data-testid="prior-notes"]')).toBeNull();
     });
 
     it('tag chip prepends tag prefix to notes', async () => {

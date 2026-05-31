@@ -1114,4 +1114,55 @@ describe('mf-app grade-mode integration', () => {
     expect((el as any).mode).toBe('browse')
     expect((el as any).errorMessage).toContain('Auth expired')
   })
+
+  describe('prior notes in re-grade banner (C3)', () => {
+    const chain = {
+      schema_version: 'chain.v1' as const,
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', round: 1,
+      chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }, { phrase: 'blaze', head: 'blaze', synset_id: 'v1' }],
+      chain_signature: 'sig1',
+      generated_at: '2026-01-01T00:00:00Z',
+    }
+
+    const judgement = (overrides: Record<string, unknown>) => ({
+      schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', chain_signature: 'sig1',
+      label: 'dead', confidence: 'high', notes: '', supersedes_ts: null,
+      ...overrides,
+    })
+
+    it('threads the latest judgement notes into the grade-panel priorVerdict prop', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeChains = [chain]
+      ;(el as any).gradeJudgements = [
+        judgement({ label: 'bad_path', notes: 'first pass — padding', ts: '2026-05-30T00:00:00Z' }),
+        judgement({ label: 'dead', notes: 'merge: too literal', ts: '2026-05-31T00:00:00Z' }),
+      ]
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+
+      const panel = el.shadowRoot!.querySelector('mf-grade-panel') as any
+      expect(panel).not.toBeNull()
+      expect(panel.priorVerdict).not.toBeNull()
+      expect(panel.priorVerdict.label).toBe('dead')
+      expect(panel.priorVerdict.notes).toBe('merge: too literal')
+    })
+
+    it('threads empty notes when the latest judgement has none', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeChains = [chain]
+      ;(el as any).gradeJudgements = [judgement({ label: 'live', notes: '', ts: '2026-05-31T00:00:00Z' })]
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+
+      const panel = el.shadowRoot!.querySelector('mf-grade-panel') as any
+      expect(panel.priorVerdict.notes).toBe('')
+    })
+  })
 })

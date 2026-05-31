@@ -5,6 +5,7 @@ import type { ChainRecord, Label, Confidence } from '../types/grading';
 interface PriorVerdict {
     label: Label;
     ts: string;
+    notes: string;
 }
 
 // Maps keyboard key → verdict label
@@ -56,6 +57,10 @@ export class MfGradePanel extends LitElement {
         .banner {
             background: #4a3b2a; color: #f0d29a; padding: 0.4rem 0.6rem;
             border-radius: 3px; font-size: 0.85rem; margin-bottom: 0.6rem;
+        }
+        .banner .prior-notes {
+            margin-top: 0.3rem; font-style: italic; color: #d8c08a;
+            white-space: pre-wrap; word-break: break-word;
         }
         kbd {
             background: #2a3140; color: #c8c8c8; padding: 0.05rem 0.3rem;
@@ -133,6 +138,9 @@ export class MfGradePanel extends LitElement {
                 <div class="banner" data-testid="re-grade-banner">
                     Re-grading — your previous verdict was <strong>${this.priorVerdict.label}</strong>
                     at ${this.priorVerdict.ts}.
+                    ${this.priorVerdict.notes ? html`
+                        <div class="prior-notes" data-testid="prior-notes">${this.priorVerdict.notes}</div>
+                    ` : ''}
                 </div>
             ` : ''}
             <div class="chain">

@@ -640,10 +640,18 @@ export class MfApp extends LitElement {
     }
   }
 
-  /** Look up whether a chain has already been judged by the current user. */
-  private priorVerdict(chain: ChainRecord): { label: JudgementRecord['label']; ts: string } | null {
-    const j = this.gradeJudgements.find(j => j.chain_signature === chain.chain_signature)
-    return j ? { label: j.label, ts: j.ts ?? '' } : null
+  /**
+   * Look up whether a chain has already been judged by the current user.
+   * Judgements arrive as an append-log, so the latest verdict for a signature
+   * is the last matching record — re-grades supersede earlier passes. We surface
+   * its notes too, so the re-grade banner can echo the grader's prior reasoning.
+   */
+  private priorVerdict(chain: ChainRecord): { label: JudgementRecord['label']; ts: string; notes: string } | null {
+    let latest: JudgementRecord | null = null
+    for (const j of this.gradeJudgements) {
+      if (j.chain_signature === chain.chain_signature) latest = j
+    }
+    return latest ? { label: latest.label, ts: latest.ts ?? '', notes: latest.notes ?? '' } : null
   }
 
   /** Signatures that carry at least one verdict — the hide-graded predicate. */
