@@ -7,6 +7,7 @@ import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
 import { makeLabelRenderer, makeLabelObject, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle } from '@/graph/label-layer'
 import type { ChainRecord, JudgementRecord } from '../types/grading'
+import { normaliseJudgement } from '../types/grading'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
 const EDGE_COLOUR_DIM = 'rgba(232, 224, 212, 0.08)'
@@ -208,12 +209,18 @@ export class MfForceGraph extends LitElement {
    * (so the renderer applies the `ungraded` colour). Derived from the two verdict
    * axes: a broken route (linkage:bad) dominates as `bad_path`; otherwise the
    * endpoint's metaphor verdict (live/dead/irrelevant) keys the colour.
+   *
+   * Stored records may be v1 (flat `label`) or v2 (two axes) — `getJudgements()`
+   * feeds both through the v2-typed prop unchanged. `normaliseJudgement` maps either
+   * to the uniform two-axis view, matching the sibling consumer `mf-app.priorVerdict`
+   * so a graded legacy record still keys a colour rather than reading as ungraded.
    */
   getEdgeColour(chainSig: string): string | null {
-    const verdict = this.latestVerdicts.get(chainSig)
-    if (!verdict) return null
-    if (verdict.linkage === 'bad') return 'bad_path'
-    return verdict.metaphor
+    const record = this.latestVerdicts.get(chainSig)
+    if (!record) return null
+    const { linkage, metaphor } = normaliseJudgement(record)
+    if (linkage === 'bad') return 'bad_path'
+    return metaphor
   }
 
   // --- Browse-mode helpers ---

@@ -696,6 +696,41 @@ describe('MfForceGraph', () => {
       await gradeEl.updateComplete
       expect(gradeEl.getEdgeColour('a'.repeat(64))).toBe('live')
     })
+
+    it('reads legacy v1 judgement records (flat label, no axes) via normaliseJudgement', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      const sig = 'a'.repeat(64)
+      // Live v1 records carry a flat `label` and NO linkage/metaphor — they reach the
+      // v2-typed prop unchanged via gradingClient.getJudgements(). Cast through unknown
+      // to model that runtime reality (10 such records exist in the live JSONL).
+      const v1 = (label: string) => ({
+        schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+        topic: 'anxiety', topic_synset_id: '1',
+        vehicle: 'swarm', vehicle_synset_id: '3',
+        proposer: 'sonnet_v1', chain_signature: sig,
+        label, confidence: 'high', notes: '', supersedes_ts: null,
+        ts: '2026-05-30T00:00:00Z',
+      }) as unknown as import('../types/grading').JudgementRecord
+
+      gradeEl.judgements = [v1('live')]
+      await gradeEl.updateComplete
+      expect(gradeEl.getEdgeColour(sig)).toBe('live')
+
+      gradeEl.judgements = [v1('dead')]
+      await gradeEl.updateComplete
+      expect(gradeEl.getEdgeColour(sig)).toBe('dead')
+
+      // bad_path → linkage:bad dominates (metaphor unknown in v1).
+      gradeEl.judgements = [v1('bad_path')]
+      await gradeEl.updateComplete
+      expect(gradeEl.getEdgeColour(sig)).toBe('bad_path')
+
+      // irrelevant → linkage moot, metaphor:irrelevant keys the colour.
+      gradeEl.judgements = [v1('irrelevant')]
+      await gradeEl.updateComplete
+      expect(gradeEl.getEdgeColour(sig)).toBe('irrelevant')
+    })
   })
 
   describe('order-2 visual differentiation', () => {
