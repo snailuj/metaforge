@@ -5,7 +5,6 @@ import type { LookupResult } from '@/types/api'
 // ForceGraph3D is a curried factory: ForceGraph3D(opts)(container) → instance with chainable methods.
 const chainable = new Proxy({}, { get: () => () => chainable })
 vi.mock('3d-force-graph', () => ({ default: () => () => chainable }))
-vi.mock('three-spritetext', () => ({ default: vi.fn() }))
 
 // Mock the API client module
 vi.mock('@/api/client', () => ({

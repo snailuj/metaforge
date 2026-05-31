@@ -466,8 +466,10 @@ export class MfForceGraph extends LitElement {
       // Mirror the predicate onto label DOM: nodeVisibility removes a hidden
       // node's group from the scene, so CSS2DRenderer never re-traverses its
       // label and would otherwise leave it stuck visible at its last position.
-      const data = this.graph.graphData() as unknown as { nodes: Parameters<typeof syncLabelVisibility>[0] }
-      syncLabelVisibility(data.nodes, this.isNodeVisible)
+      const data = this.graph.graphData() as unknown as { nodes?: Parameters<typeof syncLabelVisibility>[0] }
+      // graphData() is library-owned; guard against an unpopulated graph (e.g.
+      // hiddenRarities toggled before any data was fed) where nodes is absent.
+      if (Array.isArray(data.nodes)) syncLabelVisibility(data.nodes, this.isNodeVisible)
     }
   }
 

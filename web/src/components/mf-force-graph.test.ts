@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { GraphData } from '@/graph/types'
 import { RARITY_COLOURS } from '@/graph/colours'
-import SpriteText from 'three-spritetext'
 
 // Capture the accessor functions and constructor options passed to the graph instance
 let capturedNodeVisibility: ((node: unknown) => boolean) | null = null
@@ -120,20 +119,6 @@ vi.mock('three/addons/renderers/CSS2DRenderer.js', () => ({
     onBeforeRender: undefined,
   })),
 }))
-vi.mock('three-spritetext', () => ({
-  default: vi.fn().mockImplementation(() => ({
-    fontFace: '',
-    backgroundColor: false,
-    position: { y: 0 },
-    padding: 0,
-    borderWidth: 0,
-    borderRadius: 0,
-    borderColor: 'white',
-    isSprite: true,
-    material: { transparent: false, depthWrite: true },
-  })),
-}))
-
 import { MfForceGraph } from './mf-force-graph'
 
 const testData: GraphData = {
@@ -172,7 +157,6 @@ describe('MfForceGraph', () => {
     mockCamera.position.z = 100
     mockControls.enableDamping = false
     mockControls.dampingFactor = 0
-    vi.mocked(SpriteText).mockClear()
     el = new MfForceGraph()
     el.graphData = testData
     document.body.appendChild(el)
@@ -686,43 +670,6 @@ describe('MfForceGraph', () => {
       document.body.appendChild(g); await g.updateComplete
       expect(g.effectiveLabelSize).toEqual({ mode: 'constant', basePx: 13, minPx: 11 })
       document.body.removeChild(g)
-    })
-
-    it('uses standard label sprite for order-1 nodes', () => {
-      expect(capturedNodeThreeObject).toBeTypeOf('function')
-      vi.mocked(SpriteText).mockClear()
-      const blaze = testData.nodes.find(n => n.id === 'blaze')!
-      capturedNodeThreeObject!(blaze)
-      const calls = vi.mocked(SpriteText).mock.calls
-      expect(calls[0][1]).toBe(3)
-    })
-
-    it('positions sprite at y=2 for unified hit area', () => {
-      vi.mocked(SpriteText).mockClear()
-      const blaze = testData.nodes.find(n => n.id === 'blaze')!
-      const sprite = capturedNodeThreeObject!(blaze) as { position: { y: number } }
-      expect(sprite.position.y).toBe(2)
-    })
-
-    it('sets sprite padding to cover sphere hit area', () => {
-      vi.mocked(SpriteText).mockClear()
-      const blaze = testData.nodes.find(n => n.id === 'blaze')!
-      const sprite = capturedNodeThreeObject!(blaze) as { padding: number[] }
-      expect(sprite.padding).toEqual([0.5, 2])
-    })
-
-    it('enables transparent material on sprite for correct alpha blending', () => {
-      vi.mocked(SpriteText).mockClear()
-      const blaze = testData.nodes.find(n => n.id === 'blaze')!
-      const sprite = capturedNodeThreeObject!(blaze) as { material: { transparent: boolean } }
-      expect(sprite.material.transparent).toBe(true)
-    })
-
-    it('disables depthWrite on sprite to prevent transparent regions occluding scene', () => {
-      vi.mocked(SpriteText).mockClear()
-      const blaze = testData.nodes.find(n => n.id === 'blaze')!
-      const sprite = capturedNodeThreeObject!(blaze) as { material: { depthWrite: boolean } }
-      expect(sprite.material.depthWrite).toBe(false)
     })
   })
 })
