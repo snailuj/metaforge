@@ -868,6 +868,51 @@ describe('mf-app grade-mode integration', () => {
     expect(fg.viewportWidth).toBe(1200)
   })
 
+  describe('hide-graded filter toggle (C2)', () => {
+    it('renders an always-visible hide-graded toggle in desktop grade view, unchecked by default', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      const toggle = el.shadowRoot!.querySelector('[data-testid="hide-graded-toggle"]') as HTMLInputElement
+      expect(toggle).not.toBeNull()
+      expect(toggle.checked).toBe(false)
+    })
+
+    it('passes hideGraded=false to force-graph by default', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      const fg = el.shadowRoot!.querySelector('.grade-graph-pane mf-force-graph') as any
+      expect(fg.hideGraded).toBe(false)
+    })
+
+    it('toggling the checkbox sets hideGraded=true and threads it to force-graph', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      const toggle = el.shadowRoot!.querySelector('[data-testid="hide-graded-toggle"]') as HTMLInputElement
+      toggle.checked = true
+      toggle.dispatchEvent(new Event('change'))
+      await el.updateComplete
+
+      expect((el as any).hideGraded).toBe(true)
+      const fg = el.shadowRoot!.querySelector('.grade-graph-pane mf-force-graph') as any
+      expect(fg.hideGraded).toBe(true)
+    })
+
+    it('renders the hide-graded toggle in mobile grade view too', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 600
+      await el.updateComplete
+
+      const toggle = el.shadowRoot!.querySelector('[data-testid="hide-graded-toggle"]')
+      expect(toggle).not.toBeNull()
+    })
+  })
+
   describe('collapsible notes overlay (C1)', () => {
     it('hides mf-design-notes by default but shows the toggle on desktop grade view', async () => {
       ;(el as any).mode = 'grade'

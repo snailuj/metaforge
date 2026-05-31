@@ -583,6 +583,58 @@ describe('MfForceGraph', () => {
       vi.useRealTimers()
     })
 
+    it('hideGraded excludes verdicted chain links but keeps ungraded ones (C2)', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      // Verdict only the first chain (anger->heat->venom)
+      gradeEl.judgements = [{
+        schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+        topic: 'anger', topic_synset_id: '1',
+        vehicle: 'venom', vehicle_synset_id: '3',
+        proposer: 'sonnet_v1',
+        chain_signature: 'a'.repeat(64),
+        label: 'live', confidence: 'high', notes: '', supersedes_ts: null,
+        ts: '2026-05-30T00:00:00Z',
+      }]
+      gradeEl.hideGraded = true
+      await gradeEl.updateComplete
+
+      // No link should carry the verdicted chain's signature
+      const sigs = gradeEl.gradeLinks.map((l: any) => l.chainSig)
+      expect(sigs).not.toContain('a'.repeat(64))
+      // The ungraded chain (anger->heat->fire) must still be present
+      expect(sigs).toContain('b'.repeat(64))
+
+      // venom (verdicted-only endpoint) drops out; anger + heat (shared with the
+      // ungraded chain) and fire stay → 3 nodes.
+      const nodeIds = gradeEl.gradeNodes.map((n: any) => n.id)
+      expect(nodeIds).not.toContain('syn:3')        // venom — only on the graded chain
+      expect(nodeIds).toContain('syn:2')            // heat — shared with ungraded chain
+      expect(nodeIds).toContain('syn:1')            // anger — shared
+      expect(nodeIds).toContain('syn:5')            // fire — ungraded vehicle
+      expect(gradeEl.gradeNodes.length).toBe(3)
+    })
+
+    it('hideGraded=false shows all chains including verdicted ones (C2 default)', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      gradeEl.judgements = [{
+        schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+        topic: 'anger', topic_synset_id: '1',
+        vehicle: 'venom', vehicle_synset_id: '3',
+        proposer: 'sonnet_v1',
+        chain_signature: 'a'.repeat(64),
+        label: 'live', confidence: 'high', notes: '', supersedes_ts: null,
+        ts: '2026-05-30T00:00:00Z',
+      }]
+      // hideGraded defaults to false — verdicted chain still shows
+      await gradeEl.updateComplete
+      const sigs = gradeEl.gradeLinks.map((l: any) => l.chainSig)
+      expect(sigs).toContain('a'.repeat(64))
+      expect(sigs).toContain('b'.repeat(64))
+      expect(gradeEl.gradeNodes.length).toBe(4)
+    })
+
     it('latest judgement wins when two exist for same signature', async () => {
       gradeEl.mode = 'grade'
       gradeEl.gradeChains = CHAINS

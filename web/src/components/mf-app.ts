@@ -159,6 +159,26 @@ export class MfApp extends LitElement {
       flex-shrink: 0;
     }
 
+    .grade-filters {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm, 0.5rem);
+      margin-top: var(--space-sm, 0.5rem);
+    }
+
+    .hide-graded-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.8rem;
+      color: var(--colour-text-secondary, #a89f94);
+      cursor: pointer;
+    }
+
+    .hide-graded-toggle input {
+      accent-color: var(--colour-accent-gold, #d4af37);
+    }
+
     .grade-main {
       display: flex;
       flex: 1;
@@ -333,6 +353,9 @@ export class MfApp extends LitElement {
   @state() private notesPanelCollapsed = true
   @state() private viewportWidth = window.innerWidth
   @state() private pendingQueue: JudgementRecord[] = []
+  // Hide-graded filter: when true, already-verdicted chains drop out of the
+  // grade graph to reduce clutter. Default off = show all.
+  @state() private hideGraded = false
 
   private currentWord = ''
   private lookupId = 0
@@ -540,6 +563,23 @@ export class MfApp extends LitElement {
     this.notesPanelCollapsed = !this.notesPanelCollapsed
   }
 
+  /** Always-visible grade-mode filter row. Reused by desktop + mobile layouts. */
+  private renderGradeFilters() {
+    return html`
+      <div class="grade-filters">
+        <label class="hide-graded-toggle">
+          <input
+            type="checkbox"
+            data-testid="hide-graded-toggle"
+            .checked=${this.hideGraded}
+            @change=${(e: Event) => { this.hideGraded = (e.target as HTMLInputElement).checked }}
+          >
+          Hide graded
+        </label>
+      </div>
+    `
+  }
+
   private async handleVerdictSubmit(e: CustomEvent<{ label: string; confidence: string; notes: string }>): Promise<void> {
     if (!this.selectedChain) return
     const chain = this.selectedChain
@@ -604,6 +644,18 @@ export class MfApp extends LitElement {
   private priorVerdict(chain: ChainRecord): { label: JudgementRecord['label']; ts: string } | null {
     const j = this.gradeJudgements.find(j => j.chain_signature === chain.chain_signature)
     return j ? { label: j.label, ts: j.ts ?? '' } : null
+  }
+
+  /** Signatures that carry at least one verdict — the hide-graded predicate. */
+  private get verdictedSignatures(): Set<string> {
+    return new Set(this.gradeJudgements.map(j => j.chain_signature))
+  }
+
+  /** Chains shown in the mobile flat list, honouring the hide-graded filter. */
+  private get visibleGradeChains(): ChainRecord[] {
+    if (!this.hideGraded) return this.gradeChains
+    const verdicted = this.verdictedSignatures
+    return this.gradeChains.filter(c => !verdicted.has(c.chain_signature))
   }
 
   /** Render the flat-text chain label for mobile cards. */
@@ -716,6 +768,7 @@ export class MfApp extends LitElement {
             .topics=${this.gradeTopics}
             @topic-selected=${this.handleTopicSelected}
           ></mf-topic-picker>
+          ${this.renderGradeFilters()}
         </div>
 
         <div class="grade-main">
@@ -725,6 +778,7 @@ export class MfApp extends LitElement {
               .mode=${'grade'}
               .gradeChains=${this.gradeChains}
               .judgements=${this.gradeJudgements}
+              .hideGraded=${this.hideGraded}
               .viewportWidth=${this.viewportWidth}
               @mf-node-select=${this.handleNodeSelect}
               @mf-node-navigate=${this.handleNodeNavigate}
@@ -781,12 +835,13 @@ export class MfApp extends LitElement {
             .topics=${this.gradeTopics}
             @topic-selected=${this.handleTopicSelected}
           ></mf-topic-picker>
+          ${this.renderGradeFilters()}
         </div>
 
         <div class="chain-list" data-testid="chain-list">
-          ${this.gradeChains.length === 0
+          ${this.visibleGradeChains.length === 0
             ? html`<div class="grade-empty">Select a topic to load chains.</div>`
-            : this.gradeChains.map(chain => html`
+            : this.visibleGradeChains.map(chain => html`
                 <div
                   class="chain-card ${this.selectedChain?.chain_signature === chain.chain_signature ? 'selected' : ''}"
                   data-testid="chain-card"

@@ -111,6 +111,9 @@ export class MfForceGraph extends LitElement {
   @property({ attribute: false }) mode: 'browse' | 'grade' = 'browse'
   @property({ attribute: false }) gradeChains: ChainRecord[] = []
   @property({ attribute: false }) judgements: JudgementRecord[] = []
+  // When true, chains whose latest verdict exists are dropped from the grade
+  // graph (declutter already-judged paths). Default off = show everything.
+  @property({ type: Boolean }) hideGraded = false
   @property({ attribute: false }) labelSize: LabelSizeConfig | null = null
   @property({ type: Number }) viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
 
@@ -139,7 +142,12 @@ export class MfForceGraph extends LitElement {
   private buildGradeGraph(): { nodes: GradeNode[]; links: GradeLink[] } {
     const nodes = new Map<string, GradeNode>()
     const links: GradeLink[] = []
+    // Hide-graded filter: drop chains whose latest verdict exists. Nodes are
+    // only minted from surviving chains, so a node shared with an ungraded
+    // chain stays visible while one unique to a graded chain falls away.
+    const verdicts = this.hideGraded ? this.latestVerdicts : null
     for (const chain of this.gradeChains) {
+      if (verdicts?.has(chain.chain_signature)) continue
       const stepIds: string[] = []
       for (let i = 0; i < chain.chain.length; i++) {
         const step = chain.chain[i]
@@ -476,7 +484,8 @@ export class MfForceGraph extends LitElement {
     // gradeChains arrives via prop after a topic is selected.
     if (this.graph && (
       changed.has('graphData') || changed.has('mode') ||
-      changed.has('gradeChains') || changed.has('judgements')
+      changed.has('gradeChains') || changed.has('judgements') ||
+      changed.has('hideGraded')
     )) {
       this.feedGraph()
     }
