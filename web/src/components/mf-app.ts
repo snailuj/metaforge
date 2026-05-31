@@ -150,6 +150,7 @@ export class MfApp extends LitElement {
       flex-direction: column;
       height: 100%;
       overflow: hidden;
+      position: relative; /* anchor for the right-side notes overlay */
     }
 
     .grade-top {
@@ -184,10 +185,72 @@ export class MfApp extends LitElement {
       overflow-y: auto;
     }
 
-    .grade-notes-row {
-      flex-shrink: 0;
-      padding: var(--space-md, 1rem);
-      border-top: 1px solid #2a3140;
+    /* Right-side collapsible notes overlay (desktop). The toggle tab is always
+       visible; the panel floats over the right portion without resizing the
+       graph or verdict panel. */
+    .notes-overlay-toggle {
+      position: absolute;
+      top: 50%;
+      right: 0;
+      transform: translateY(-50%) rotate(180deg);
+      writing-mode: vertical-rl;
+      z-index: 45;
+      background: var(--colour-accent-gold-dim, rgba(212, 175, 55, 0.2));
+      border: 1px solid var(--colour-accent-gold, #d4af37);
+      border-right: none;
+      color: var(--colour-accent-gold, #d4af37);
+      border-radius: 4px 0 0 4px;
+      padding: 0.8rem 0.4rem;
+      font-size: 0.8rem;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+    }
+
+    .notes-overlay-toggle:hover {
+      background: var(--colour-accent-gold-dim, rgba(212, 175, 55, 0.35));
+    }
+
+    .notes-overlay-panel {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(420px, 90%);
+      z-index: 46;
+      background: #0f1115;
+      border-left: 1px solid #2a3140;
+      box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .notes-overlay-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid #2a3140;
+    }
+
+    .notes-overlay-header h2 {
+      margin: 0;
+      font-size: 1rem;
+      color: var(--colour-text-primary, #e6e6e6);
+    }
+
+    .notes-overlay-close {
+      background: none;
+      border: none;
+      color: var(--colour-text-secondary, #c8c8c8);
+      font-size: 1.2rem;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0.2rem 0.5rem;
+    }
+
+    .notes-overlay-close:hover {
+      color: #fff;
     }
 
     /* Mobile flat-text chain list */
@@ -266,6 +329,8 @@ export class MfApp extends LitElement {
   @state() private selectedChain: ChainRecord | null = null
   @state() private notesHistory = ''
   @state() private notesOverlayOpen = false
+  // Desktop right-side notes overlay — collapsed by default to preserve vertical space
+  @state() private notesPanelCollapsed = true
   @state() private viewportWidth = window.innerWidth
   @state() private pendingQueue: JudgementRecord[] = []
 
@@ -469,6 +534,10 @@ export class MfApp extends LitElement {
 
   private handleChainSelected(e: CustomEvent<ChainRecord>): void {
     this.selectedChain = e.detail
+  }
+
+  private toggleNotesPanel(): void {
+    this.notesPanelCollapsed = !this.notesPanelCollapsed
   }
 
   private async handleVerdictSubmit(e: CustomEvent<{ label: string; confidence: string; notes: string }>): Promise<void> {
@@ -676,12 +745,30 @@ export class MfApp extends LitElement {
             : ''}
         </div>
 
-        <div class="grade-notes-row">
-          <mf-design-notes
-            .history=${this.notesHistory}
-            @save-note=${this.handleSaveNote}
-          ></mf-design-notes>
-        </div>
+        <button
+          class="notes-overlay-toggle"
+          data-testid="notes-overlay-toggle"
+          aria-expanded=${!this.notesPanelCollapsed}
+          @click=${this.toggleNotesPanel}
+        >Notes</button>
+
+        ${this.notesPanelCollapsed
+          ? ''
+          : html`
+            <div class="notes-overlay-panel" data-testid="notes-overlay-panel">
+              <div class="notes-overlay-header">
+                <h2>Design notes</h2>
+                <button
+                  class="notes-overlay-close"
+                  aria-label="Collapse design notes"
+                  @click=${this.toggleNotesPanel}
+                >×</button>
+              </div>
+              <mf-design-notes
+                .history=${this.notesHistory}
+                @save-note=${this.handleSaveNote}
+              ></mf-design-notes>
+            </div>`}
       </div>
     `
   }

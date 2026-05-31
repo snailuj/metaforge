@@ -868,6 +868,59 @@ describe('mf-app grade-mode integration', () => {
     expect(fg.viewportWidth).toBe(1200)
   })
 
+  describe('collapsible notes overlay (C1)', () => {
+    it('hides mf-design-notes by default but shows the toggle on desktop grade view', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      // The collapse toggle is always visible
+      const toggle = el.shadowRoot!.querySelector('[data-testid="notes-overlay-toggle"]')
+      expect(toggle).not.toBeNull()
+
+      // Collapsed by default — mf-design-notes is not rendered
+      expect(el.shadowRoot!.querySelector('mf-design-notes')).toBeNull()
+    })
+
+    it('reveals mf-design-notes (with history threaded through) when the toggle is clicked', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).notesHistory = 'existing note'
+      await el.updateComplete
+
+      const toggle = el.shadowRoot!.querySelector('[data-testid="notes-overlay-toggle"]') as HTMLButtonElement
+      toggle.click()
+      await el.updateComplete
+
+      const notes = el.shadowRoot!.querySelector('mf-design-notes')
+      expect(notes).not.toBeNull()
+      expect((notes as any).history).toBe('existing note')
+    })
+
+    it('collapses again when the toggle is clicked a second time', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      const toggle = el.shadowRoot!.querySelector('[data-testid="notes-overlay-toggle"]') as HTMLButtonElement
+      toggle.click()
+      await el.updateComplete
+      expect(el.shadowRoot!.querySelector('mf-design-notes')).not.toBeNull()
+
+      toggle.click()
+      await el.updateComplete
+      expect(el.shadowRoot!.querySelector('mf-design-notes')).toBeNull()
+    })
+
+    it('no longer renders the bottom notes-row in the desktop flow', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      expect(el.shadowRoot!.querySelector('.grade-notes-row')).toBeNull()
+    })
+  })
+
   describe('pending-judgements queue (I2)', () => {
     const CHAIN = {
       schema_version: 'chain.v1' as const,
