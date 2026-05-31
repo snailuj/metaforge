@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from ..auth import verify_secret
-from ..models import JudgementRecord
+from ..models import JudgementRecord, normalise_judgement
 from ..persistence import append_jsonl, read_jsonl_skip_malformed
 from .. import paths as paths_mod
 
@@ -19,13 +19,18 @@ router = APIRouter(dependencies=[Depends(verify_secret)])
 
 @router.post("/api/grading/judgements")
 def post_judgement(record: JudgementRecord) -> dict:
+    """New grades are written as v2 (two axes + optional tier)."""
     append_jsonl(paths_mod.JUDGEMENTS_PATH, record.model_dump(mode="json"))
     return record.model_dump(mode="json")
 
 
 @router.get("/api/grading/judgements")
 def get_judgements(topic: Optional[str] = Query(default=None)) -> dict:
+    """Every stored line is mapped through normalise_judgement so legacy v1
+    (`label`) records and v2 axis records expose linkage/metaphor/tier
+    uniformly. Non-destructive — original keys (incl. `label`) are preserved."""
     records, skipped = read_jsonl_skip_malformed(paths_mod.JUDGEMENTS_PATH)
     if topic is not None:
         records = [r for r in records if r.get("topic") == topic]
+    records = [normalise_judgement(r) for r in records]
     return {"count": len(records), "skipped_malformed": skipped, "records": records}

@@ -40,7 +40,26 @@ VALID_CHAIN = {
     "generated_at": "2026-05-30T00:00:00Z",
 }
 
+# v2 judgement — two axes + optional tier.
 VALID_JUDGEMENT = {
+    "schema_version": "judgement.v2",
+    "ts": "2026-05-30T12:00:00Z",
+    "judged_by": "julian",
+    "round": 1,
+    "topic": "anger",
+    "topic_synset_id": "30227",
+    "vehicle": "volcano",
+    "vehicle_synset_id": "79695",
+    "proposer": "sonnet_v1",
+    "chain_signature": "a" * 64,
+    "linkage": "good",
+    "metaphor": "live",
+    "confidence": "high",
+    "notes": "",
+}
+
+# v1 judgement — flat `label`; the validator must still accept legacy lines.
+VALID_JUDGEMENT_V1 = {
     "schema_version": "judgement.v1",
     "ts": "2026-05-30T12:00:00Z",
     "judged_by": "julian",
@@ -74,7 +93,7 @@ class TestValidChainRecord:
 
 
 class TestValidJudgementRecord:
-    def test_single_valid_judgement_record_reports_zero_errors(self):
+    def test_single_valid_v2_judgement_record_reports_zero_errors(self):
         lines = [json.dumps(VALID_JUDGEMENT)]
         result = validate_lines(lines)
         assert result["parsed_ok"] == 1
@@ -82,6 +101,20 @@ class TestValidJudgementRecord:
         assert result["bad_version"] == 0
         assert result["bad_validation"] == 0
         assert result["errors"] == []
+
+    def test_single_valid_v1_judgement_record_reports_zero_errors(self):
+        """Legacy v1 lines (flat `label`) remain valid for the validator."""
+        lines = [json.dumps(VALID_JUDGEMENT_V1)]
+        result = validate_lines(lines)
+        assert result["parsed_ok"] == 1
+        assert result["bad_validation"] == 0
+        assert result["errors"] == []
+
+    def test_v1_and_v2_judgement_lines_both_pass(self):
+        lines = [json.dumps(VALID_JUDGEMENT_V1), json.dumps(VALID_JUDGEMENT)]
+        result = validate_lines(lines)
+        assert result["parsed_ok"] == 2
+        assert result["bad_validation"] == 0
 
 
 class TestMalformedJson:

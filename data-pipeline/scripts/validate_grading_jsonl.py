@@ -21,11 +21,12 @@ from typing import Iterable
 # Allow running directly or importing from tests without installing the package.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "grading_sidecar"))
 
-from models import ChainRecord, JudgementRecord  # noqa: E402
+from models import ChainRecord, JudgementRecord, JudgementRecordV1  # noqa: E402
 
 MODEL_BY_VERSION: dict[str, type] = {
     "chain.v1": ChainRecord,
-    "judgement.v1": JudgementRecord,
+    "judgement.v1": JudgementRecordV1,  # legacy flat `label`
+    "judgement.v2": JudgementRecord,    # two-axis linkage + metaphor (+ tier)
 }
 
 

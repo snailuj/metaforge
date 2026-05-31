@@ -95,6 +95,29 @@ class JudgementRecord(BaseModel):
     supersedes_ts: Optional[str] = None
 
 
+class JudgementRecordV1(BaseModel):
+    """Legacy v1 grading verdict — flat single `label`, retained read-only.
+
+    New grades are written as v2 (JudgementRecord). This model exists so the
+    validator and any legacy reader can still validate the stored v1 lines; on
+    read they are mapped to the two axes via normalise_judgement.
+    """
+    schema_version: Literal["judgement.v1"]
+    ts: str = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc).isoformat())
+    judged_by: str
+    round: int = Field(ge=1)
+    topic: str
+    topic_synset_id: str
+    vehicle: str
+    vehicle_synset_id: str
+    proposer: str
+    chain_signature: str = Field(pattern=r"^[0-9a-f]{64}$")
+    label: Label
+    confidence: Confidence = "high"
+    notes: str = Field(default="", max_length=1000)
+    supersedes_ts: Optional[str] = None
+
+
 # v1 `label` → (linkage, metaphor). None where the flat label carried no signal on that
 # axis: bad_path only asserted a broken route (metaphor unknown); irrelevant means the
 # pairing is unconnected (linkage moot). See the design doc's migration table.
