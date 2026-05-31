@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import './mf-grade-panel';
 import { MfGradePanel } from './mf-grade-panel';
 
+const tick = () => new Promise(r => setTimeout(r, 0));
+
 const CHAIN = {
     schema_version: 'chain.v1' as const,
     topic: 'anger', vehicle: 'venom',
@@ -41,51 +43,68 @@ describe('mf-grade-panel', () => {
         expect(text).toContain('→');
     });
 
-    it('emits verdict-submit on L keydown (live)', async () => {
-        let captured: any = null;
-        el.addEventListener('verdict-submit', (e: any) => { captured = e.detail; });
+    it('L submits linkage:good + metaphor:live by default', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }));
-        await new Promise(r => setTimeout(r, 0));
-        expect(captured?.label).toBe('live');
+        await tick();
+        expect(d).toMatchObject({ linkage: 'good', metaphor: 'live' });
     });
 
-    it('emits verdict-submit on D (dead), B (bad_path), I (irrelevant)', async () => {
+    it('B then D submits linkage:bad + metaphor:dead', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' })); await tick();
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' })); await tick();
+        expect(d).toMatchObject({ linkage: 'bad', metaphor: 'dead' });
+    });
+
+    it('I submits metaphor:irrelevant', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }));
+        await tick();
+        expect(d).toMatchObject({ linkage: 'good', metaphor: 'irrelevant' });
+    });
+
+    it('selecting a tier chip then L includes the tier', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
+        (el.shadowRoot!.querySelector('[data-testid="tier-legendary"]') as HTMLElement).click();
+        await el.updateComplete;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        expect(d).toMatchObject({ metaphor: 'live', tier: 'legendary' });
+    });
+
+    it('pending linkage:bad resets after a submit', async () => {
         const captures: any[] = [];
         el.addEventListener('verdict-submit', (e: any) => captures.push(e.detail));
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' })); await new Promise(r => setTimeout(r, 0));
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' })); await new Promise(r => setTimeout(r, 0));
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' })); await new Promise(r => setTimeout(r, 0));
-        expect(captures.map((c: any) => c.label)).toEqual(['dead', 'bad_path', 'irrelevant']);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' })); await tick();
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' })); await tick();
+        // Next submit (no B) reverts to the default good linkage.
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        expect(captures.map(c => c.linkage)).toEqual(['bad', 'good']);
     });
 
     it('confidence defaults to high; 2 sets med', async () => {
-        let captured: any = null;
-        el.addEventListener('verdict-submit', (e: any) => { captured = e.detail; });
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: '2' }));
-        await new Promise(r => setTimeout(r, 0));
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }));
-        await new Promise(r => setTimeout(r, 0));
-        expect(captured?.confidence).toBe('med');
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: '2' })); await tick();
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        expect(d?.confidence).toBe('med');
     });
 
-    it('shows re-grade banner when priorVerdict prop is set', async () => {
-        el.priorVerdict = { label: 'bad_path', ts: '2026-05-30T00:00:00Z', notes: '' };
+    it('re-grade banner shows prior linkage, metaphor, tier and notes', async () => {
+        el.priorVerdict = { linkage: 'good', metaphor: 'dead', tier: 'obvious', notes: 'cliché', ts: '2026-05-31T00:00:00Z' };
         await el.updateComplete;
-        const banner = el.shadowRoot!.querySelector('[data-testid="re-grade-banner"]');
-        expect(banner).toBeTruthy();
-        expect(banner!.textContent).toContain('bad_path');
-    });
-
-    it('shows prior notes in the re-grade banner when priorVerdict carries notes', async () => {
-        el.priorVerdict = { label: 'dead', ts: '2026-05-30T00:00:00Z', notes: 'merge: too literal' };
-        await el.updateComplete;
-        const priorNotes = el.shadowRoot!.querySelector('[data-testid="prior-notes"]');
-        expect(priorNotes).toBeTruthy();
-        expect(priorNotes!.textContent).toContain('merge: too literal');
+        const b = el.shadowRoot!.querySelector('[data-testid="re-grade-banner"]')!.textContent!;
+        expect(b).toContain('dead');
+        expect(b).toContain('obvious');
+        expect(b).toContain('cliché');
     });
 
     it('renders no prior-notes line when priorVerdict has empty notes', async () => {
-        el.priorVerdict = { label: 'live', ts: '2026-05-30T00:00:00Z', notes: '' };
+        el.priorVerdict = { linkage: 'good', metaphor: 'live', tier: null, notes: '', ts: '2026-05-31T00:00:00Z' };
         await el.updateComplete;
         const banner = el.shadowRoot!.querySelector('[data-testid="re-grade-banner"]');
         expect(banner).toBeTruthy();
@@ -101,29 +120,27 @@ describe('mf-grade-panel', () => {
     });
 
     it('verdict event payload includes confidence and notes', async () => {
-        let captured: any = null;
-        el.addEventListener('verdict-submit', (e: any) => { captured = e.detail; });
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
         const textarea = el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement;
         textarea.value = 'test note';
         textarea.dispatchEvent(new Event('input'));
         await el.updateComplete;
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }));
-        await new Promise(r => setTimeout(r, 0));
-        expect(captured?.notes).toBe('test note');
-        expect(captured?.confidence).toBe('high');
-        expect(captured?.label).toBe('live');
+        await tick();
+        expect(d?.notes).toBe('test note');
+        expect(d?.confidence).toBe('high');
+        expect(d?.metaphor).toBe('live');
     });
 
-    it('does NOT fire a verdict when a grading key is pressed inside an editable field', async () => {
-        let captured: any = null;
-        el.addEventListener('verdict-submit', (e: any) => { captured = e.detail; });
-        // A keydown whose composed path includes a TEXTAREA (e.g. the design-notes
-        // textarea in another shadow root) must not trigger grading.
+    it('does not fire while typing in an editable field (composedPath trap retained)', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
         const ta = document.createElement('textarea');
         document.body.appendChild(ta);
         ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', bubbles: true, composed: true }));
-        await new Promise(r => setTimeout(r, 0));
-        expect(captured).toBeNull();
-        document.body.removeChild(ta);
+        await tick();
+        expect(d).toBeNull();
+        ta.remove();
     });
 });
