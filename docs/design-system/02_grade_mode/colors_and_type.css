@@ -1,0 +1,194 @@
+/* ============================================================
+   METAFORGE — Colours & Type  (themeable)
+   ------------------------------------------------------------
+   Two skins, switched via a `data-theme` attribute on any wrapper:
+       <div data-theme="dark">      … the shipped MVP (default)
+       <div data-theme="parchment"> … the light / cartographic skin
+   Structural tokens (type, spacing, radius) are theme-agnostic and
+   live in :root. Only the --colour-* tokens change per theme.
+   Translucent washes are DERIVED from the base tokens via color-mix(),
+   so every surface re-tints automatically when the theme flips.
+   Source of truth (dark): snailuj/metaforge web/src/styles/tokens.css
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=Crimson+Text:ital,wght@0,400;0,600;1,400;1,600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ============================================
+     STRUCTURAL TOKENS — shared across all themes
+     ============================================ */
+  --font-heading: 'Playfair Display', Georgia, serif;
+  --font-body:    'Crimson Text', 'Times New Roman', serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+
+  --text-2xl: 2rem;  --text-xl: 1.5rem; --text-lg: 1.1rem;
+  --text-md: 0.95rem; --text-sm: 0.9rem; --text-xs: 0.75rem; --text-2xs: 0.65rem;
+  --leading-tight: 1.2; --leading-normal: 1.5;
+  --tracking-label: 0.05em; --tracking-badge: 0.04em;
+
+  --space-xs: 0.25rem; --space-sm: 0.5rem; --space-md: 1rem;
+  --space-lg: 1.5rem; --space-xl: 2rem;
+
+  --hud-width: 20rem;
+  --hud-radius: 4px;
+  --hud-blur: blur(8px);
+
+  /* Derived washes — reference whatever the active theme set.
+     Recomputed for free whenever the colour tokens change. */
+  --wash-gold:      color-mix(in srgb, var(--colour-accent-gold) 14%, transparent);
+  --wash-gold-soft: color-mix(in srgb, var(--colour-accent-gold) 10%, transparent);
+  --hairline:       color-mix(in srgb, var(--colour-accent-gold) 22%, transparent);
+  --hairline-soft:  color-mix(in srgb, var(--colour-accent-gold) 12%, transparent);
+  --hud-border: 1px solid var(--hairline);
+}
+
+/* ============================================================
+   THEME: DARK ACADEMIC  (default — also applied at :root so files
+   that don't set data-theme still render correctly)
+   ============================================================ */
+:root,
+[data-theme="dark"] {
+  --colour-bg-primary:   #1a1a2e;
+  --colour-bg-secondary: #16213e;
+  --colour-bg-hud:       rgba(22, 33, 62, 0.6);
+  --colour-bg-hud-solid: rgba(22, 33, 62, 0.95);
+
+  --colour-text-primary:   #e8e0d4;
+  --colour-text-secondary: #a89f94;
+  --colour-text-muted:     #6b6560;
+
+  --colour-accent-gold:     #d4af37;
+  --colour-accent-gold-dim: rgba(212, 175, 55, 0.5);
+
+  /* Relation / node colours */
+  --colour-node-central:  #d4af37;
+  --colour-node-synonym:  #c4956a;
+  --colour-node-hypernym: #8b6f47;
+  --colour-node-hyponym:  #6a8b6f;
+  --colour-node-similar:  #7a6a8b;
+  --colour-chip-collocation: #8ba4b8;
+  --colour-chip-antonym:     #b88b8b;
+
+  /* Rarity tiers */
+  --colour-rarity-common:  #8bb89a;
+  --colour-rarity-unusual: #c4956a;
+  --colour-rarity-rare:    #a88bc4;
+
+  /* Connotation / register */
+  --colour-connotation-positive: #8bb89a;
+  --colour-connotation-neutral:  #a89f94;
+  --colour-connotation-negative: #b88b8b;
+  --colour-register:             #8ba4b8;
+
+  /* Forge tiers */
+  --colour-forge-legendary:   #d4af37;
+  --colour-forge-complex:     #c49a6c;
+  --colour-forge-interesting: #6a8b6f;
+  --colour-forge-ironic:      #8b4a6f;
+  --colour-forge-strong:      #c4956a;
+  --colour-forge-obvious:     #8b6f47;
+  --colour-forge-unlikely:    #6b6560;
+
+  /* Edges & status */
+  --colour-edge-default:   rgba(232, 224, 212, 0.15);
+  --colour-edge-dim:       rgba(232, 224, 212, 0.08);
+  --colour-edge-highlight: rgba(212, 175, 55, 0.4);
+  --colour-error:          #c47a7a;
+
+  color-scheme: dark;
+}
+
+/* ============================================================
+   THEME: PARCHMENT  (light / cartographic skin)
+   Aged-paper grounds, sepia ink, antique gold. Same serif type;
+   the searched word may optionally swap to a blackletter face
+   (see README — Playfair Display kept here for legibility).
+   Rarity & relation hues are darkened for contrast on light paper.
+   ============================================================ */
+[data-theme="parchment"] {
+  --colour-bg-primary:   #d6c4a1;   /* warm parchment — the open map */
+  --colour-bg-secondary: #e4d6b8;   /* lighter vellum */
+  --colour-bg-hud:       rgba(235, 224, 197, 0.86);  /* the scroll panel */
+  --colour-bg-hud-solid: #ece0c4;
+
+  --colour-text-primary:   #3b2d1a;   /* dark sepia ink */
+  --colour-text-secondary: #6d5836;   /* faded ink */
+  --colour-text-muted:     #87724c;   /* pencil grey-brown */
+
+  --colour-accent-gold:     #9c6b15;   /* burnt antique gold (reads on paper) */
+  --colour-accent-gold-dim: rgba(156, 107, 21, 0.5);
+
+  --colour-node-central:  #9c6b15;
+  --colour-node-synonym:  #9a5a22;
+  --colour-node-hypernym: #6e5326;
+  --colour-node-hyponym:  #3f6e43;
+  --colour-node-similar:  #6a4685;
+  --colour-chip-collocation: #3c6075;
+  --colour-chip-antonym:     #9a4747;
+
+  --colour-rarity-common:  #3f6e43;   /* forest */
+  --colour-rarity-unusual: #9a5a22;   /* burnt copper */
+  --colour-rarity-rare:    #6a4685;   /* aubergine */
+
+  --colour-connotation-positive: #3f6e43;
+  --colour-connotation-neutral:  #6d5836;
+  --colour-connotation-negative: #9a4747;
+  --colour-register:             #3c6075;
+
+  --colour-forge-legendary:   #9c6b15;
+  --colour-forge-complex:     #a4701f;
+  --colour-forge-interesting: #3f6e43;
+  --colour-forge-ironic:      #7a2f56;
+  --colour-forge-strong:      #9a5a22;
+  --colour-forge-obvious:     #6e5326;
+  --colour-forge-unlikely:    #87724c;
+
+  --colour-edge-default:   rgba(60, 45, 20, 0.22);
+  --colour-edge-dim:       rgba(60, 45, 20, 0.12);
+  --colour-edge-highlight: rgba(156, 107, 21, 0.45);
+  --colour-error:          #9a3b3b;
+
+  /* Parchment scrolls aren't glassy — soften the blur, warm the hairline */
+  --hud-blur: blur(2px);
+  --hairline:      color-mix(in srgb, var(--colour-accent-gold) 38%, transparent);
+  --hairline-soft: color-mix(in srgb, var(--colour-accent-gold) 20%, transparent);
+
+  color-scheme: light;
+}
+
+/* ============================================================
+   SEMANTIC TYPE RECIPES (theme-agnostic — pull live colour tokens)
+   ============================================================ */
+.mf-word-hero {
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: var(--text-xl); line-height: var(--leading-tight);
+  color: var(--colour-accent-gold);
+}
+.mf-definition {
+  font-family: var(--font-body); font-size: var(--text-md);
+  line-height: var(--leading-normal); color: var(--colour-text-primary);
+}
+.mf-pos {
+  font-family: var(--font-body); font-style: italic;
+  font-size: var(--text-xs); color: var(--colour-text-secondary);
+}
+.mf-section-label {
+  font-family: var(--font-body); font-size: var(--text-xs);
+  text-transform: uppercase; letter-spacing: var(--tracking-label);
+  color: var(--colour-text-muted);
+}
+.mf-chip {
+  font-family: var(--font-body); font-size: var(--text-sm);
+  color: var(--colour-text-primary);
+}
+.mf-usage {
+  font-family: var(--font-body); font-style: italic;
+  font-size: var(--text-sm); line-height: var(--leading-normal);
+  color: var(--colour-text-secondary);
+  border-left: 2px solid color-mix(in srgb, var(--colour-accent-gold) 30%, transparent);
+  padding-left: var(--space-sm);
+}
+.mf-mono {
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  color: var(--colour-text-muted);
+}

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body { width:700px; background:var(--colour-bg-primary); color:var(--colour-text-primary);
+    font-family:var(--font-body); padding:22px 26px; }
+  .label { font-family:var(--font-body); font-size:11px; text-transform:uppercase;
+    letter-spacing:0.08em; color:var(--colour-text-muted); margin-bottom:14px; }
+  .meta { font-family:var(--font-mono); font-size:11px; color:var(--colour-text-muted); }
+  
+</style></head><body>
+<div class="label">Radius, border &amp; glass</div>
+<div style="display:flex;gap:18px;align-items:flex-end">
+  <div style="text-align:center"><div style="width:96px;height:64px;background:rgba(22,33,62,0.6);backdrop-filter:blur(8px);border:1px solid rgba(212,175,55,0.2);border-radius:4px"></div><div class="meta" style="margin-top:8px">hud-radius 4px</div></div>
+  <div style="text-align:center"><div style="width:96px;height:30px;background:rgba(196,149,106,0.2);border-radius:8px"></div><div class="meta" style="margin-top:8px">badge pill 8px</div></div>
+  <div style="text-align:center"><div style="width:96px;height:26px;background:rgba(212,175,55,0.15);border-radius:3px"></div><div class="meta" style="margin-top:8px">chip 3px</div></div>
+</div>
+<div class="meta" style="margin-top:16px">surface = rgba(22,33,62,.6) + backdrop blur(8px) + 1px gold hairline · no drop shadows</div></body></html>
