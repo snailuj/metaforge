@@ -93,6 +93,109 @@ test('labels stay glued under rotate, pan, and zoom', async ({ page }) => {
   }
 })
 
+test('grade label text is the node head, not the phrase', async ({ page }) => {
+  const texts = await page.evaluate(() => {
+    const el: any = document.querySelector('mf-force-graph')
+    el.__test_pauseAndRenderFrame() // ensure CSS2DRenderer has attached label DOM
+    return el.__test_labelEls().map((d: HTMLElement) =>
+      d.querySelector('.mf-graph-label__text')!.textContent)
+  })
+  // Heads from the fixture; the phrases ("raw grief", "the leaden weight", …) are
+  // never used as label text — they live only in the tooltip.
+  expect(texts).toContain('grief')
+  expect(texts).toContain('weight')
+  expect(texts).not.toContain('raw grief')
+  expect(texts).not.toContain('the leaden weight')
+})
+
+test('arrow affordance is present on an inbound node and absent on the topic', async ({ page }) => {
+  const flags = await page.evaluate(() => {
+    const el: any = document.querySelector('mf-force-graph')
+    el.__test_pauseAndRenderFrame() // ensure CSS2DRenderer has attached label DOM
+    const labelFor = (head: string) => el.__test_labelEls().find((d: HTMLElement) =>
+      d.querySelector('.mf-graph-label__text')!.textContent === head)
+    const weight = labelFor('weight')   // shared intermediate — has inbound edges
+    const grief = labelFor('grief')     // topic — no inbound edges
+    return {
+      weightHasArrow: !!weight?.querySelector('.mf-graph-label__arrow'),
+      griefHasArrow: !!grief?.querySelector('.mf-graph-label__arrow'),
+    }
+  })
+  expect(flags.weightHasArrow).toBe(true)
+  expect(flags.griefHasArrow).toBe(false)
+})
+
+test('hovering the arrow reveals the tooltip with deduped backlink rows', async ({ page }) => {
+  // Tag the shared `weight` node's arrow + tooltip so Playwright can drive a real
+  // pointer hover (the CSS :hover reveal is not exercisable in happy-dom).
+  await page.evaluate(() => {
+    const el: any = document.querySelector('mf-force-graph')
+    el.__test_pauseAndRenderFrame() // ensure CSS2DRenderer has attached label DOM
+    const weight = el.__test_labelEls().find((d: HTMLElement) =>
+      d.querySelector('.mf-graph-label__text')!.textContent === 'weight')
+    weight.querySelector('.mf-graph-label__arrow').setAttribute('data-testid', 'weight-arrow')
+    weight.querySelector('.mf-graph-label__tooltip').setAttribute('data-testid', 'weight-tooltip')
+  })
+  const tooltip = page.locator('[data-testid="weight-tooltip"]')
+  // Default-hidden via the stylesheet rule (not inline), so it must not show yet.
+  await expect(tooltip).toBeHidden()
+
+  await page.locator('[data-testid="weight-arrow"]').hover()
+  await expect(tooltip).toBeVisible()
+
+  const rows = await page.evaluate(() => {
+    const el: any = document.querySelector('mf-force-graph')
+    const weight = el.__test_labelEls().find((d: HTMLElement) =>
+      d.querySelector('.mf-graph-label__text')!.textContent === 'weight')
+    return Array.from(weight.querySelectorAll('.mf-graph-label__backlink'))
+      .map((r: any) => r.textContent)
+  })
+  // Two distinct inbound connections (grief→"the leaden weight", sorrow→"a pressing
+  // heaviness"); the duplicate inbound edge across chains would collapse.
+  expect(rows.length).toBe(2)
+  expect(rows).toContain('← grief · "the leaden weight"')
+  expect(rows).toContain('← sorrow · "a pressing heaviness"')
+})
+
+test('arrow tracks the node projected position after a rotate (independent code paths)', async ({ page }) => {
+  const mismatches = await page.evaluate((cfg) => {
+    const el: any = document.querySelector('mf-force-graph')
+    const graph = el.__test_graph
+    // Rotate the camera, then freeze a deterministic frame (kills any in-flight
+    // tween) — both code paths below read the same frozen camera afterwards.
+    graph.cameraPosition({ x: 300, y: 80, z: 300 }, { x: 0, y: 0, z: 0 }, 0)
+    el.__test_pauseAndRenderFrame()
+    const overlay = el.__test_labelEls()[0]?.parentElement as HTMLElement
+    const frame = overlay.getBoundingClientRect()
+    const out: any[] = []
+    for (const n of graph.graphData().nodes) {
+      const label = n.__threeObj?.children?.find((c: any) => c.isCSS2DObject)
+      if (!label || label.element.style.display === 'none') continue
+      const arrow = label.element.querySelector('.mf-graph-label__arrow')
+      if (!arrow) continue // only nodes with inbound edges carry the affordance
+      // Library projector (overlay-frame-relative) for the node's data coord.
+      const lib = graph.graph2ScreenCoords(n.x, n.y, n.z)
+      // The label element rides on the node via CSS2DRenderer; its anchor (centre)
+      // must sit on the projected point. The arrow is a child of that element, so
+      // if the label tracks, the arrow tracks — assert the label anchor matches.
+      const r = label.element.getBoundingClientRect()
+      const anchorX = r.left + r.width * cfg.center.x - frame.left
+      const anchorY = r.top + r.height * cfg.center.y - frame.top
+      if (Math.abs(anchorX - lib.x) > cfg.tol || Math.abs(anchorY - lib.y) > cfg.tol) {
+        out.push({ id: n.id, anchorX, anchorY, lib })
+      }
+      // The arrow must lie inside the label's box (right-hand end) — proves it
+      // rides with the label rather than detaching to a stale position.
+      const ar = arrow.getBoundingClientRect()
+      const inside = ar.left >= r.left - cfg.tol && ar.right <= r.right + cfg.tol &&
+        ar.top >= r.top - cfg.tol && ar.bottom <= r.bottom + cfg.tol
+      if (!inside) out.push({ id: n.id, arrowDetached: { ar, r } })
+    }
+    return out
+  }, { center: CENTER, tol: TOL })
+  expect(mismatches).toEqual([])
+})
+
 test('labels meet the min-px floor and carry contrast styles', async ({ page }) => {
   const report = await page.evaluate(() => {
     const el: any = document.querySelector('mf-force-graph')

@@ -16,8 +16,10 @@
     <script type="module">
       import '/src/components/mf-force-graph.ts'
 
-      // Three fixed grade chains. Distinct heads → distinct deduped nodes, so the
-      // force sim spreads a real constellation rather than stacking at the origin.
+      // Fixed grade chains. Each step is { phrase, head, synset_id }: the node is
+      // keyed/deduped by synset_id and LABELLED by head, while the per-connection
+      // `phrase` (incidental surface wording) surfaces in the backlink tooltip.
+      // Phrases deliberately differ from heads so the head-primary label is testable.
       const mkChain = (topic, vehicle, steps, sig) => ({
         schema_version: 'chain.v1',
         topic,
@@ -26,15 +28,25 @@
         vehicle_synset_id: `syn-${vehicle}`,
         proposer: 'fixture',
         round: 1,
-        chain: steps.map((s) => ({ phrase: s, head: s, synset_id: `syn-${s}` })),
+        // step = [head, phrase]; synset keyed off head so a shared head dedups.
+        chain: steps.map(([head, phrase]) => ({ phrase, head, synset_id: `syn-${head}` })),
         chain_signature: sig,
         generated_at: '2026-05-31T00:00:00Z',
       })
 
+      // Chains a + b share the intermediate head `weight`, reached from two
+      // distinct sources (`grief`, `sorrow`) via two distinct phrases — so the
+      // `weight` node carries two deduped backlinks for the tooltip assertion.
       const chains = [
-        mkChain('grief', 'anchor', ['grief', 'weight', 'depth', 'anchor'], 'sig-a'),
-        mkChain('joy', 'wildfire', ['joy', 'spark', 'blaze', 'wildfire'], 'sig-b'),
-        mkChain('memory', 'archive', ['memory', 'fragment', 'archive'], 'sig-c'),
+        mkChain('grief', 'anchor', [
+          ['grief', 'raw grief'], ['weight', 'the leaden weight'], ['depth', 'cold depth'], ['anchor', 'an anchor'],
+        ], 'sig-a'),
+        mkChain('sorrow', 'wildfire', [
+          ['sorrow', 'quiet sorrow'], ['weight', 'a pressing heaviness'], ['blaze', 'sudden blaze'], ['wildfire', 'a wildfire'],
+        ], 'sig-b'),
+        mkChain('memory', 'archive', [
+          ['memory', 'old memory'], ['fragment', 'a fragment'], ['archive', 'the archive'],
+        ], 'sig-c'),
       ]
 
       const el = document.createElement('mf-force-graph')
