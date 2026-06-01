@@ -15,6 +15,8 @@ import type {
   Linkage,
   MetaphorVerdict,
   Tier,
+  Tag,
+  Confidence,
 } from '@/types/grading'
 import { normaliseJudgement } from '@/types/grading'
 import type { MfToast } from './mf-toast'
@@ -613,6 +615,7 @@ export class MfApp extends LitElement {
   private async handleVerdictSubmit(e: CustomEvent<VerdictSubmitDetail>): Promise<void> {
     if (!this.selectedChain) return
     const chain = this.selectedChain
+    const prior = this.priorVerdict(chain)
     const judgement: JudgementRecord = {
       schema_version: 'judgement.v2',
       judged_by: 'julian',
@@ -629,7 +632,7 @@ export class MfApp extends LitElement {
       tags: e.detail.tags,
       confidence: e.detail.confidence,
       notes: e.detail.notes,
-      supersedes_ts: null,
+      supersedes_ts: prior?.ts ?? null,
     }
     try {
       await this.gradingClient.postJudgement(judgement)
@@ -688,17 +691,19 @@ export class MfApp extends LitElement {
    */
   private priorVerdict(
     chain: ChainRecord,
-  ): { linkage: Linkage; metaphor: MetaphorVerdict; tiers: Tier[]; ts: string; notes: string } | null {
+  ): { linkage: Linkage; metaphor: MetaphorVerdict; tiers: Tier[]; tags: Tag[]; confidence: Confidence; ts: string; notes: string } | null {
     let latest: JudgementRecord | null = null
     for (const j of this.gradeJudgements) {
       if (j.chain_signature === chain.chain_signature) latest = j
     }
     if (!latest) return null
-    const { linkage, metaphor, tiers } = normaliseJudgement(latest)
+    const { linkage, metaphor, tiers, tags } = normaliseJudgement(latest)
     return {
       linkage: linkage ?? 'bad',
       metaphor: metaphor ?? 'irrelevant',
       tiers,
+      tags,
+      confidence: latest.confidence ?? 'high',
       ts: latest.ts ?? '',
       notes: latest.notes ?? '',
     }

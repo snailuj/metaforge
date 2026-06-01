@@ -1223,6 +1223,50 @@ describe('mf-app grade-mode integration', () => {
       expect(panel.priorVerdict.tiers).toEqual([])
     })
 
+    it('threads confidence and tags into the priorVerdict prop', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeChains = [chain]
+      ;(el as any).gradeJudgements = [
+        judgement({ confidence: 'med', tags: ['leap', 'bad_head'], ts: '2026-05-31T00:00:00Z' }),
+      ]
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+      const panel = el.shadowRoot!.querySelector('mf-grade-panel') as any
+      expect(panel.priorVerdict.confidence).toBe('med')
+      expect(panel.priorVerdict.tags).toEqual(['leap', 'bad_head'])
+    })
+
+    it('a re-grade sets supersedes_ts to the prior verdict ts', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).gradeChains = [chain]
+      ;(el as any).gradeJudgements = [judgement({ ts: '2026-05-30T00:00:00Z' })]
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+      const postSpy = vi.spyOn((el as any).gradingClient, 'postJudgement').mockResolvedValue({} as any)
+      vi.spyOn((el as any).gradingClient, 'getJudgements').mockResolvedValue({ count: 0, records: [] })
+      await (el as any).handleVerdictSubmit(new CustomEvent('verdict-submit', {
+        detail: { linkage: 'good', metaphor: 'dead', tiers: [], tags: [], confidence: 'high', notes: '' },
+      }))
+      expect(postSpy.mock.calls[0][0].supersedes_ts).toBe('2026-05-30T00:00:00Z')
+      postSpy.mockRestore()
+    })
+
+    it('a first grade (no prior) sets supersedes_ts null', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).gradeChains = [chain]
+      ;(el as any).gradeJudgements = []
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+      const postSpy = vi.spyOn((el as any).gradingClient, 'postJudgement').mockResolvedValue({} as any)
+      vi.spyOn((el as any).gradingClient, 'getJudgements').mockResolvedValue({ count: 0, records: [] })
+      await (el as any).handleVerdictSubmit(new CustomEvent('verdict-submit', {
+        detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      }))
+      expect(postSpy.mock.calls[0][0].supersedes_ts).toBeNull()
+      postSpy.mockRestore()
+    })
+
     it('threads empty notes when the latest judgement has none', async () => {
       ;(el as any).mode = 'grade'
       ;(el as any).viewportWidth = 1200
