@@ -34,6 +34,16 @@ if [ ! -f /etc/default/metaforge-grading ]; then
     echo "Wrote /etc/default/metaforge-grading from template. Review and adjust if needed."
 fi
 
+# 3b. The unit pins the deploy worktree via Environment=PYTHONPATH=. Observed
+# gotcha: a PYTHONPATH in THIS EnvironmentFile OVERRIDES the unit's inline value at
+# runtime (systemd applies EnvironmentFile after Environment= for duplicate keys),
+# silently sending the sidecar's code + grading-data resolution back to whatever
+# path the file names. Strip it so the unit is the sole authority. Idempotent.
+if [ -f /etc/default/metaforge-grading ] && grep -q '^PYTHONPATH=' /etc/default/metaforge-grading; then
+    sudo sed -i '/^PYTHONPATH=/d' /etc/default/metaforge-grading
+    echo "Stripped PYTHONPATH from /etc/default/metaforge-grading (unit Environment= is authoritative)."
+fi
+
 # 4. Install systemd unit (idempotent — overwrites).
 sudo install -m 0644 "$REPO_ROOT/deploy/grading/metaforge-grading.service" \
     /etc/systemd/system/metaforge-grading.service
@@ -47,6 +57,22 @@ sudo systemctl restart metaforge-grading
 sleep 2
 curl -fsS http://127.0.0.1:53775/api/grading/healthz
 echo ""
+
+# 7. Verify the cutover actually pinned the deploy worktree. paths.py + the git
+# autocommit derive code AND grading-data location from PYTHONPATH, so if the live
+# process resolves it to anything other than .worktrees/next, the sidecar is
+# silently running off the main checkout (the EnvironmentFile gotcha above). Fail
+# loudly rather than appear-deployed-but-wrong.
+PID="$(pgrep -f 'grading_sidecar.main' | head -1)"
+if [ -n "$PID" ] && grep -qz '^PYTHONPATH=.*\.worktrees/next' "/proc/$PID/environ" 2>/dev/null; then
+    echo "Verified: live sidecar (PID $PID) PYTHONPATH is pinned to .worktrees/next."
+else
+    echo "ERROR: sidecar PYTHONPATH is NOT pinned to .worktrees/next — code + grading data" >&2
+    echo "       are resolving from the main checkout, not the deploy worktree." >&2
+    echo "       Inspect: tr '\\0' '\\n' < /proc/${PID}/environ | grep PYTHONPATH" >&2
+    exit 1
+fi
+
 echo "Sidecar deploy complete."
 echo ""
 echo "If the staging Caddy snippet changed (T11 added /api/grading/* handles),"

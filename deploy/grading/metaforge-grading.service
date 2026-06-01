@@ -14,9 +14,9 @@ EnvironmentFile=/etc/default/metaforge-grading
 Environment=GRADING_DEV=
 # Pin the live tool to the .worktrees/next deploy worktree (branch grading-live),
 # isolated from main-checkout dev-branch churn. paths.py + the git autocommit derive
-# BOTH the code and the grading-data location from PYTHONPATH, so this override —
-# placed AFTER EnvironmentFile so it wins — is the single lever; it supersedes the
-# now-stale PYTHONPATH still sitting in /etc/default/metaforge-grading.
+# BOTH the code and the grading-data location from PYTHONPATH — this is the single
+# lever. NOTE: a PYTHONPATH in the EnvironmentFile OVERRIDES this inline value at
+# runtime, so deploy.sh strips PYTHONPATH from /etc/default to leave this authoritative.
 Environment=PYTHONPATH=/home/agent/projects/metaforge/.worktrees/next/data-pipeline/
 ExecStart=/home/agent/projects/metaforge/.worktrees/next/data-pipeline/.venv/bin/python -m grading_sidecar.main
 Restart=on-failure
