@@ -53,6 +53,8 @@ Four workstreams. W1, W2, W3 are frontend + (W3) a small backend schema touch. W
 
 **Behaviour:** Tapping L/D/I (or pressing the key) still submits and recolours the graded path, but the force layout does **not** restart. Under the `Ungraded` filter, the graded path disappears (as today) — also without reheat.
 
+**Persistence model (clarification):** The verdict is **saved on the L/D/I tap** — that one gesture emits `verdict-submit`, which POSTs the record to the sidecar. There is no separate Save button; linkage/confidence/tiers/tags/notes are companions to that tap (whatever the form holds at tap time). The phrase *"only judgements changed"* below is **not** about when saving happens — it describes the graph component's *reaction after* a save: POST → `mf-app` refetch → `gradeJudgements` reassignment, which registers in `mf-force-graph.updated()` as a judgements-only change. That is the cue to recolour-in-place rather than re-feed the layout — one layer below the UI.
+
 **Design:** In `mf-force-graph.updated()`, branch: when the change set indicates **only** judgements changed (not graph topology / mode / nodes), call a lightweight refresh — `refreshLinkStyles()` + `reapplyVisibility()` — **instead of** `feedGraph()`. Topology-affecting changes still go through `feedGraph()`.
 
 - The verdict colour rides the `linkColor` accessor (reads `getEdgeColour()` dynamically), so `refreshLinkStyles()` re-applies it.
