@@ -156,12 +156,45 @@ describe('mf-grade-panel', () => {
         expect(el.shadowRoot!.querySelector('[data-testid="prior-notes"]')).toBeNull();
     });
 
-    it('tag chip prepends tag prefix to notes', async () => {
-        const chip = el.shadowRoot!.querySelector('[data-testid="chip-merge"]') as HTMLElement;
-        chip.click();
+    const clickTag = async (tag: string) => {
+        (el.shadowRoot!.querySelector(`[data-testid="chip-${tag}"]`) as HTMLElement).click();
         await el.updateComplete;
-        const textarea = el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement;
-        expect(textarea.value.startsWith('merge:')).toBe(true);
+    };
+    const tagSelected = (tag: string) =>
+        (el.shadowRoot!.querySelector(`[data-testid="chip-${tag}"]`) as HTMLElement)
+            .classList.contains('selected');
+
+    it('exposes bad_head as a tag chip', () => {
+        expect(el.shadowRoot!.querySelector('[data-testid="chip-bad_head"]')).toBeTruthy();
+    });
+
+    it('clicking tag chips multi-selects (toggle on/off)', async () => {
+        await clickTag('padding');
+        await clickTag('bad_head');
+        expect(tagSelected('padding')).toBe(true);
+        expect(tagSelected('bad_head')).toBe(true);
+        expect(tagSelected('merge')).toBe(false);
+        await clickTag('padding'); // toggle off
+        expect(tagSelected('padding')).toBe(false);
+        expect(tagSelected('bad_head')).toBe(true);
+    });
+
+    it('a submit carries the selected tags as an array', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
+        await clickTag('leap');
+        await clickTag('bad_head');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' })); await tick();
+        expect(d.tags).toEqual(['leap', 'bad_head']);
+    });
+
+    it('selected tags reset after a submit', async () => {
+        const captures: any[] = [];
+        el.addEventListener('verdict-submit', (e: any) => captures.push(e.detail));
+        await clickTag('merge');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        expect(captures.map(c => c.tags)).toEqual([['merge'], []]);
     });
 
     it('verdict event payload includes confidence and notes', async () => {

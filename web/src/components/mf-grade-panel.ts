@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ChainRecord, Linkage, MetaphorVerdict, Tier, Tag, Confidence, VerdictSubmitDetail } from '../types/grading';
+import { TAGS } from '../types/grading';
 
 // Prior verdict shown in the re-grade banner — the latest v2 judgement for this bridge.
 interface PriorVerdict {
@@ -22,8 +23,6 @@ const CONFIDENCE_KEYS: Record<string, Confidence> = {
 };
 
 const TIERS: readonly Tier[] = ['strong', 'ironic', 'surprising'] as const;
-
-const TAG_CHIPS = ['merge', 'padding', 'leap', 'other'] as const;
 
 @customElement('mf-grade-panel')
 export class MfGradePanel extends LitElement {
@@ -67,6 +66,7 @@ export class MfGradePanel extends LitElement {
             background: #181b22; color: #9aa3b2; border: 1px solid #2a3140;
             border-radius: 12px; cursor: pointer;
         }
+        button.chip.selected { background: #2a3140; color: #fff; border-color: #6db86d; }
         textarea {
             width: 100%; min-height: 3rem; box-sizing: border-box; padding: 0.4rem;
             background: #181b22; color: #e6e6e6; border: 1px solid #2a3140; border-radius: 3px;
@@ -174,13 +174,11 @@ export class MfGradePanel extends LitElement {
             : [...this.selectedTiers, tier];
     }
 
-    private _addTag(tag: string) {
-        // Strip any existing tag prefix, then prepend the new one
-        const cleaned = this.notes.replace(/^(merge|padding|leap|other):\s*/i, '');
-        this.notes = `${tag}: ${cleaned}`;
-        // Sync textarea DOM value to match — Lit's .value binding updates on next render
-        // but the test reads textarea.value immediately after updateComplete, so we update
-        // the property here; Lit will sync the DOM on the next render cycle.
+    private _toggleTag(tag: Tag) {
+        // Multi-select toggle: clicking a selected chip removes only it.
+        this.selectedTags = this.selectedTags.includes(tag)
+            ? this.selectedTags.filter(t => t !== tag)
+            : [...this.selectedTags, tag];
     }
 
     render() {
@@ -239,8 +237,11 @@ export class MfGradePanel extends LitElement {
                         @click=${() => { this.confidence = 'low'; }}>Low<kbd>3</kbd></button>
             </div>
             <div class="chips">
-                ${TAG_CHIPS.map(tag => html`
-                    <button class="chip" data-testid="chip-${tag}" @click=${() => this._addTag(tag)}>${tag}</button>
+                <span class="group-label">Tags:</span>
+                ${TAGS.map(tag => html`
+                    <button class="chip ${this.selectedTags.includes(tag) ? 'selected' : ''}"
+                            data-testid="chip-${tag}"
+                            @click=${() => this._toggleTag(tag)}>${tag}</button>
                 `)}
             </div>
             <textarea
