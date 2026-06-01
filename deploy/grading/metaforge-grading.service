@@ -12,7 +12,7 @@ User=agent
 WorkingDirectory=/home/agent/projects/metaforge/.worktrees/next
 EnvironmentFile=/etc/default/metaforge-grading
 Environment=GRADING_DEV=
-# Pin the live tool to the .worktrees/next deploy worktree (branch deploy/grading),
+# Pin the live tool to the .worktrees/next deploy worktree (branch grading-live),
 # isolated from main-checkout dev-branch churn. paths.py + the git autocommit derive
 # BOTH the code and the grading-data location from PYTHONPATH, so this override —
 # placed AFTER EnvironmentFile so it wins — is the single lever; it supersedes the
