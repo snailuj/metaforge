@@ -1,17 +1,17 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { ChainRecord, Linkage, MetaphorVerdict, Tier, Confidence } from '../types/grading';
+import type { ChainRecord, Linkage, MetaphorVerdict, Tier, Confidence, VerdictSubmitDetail } from '../types/grading';
 
 // Prior verdict shown in the re-grade banner — the latest v2 judgement for this bridge.
 interface PriorVerdict {
     linkage: Linkage;
     metaphor: MetaphorVerdict;
-    tier: Tier | null;
+    tiers: Tier[];
     ts: string;
     notes: string;
 }
 
-// Metaphor keys SUBMIT (carrying the current pending linkage + tier + confidence).
+// Metaphor keys SUBMIT (carrying the current pending linkage + tiers + confidence).
 const METAPHOR_KEYS: Record<string, MetaphorVerdict> = {
     l: 'live', d: 'dead', i: 'irrelevant',
 };
@@ -21,9 +21,7 @@ const CONFIDENCE_KEYS: Record<string, Confidence> = {
     '1': 'high', '2': 'med', '3': 'low',
 };
 
-const TIERS: readonly Tier[] = [
-    'legendary', 'complex', 'interesting', 'ironic', 'strong', 'obvious', 'unlikely',
-] as const;
+const TIERS: readonly Tier[] = ['strong', 'ironic', 'surprising'] as const;
 
 const TAG_CHIPS = ['merge', 'padding', 'leap', 'other'] as const;
 
@@ -95,8 +93,8 @@ export class MfGradePanel extends LitElement {
     @state() private notes = '';
     // Pending linkage: 'good' is the fast-path default; B toggles to 'bad' before a metaphor submit.
     @state() private pendingLinkage: Linkage = 'good';
-    // Single-select tier; only sent (and only meaningful) for a live metaphor.
-    @state() private selectedTier: Tier | null = null;
+    // Multi-select tiers; only sent (and only meaningful) for a live metaphor.
+    @state() private selectedTiers: Tier[] = [];
 
     private boundKeyHandler = (e: KeyboardEvent) => this._onKeydown(e);
 
@@ -138,22 +136,23 @@ export class MfGradePanel extends LitElement {
     }
 
     private _submit(metaphor: MetaphorVerdict) {
-        // Tier only rides a live metaphor; cleared otherwise so a stale chip never leaks.
-        const tier = metaphor === 'live' ? this.selectedTier : null;
-        this.dispatchEvent(new CustomEvent('verdict-submit', {
-            detail: {
-                linkage: this.pendingLinkage,
-                metaphor,
-                tier,
-                confidence: this.confidence,
-                notes: this.notes,
-            },
+        // Tiers only ride a live metaphor; cleared otherwise so stale chips never leak.
+        const tiers = metaphor === 'live' ? this.selectedTiers : [];
+        const detail: VerdictSubmitDetail = {
+            linkage: this.pendingLinkage,
+            metaphor,
+            tiers,
+            confidence: this.confidence,
+            notes: this.notes,
+        };
+        this.dispatchEvent(new CustomEvent<VerdictSubmitDetail>('verdict-submit', {
+            detail,
             bubbles: true,
             composed: true,
         }));
         // Reset transient state so the next bridge starts from the fast-path default.
         this.pendingLinkage = 'good';
-        this.selectedTier = null;
+        this.selectedTiers = [];
     }
 
     private _onNotesInput(e: Event) {
@@ -165,8 +164,10 @@ export class MfGradePanel extends LitElement {
     }
 
     private _selectTier(tier: Tier) {
-        // Single-select toggle: clicking the active chip clears it.
-        this.selectedTier = this.selectedTier === tier ? null : tier;
+        // Multi-select toggle: clicking a selected chip removes only it.
+        this.selectedTiers = this.selectedTiers.includes(tier)
+            ? this.selectedTiers.filter(t => t !== tier)
+            : [...this.selectedTiers, tier];
     }
 
     private _addTag(tag: string) {
@@ -186,8 +187,8 @@ export class MfGradePanel extends LitElement {
                 <div class="banner" data-testid="re-grade-banner">
                     Re-grading — your previous verdict was
                     <strong>${this.priorVerdict.linkage}</strong> linkage /
-                    <strong>${this.priorVerdict.metaphor}</strong> metaphor${this.priorVerdict.tier
-                        ? html` (<strong>${this.priorVerdict.tier}</strong>)` : ''}
+                    <strong>${this.priorVerdict.metaphor}</strong> metaphor${this.priorVerdict.tiers.length
+                        ? html` (<strong>${this.priorVerdict.tiers.join(', ')}</strong>)` : ''}
                     at ${this.priorVerdict.ts}.
                     ${this.priorVerdict.notes ? html`
                         <div class="prior-notes" data-testid="prior-notes">${this.priorVerdict.notes}</div>
@@ -219,7 +220,7 @@ export class MfGradePanel extends LitElement {
             <div class="tiers">
                 <span class="group-label">Tier:</span>
                 ${TIERS.map(tier => html`
-                    <button class="tier ${this.selectedTier === tier ? 'selected' : ''}"
+                    <button class="tier ${this.selectedTiers.includes(tier) ? 'selected' : ''}"
                             data-testid="tier-${tier}"
                             @click=${() => this._selectTier(tier)}>${tier}</button>
                 `)}

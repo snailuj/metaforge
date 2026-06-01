@@ -67,13 +67,57 @@ describe('mf-grade-panel', () => {
         expect(d).toMatchObject({ linkage: 'good', metaphor: 'irrelevant' });
     });
 
-    it('selecting a tier chip then L includes the tier', async () => {
+    const clickTier = async (tier: string) => {
+        (el.shadowRoot!.querySelector(`[data-testid="tier-${tier}"]`) as HTMLElement).click();
+        await el.updateComplete;
+    };
+    const tierSelected = (tier: string) =>
+        (el.shadowRoot!.querySelector(`[data-testid="tier-${tier}"]`) as HTMLElement)
+            .classList.contains('selected');
+
+    it('clicking two tier chips selects both', async () => {
+        await clickTier('strong');
+        await clickTier('surprising');
+        expect(tierSelected('strong')).toBe(true);
+        expect(tierSelected('surprising')).toBe(true);
+        expect(tierSelected('ironic')).toBe(false);
+    });
+
+    it('clicking a selected chip deselects only it', async () => {
+        await clickTier('strong');
+        await clickTier('surprising');
+        await clickTier('strong'); // toggle off
+        expect(tierSelected('strong')).toBe(false);
+        expect(tierSelected('surprising')).toBe(true);
+    });
+
+    it('a live submit carries the selected tiers as an array', async () => {
         let d: any = null;
         el.addEventListener('verdict-submit', (e: any) => d = e.detail);
-        (el.shadowRoot!.querySelector('[data-testid="tier-legendary"]') as HTMLElement).click();
-        await el.updateComplete;
+        await clickTier('strong');
+        await clickTier('surprising');
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
-        expect(d).toMatchObject({ metaphor: 'live', tier: 'legendary' });
+        expect(d).toMatchObject({ metaphor: 'live' });
+        expect(d.tiers).toEqual(['strong', 'surprising']);
+    });
+
+    it('tiers are gated to live — a dead submit emits empty tiers', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
+        await clickTier('strong');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' })); await tick();
+        expect(d.metaphor).toBe('dead');
+        expect(d.tiers).toEqual([]);
+    });
+
+    it('selected tiers reset after a submit', async () => {
+        const captures: any[] = [];
+        el.addEventListener('verdict-submit', (e: any) => captures.push(e.detail));
+        await clickTier('strong');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        // Next submit (no chip) carries no tiers.
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        expect(captures.map(c => c.tiers)).toEqual([['strong'], []]);
     });
 
     it('pending linkage:bad resets after a submit', async () => {
@@ -94,17 +138,18 @@ describe('mf-grade-panel', () => {
         expect(d?.confidence).toBe('med');
     });
 
-    it('re-grade banner shows prior linkage, metaphor, tier and notes', async () => {
-        el.priorVerdict = { linkage: 'good', metaphor: 'dead', tier: 'obvious', notes: 'cliché', ts: '2026-05-31T00:00:00Z' };
+    it('re-grade banner shows prior linkage, metaphor, multiple tiers and notes', async () => {
+        el.priorVerdict = { linkage: 'good', metaphor: 'live', tiers: ['strong', 'surprising'], notes: 'cliché', ts: '2026-05-31T00:00:00Z' };
         await el.updateComplete;
         const b = el.shadowRoot!.querySelector('[data-testid="re-grade-banner"]')!.textContent!;
-        expect(b).toContain('dead');
-        expect(b).toContain('obvious');
+        expect(b).toContain('live');
+        expect(b).toContain('strong');
+        expect(b).toContain('surprising');
         expect(b).toContain('cliché');
     });
 
     it('renders no prior-notes line when priorVerdict has empty notes', async () => {
-        el.priorVerdict = { linkage: 'good', metaphor: 'live', tier: null, notes: '', ts: '2026-05-31T00:00:00Z' };
+        el.priorVerdict = { linkage: 'good', metaphor: 'live', tiers: [], notes: '', ts: '2026-05-31T00:00:00Z' };
         await el.updateComplete;
         const banner = el.shadowRoot!.querySelector('[data-testid="re-grade-banner"]');
         expect(banner).toBeTruthy();
