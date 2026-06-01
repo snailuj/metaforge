@@ -53,6 +53,8 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 
 The Metaphor Grading Tool (`data-pipeline/grading_sidecar/` + grading mode in `mf-app`) is an active-learning bootstrap-loop instrument: Julian grades Sonnet-generated metaphor chains (live/dead/bad_path/irrelevant), bad_path examples feed the next round's prompt. Deployed at `metaforge-next.julianit.me` via path-scoped Caddy routing (`/api/grading/*`); the production URL graceful-degrades via the `/api/grading/healthz` probe. JSONL data committed under `data-pipeline/grading/` with `_provisional` markers (auto-commit every 15 min while sidecar runs). See `docs/superpowers/specs/2026-05-30-metaphor-grading-tool-design.md` for the authoritative design.
 
+**⚠️ Deploy topology (since 2026-06-01):** the live sidecar runs from the **`.worktrees/next`** worktree on branch **`grading-live`** — NOT the main checkout. Switching the main checkout's branch does **not** affect the live grading tool, and grading verdicts auto-commit to `grading-live`. The data + autocommit location is pinned by `Environment=PYTHONPATH=.../.worktrees/next/data-pipeline/` in `deploy/grading/metaforge-grading.service` (`paths.py` derives both from it). Cutover/redeploy = `sudo deploy/grading/deploy.sh` (installs the unit + restart; it does not git-pull). Do not "fix" the sidecar by repointing it at the main checkout. See memory `grading_ux_round3_landed`.
+
 ---
 
 ## Superpowers Skills
