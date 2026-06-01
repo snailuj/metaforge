@@ -626,6 +626,7 @@ export class MfApp extends LitElement {
       linkage: e.detail.linkage,
       metaphor: e.detail.metaphor,
       tiers: e.detail.tiers,
+      tags: e.detail.tags,
       confidence: e.detail.confidence,
       notes: e.detail.notes,
       supersedes_ts: null,

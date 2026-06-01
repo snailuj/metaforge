@@ -188,4 +188,11 @@ describe('mf-grade-panel', () => {
         expect(d).toBeNull();
         ta.remove();
     });
+
+    it('a submit carries a tags array (empty by default)', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        expect(d.tags).toEqual([]);
+    });
 });

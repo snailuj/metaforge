@@ -6,6 +6,11 @@ export type MetaphorVerdict = 'live' | 'dead' | 'irrelevant';
 // Multi-select reading tiers. `legendary` is derived in a later milestone, not
 // human-assigned, so it is not part of the human vocabulary.
 export type Tier = 'strong' | 'ironic' | 'surprising';
+// Structured issue tags — orthogonal to the verdict axes. `bad_head` flags a
+// mis-extracted head concept (a data-prep error), kept distinct from a `bad`
+// linkage verdict so head-extraction noise stays out of the metaphor signal.
+export type Tag = 'merge' | 'padding' | 'leap' | 'bad_head' | 'other';
+export const TAGS: readonly Tag[] = ['merge', 'padding', 'leap', 'bad_head', 'other'] as const;
 export type Confidence = 'high' | 'med' | 'low';
 
 export interface ChainStep {
@@ -44,6 +49,7 @@ export interface JudgementRecord {
     linkage: Linkage;
     metaphor: MetaphorVerdict;
     tiers: Tier[];
+    tags: Tag[];
     confidence: Confidence;
     notes: string;
     supersedes_ts: string | null;
@@ -55,6 +61,7 @@ export interface VerdictSubmitDetail {
     linkage: Linkage;
     metaphor: MetaphorVerdict;
     tiers: Tier[];
+    tags: Tag[];
     confidence: Confidence;
     notes: string;
 }
@@ -70,6 +77,7 @@ export interface NormalisedJudgement {
     linkage: Linkage | null;
     metaphor: MetaphorVerdict | null;
     tiers: Tier[];
+    tags: Tag[];
 }
 
 // v1 `label` → (linkage, metaphor). None where the flat label carried no signal on that
@@ -85,17 +93,18 @@ const V1_LABEL_MAP: Record<Label, [Linkage | null, MetaphorVerdict | null]> = {
 // Read-side mirror of the Python normalise_judgement: maps a stored record (v1 `label`
 // or v2 axes) to the uniform two-axis view consumers expect. Non-destructive.
 export function normaliseJudgement(
-    raw: { linkage?: Linkage; metaphor?: MetaphorVerdict; tiers?: Tier[]; label?: Label },
+    raw: { linkage?: Linkage; metaphor?: MetaphorVerdict; tiers?: Tier[]; tags?: Tag[]; label?: Label },
 ): NormalisedJudgement {
     if (raw.linkage !== undefined || raw.metaphor !== undefined) {
         return {
             linkage: raw.linkage ?? null,
             metaphor: raw.metaphor ?? null,
             tiers: raw.tiers ?? [],
+            tags: raw.tags ?? [],
         };
     }
     const [linkage, metaphor] = raw.label
         ? V1_LABEL_MAP[raw.label]
         : [null, null];
-    return { linkage, metaphor, tiers: [] };
+    return { linkage, metaphor, tiers: [], tags: [] };
 }

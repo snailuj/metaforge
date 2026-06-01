@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { ChainRecord, Linkage, MetaphorVerdict, Tier, Confidence, VerdictSubmitDetail } from '../types/grading';
+import type { ChainRecord, Linkage, MetaphorVerdict, Tier, Tag, Confidence, VerdictSubmitDetail } from '../types/grading';
 
 // Prior verdict shown in the re-grade banner — the latest v2 judgement for this bridge.
 interface PriorVerdict {
@@ -95,6 +95,8 @@ export class MfGradePanel extends LitElement {
     @state() private pendingLinkage: Linkage = 'good';
     // Multi-select tiers; only sent (and only meaningful) for a live metaphor.
     @state() private selectedTiers: Tier[] = [];
+    // Multi-select issue tags — orthogonal to verdict axes, always available.
+    @state() private selectedTags: Tag[] = [];
 
     private boundKeyHandler = (e: KeyboardEvent) => this._onKeydown(e);
 
@@ -142,6 +144,7 @@ export class MfGradePanel extends LitElement {
             linkage: this.pendingLinkage,
             metaphor,
             tiers,
+            tags: this.selectedTags,
             confidence: this.confidence,
             notes: this.notes,
         };
@@ -153,6 +156,7 @@ export class MfGradePanel extends LitElement {
         // Reset transient state so the next bridge starts from the fast-path default.
         this.pendingLinkage = 'good';
         this.selectedTiers = [];
+        this.selectedTags = [];
     }
 
     private _onNotesInput(e: Event) {
