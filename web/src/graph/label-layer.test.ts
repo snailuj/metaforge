@@ -65,6 +65,42 @@ describe('buildLabelEl', () => {
   })
 })
 
+describe('buildLabelEl backlink tooltip', () => {
+  it('with no backlinks renders just the head text, no arrow/tooltip', () => {
+    const el = buildLabelEl({ text: 'anger', colour: '#fff', role: 'topic' }, CONST)
+    expect(el.querySelector('.mf-graph-label__text')!.textContent).toBe('anger')
+    expect(el.querySelector('.mf-graph-label__arrow')).toBeNull()
+    expect(el.querySelector('.mf-graph-label__tooltip')).toBeNull()
+  })
+  it('with backlinks renders an interactive arrow and a tooltip row per deduped backlink', () => {
+    const el = buildLabelEl({ text: 'heat', colour: '#fff', role: 'step', backlinks: [
+      { source: 'pressure', phrase: 'subterranean heat' },
+      { source: 'ember', phrase: 'the warmth below' },
+      { source: 'pressure', phrase: 'subterranean heat' }, // dup — collapses
+    ] }, CONST)
+    const arrow = el.querySelector('.mf-graph-label__arrow') as HTMLElement
+    expect(arrow).not.toBeNull()
+    expect(arrow.style.pointerEvents).toBe('auto')
+    const rows = el.querySelectorAll('.mf-graph-label__tooltip .mf-graph-label__backlink')
+    expect(rows.length).toBe(2)
+    expect(rows[0].textContent).toContain('pressure')
+    expect(rows[0].textContent).toContain('subterranean heat')
+  })
+  it('does not set inline display on the tooltip (the stylesheet :hover rule controls it)', () => {
+    const el = buildLabelEl({ text: 'heat', colour: '#fff', role: 'step', backlinks: [
+      { source: 'pressure', phrase: 'subterranean heat' },
+    ] }, CONST)
+    const tooltip = el.querySelector('.mf-graph-label__tooltip') as HTMLElement
+    // An inline display:none would out-specify the :hover rule and never reveal.
+    expect(tooltip.style.display).toBe('')
+  })
+  it('an empty backlinks array renders no arrow/tooltip', () => {
+    const el = buildLabelEl({ text: 'anger', colour: '#fff', role: 'topic', backlinks: [] }, CONST)
+    expect(el.querySelector('.mf-graph-label__arrow')).toBeNull()
+    expect(el.querySelector('.mf-graph-label__tooltip')).toBeNull()
+  })
+})
+
 describe('defaults', () => {
   it('browse is distance-floor 13/10, grade is constant 13/11', () => {
     expect(DEFAULT_LABEL_SIZE.browse).toEqual({ mode: 'distance-floor', basePx: 13, minPx: 10 })

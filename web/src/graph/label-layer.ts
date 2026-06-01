@@ -12,10 +12,21 @@ export interface LabelSizeConfig {
   minPx: number  // floor — rendered px never drops below this
 }
 
+// One inbound connection a deduped grade node carries: the head of the previous
+// step, and the phrase this node bore in that chain. A node reached by many
+// chains has many backlinks (one per inbound edge), surfaced in the tooltip.
+export interface BacklinkRow {
+  source: string
+  phrase: string
+}
+
 export interface LabelStyle {
   text: string
   colour: string
   role: string // grade: topic|vehicle|step; browse: central|<rarity>
+  // Grade mode only: inbound connections to surface behind the `›` affordance.
+  // Browse-mode labels never set this — the arrow/tooltip render only when non-empty.
+  backlinks?: BacklinkRow[]
 }
 
 export const DEFAULT_LABEL_SIZE: Record<'browse' | 'grade', LabelSizeConfig> = {
@@ -72,6 +83,49 @@ export function buildLabelEl(style: LabelStyle, cfg: LabelSizeConfig): HTMLDivEl
   span.style.transformOrigin = 'center'
   span.style.textShadow = '0 0 2px #000, 0 0 3px #000' // outline for legibility
   el.appendChild(span)
+
+  // Grade-mode backlink affordance. The `›` arrow is the ONE element with
+  // pointer-events:auto — re-enabling DOM hit-testing for an exact target so
+  // the WebGL raycaster hover-offset bug (sphere-only) cannot misfire here, and
+  // canvas orbit/rotate events elsewhere are untouched. Reveal is pure CSS
+  // `:hover` (declared in mf-force-graph static styles); the tooltip's
+  // default-hidden state lives in the STYLESHEET, never inline — an inline
+  // display:none would out-specify the :hover rule and never reveal.
+  if (style.backlinks?.length) {
+    const arrow = document.createElement('span')
+    arrow.className = 'mf-graph-label__arrow'
+    arrow.textContent = '›'
+    arrow.style.pointerEvents = 'auto'
+    arrow.style.cursor = 'pointer'
+    arrow.style.padding = '0 2px 0 4px'
+    el.appendChild(arrow)
+
+    const tooltip = document.createElement('div')
+    tooltip.className = 'mf-graph-label__tooltip'
+    tooltip.style.position = 'absolute'
+    tooltip.style.left = '100%'
+    tooltip.style.top = '0'
+    tooltip.style.pointerEvents = 'none'
+
+    const header = document.createElement('div')
+    header.className = 'mf-graph-label__tooltip-head'
+    header.textContent = style.text
+    tooltip.appendChild(header)
+
+    // Dedup identical (source, phrase) rows, preserving first-seen order — a node
+    // reached by the same phrase from the same source across chains shows once.
+    const seen = new Set<string>()
+    for (const bl of style.backlinks) {
+      const key = `${bl.source} ${bl.phrase}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const row = document.createElement('div')
+      row.className = 'mf-graph-label__backlink'
+      row.textContent = `← ${bl.source} · "${bl.phrase}"`
+      tooltip.appendChild(row)
+    }
+    el.appendChild(tooltip)
+  }
   return el
 }
 
