@@ -116,7 +116,7 @@ export function buildLabelEl(style: LabelStyle, cfg: LabelSizeConfig): HTMLDivEl
     // reached by the same phrase from the same source across chains shows once.
     const seen = new Set<string>()
     for (const bl of style.backlinks) {
-      const key = `${bl.source} ${bl.phrase}`
+      const key = JSON.stringify([bl.source, bl.phrase]) // structured: source/phrase are free text, so a space-join could collide
       if (seen.has(key)) continue
       seen.add(key)
       const row = document.createElement('div')

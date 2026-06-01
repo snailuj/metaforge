@@ -487,6 +487,38 @@ describe('MfForceGraph', () => {
       ])
     })
 
+    it('keeps space-colliding inbound connections as distinct backlinks', async () => {
+      // (prev.head + step.phrase) space-joined collides for these two edges into
+      // 'cold fire below', silently dropping the second. A structured dedup key
+      // keeps the two genuinely-distinct connections apart.
+      const colliding: import('../types/grading').ChainRecord[] = [
+        {
+          ...CHAINS[0], chain_signature: 'd'.repeat(64),
+          chain: [
+            { phrase: 'cold fire', head: 'cold fire', synset_id: '11' },
+            { phrase: 'below', head: 'target', synset_id: '12' },
+            { phrase: 'venom', head: 'venom', synset_id: '3' },
+          ],
+        },
+        {
+          ...CHAINS[1], chain_signature: 'e'.repeat(64),
+          chain: [
+            { phrase: 'cold', head: 'cold', synset_id: '13' },
+            { phrase: 'fire below', head: 'target', synset_id: '12' },
+            { phrase: 'fire', head: 'fire', synset_id: '5' },
+          ],
+        },
+      ]
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = colliding
+      await gradeEl.updateComplete
+      const target = gradeEl.gradeNodes.find((n: any) => n.id === 'syn:12')!
+      expect(target.backlinks).toEqual([
+        { source: 'cold fire', phrase: 'below' },
+        { source: 'cold', phrase: 'fire below' },
+      ])
+    })
+
     it('topic node has no backlinks; labelStyleFor passes backlinks through', async () => {
       gradeEl.mode = 'grade'
       gradeEl.gradeChains = CHAINS

@@ -197,7 +197,7 @@ export class MfForceGraph extends LitElement {
         // previous step's head, phrase = this step's phrase. Deduped per node.
         if (i > 0) {
           const prev = chain.chain[i - 1]
-          const key = `${prev.head} ${step.phrase}`
+          const key = JSON.stringify([prev.head, step.phrase]) // structured: free-text fields, a space-join could collide
           const seen = backlinkKeys.get(id)!
           if (!seen.has(key)) {
             seen.add(key)

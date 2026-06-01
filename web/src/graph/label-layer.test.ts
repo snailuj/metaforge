@@ -94,6 +94,17 @@ describe('buildLabelEl backlink tooltip', () => {
     // An inline display:none would out-specify the :hover rule and never reveal.
     expect(tooltip.style.display).toBe('')
   })
+  it('keeps space-colliding (source, phrase) pairs as distinct rows', () => {
+    // A space-joined dedup key would collapse these two genuinely-distinct
+    // connections ("cold fire"+"below" vs "cold"+"fire below" both → "cold fire
+    // below"), silently dropping one row. A structured key keeps them apart.
+    const el = buildLabelEl({ text: 'X', colour: '#fff', role: 'step', backlinks: [
+      { source: 'cold fire', phrase: 'below' },
+      { source: 'cold', phrase: 'fire below' },
+    ] }, CONST)
+    const rows = el.querySelectorAll('.mf-graph-label__tooltip .mf-graph-label__backlink')
+    expect(rows.length).toBe(2)
+  })
   it('an empty backlinks array renders no arrow/tooltip', () => {
     const el = buildLabelEl({ text: 'anger', colour: '#fff', role: 'topic', backlinks: [] }, CONST)
     expect(el.querySelector('.mf-graph-label__arrow')).toBeNull()
