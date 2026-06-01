@@ -19,7 +19,7 @@ router = APIRouter(dependencies=[Depends(verify_secret)])
 
 @router.post("/api/grading/judgements")
 def post_judgement(record: JudgementRecord) -> dict:
-    """New grades are written as v2 (two axes + optional tier)."""
+    """New grades are written as v2 (two axes + multi-select tiers)."""
     append_jsonl(paths_mod.JUDGEMENTS_PATH, record.model_dump(mode="json"))
     return record.model_dump(mode="json")
 
@@ -27,7 +27,7 @@ def post_judgement(record: JudgementRecord) -> dict:
 @router.get("/api/grading/judgements")
 def get_judgements(topic: Optional[str] = Query(default=None)) -> dict:
     """Every stored line is mapped through normalise_judgement so legacy v1
-    (`label`) records and v2 axis records expose linkage/metaphor/tier
+    (`label`) records and v2 axis records expose linkage/metaphor/tiers
     uniformly. Non-destructive — original keys (incl. `label`) are preserved."""
     records, skipped = read_jsonl_skip_malformed(paths_mod.JUDGEMENTS_PATH)
     if topic is not None:

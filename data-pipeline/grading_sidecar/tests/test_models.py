@@ -110,24 +110,53 @@ _ID = dict(
 
 def _axes(raw: dict) -> tuple:
     d = normalise_judgement(raw)
-    return (d["linkage"], d["metaphor"], d["tier"])
+    return (d["linkage"], d["metaphor"], d["tiers"])
 
-def test_v2_record_roundtrips_two_axes_and_optional_tier():
+# --- W2.1: tiers list (strong/ironic/surprising), multi-select ---
+
+def test_judgement_accepts_multiple_tiers():
+    r = JudgementRecord(schema_version="judgement.v2", judged_by="op", round=1,
+        topic="anger", topic_synset_id="1", vehicle="volcano", vehicle_synset_id="2",
+        proposer="sonnet_v1", chain_signature="a"*64, linkage="good", metaphor="live",
+        tiers=["strong", "surprising"])
+    assert r.tiers == ["strong", "surprising"]
+
+def test_judgement_tiers_default_empty():
+    r = JudgementRecord(schema_version="judgement.v2", judged_by="op", round=1,
+        topic="t", topic_synset_id="1", vehicle="v", vehicle_synset_id="2",
+        proposer="p", chain_signature="a"*64, linkage="good", metaphor="dead")
+    assert r.tiers == []
+
+def test_judgement_rejects_unknown_tier():
+    with pytest.raises(Exception):
+        JudgementRecord(schema_version="judgement.v2", judged_by="op", round=1,
+            topic="t", topic_synset_id="1", vehicle="v", vehicle_synset_id="2",
+            proposer="p", chain_signature="a"*64, linkage="good", metaphor="live",
+            tiers=["legendary"])
+
+def test_normalise_judgement_v2_returns_tiers_list():
+    assert normalise_judgement({"linkage": "good", "metaphor": "live", "tiers": ["ironic"]})["tiers"] == ["ironic"]
+    assert normalise_judgement({"linkage": "good", "metaphor": "dead"})["tiers"] == []
+
+def test_normalise_judgement_v1_returns_empty_tiers():
+    assert normalise_judgement({"label": "live"})["tiers"] == []
+
+def test_v2_record_roundtrips_two_axes_and_tiers():
     rec = JudgementRecord(
         schema_version="judgement.v2", judged_by="julian", round=1,
         topic="anchor", topic_synset_id="syn-anchor", vehicle="stone",
         vehicle_synset_id="syn-stone", proposer="sonnet_v1",
-        chain_signature="a" * 64, linkage="good", metaphor="dead", tier="obvious",
+        chain_signature="a" * 64, linkage="good", metaphor="live", tiers=["strong"],
     )
-    assert rec.linkage == "good" and rec.metaphor == "dead" and rec.tier == "obvious"
+    assert rec.linkage == "good" and rec.metaphor == "live" and rec.tiers == ["strong"]
 
-def test_v2_tier_optional_defaults_none():
+def test_v2_tiers_default_empty():
     rec = JudgementRecord(
         schema_version="judgement.v2", judged_by="j", round=1,
         topic="t", topic_synset_id="s", vehicle="v", vehicle_synset_id="s2",
         proposer="p", chain_signature="b" * 64, linkage="good", metaphor="live",
     )
-    assert rec.tier is None
+    assert rec.tiers == []
 
 def test_v2_record_rejects_bad_tier():
     with pytest.raises(ValueError):
@@ -135,28 +164,28 @@ def test_v2_record_rejects_bad_tier():
             schema_version="judgement.v2", judged_by="j", round=1,
             topic="t", topic_synset_id="s", vehicle="v", vehicle_synset_id="s2",
             proposer="p", chain_signature="b" * 64,
-            linkage="good", metaphor="live", tier="bogus",
+            linkage="good", metaphor="live", tiers=["bogus"],
         )
 
 def test_normalise_v1_label_maps_to_axes():
-    assert _axes({**_ID, "label": "live"}) == ("good", "live", None)
-    assert _axes({**_ID, "label": "bad_path"}) == ("bad", None, None)
-    assert _axes({**_ID, "label": "irrelevant"}) == (None, "irrelevant", None)
-    assert _axes({**_ID, "label": "dead"}) == ("good", "dead", None)
+    assert _axes({**_ID, "label": "live"}) == ("good", "live", [])
+    assert _axes({**_ID, "label": "bad_path"}) == ("bad", None, [])
+    assert _axes({**_ID, "label": "irrelevant"}) == (None, "irrelevant", [])
+    assert _axes({**_ID, "label": "dead"}) == ("good", "dead", [])
 
 def test_normalise_v2_record_passes_axes_through():
     raw = {
         "schema_version": "judgement.v2", **{k: v for k, v in _ID.items() if k != "schema_version"},
-        "linkage": "good", "metaphor": "dead", "tier": "obvious",
+        "linkage": "good", "metaphor": "live", "tiers": ["strong", "ironic"],
     }
-    assert _axes(raw) == ("good", "dead", "obvious")
+    assert _axes(raw) == ("good", "live", ["strong", "ironic"])
 
-def test_normalise_v2_record_without_tier_defaults_none():
+def test_normalise_v2_record_without_tiers_defaults_empty():
     raw = {
         "schema_version": "judgement.v2", **{k: v for k, v in _ID.items() if k != "schema_version"},
         "linkage": "bad", "metaphor": "live",
     }
-    assert _axes(raw) == ("bad", "live", None)
+    assert _axes(raw) == ("bad", "live", [])
 
 def test_normalise_is_non_destructive():
     raw = {**_ID, "label": "live", "notes": "keep me"}

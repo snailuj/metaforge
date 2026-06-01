@@ -17,9 +17,9 @@ Label = Literal["live", "dead", "bad_path", "irrelevant"]
 # v2 two-axis verdict: linkage (are the hops accurate?) + metaphor (is the endpoint apt?).
 Linkage = Literal["good", "bad"]
 MetaphorVerdict = Literal["live", "dead", "irrelevant"]
-Tier = Literal[
-    "legendary", "complex", "interesting", "ironic", "strong", "obvious", "unlikely"
-]
+# Multi-select reading tiers. `legendary` is derived in a later milestone, not
+# human-assigned, so it is not part of the human vocabulary.
+Tier = Literal["strong", "ironic", "surprising"]
 Confidence = Literal["high", "med", "low"]
 
 
@@ -73,8 +73,8 @@ class JudgementRecord(BaseModel):
     """v2 grading verdict — bridge-scoped (keyed by chain_signature, never on a node).
 
     Replaces the flat v1 `label` with two orthogonal axes — `linkage` (are the path's
-    edges accurate?) + `metaphor` (is the endpoint pairing apt?) — plus an optional
-    single-select `tier`. v1 records (carrying `label`) are read via normalise_judgement.
+    edges accurate?) + `metaphor` (is the endpoint pairing apt?) — plus a multi-select
+    `tiers` list. v1 records (carrying `label`) are read via normalise_judgement.
     """
     schema_version: JudgementSchemaVersion
     # Server injects ts when the client omits it — clients should not set this field.
@@ -89,7 +89,7 @@ class JudgementRecord(BaseModel):
     chain_signature: str = Field(pattern=r"^[0-9a-f]{64}$")
     linkage: Linkage
     metaphor: MetaphorVerdict
-    tier: Optional[Tier] = None
+    tiers: list[Tier] = Field(default_factory=list)
     confidence: Confidence = "high"
     notes: str = Field(default="", max_length=1000)
     supersedes_ts: Optional[str] = None
@@ -130,17 +130,18 @@ _V1_LABEL_MAP: dict[str, tuple[Optional[str], Optional[str]]] = {
 
 
 def normalise_judgement(raw: dict) -> dict:
-    """Return a dict carrying linkage/metaphor/tier regardless of v1/v2 source.
+    """Return a dict carrying linkage/metaphor/tiers regardless of v1/v2 source.
 
     Non-destructive — used on read so old `label` records and new axis records are
     uniform to consumers (latest-verdict, stats, edge colour). v2 records pass through
-    (defaulting tier to None); v1 records gain axes via _V1_LABEL_MAP and tier=None.
-    The original keys (incl. `label`) are preserved.
+    (defaulting tiers to []); v1 records gain axes via _V1_LABEL_MAP and tiers=[].
+    No tiers have ever been assigned, so there is no value-migration; a stray legacy
+    `tier` key is harmlessly ignored. The original keys (incl. `label`) are preserved.
     """
     if "linkage" in raw or "metaphor" in raw:
-        return {**raw, "tier": raw.get("tier")}
+        return {**raw, "tiers": raw.get("tiers", [])}
     linkage, metaphor = _V1_LABEL_MAP.get(raw.get("label"), (None, None))
-    return {**raw, "linkage": linkage, "metaphor": metaphor, "tier": None}
+    return {**raw, "linkage": linkage, "metaphor": metaphor, "tiers": []}
 
 
 class DesignNotePost(BaseModel):

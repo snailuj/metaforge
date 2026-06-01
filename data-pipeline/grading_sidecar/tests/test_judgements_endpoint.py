@@ -7,7 +7,7 @@ import json
 import pytest
 from grading_sidecar import paths as paths_mod
 
-# New records are v2 — POST is a write path, so it carries the two axes + optional tier.
+# New records are v2 — POST is a write path, so it carries the two axes + multi-select tiers.
 VALID = {
     "schema_version": "judgement.v2",
     "ts": "2026-05-30T07:14:00Z",
@@ -52,10 +52,10 @@ def test_post_judgement_persists_to_disk(judgements_client, tmp_path):
     assert stored["linkage"] == "good"
     assert stored["metaphor"] == "live"
 
-def test_post_judgement_persists_optional_tier(judgements_client):
-    judgements_client.post("/api/grading/judgements", json={**VALID, "tier": "obvious"})
+def test_post_judgement_persists_tiers(judgements_client):
+    judgements_client.post("/api/grading/judgements", json={**VALID, "tiers": ["strong", "surprising"]})
     stored = json.loads((paths_mod.JUDGEMENTS_PATH).read_text().splitlines()[0])
-    assert stored["tier"] == "obvious"
+    assert stored["tiers"] == ["strong", "surprising"]
 
 def test_post_judgement_rejects_bad_metaphor(judgements_client):
     bad = {**VALID, "metaphor": "bogus"}
@@ -78,11 +78,11 @@ def test_get_judgements_returns_appended(judgements_client):
     # v2 records carry the axes verbatim.
     assert rec["linkage"] == "good"
     assert rec["metaphor"] == "live"
-    assert rec["tier"] is None
+    assert rec["tiers"] == []
 
 def test_get_judgements_normalises_v1_and_v2_uniformly(judgements_client):
     """GET maps every stored line through normalise_judgement so a legacy v1
-    `label` line and a v2 axis line both expose linkage/metaphor/tier."""
+    `label` line and a v2 axis line both expose linkage/metaphor/tiers."""
     # Seed a v1 line straight to disk (bypasses the v2-only POST validator).
     paths_mod.JUDGEMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     paths_mod.JUDGEMENTS_PATH.write_text(json.dumps(V1_LINE) + "\n")
@@ -93,12 +93,12 @@ def test_get_judgements_normalises_v1_and_v2_uniformly(judgements_client):
     by_sig = {r["chain_signature"]: r for r in body["records"]}
 
     v1 = by_sig["c" * 64]
-    assert (v1["linkage"], v1["metaphor"], v1["tier"]) == ("good", "dead", None)
+    assert (v1["linkage"], v1["metaphor"], v1["tiers"]) == ("good", "dead", [])
     # Non-destructive: the original v1 label is preserved alongside the axes.
     assert v1["label"] == "dead"
 
     v2 = by_sig["a" * 64]
-    assert (v2["linkage"], v2["metaphor"], v2["tier"]) == ("good", "live", None)
+    assert (v2["linkage"], v2["metaphor"], v2["tiers"]) == ("good", "live", [])
 
 def test_get_judgements_topic_filter(judgements_client):
     judgements_client.post("/api/grading/judgements", json={**VALID, "topic": "anger"})
