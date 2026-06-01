@@ -3,14 +3,9 @@ export type Label = 'live' | 'dead' | 'bad_path' | 'irrelevant';
 // v2 two-axis verdict: linkage (are the hops accurate?) + metaphor (is the endpoint apt?).
 export type Linkage = 'good' | 'bad';
 export type MetaphorVerdict = 'live' | 'dead' | 'irrelevant';
-export type Tier =
-    | 'legendary'
-    | 'complex'
-    | 'interesting'
-    | 'ironic'
-    | 'strong'
-    | 'obvious'
-    | 'unlikely';
+// Multi-select reading tiers. `legendary` is derived in a later milestone, not
+// human-assigned, so it is not part of the human vocabulary.
+export type Tier = 'strong' | 'ironic' | 'surprising';
 export type Confidence = 'high' | 'med' | 'low';
 
 export interface ChainStep {
@@ -45,21 +40,21 @@ export interface JudgementRecord {
     vehicle_synset_id: string;
     proposer: string;
     chain_signature: string;
-    // Two orthogonal axes replace the flat v1 `label`; tier is an optional supplement.
+    // Two orthogonal axes replace the flat v1 `label`; tiers is a multi-select supplement.
     linkage: Linkage;
     metaphor: MetaphorVerdict;
-    tier: Tier | null;
+    tiers: Tier[];
     confidence: Confidence;
     notes: string;
     supersedes_ts: string | null;
 }
 
-// Emitted by mf-grade-panel on a metaphor submit. Carries both axes, optional tier,
+// Emitted by mf-grade-panel on a metaphor submit. Carries both axes, multi-select tiers,
 // confidence and notes — mf-app assembles the v2 JudgementRecord from this.
 export interface VerdictSubmitDetail {
     linkage: Linkage;
     metaphor: MetaphorVerdict;
-    tier: Tier | null;
+    tiers: Tier[];
     confidence: Confidence;
     notes: string;
 }
@@ -74,7 +69,7 @@ export interface TopicSummary {
 export interface NormalisedJudgement {
     linkage: Linkage | null;
     metaphor: MetaphorVerdict | null;
-    tier: Tier | null;
+    tiers: Tier[];
 }
 
 // v1 `label` → (linkage, metaphor). None where the flat label carried no signal on that
@@ -90,17 +85,17 @@ const V1_LABEL_MAP: Record<Label, [Linkage | null, MetaphorVerdict | null]> = {
 // Read-side mirror of the Python normalise_judgement: maps a stored record (v1 `label`
 // or v2 axes) to the uniform two-axis view consumers expect. Non-destructive.
 export function normaliseJudgement(
-    raw: { linkage?: Linkage; metaphor?: MetaphorVerdict; tier?: Tier | null; label?: Label },
+    raw: { linkage?: Linkage; metaphor?: MetaphorVerdict; tiers?: Tier[]; label?: Label },
 ): NormalisedJudgement {
     if (raw.linkage !== undefined || raw.metaphor !== undefined) {
         return {
             linkage: raw.linkage ?? null,
             metaphor: raw.metaphor ?? null,
-            tier: raw.tier ?? null,
+            tiers: raw.tiers ?? [],
         };
     }
     const [linkage, metaphor] = raw.label
         ? V1_LABEL_MAP[raw.label]
         : [null, null];
-    return { linkage, metaphor, tier: null };
+    return { linkage, metaphor, tiers: [] };
 }
