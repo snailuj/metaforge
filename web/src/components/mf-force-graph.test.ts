@@ -429,6 +429,77 @@ describe('MfForceGraph', () => {
       expect(heatNodes.length).toBe(1)
     })
 
+    it('grade node label text is the head, not the phrase', async () => {
+      const phrasey: import('../types/grading').ChainRecord[] = [{
+        ...CHAINS[0],
+        chain: [
+          { phrase: 'simmering anger', head: 'anger', synset_id: '1' },
+          { phrase: 'subterranean heat', head: 'heat', synset_id: '2' },
+          { phrase: 'coiled venom', head: 'venom', synset_id: '3' },
+        ],
+      }]
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = phrasey
+      await gradeEl.updateComplete
+      const heat = gradeEl.gradeNodes.find((n: any) => n.id === 'syn:2')!
+      expect(heat.head).toBe('heat')
+      const style = (gradeEl as any).labelStyleFor(heat)
+      expect(style.text).toBe('heat')
+    })
+
+    it('accumulates deduped backlinks on a shared target node across chains', async () => {
+      // 'heat' (syn:2) is reached from two distinct sources via two distinct
+      // phrases, so it carries two backlinks. A third inbound edge repeating the
+      // first (same source head + phrase) collapses.
+      const shared: import('../types/grading').ChainRecord[] = [
+        {
+          ...CHAINS[0], chain_signature: 'a'.repeat(64),
+          chain: [
+            { phrase: 'pressure', head: 'pressure', synset_id: '9' },
+            { phrase: 'subterranean heat', head: 'heat', synset_id: '2' },
+            { phrase: 'venom', head: 'venom', synset_id: '3' },
+          ],
+        },
+        {
+          ...CHAINS[1], chain_signature: 'b'.repeat(64),
+          chain: [
+            { phrase: 'ember', head: 'ember', synset_id: '8' },
+            { phrase: 'the warmth below', head: 'heat', synset_id: '2' },
+            { phrase: 'fire', head: 'fire', synset_id: '5' },
+          ],
+        },
+        {
+          ...CHAINS[0], chain_signature: 'c'.repeat(64),
+          chain: [
+            { phrase: 'pressure', head: 'pressure', synset_id: '9' },
+            { phrase: 'subterranean heat', head: 'heat', synset_id: '2' }, // dup of chain a's inbound edge
+            { phrase: 'smoke', head: 'smoke', synset_id: '7' },
+          ],
+        },
+      ]
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = shared
+      await gradeEl.updateComplete
+      const heat = gradeEl.gradeNodes.find((n: any) => n.id === 'syn:2')!
+      expect(heat.backlinks).toEqual([
+        { source: 'pressure', phrase: 'subterranean heat' },
+        { source: 'ember', phrase: 'the warmth below' },
+      ])
+    })
+
+    it('topic node has no backlinks; labelStyleFor passes backlinks through', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      await gradeEl.updateComplete
+      const anger = gradeEl.gradeNodes.find((n: any) => n.id === 'syn:1')!
+      expect(anger.role).toBe('topic')
+      expect(anger.backlinks).toEqual([])
+      const heat = gradeEl.gradeNodes.find((n: any) => n.id === 'syn:2')!
+      const style = (gradeEl as any).labelStyleFor(heat)
+      expect(style.backlinks).toEqual(heat.backlinks)
+      expect((gradeEl as any).labelStyleFor(anger).backlinks).toEqual([])
+    })
+
     it('dedupes by head when synset_id is null', async () => {
       const nullSyn: import('../types/grading').ChainRecord[] = [{
         ...CHAINS[0],

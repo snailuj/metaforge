@@ -5,7 +5,7 @@ import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
 import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
-import { makeLabelRenderer, makeLabelObject, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle } from '@/graph/label-layer'
+import { makeLabelRenderer, makeLabelObject, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle, type BacklinkRow } from '@/graph/label-layer'
 import type { ChainRecord, JudgementRecord } from '../types/grading'
 import { normaliseJudgement } from '../types/grading'
 
@@ -37,11 +37,15 @@ const GRADE_EDGE_COLOURS: Record<string, string> = {
   ungraded: '#e8e8e8',
 }
 
-// Grade-mode graph node — keyed by synset_id or head to ensure dedup across chains
+// Grade-mode graph node — keyed by synset_id or head to ensure dedup across chains.
+// The label shows the `head` (stable snapped concept). A deduped node is reached by
+// many chains, each with its own phrase, so per-connection phrases live in
+// `backlinks` (surfaced in the label's hover tooltip), not as a single phrase.
 interface GradeNode {
   id: string
-  phrase: string
+  head: string
   role: 'topic' | 'vehicle' | 'step'
+  backlinks: BacklinkRow[]
 }
 
 // Grade-mode graph link — retains originating chain signature for colouring
@@ -91,6 +95,32 @@ export class MfForceGraph extends LitElement {
     .mf-graph-label.label-hovered {
       background: rgba(255, 255, 255, 0.18);
       outline: 1px solid rgba(255, 255, 255, 0.5);
+    }
+    /* Backlink tooltip: default-hidden HERE (stylesheet, not inline) so the
+       sibling :hover rule can reveal it — an inline display:none would
+       out-specify it and never show. Reveal is pure CSS off the arrow's
+       hover, so there are zero per-label listeners (matters at fog-of-war scale). */
+    .mf-graph-label__tooltip {
+      display: none;
+      background: rgba(20, 20, 40, 0.92);
+      color: #e8e0d4;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: Georgia, "Times New Roman", serif;
+      white-space: nowrap;
+      max-width: 320px;
+      z-index: 10;
+    }
+    .mf-graph-label__arrow:hover ~ .mf-graph-label__tooltip {
+      display: block;
+    }
+    .mf-graph-label__tooltip-head {
+      font-weight: bold;
+      margin-bottom: 2px;
+    }
+    .mf-graph-label__backlink {
+      opacity: 0.85;
     }
   `
 
@@ -145,6 +175,9 @@ export class MfForceGraph extends LitElement {
   private buildGradeGraph(): { nodes: GradeNode[]; links: GradeLink[] } {
     const nodes = new Map<string, GradeNode>()
     const links: GradeLink[] = []
+    // Per-node set of seen `${source} ${phrase}` keys, so identical inbound
+    // connections (same previous head + same phrase) collapse to one backlink.
+    const backlinkKeys = new Map<string, Set<string>>()
     // Always build the FULL grade graph (all chains). The path filter is applied
     // at render time via nodeVisibility/linkVisibility so node positions stay
     // fixed across filter changes — feeding a filtered set would re-heat the
@@ -157,7 +190,19 @@ export class MfForceGraph extends LitElement {
         const role: GradeNode['role'] =
           i === 0 ? 'topic' : (i === chain.chain.length - 1 ? 'vehicle' : 'step')
         if (!nodes.has(id)) {
-          nodes.set(id, { id, phrase: step.phrase, role })
+          nodes.set(id, { id, head: step.head, role, backlinks: [] })
+          backlinkKeys.set(id, new Set())
+        }
+        // Accumulate the inbound connection on the TARGET node: source = the
+        // previous step's head, phrase = this step's phrase. Deduped per node.
+        if (i > 0) {
+          const prev = chain.chain[i - 1]
+          const key = `${prev.head} ${step.phrase}`
+          const seen = backlinkKeys.get(id)!
+          if (!seen.has(key)) {
+            seen.add(key)
+            nodes.get(id)!.backlinks.push({ source: prev.head, phrase: step.phrase })
+          }
         }
         stepIds.push(id)
       }
@@ -278,7 +323,7 @@ export class MfForceGraph extends LitElement {
   private labelStyleFor(n: unknown): LabelStyle {
     if (this.mode === 'grade') {
       const gn = n as GradeNode
-      return { text: gn.phrase, colour: GRADE_NODE_COLOURS[gn.role], role: gn.role }
+      return { text: gn.head, colour: GRADE_NODE_COLOURS[gn.role], role: gn.role, backlinks: gn.backlinks }
     }
     const node = n as GraphNode
     const colour = node.relationType === 'central'
