@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, type PropertyValues } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ChainRecord, Linkage, MetaphorVerdict, Tier, Tag, Confidence, VerdictSubmitDetail } from '../types/grading';
 import { TAGS } from '../types/grading';
@@ -8,6 +8,8 @@ interface PriorVerdict {
     linkage: Linkage;
     metaphor: MetaphorVerdict;
     tiers: Tier[];
+    tags: Tag[];
+    confidence: Confidence;
     ts: string;
     notes: string;
 }
@@ -72,14 +74,9 @@ export class MfGradePanel extends LitElement {
             background: #181b22; color: #e6e6e6; border: 1px solid #2a3140; border-radius: 3px;
             font-family: inherit; font-size: 0.9rem;
         }
-        .banner {
-            background: #4a3b2a; color: #f0d29a; padding: 0.4rem 0.6rem;
-            border-radius: 3px; font-size: 0.85rem; margin-bottom: 0.6rem;
-        }
-        .banner .prior-notes {
-            margin-top: 0.3rem; font-style: italic; color: #d8c08a;
-            white-space: pre-wrap; word-break: break-word;
-        }
+        .last-saved { color: #8a93a2; font-size: 0.78rem; margin-bottom: 0.5rem; }
+        .last-saved strong { color: #b8bfca; font-weight: 600; }
+        button.verdict.was-prior { box-shadow: inset 0 0 0 2px #4d5566; }
         kbd {
             background: #2a3140; color: #c8c8c8; padding: 0.05rem 0.3rem;
             border-radius: 3px; font-size: 0.75rem; margin-left: 0.3rem;
@@ -97,6 +94,10 @@ export class MfGradePanel extends LitElement {
     @state() private selectedTiers: Tier[] = [];
     // Multi-select issue tags — orthogonal to verdict axes, always available.
     @state() private selectedTags: Tag[] = [];
+    // Stable identity of the prior record we last prefilled from. Keyed on `ts`
+    // so an mf-app re-render handing us a fresh-but-equal priorVerdict object
+    // never re-syncs over in-progress edits — only a genuinely new record does.
+    private _prefilledForTs: string | null = null;
 
     private boundKeyHandler = (e: KeyboardEvent) => this._onKeydown(e);
 
@@ -108,6 +109,36 @@ export class MfGradePanel extends LitElement {
     disconnectedCallback() {
         super.disconnectedCallback();
         document.removeEventListener('keydown', this.boundKeyHandler);
+    }
+
+    protected willUpdate(changed: PropertyValues<this>): void {
+        // Prefill the form from the prior verdict, keyed on its saved ts (stable
+        // record identity) so an mf-app re-render handing us a fresh-but-equal
+        // priorVerdict object never clobbers in-progress edits. Re-syncs only when
+        // a genuinely different record arrives (new selection / our own save).
+        if (!changed.has('priorVerdict')) return;
+        const pv = this.priorVerdict;
+        const key = pv?.ts ?? null;
+        if (key === this._prefilledForTs) return;
+        this._prefilledForTs = key;
+        if (pv) {
+            this.pendingLinkage = pv.linkage;
+            this.confidence = pv.confidence;
+            this.selectedTiers = [...pv.tiers];
+            this.selectedTags = [...pv.tags];
+            this.notes = pv.notes;
+        } else {
+            this.pendingLinkage = 'good';
+            this.confidence = 'high';
+            this.selectedTiers = [];
+            this.selectedTags = [];
+            this.notes = '';
+        }
+    }
+
+    // ISO-8601 → "YYYY-MM-DD HH:MM" by slice (deterministic; no Date/locale).
+    private _fmtTs(ts: string): string {
+        return ts.slice(0, 16).replace('T', ' ');
     }
 
     private _onKeydown(e: KeyboardEvent) {
@@ -186,15 +217,12 @@ export class MfGradePanel extends LitElement {
         const steps = this.chain.chain;
         return html`
             ${this.priorVerdict ? html`
-                <div class="banner" data-testid="re-grade-banner">
-                    Re-grading — your previous verdict was
-                    <strong>${this.priorVerdict.linkage}</strong> linkage /
-                    <strong>${this.priorVerdict.metaphor}</strong> metaphor${this.priorVerdict.tiers.length
-                        ? html` (<strong>${this.priorVerdict.tiers.join(', ')}</strong>)` : ''}
-                    at ${this.priorVerdict.ts}.
-                    ${this.priorVerdict.notes ? html`
-                        <div class="prior-notes" data-testid="prior-notes">${this.priorVerdict.notes}</div>
-                    ` : ''}
+                <div class="last-saved" data-testid="last-saved">
+                    last saved:
+                    <strong>${this.priorVerdict.linkage}</strong>/<strong>${this.priorVerdict.metaphor}</strong>${this.priorVerdict.tiers.length
+                        ? html` · ${this.priorVerdict.tiers.join(', ')}` : ''}${this.priorVerdict.tags.length
+                        ? html` · ${this.priorVerdict.tags.join(', ')}` : ''}
+                    · ${this._fmtTs(this.priorVerdict.ts)}
                 </div>
             ` : ''}
             <div class="chain">
@@ -204,11 +232,11 @@ export class MfGradePanel extends LitElement {
             </div>
             <div class="verdict-row">
                 <span class="group-label">Metaphor:</span>
-                <button class="verdict live" data-testid="metaphor-live"
+                <button class="verdict live ${this.priorVerdict?.metaphor === 'live' ? 'was-prior' : ''}" data-testid="metaphor-live"
                         @click=${() => this._submit('live')}>Live<kbd>L</kbd></button>
-                <button class="verdict dead" data-testid="metaphor-dead"
+                <button class="verdict dead ${this.priorVerdict?.metaphor === 'dead' ? 'was-prior' : ''}" data-testid="metaphor-dead"
                         @click=${() => this._submit('dead')}>Dead<kbd>D</kbd></button>
-                <button class="verdict irrelevant" data-testid="metaphor-irrelevant"
+                <button class="verdict irrelevant ${this.priorVerdict?.metaphor === 'irrelevant' ? 'was-prior' : ''}" data-testid="metaphor-irrelevant"
                         @click=${() => this._submit('irrelevant')}>Irrelevant<kbd>I</kbd></button>
             </div>
             <div class="verdict-row">

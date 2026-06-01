@@ -138,22 +138,72 @@ describe('mf-grade-panel', () => {
         expect(d?.confidence).toBe('med');
     });
 
-    it('re-grade banner shows prior linkage, metaphor, multiple tiers and notes', async () => {
-        el.priorVerdict = { linkage: 'good', metaphor: 'live', tiers: ['strong', 'surprising'], notes: 'cliché', ts: '2026-05-31T00:00:00Z' };
+    const PRIOR = {
+        linkage: 'bad' as const, metaphor: 'dead' as const,
+        tiers: ['strong', 'surprising'], tags: ['leap', 'bad_head'],
+        confidence: 'med' as const, notes: 'cliché', ts: '2026-05-31T14:22:00Z',
+    };
+    const setPrior = async (over: Record<string, unknown> = {}) => {
+        el.priorVerdict = { ...PRIOR, tiers: [...PRIOR.tiers], tags: [...PRIOR.tags], ...over } as any;
         await el.updateComplete;
-        const b = el.shadowRoot!.querySelector('[data-testid="re-grade-banner"]')!.textContent!;
-        expect(b).toContain('live');
-        expect(b).toContain('strong');
-        expect(b).toContain('surprising');
-        expect(b).toContain('cliché');
+    };
+
+    it('prefills all editable fields from the prior verdict', async () => {
+        await setPrior();
+        expect((el.shadowRoot!.querySelector('[data-testid="linkage-toggle"]') as HTMLElement).classList.contains('bad')).toBe(true);
+        expect(tierSelected('strong')).toBe(true);
+        expect(tierSelected('surprising')).toBe(true);
+        expect(tagSelected('leap')).toBe(true);
+        expect(tagSelected('bad_head')).toBe(true);
+        const medBtn = [...el.shadowRoot!.querySelectorAll('button.conf')].find(b => b.textContent!.includes('Med'))!;
+        expect(medBtn.classList.contains('active')).toBe(true);
+        expect((el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement).value).toBe('cliché');
     });
 
-    it('renders no prior-notes line when priorVerdict has empty notes', async () => {
-        el.priorVerdict = { linkage: 'good', metaphor: 'live', tiers: [], notes: '', ts: '2026-05-31T00:00:00Z' };
+    it('shows a muted last-saved line with summary + timestamp', async () => {
+        await setPrior();
+        const line = el.shadowRoot!.querySelector('[data-testid="last-saved"]')!.textContent!;
+        expect(line).toContain('bad');
+        expect(line).toContain('dead');
+        expect(line).toContain('strong');
+        expect(line).toContain('leap');
+        expect(line).toContain('2026-05-31 14:22');
+    });
+
+    it('marks the previously-chosen metaphor button as was-prior', async () => {
+        await setPrior();
+        expect((el.shadowRoot!.querySelector('[data-testid="metaphor-dead"]') as HTMLElement).classList.contains('was-prior')).toBe(true);
+        expect((el.shadowRoot!.querySelector('[data-testid="metaphor-live"]') as HTMLElement).classList.contains('was-prior')).toBe(false);
+    });
+
+    it('a re-grade submit retains the prefilled tiers/tags/notes/linkage/confidence', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
+        await setPrior({ metaphor: 'live', tiers: ['strong'], tags: ['bad_head'] });
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        expect(d.tiers).toEqual(['strong']);
+        expect(d.tags).toEqual(['bad_head']);
+        expect(d.notes).toBe('cliché');
+        expect(d.linkage).toBe('bad');
+        expect(d.confidence).toBe('med');
+    });
+
+    it('does not clobber in-progress edits when priorVerdict identity changes but ts is unchanged', async () => {
+        await setPrior({ notes: 'original' });
+        const ta = el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement;
+        ta.value = 'my edit'; ta.dispatchEvent(new Event('input'));
         await el.updateComplete;
-        const banner = el.shadowRoot!.querySelector('[data-testid="re-grade-banner"]');
-        expect(banner).toBeTruthy();
-        expect(el.shadowRoot!.querySelector('[data-testid="prior-notes"]')).toBeNull();
+        await setPrior({ notes: 'original' }); // new object, same ts
+        expect((el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement).value).toBe('my edit');
+    });
+
+    it('clears the form when switching to an ungraded chain (priorVerdict null)', async () => {
+        await setPrior();
+        el.priorVerdict = null;
+        await el.updateComplete;
+        expect(tierSelected('strong')).toBe(false);
+        expect(tagSelected('leap')).toBe(false);
+        expect((el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
     });
 
     const clickTag = async (tag: string) => {
