@@ -20,6 +20,10 @@ MetaphorVerdict = Literal["live", "dead", "irrelevant"]
 # Multi-select reading tiers. `legendary` is derived in a later milestone, not
 # human-assigned, so it is not part of the human vocabulary.
 Tier = Literal["strong", "ironic", "surprising"]
+# Structured issue tags — orthogonal to the verdict axes. `bad_head` flags a
+# mis-extracted head concept (a data-prep error), kept distinct from a `bad`
+# linkage verdict so head-extraction noise stays out of the metaphor signal.
+Tag = Literal["merge", "padding", "leap", "bad_head", "other"]
 Confidence = Literal["high", "med", "low"]
 
 
@@ -90,6 +94,7 @@ class JudgementRecord(BaseModel):
     linkage: Linkage
     metaphor: MetaphorVerdict
     tiers: list[Tier] = Field(default_factory=list)
+    tags: list[Tag] = Field(default_factory=list)
     confidence: Confidence = "high"
     notes: str = Field(default="", max_length=1000)
     supersedes_ts: Optional[str] = None
@@ -139,9 +144,9 @@ def normalise_judgement(raw: dict) -> dict:
     `tier` key is harmlessly ignored. The original keys (incl. `label`) are preserved.
     """
     if "linkage" in raw or "metaphor" in raw:
-        return {**raw, "tiers": raw.get("tiers", [])}
+        return {**raw, "tiers": raw.get("tiers", []), "tags": raw.get("tags", [])}
     linkage, metaphor = _V1_LABEL_MAP.get(raw.get("label"), (None, None))
-    return {**raw, "linkage": linkage, "metaphor": metaphor, "tiers": []}
+    return {**raw, "linkage": linkage, "metaphor": metaphor, "tiers": [], "tags": []}
 
 
 class DesignNotePost(BaseModel):

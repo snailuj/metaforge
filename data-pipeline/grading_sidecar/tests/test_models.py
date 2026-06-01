@@ -214,3 +214,32 @@ def test_design_note_post_rejects_empty():
 def test_design_note_post_rejects_oversized():
     with pytest.raises(ValueError):
         DesignNotePost(content="x" * 10001)
+
+# --- W3: structured tags[] (merge/padding/leap/bad_head/other), multi-select ---
+
+def test_judgement_accepts_multiple_tags():
+    r = JudgementRecord(schema_version="judgement.v2", judged_by="op", round=1,
+        topic="anger", topic_synset_id="1", vehicle="volcano", vehicle_synset_id="2",
+        proposer="sonnet_v1", chain_signature="a"*64, linkage="good", metaphor="live",
+        tags=["padding", "bad_head"])
+    assert r.tags == ["padding", "bad_head"]
+
+def test_judgement_tags_default_empty():
+    r = JudgementRecord(schema_version="judgement.v2", judged_by="op", round=1,
+        topic="t", topic_synset_id="1", vehicle="v", vehicle_synset_id="2",
+        proposer="p", chain_signature="a"*64, linkage="good", metaphor="dead")
+    assert r.tags == []
+
+def test_judgement_rejects_unknown_tag():
+    with pytest.raises(Exception):
+        JudgementRecord(schema_version="judgement.v2", judged_by="op", round=1,
+            topic="t", topic_synset_id="1", vehicle="v", vehicle_synset_id="2",
+            proposer="p", chain_signature="a"*64, linkage="good", metaphor="live",
+            tags=["bogus"])
+
+def test_normalise_judgement_v2_returns_tags_list():
+    assert normalise_judgement({"linkage": "good", "metaphor": "live", "tags": ["bad_head"]})["tags"] == ["bad_head"]
+    assert normalise_judgement({"linkage": "good", "metaphor": "dead"})["tags"] == []
+
+def test_normalise_judgement_v1_returns_empty_tags():
+    assert normalise_judgement({"label": "live"})["tags"] == []
