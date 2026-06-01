@@ -3,7 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import type { ChainRecord, Linkage, MetaphorVerdict, Tier, Tag, Confidence, VerdictSubmitDetail } from '../types/grading';
 import { TAGS } from '../types/grading';
 
-// Prior verdict shown in the re-grade banner — the latest v2 judgement for this bridge.
+// Prior verdict shown in the muted last-saved line — the latest v2 judgement for this bridge.
 interface PriorVerdict {
     linkage: Linkage;
     metaphor: MetaphorVerdict;
@@ -94,10 +94,12 @@ export class MfGradePanel extends LitElement {
     @state() private selectedTiers: Tier[] = [];
     // Multi-select issue tags — orthogonal to verdict axes, always available.
     @state() private selectedTags: Tag[] = [];
-    // Stable identity of the prior record we last prefilled from. Keyed on `ts`
-    // so an mf-app re-render handing us a fresh-but-equal priorVerdict object
-    // never re-syncs over in-progress edits — only a genuinely new record does.
-    private _prefilledForTs: string | null = null;
+    // Stable identity of what we last prefilled for: the selected chain's
+    // signature plus the prior record's ts. Keying on the chain too means a
+    // switch to a different chain — even another ungraded one (same null prior)
+    // — re-syncs, while an mf-app re-render handing us a fresh-but-equal
+    // priorVerdict object keeps the same key and never clobbers in-progress edits.
+    private _prefilledForKey: string | null = null;
 
     private boundKeyHandler = (e: KeyboardEvent) => this._onKeydown(e);
 
@@ -112,15 +114,16 @@ export class MfGradePanel extends LitElement {
     }
 
     protected willUpdate(changed: PropertyValues<this>): void {
-        // Prefill the form from the prior verdict, keyed on its saved ts (stable
-        // record identity) so an mf-app re-render handing us a fresh-but-equal
-        // priorVerdict object never clobbers in-progress edits. Re-syncs only when
-        // a genuinely different record arrives (new selection / our own save).
-        if (!changed.has('priorVerdict')) return;
+        // Prefill/reset the form when the SELECTED CHAIN or its prior verdict
+        // changes. Keyed on chain signature + the prior record's ts: switching to
+        // a different chain (incl. another ungraded one → same null prior) or
+        // re-grading the same chain (new ts) changes the key and re-syncs; an
+        // equal re-render keeps the key, so in-progress edits are never clobbered.
+        if (!changed.has('priorVerdict') && !changed.has('chain')) return;
         const pv = this.priorVerdict;
-        const key = pv?.ts ?? null;
-        if (key === this._prefilledForTs) return;
-        this._prefilledForTs = key;
+        const key = `${this.chain?.chain_signature ?? ''}|${pv?.ts ?? ''}`;
+        if (key === this._prefilledForKey) return;
+        this._prefilledForKey = key;
         if (pv) {
             this.pendingLinkage = pv.linkage;
             this.confidence = pv.confidence;
@@ -222,7 +225,7 @@ export class MfGradePanel extends LitElement {
                     <strong>${this.priorVerdict.linkage}</strong>/<strong>${this.priorVerdict.metaphor}</strong>${this.priorVerdict.tiers.length
                         ? html` · ${this.priorVerdict.tiers.join(', ')}` : ''}${this.priorVerdict.tags.length
                         ? html` · ${this.priorVerdict.tags.join(', ')}` : ''}
-                    · ${this._fmtTs(this.priorVerdict.ts)}
+                    ${this.priorVerdict.ts ? html` · ${this._fmtTs(this.priorVerdict.ts)}` : ''}
                 </div>
             ` : ''}
             <div class="chain">

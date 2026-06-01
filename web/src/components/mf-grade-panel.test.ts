@@ -206,6 +206,22 @@ describe('mf-grade-panel', () => {
         expect((el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
     });
 
+    it('clears uncommitted edits when switching between two different UNGRADED chains', async () => {
+        // chain A (CHAIN) is set by beforeEach; both chains are ungraded (priorVerdict null).
+        // Operator makes uncommitted edits on A:
+        (el.shadowRoot!.querySelector('[data-testid="linkage-toggle"]') as HTMLElement).click(); // -> bad
+        await clickTag('bad_head');
+        const ta = el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement;
+        ta.value = 'draft'; ta.dispatchEvent(new Event('input'));
+        await el.updateComplete;
+        // Switch to a DIFFERENT ungraded chain B (same panel instance; priorVerdict stays null).
+        el.chain = { ...CHAIN, chain_signature: 'b'.repeat(64) };
+        await el.updateComplete;
+        expect((el.shadowRoot!.querySelector('[data-testid="linkage-toggle"]') as HTMLElement).classList.contains('bad')).toBe(false);
+        expect(tagSelected('bad_head')).toBe(false);
+        expect((el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
+    });
+
     const clickTag = async (tag: string) => {
         (el.shadowRoot!.querySelector(`[data-testid="chip-${tag}"]`) as HTMLElement).click();
         await el.updateComplete;
