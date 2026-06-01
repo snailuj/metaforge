@@ -884,48 +884,68 @@ describe('mf-app grade-mode integration', () => {
     expect(fg.viewportWidth).toBe(1200)
   })
 
-  describe('hide-graded filter toggle (C2)', () => {
-    it('renders an always-visible hide-graded toggle in desktop grade view, unchecked by default', async () => {
+  describe('tri-state path filter (C2 v2)', () => {
+    it('renders an always-visible 3-way path filter in desktop grade view, defaulting to Both', async () => {
       ;(el as any).mode = 'grade'
       ;(el as any).viewportWidth = 1200
       await el.updateComplete
 
-      const toggle = el.shadowRoot!.querySelector('[data-testid="hide-graded-toggle"]') as HTMLInputElement
-      expect(toggle).not.toBeNull()
-      expect(toggle.checked).toBe(false)
+      const control = el.shadowRoot!.querySelector('[data-testid="path-filter"]')
+      expect(control).not.toBeNull()
+      const both = el.shadowRoot!.querySelector('[data-testid="path-filter-both"]') as HTMLButtonElement
+      const ungraded = el.shadowRoot!.querySelector('[data-testid="path-filter-ungraded"]') as HTMLButtonElement
+      const graded = el.shadowRoot!.querySelector('[data-testid="path-filter-graded"]') as HTMLButtonElement
+      expect(both).not.toBeNull()
+      expect(ungraded).not.toBeNull()
+      expect(graded).not.toBeNull()
+      expect((el as any).pathFilter).toBe('both')
+      expect(both.getAttribute('aria-pressed')).toBe('true')
     })
 
-    it('passes hideGraded=false to force-graph by default', async () => {
+    it('passes pathFilter="both" to force-graph by default', async () => {
       ;(el as any).mode = 'grade'
       ;(el as any).viewportWidth = 1200
       await el.updateComplete
 
       const fg = el.shadowRoot!.querySelector('.grade-graph-pane mf-force-graph') as any
-      expect(fg.hideGraded).toBe(false)
+      expect(fg.pathFilter).toBe('both')
     })
 
-    it('toggling the checkbox sets hideGraded=true and threads it to force-graph', async () => {
+    it('clicking Ungraded sets pathFilter and threads it to force-graph', async () => {
       ;(el as any).mode = 'grade'
       ;(el as any).viewportWidth = 1200
       await el.updateComplete
 
-      const toggle = el.shadowRoot!.querySelector('[data-testid="hide-graded-toggle"]') as HTMLInputElement
-      toggle.checked = true
-      toggle.dispatchEvent(new Event('change'))
+      const ungraded = el.shadowRoot!.querySelector('[data-testid="path-filter-ungraded"]') as HTMLButtonElement
+      ungraded.click()
       await el.updateComplete
 
-      expect((el as any).hideGraded).toBe(true)
+      expect((el as any).pathFilter).toBe('ungraded')
       const fg = el.shadowRoot!.querySelector('.grade-graph-pane mf-force-graph') as any
-      expect(fg.hideGraded).toBe(true)
+      expect(fg.pathFilter).toBe('ungraded')
     })
 
-    it('renders the hide-graded toggle in mobile grade view too', async () => {
+    it('clicking Graded sets pathFilter="graded"', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      const graded = el.shadowRoot!.querySelector('[data-testid="path-filter-graded"]') as HTMLButtonElement
+      graded.click()
+      await el.updateComplete
+
+      expect((el as any).pathFilter).toBe('graded')
+      const graded2 = el.shadowRoot!.querySelector('[data-testid="path-filter-graded"]') as HTMLButtonElement
+      expect(graded2.getAttribute('aria-pressed')).toBe('true')
+    })
+
+    it('renders the 3-way path filter in mobile grade view too', async () => {
       ;(el as any).mode = 'grade'
       ;(el as any).viewportWidth = 600
       await el.updateComplete
 
-      const toggle = el.shadowRoot!.querySelector('[data-testid="hide-graded-toggle"]')
-      expect(toggle).not.toBeNull()
+      const control = el.shadowRoot!.querySelector('[data-testid="path-filter"]')
+      expect(control).not.toBeNull()
     })
   })
 

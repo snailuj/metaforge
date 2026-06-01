@@ -112,9 +112,11 @@ export class MfForceGraph extends LitElement {
   @property({ attribute: false }) mode: 'browse' | 'grade' = 'browse'
   @property({ attribute: false }) gradeChains: ChainRecord[] = []
   @property({ attribute: false }) judgements: JudgementRecord[] = []
-  // When true, chains whose latest verdict exists are dropped from the grade
-  // graph (declutter already-judged paths). Default off = show everything.
-  @property({ type: Boolean }) hideGraded = false
+  // Tri-state path filter (grade mode). The FULL grade graph is always fed so
+  // node positions stay stable; this only toggles visibility of existing
+  // objects — no force-sim re-heat / "bounce". 'both' shows everything,
+  // 'graded'/'ungraded' show only chains with/without a latest verdict.
+  @property({ attribute: false }) pathFilter: 'both' | 'ungraded' | 'graded' = 'both'
   @property({ attribute: false }) labelSize: LabelSizeConfig | null = null
   @property({ type: Number }) viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
 
@@ -143,12 +145,11 @@ export class MfForceGraph extends LitElement {
   private buildGradeGraph(): { nodes: GradeNode[]; links: GradeLink[] } {
     const nodes = new Map<string, GradeNode>()
     const links: GradeLink[] = []
-    // Hide-graded filter: drop chains whose latest verdict exists. Nodes are
-    // only minted from surviving chains, so a node shared with an ungraded
-    // chain stays visible while one unique to a graded chain falls away.
-    const verdicts = this.hideGraded ? this.latestVerdicts : null
+    // Always build the FULL grade graph (all chains). The path filter is applied
+    // at render time via nodeVisibility/linkVisibility so node positions stay
+    // fixed across filter changes — feeding a filtered set would re-heat the
+    // force sim and bounce the layout.
     for (const chain of this.gradeChains) {
-      if (verdicts?.has(chain.chain_signature)) continue
       const stepIds: string[] = []
       for (let i = 0; i < chain.chain.length; i++) {
         const step = chain.chain[i]
@@ -223,11 +224,36 @@ export class MfForceGraph extends LitElement {
     return metaphor
   }
 
-  // --- Browse-mode helpers ---
+  // --- Grade-mode path filter ---
+
+  /** Does a chain (by signature) pass the current tri-state path filter?
+   *  both → always; graded → has a latest verdict; ungraded → has none. */
+  private pathFilterPasses(chainSig: string): boolean {
+    if (this.pathFilter === 'both') return true
+    const hasVerdict = this.latestVerdicts.has(chainSig)
+    return this.pathFilter === 'graded' ? hasVerdict : !hasVerdict
+  }
+
+  /** Ids of grade nodes touched by at least one VISIBLE link. A node shared
+   *  between a visible and a hidden chain stays visible. Recomputed each
+   *  visibility pass — cheap relative to the force sim it replaces. */
+  private visibleGradeNodeIds(): Set<string> {
+    const ids = new Set<string>()
+    for (const link of this.gradeLinks) {
+      if (!this.pathFilterPasses(link.chainSig)) continue
+      ids.add(link.source)
+      ids.add(link.target)
+    }
+    return ids
+  }
+
+  // --- Visibility predicates (browse rarity filter + grade path filter) ---
 
   private isNodeVisible = (n: unknown): boolean => {
-    // Grade nodes carry no rarity — the rarity filter would hide them all.
-    if (this.mode === 'grade') return true
+    if (this.mode === 'grade') {
+      // Visible iff touched by a visible link under the current path filter.
+      return this.visibleGradeNodeIds().has((n as { id: string }).id)
+    }
     const node = n as GraphNode
     if (node.relationType === 'central') return true
     const rarity = node.rarity ?? 'unusual'
@@ -235,6 +261,9 @@ export class MfForceGraph extends LitElement {
   }
 
   private isLinkVisible = (l: unknown): boolean => {
+    if (this.mode === 'grade') {
+      return this.pathFilterPasses((l as GradeLink).chainSig)
+    }
     const link = l as { source: unknown; target: unknown }
     return this.isNodeVisible(link.source) && this.isNodeVisible(link.target)
   }
@@ -496,22 +525,29 @@ export class MfForceGraph extends LitElement {
     // gradeChains arrives via prop after a topic is selected.
     if (this.graph && (
       changed.has('graphData') || changed.has('mode') ||
-      changed.has('gradeChains') || changed.has('judgements') ||
-      changed.has('hideGraded')
+      changed.has('gradeChains') || changed.has('judgements')
     )) {
       this.feedGraph()
     }
-    if (changed.has('hiddenRarities') && this.graph) {
-      this.graph.nodeVisibility(this.isNodeVisible)
-      this.graph.linkVisibility(this.isLinkVisible)
-      // Mirror the predicate onto label DOM: nodeVisibility removes a hidden
-      // node's group from the scene, so CSS2DRenderer never re-traverses its
-      // label and would otherwise leave it stuck visible at its last position.
-      const data = this.graph.graphData() as unknown as { nodes?: Parameters<typeof syncLabelVisibility>[0] }
-      // graphData() is library-owned; guard against an unpopulated graph (e.g.
-      // hiddenRarities toggled before any data was fed) where nodes is absent.
-      if (Array.isArray(data.nodes)) syncLabelVisibility(data.nodes, this.isNodeVisible)
+    // Both visibility filters toggle ALREADY-FED objects in place — they never
+    // re-feed, so the force sim does not re-heat and the layout stays put.
+    // grade-mode 'pathFilter' and browse-mode 'hiddenRarities' share this path.
+    if ((changed.has('pathFilter') || changed.has('hiddenRarities')) && this.graph) {
+      this.reapplyVisibility()
     }
+  }
+
+  /** Re-apply the visibility predicates and mirror them onto the label DOM.
+   *  nodeVisibility removes a hidden node's group from the scene, so
+   *  CSS2DRenderer never re-traverses its label and would otherwise leave it
+   *  stuck visible at its last position — hence the explicit label sync. */
+  private reapplyVisibility(): void {
+    if (!this.graph) return
+    this.graph.nodeVisibility(this.isNodeVisible).linkVisibility(this.isLinkVisible)
+    const data = this.graph.graphData() as unknown as { nodes?: Parameters<typeof syncLabelVisibility>[0] }
+    // graphData() is library-owned; guard against an unpopulated graph (e.g.
+    // a filter toggled before any data was fed) where nodes is absent.
+    if (Array.isArray(data.nodes)) syncLabelVisibility(data.nodes, this.isNodeVisible)
   }
 
   disconnectedCallback(): void {

@@ -21,18 +21,27 @@ const mockControls = { enableDamping: false, dampingFactor: 0 }
 // Backs the chainable Proxy's graphData() getter so tests can stub the node set
 // the library reports back (visibility mirror reads graph.graphData().nodes).
 let mockGraphData: { nodes: unknown[]; links: unknown[] } = { nodes: [], links: [] }
+// Counts graphData(data) SETTER calls (feed events). The "no re-heat" regression
+// guard asserts this does not increment when only pathFilter changes.
+let graphDataSetCount = 0
+// Counts visibility-accessor (re-)applications. The "no re-heat" guard asserts
+// these DO increment on pathFilter change while graphData stays flat.
+let nodeVisibilitySetCount = 0
+let linkVisibilitySetCount = 0
 
 const chainable: Record<string, unknown> = new Proxy({}, {
   get: (_t, prop) => {
     if (prop === 'nodeVisibility') {
       return (fn: (node: unknown) => boolean) => {
         capturedNodeVisibility = fn
+        nodeVisibilitySetCount++
         return chainable
       }
     }
     if (prop === 'linkVisibility') {
       return (fn: (link: unknown) => boolean) => {
         capturedLinkVisibility = fn
+        linkVisibilitySetCount++
         return chainable
       }
     }
@@ -92,6 +101,7 @@ const chainable: Record<string, unknown> = new Proxy({}, {
       // graph.graphData() → current stub; graph.graphData(data) → chainable (setter form)
       return (data?: { nodes: unknown[]; links: unknown[] }) => {
         if (data === undefined) return mockGraphData
+        graphDataSetCount++
         return chainable
       }
     }
@@ -154,6 +164,9 @@ describe('MfForceGraph', () => {
     capturedControlType = undefined
     capturedExtraRenderers = undefined
     mockGraphData = { nodes: [], links: [] }
+    graphDataSetCount = 0
+    nodeVisibilitySetCount = 0
+    linkVisibilitySetCount = 0
     mockCamera.position.z = 100
     mockControls.enableDamping = false
     mockControls.dampingFactor = 0
@@ -395,6 +408,10 @@ describe('MfForceGraph', () => {
       gradeEl = document.createElement('mf-force-graph') as MfForceGraph
       document.body.appendChild(gradeEl)
       await gradeEl.updateComplete
+      // Reset after construction so per-test feed counts start from zero.
+      graphDataSetCount = 0
+      nodeVisibilitySetCount = 0
+      linkVisibilitySetCount = 0
     })
 
     afterEach(() => {
@@ -614,58 +631,152 @@ describe('MfForceGraph', () => {
       vi.useRealTimers()
     })
 
-    it('hideGraded excludes verdicted chain links but keeps ungraded ones (C2)', async () => {
+    // --- C2 v2: tri-state path filter via visibility (no force-sim re-heat) ---
+
+    // First chain (anger->heat->venom, sig 'aaa...') is graded; second
+    // (anger->heat->fire, sig 'bbb...') is ungraded.
+    const GRADED_JUDGEMENT = {
+      schema_version: 'judgement.v2' as const, judged_by: 'julian', round: 1,
+      topic: 'anger', topic_synset_id: '1',
+      vehicle: 'venom', vehicle_synset_id: '3',
+      proposer: 'sonnet_v1',
+      chain_signature: 'a'.repeat(64),
+      linkage: 'good' as const, metaphor: 'live' as const, tier: null,
+      confidence: 'high' as const, notes: '', supersedes_ts: null,
+      ts: '2026-05-30T00:00:00Z',
+    }
+
+    it('buildGradeGraph always builds the FULL graph regardless of pathFilter (stable positions)', async () => {
       gradeEl.mode = 'grade'
       gradeEl.gradeChains = CHAINS
-      // Verdict only the first chain (anger->heat->venom)
-      gradeEl.judgements = [{
-        schema_version: 'judgement.v2', judged_by: 'julian', round: 1,
-        topic: 'anger', topic_synset_id: '1',
-        vehicle: 'venom', vehicle_synset_id: '3',
-        proposer: 'sonnet_v1',
-        chain_signature: 'a'.repeat(64),
-        linkage: 'good', metaphor: 'live', tier: null,
-        confidence: 'high', notes: '', supersedes_ts: null,
-        ts: '2026-05-30T00:00:00Z',
-      }]
-      gradeEl.hideGraded = true
+      gradeEl.judgements = [GRADED_JUDGEMENT]
       await gradeEl.updateComplete
 
-      // No link should carry the verdicted chain's signature
-      const sigs = gradeEl.gradeLinks.map((l: any) => l.chainSig)
-      expect(sigs).not.toContain('a'.repeat(64))
-      // The ungraded chain (anger->heat->fire) must still be present
-      expect(sigs).toContain('b'.repeat(64))
+      // Default 'both'
+      expect(gradeEl.gradeNodes.length).toBe(4)
+      expect(gradeEl.gradeLinks.length).toBe(4)
 
-      // venom (verdicted-only endpoint) drops out; anger + heat (shared with the
-      // ungraded chain) and fire stay → 3 nodes.
-      const nodeIds = gradeEl.gradeNodes.map((n: any) => n.id)
-      expect(nodeIds).not.toContain('syn:3')        // venom — only on the graded chain
-      expect(nodeIds).toContain('syn:2')            // heat — shared with ungraded chain
-      expect(nodeIds).toContain('syn:1')            // anger — shared
-      expect(nodeIds).toContain('syn:5')            // fire — ungraded vehicle
-      expect(gradeEl.gradeNodes.length).toBe(3)
+      // Filtering must NOT drop nodes/links from the fed set — only visibility changes.
+      gradeEl.pathFilter = 'ungraded'
+      await gradeEl.updateComplete
+      expect(gradeEl.gradeNodes.length).toBe(4)
+      expect(gradeEl.gradeLinks.length).toBe(4)
+
+      gradeEl.pathFilter = 'graded'
+      await gradeEl.updateComplete
+      expect(gradeEl.gradeNodes.length).toBe(4)
+      expect(gradeEl.gradeLinks.length).toBe(4)
     })
 
-    it('hideGraded=false shows all chains including verdicted ones (C2 default)', async () => {
+    it('changing pathFilter re-applies visibility WITHOUT a graphData re-feed (no bounce)', async () => {
       gradeEl.mode = 'grade'
       gradeEl.gradeChains = CHAINS
-      gradeEl.judgements = [{
-        schema_version: 'judgement.v2', judged_by: 'julian', round: 1,
-        topic: 'anger', topic_synset_id: '1',
-        vehicle: 'venom', vehicle_synset_id: '3',
-        proposer: 'sonnet_v1',
-        chain_signature: 'a'.repeat(64),
-        linkage: 'good', metaphor: 'live', tier: null,
-        confidence: 'high', notes: '', supersedes_ts: null,
-        ts: '2026-05-30T00:00:00Z',
-      }]
-      // hideGraded defaults to false — verdicted chain still shows
+      gradeEl.judgements = [GRADED_JUDGEMENT]
       await gradeEl.updateComplete
-      const sigs = gradeEl.gradeLinks.map((l: any) => l.chainSig)
-      expect(sigs).toContain('a'.repeat(64))
-      expect(sigs).toContain('b'.repeat(64))
-      expect(gradeEl.gradeNodes.length).toBe(4)
+
+      // Baseline: the initial grade feed has happened.
+      const feedsAfterInitial = graphDataSetCount
+      expect(feedsAfterInitial).toBeGreaterThan(0)
+      const nodeVisBefore = nodeVisibilitySetCount
+      const linkVisBefore = linkVisibilitySetCount
+
+      const gradedLink = { source: 'syn:2', target: 'syn:3', chainSig: 'a'.repeat(64) }
+      // Under 'both' the graded link is visible.
+      expect(capturedLinkVisibility!(gradedLink)).toBe(true)
+
+      gradeEl.pathFilter = 'ungraded'
+      await gradeEl.updateComplete
+
+      // Core regression guard: no new feed (positions stay put)...
+      expect(graphDataSetCount).toBe(feedsAfterInitial)
+      // ...but the visibility accessors WERE re-applied.
+      expect(nodeVisibilitySetCount).toBeGreaterThan(nodeVisBefore)
+      expect(linkVisibilitySetCount).toBeGreaterThan(linkVisBefore)
+      // And the re-applied predicate reflects the new filter: graded link hidden.
+      expect(capturedLinkVisibility).toBeTypeOf('function')
+      expect(capturedNodeVisibility).toBeTypeOf('function')
+      expect(capturedLinkVisibility!(gradedLink)).toBe(false)
+    })
+
+    it('linkVisibility honours pathFilter (graded/ungraded/both)', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      gradeEl.judgements = [GRADED_JUDGEMENT]
+      await gradeEl.updateComplete
+      const gradedLink = { source: 'syn:2', target: 'syn:3', chainSig: 'a'.repeat(64) }
+      const ungradedLink = { source: 'syn:2', target: 'syn:5', chainSig: 'b'.repeat(64) }
+
+      // both → all links visible
+      expect(capturedLinkVisibility!(gradedLink)).toBe(true)
+      expect(capturedLinkVisibility!(ungradedLink)).toBe(true)
+
+      // ungraded → hide graded chain, show ungraded
+      gradeEl.pathFilter = 'ungraded'
+      await gradeEl.updateComplete
+      expect(capturedLinkVisibility!(gradedLink)).toBe(false)
+      expect(capturedLinkVisibility!(ungradedLink)).toBe(true)
+
+      // graded → the reverse
+      gradeEl.pathFilter = 'graded'
+      await gradeEl.updateComplete
+      expect(capturedLinkVisibility!(gradedLink)).toBe(true)
+      expect(capturedLinkVisibility!(ungradedLink)).toBe(false)
+    })
+
+    it('nodeVisibility: node unique to a hidden chain hides; node shared with a visible chain stays', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      gradeEl.judgements = [GRADED_JUDGEMENT]
+      await gradeEl.updateComplete
+
+      // ungraded → graded chain (venom, syn:3) hidden; shared heat (syn:2) + anger
+      // (syn:1) stay because the ungraded chain still touches them; fire (syn:5) stays.
+      gradeEl.pathFilter = 'ungraded'
+      await gradeEl.updateComplete
+      expect(capturedNodeVisibility!({ id: 'syn:3' })).toBe(false) // venom — graded-only
+      expect(capturedNodeVisibility!({ id: 'syn:2' })).toBe(true)  // heat — shared
+      expect(capturedNodeVisibility!({ id: 'syn:1' })).toBe(true)  // anger — shared
+      expect(capturedNodeVisibility!({ id: 'syn:5' })).toBe(true)  // fire — ungraded vehicle
+
+      // graded → ungraded-only fire (syn:5) hidden; venom (syn:3) shown; shared stay.
+      gradeEl.pathFilter = 'graded'
+      await gradeEl.updateComplete
+      expect(capturedNodeVisibility!({ id: 'syn:5' })).toBe(false) // fire — ungraded-only
+      expect(capturedNodeVisibility!({ id: 'syn:3' })).toBe(true)  // venom — graded vehicle
+      expect(capturedNodeVisibility!({ id: 'syn:2' })).toBe(true)  // heat — shared
+    })
+
+    it('syncs grade-node label DOM when pathFilter hides a node (no orphan labels)', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      gradeEl.judgements = [GRADED_JUDGEMENT]
+      await gradeEl.updateComplete
+
+      // Stub the node set the library reports back, with mock label children.
+      const mkNode = (id: string) => ({ id,
+        __threeObj: { children: [{ isCSS2DObject: true, visible: true, element: document.createElement('div') }] } })
+      const venom = mkNode('syn:3') // graded-only vehicle
+      const heat = mkNode('syn:2')  // shared
+      mockGraphData = { nodes: [venom, heat], links: [] }
+
+      gradeEl.pathFilter = 'ungraded'
+      await gradeEl.updateComplete
+
+      // venom (graded-only) is now hidden → its label must be hidden too.
+      expect(venom.__threeObj.children[0].visible).toBe(false)
+      expect(venom.__threeObj.children[0].element.style.display).toBe('none')
+      // heat (shared with the ungraded chain) stays visible.
+      expect(heat.__threeObj.children[0].visible).toBe(true)
+    })
+
+    it('pathFilter defaults to both (all chains visible)', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      gradeEl.judgements = [GRADED_JUDGEMENT]
+      await gradeEl.updateComplete
+      expect(gradeEl.pathFilter).toBe('both')
+      expect(capturedLinkVisibility!({ source: 'syn:2', target: 'syn:3', chainSig: 'a'.repeat(64) })).toBe(true)
+      expect(capturedLinkVisibility!({ source: 'syn:2', target: 'syn:5', chainSig: 'b'.repeat(64) })).toBe(true)
     })
 
     it('latest judgement wins when two exist for same signature', async () => {

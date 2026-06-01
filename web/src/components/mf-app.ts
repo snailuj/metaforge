@@ -175,17 +175,32 @@ export class MfApp extends LitElement {
       margin-top: var(--space-sm, 0.5rem);
     }
 
-    .hide-graded-toggle {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 0.8rem;
-      color: var(--colour-text-secondary, #a89f94);
-      cursor: pointer;
+    /* Tri-state path filter — segmented control. */
+    .path-filter {
+      display: inline-flex;
+      border: 1px solid var(--colour-border, #3a3550);
+      border-radius: 4px;
+      overflow: hidden;
     }
 
-    .hide-graded-toggle input {
-      accent-color: var(--colour-accent-gold, #d4af37);
+    .path-filter button {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: var(--colour-text-secondary, #a89f94);
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      cursor: pointer;
+      border-right: 1px solid var(--colour-border, #3a3550);
+    }
+
+    .path-filter button:last-child {
+      border-right: none;
+    }
+
+    .path-filter button[aria-pressed='true'] {
+      background: var(--colour-accent-gold, #d4af37);
+      color: #1a1a2e;
     }
 
     .grade-main {
@@ -362,9 +377,10 @@ export class MfApp extends LitElement {
   @state() private notesPanelCollapsed = true
   @state() private viewportWidth = window.innerWidth
   @state() private pendingQueue: JudgementRecord[] = []
-  // Hide-graded filter: when true, already-verdicted chains drop out of the
-  // grade graph to reduce clutter. Default off = show all.
-  @state() private hideGraded = false
+  // Tri-state path filter (grade mode). 'both' shows all chains; 'ungraded' /
+  // 'graded' restrict to chains without / with a verdict. Threaded to
+  // mf-force-graph, which toggles visibility in place (no force-sim re-heat).
+  @state() private pathFilter: 'both' | 'ungraded' | 'graded' = 'both'
 
   private currentWord = ''
   private lookupId = 0
@@ -572,19 +588,24 @@ export class MfApp extends LitElement {
     this.notesPanelCollapsed = !this.notesPanelCollapsed
   }
 
-  /** Always-visible grade-mode filter row. Reused by desktop + mobile layouts. */
+  /** Always-visible grade-mode filter row. Reused by desktop + mobile layouts.
+   *  The tri-state path filter toggles which chains the graph shows; the graph
+   *  applies it via visibility (no re-layout). */
   private renderGradeFilters() {
+    const opt = (value: 'both' | 'ungraded' | 'graded', label: string) => html`
+      <button
+        data-testid="path-filter-${value}"
+        aria-pressed=${this.pathFilter === value}
+        @click=${() => { this.pathFilter = value }}
+      >${label}</button>
+    `
     return html`
       <div class="grade-filters">
-        <label class="hide-graded-toggle">
-          <input
-            type="checkbox"
-            data-testid="hide-graded-toggle"
-            .checked=${this.hideGraded}
-            @change=${(e: Event) => { this.hideGraded = (e.target as HTMLInputElement).checked }}
-          >
-          Hide graded
-        </label>
+        <div class="path-filter" role="group" aria-label="Path filter" data-testid="path-filter">
+          ${opt('both', 'Both')}
+          ${opt('ungraded', 'Ungraded')}
+          ${opt('graded', 'Graded')}
+        </div>
       </div>
     `
   }
@@ -682,16 +703,22 @@ export class MfApp extends LitElement {
     }
   }
 
-  /** Signatures that carry at least one verdict — the hide-graded predicate. */
+  /** Signatures that carry at least one verdict — the graded/ungraded predicate. */
   private get verdictedSignatures(): Set<string> {
     return new Set(this.gradeJudgements.map(j => j.chain_signature))
   }
 
-  /** Chains shown in the mobile flat list, honouring the hide-graded filter. */
+  /** Chains shown in the mobile flat list, honouring the tri-state path filter.
+   *  Mirrors the graph's predicate so desktop and mobile agree on what "graded"
+   *  means. */
   private get visibleGradeChains(): ChainRecord[] {
-    if (!this.hideGraded) return this.gradeChains
+    if (this.pathFilter === 'both') return this.gradeChains
     const verdicted = this.verdictedSignatures
-    return this.gradeChains.filter(c => !verdicted.has(c.chain_signature))
+    return this.gradeChains.filter(c =>
+      this.pathFilter === 'graded'
+        ? verdicted.has(c.chain_signature)
+        : !verdicted.has(c.chain_signature),
+    )
   }
 
   /** Render the flat-text chain label for mobile cards. */
@@ -814,7 +841,7 @@ export class MfApp extends LitElement {
               .mode=${'grade'}
               .gradeChains=${this.gradeChains}
               .judgements=${this.gradeJudgements}
-              .hideGraded=${this.hideGraded}
+              .pathFilter=${this.pathFilter}
               .viewportWidth=${this.viewportWidth}
               @mf-node-select=${this.handleNodeSelect}
               @mf-node-navigate=${this.handleNodeNavigate}
