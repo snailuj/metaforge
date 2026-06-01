@@ -801,6 +801,29 @@ describe('MfForceGraph', () => {
       expect(capturedLinkVisibility!(gradedLink)).toBe(false)
     })
 
+    it('a new verdict re-applies styles + visibility WITHOUT a graphData re-feed (no re-heat)', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS
+      gradeEl.judgements = []
+      await gradeEl.updateComplete
+
+      const feedsBefore = graphDataSetCount
+      const nodeVisBefore = nodeVisibilitySetCount
+      const linkVisBefore = linkVisibilitySetCount
+
+      // A verdict arrives — mf-app refetch reassigns the judgements array.
+      gradeEl.judgements = [GRADED_JUDGEMENT]
+      await gradeEl.updateComplete
+
+      // No graphData(data) setter call → the d3 force sim is not restarted.
+      expect(graphDataSetCount).toBe(feedsBefore)
+      // Visibility re-applied in place (so an 'ungraded' filter hides the graded path).
+      expect(nodeVisibilitySetCount).toBeGreaterThan(nodeVisBefore)
+      expect(linkVisibilitySetCount).toBeGreaterThan(linkVisBefore)
+      // The edge colour map reflects the new verdict (read through the getter).
+      expect((gradeEl as any).getEdgeColour('a'.repeat(64))).toBe('live')
+    })
+
     it('linkVisibility honours pathFilter (graded/ungraded/both)', async () => {
       gradeEl.mode = 'grade'
       gradeEl.gradeChains = CHAINS

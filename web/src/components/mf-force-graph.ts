@@ -565,14 +565,20 @@ export class MfForceGraph extends LitElement {
   }
 
   updated(changed: PropertyValues<this>): void {
-    // Re-feed the renderer when the browse graph, the mode, the grade chains,
-    // or the judgements (edge colours) change. Grade-mode data flows here —
-    // gradeChains arrives via prop after a topic is selected.
-    if (this.graph && (
-      changed.has('graphData') || changed.has('mode') ||
-      changed.has('gradeChains') || changed.has('judgements')
-    )) {
+    // Topology-affecting changes need a full re-feed (which restarts the sim):
+    // the browse graph, the mode, or the grade chains.
+    const topologyChanged =
+      changed.has('graphData') || changed.has('mode') || changed.has('gradeChains')
+    if (this.graph && topologyChanged) {
       this.feedGraph()
+    } else if (this.graph && changed.has('judgements')) {
+      // A verdict changed but the node/link set did not. Edge colour rides the
+      // linkColor accessor (getEdgeColour reads the latestVerdicts getter) and
+      // the path filter reads the same getter — so re-evaluating styles +
+      // visibility in place reflects the new verdict WITHOUT graphData(), and the
+      // force sim never re-heats. Under 'ungraded' this also hides the graded path.
+      this.refreshLinkStyles()
+      this.reapplyVisibility()
     }
     // Both visibility filters toggle ALREADY-FED objects in place — they never
     // re-feed, so the force sim does not re-heat and the layout stays put.
