@@ -577,7 +577,7 @@ describe('MfForceGraph', () => {
         vehicle: 'venom', vehicle_synset_id: '3',
         proposer: 'sonnet_v1',
         chain_signature: 'a'.repeat(64),
-        linkage: 'good', metaphor: 'live', tier: null,
+        linkage: 'good', metaphor: 'live', tiers: [],
         confidence: 'high', notes: '', supersedes_ts: null,
         ts: '2026-05-30T00:00:00Z',
       }]
@@ -603,7 +603,7 @@ describe('MfForceGraph', () => {
         topic: 'anger', topic_synset_id: '1',
         vehicle: 'venom', vehicle_synset_id: '3',
         proposer: 'sonnet_v1', chain_signature: sig,
-        tier: null, confidence: 'high' as const, notes: '', supersedes_ts: null,
+        tiers: [], confidence: 'high' as const, notes: '', supersedes_ts: null,
         ts: '2026-05-30T00:00:00Z',
       }
       // linkage:bad dominates — a broken route reads as bad_path regardless of metaphor.
@@ -744,7 +744,7 @@ describe('MfForceGraph', () => {
       vehicle: 'venom', vehicle_synset_id: '3',
       proposer: 'sonnet_v1',
       chain_signature: 'a'.repeat(64),
-      linkage: 'good' as const, metaphor: 'live' as const, tier: null,
+      linkage: 'good' as const, metaphor: 'live' as const, tiers: [],
       confidence: 'high' as const, notes: '', supersedes_ts: null,
       ts: '2026-05-30T00:00:00Z',
     }
@@ -892,7 +892,7 @@ describe('MfForceGraph', () => {
           vehicle: 'venom', vehicle_synset_id: '3',
           proposer: 'sonnet_v1',
           chain_signature: 'a'.repeat(64),
-          linkage: 'good', metaphor: 'dead', tier: null,
+          linkage: 'good', metaphor: 'dead', tiers: [],
           confidence: 'low', notes: '', supersedes_ts: null,
           ts: '2026-05-29T00:00:00Z',
         },
@@ -902,7 +902,7 @@ describe('MfForceGraph', () => {
           vehicle: 'venom', vehicle_synset_id: '3',
           proposer: 'sonnet_v1',
           chain_signature: 'a'.repeat(64),
-          linkage: 'good', metaphor: 'live', tier: null,
+          linkage: 'good', metaphor: 'live', tiers: [],
           confidence: 'high', notes: '', supersedes_ts: null,
           ts: '2026-05-30T00:00:00Z',
         },
