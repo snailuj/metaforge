@@ -826,7 +826,7 @@ describe('mf-app grade-mode integration', () => {
     const gradePanel = el.shadowRoot!.querySelector('mf-grade-panel')
     expect(gradePanel).not.toBeNull()
     gradePanel!.dispatchEvent(new CustomEvent('verdict-submit', {
-      detail: { linkage: 'good', metaphor: 'live', tier: null, confidence: 'high', notes: '' },
+      detail: { linkage: 'good', metaphor: 'live', tiers: ['strong', 'surprising'], confidence: 'high', notes: '' },
       bubbles: true,
       composed: true,
     }))
@@ -843,10 +843,12 @@ describe('mf-app grade-mode integration', () => {
       chain_signature: 'sig1',
       linkage: 'good',
       metaphor: 'live',
-      tier: null,
       confidence: 'high',
     })
+    // tiers from the detail ride onto the posted v2 record verbatim
+    expect(posted.tiers).toEqual(['strong', 'surprising'])
     expect(posted).not.toHaveProperty('label')
+    expect(posted).not.toHaveProperty('tier')
 
     // After submit, selectedChain should be cleared
     expect((el as any).selectedChain).toBeNull()
@@ -1038,7 +1040,7 @@ describe('mf-app grade-mode integration', () => {
 
       await (el as any).handleVerdictSubmit(
         new CustomEvent('verdict-submit', {
-          detail: { linkage: 'good', metaphor: 'live', tier: null, confidence: 'high', notes: '' },
+          detail: { linkage: 'good', metaphor: 'live', tiers: [], confidence: 'high', notes: '' },
           bubbles: true,
           composed: true,
         })
@@ -1071,7 +1073,7 @@ describe('mf-app grade-mode integration', () => {
         topic: 'fire', topic_synset_id: 's1',
         vehicle: 'smoke', vehicle_synset_id: 'v2',
         proposer: 'test', chain_signature: 'sig_pending',
-        linkage: 'good' as const, metaphor: 'dead' as const, tier: null,
+        linkage: 'good' as const, metaphor: 'dead' as const, tiers: [],
         confidence: 'high' as const, notes: '', supersedes_ts: null,
       }
       ;(el as any).pendingQueue = [pendingJudgement]
@@ -1089,7 +1091,7 @@ describe('mf-app grade-mode integration', () => {
 
       await (el as any).handleVerdictSubmit(
         new CustomEvent('verdict-submit', {
-          detail: { linkage: 'good', metaphor: 'live', tier: null, confidence: 'high', notes: '' },
+          detail: { linkage: 'good', metaphor: 'live', tiers: [], confidence: 'high', notes: '' },
           bubbles: true,
           composed: true,
         })
@@ -1145,7 +1147,7 @@ describe('mf-app grade-mode integration', () => {
     // Directly call the handler — this avoids depending on DOM event routing
     await (el as any).handleVerdictSubmit(
       new CustomEvent('verdict-submit', {
-        detail: { linkage: 'good', metaphor: 'live', tier: null, confidence: 'high', notes: '' },
+        detail: { linkage: 'good', metaphor: 'live', tiers: [], confidence: 'high', notes: '' },
         bubbles: true,
         composed: true,
       })
@@ -1167,24 +1169,24 @@ describe('mf-app grade-mode integration', () => {
       generated_at: '2026-01-01T00:00:00Z',
     }
 
-    // v2 judgement factory — the two axes + optional tier replace the flat label.
+    // v2 judgement factory — the two axes + multi-select tiers replace the flat label.
     const judgement = (overrides: Record<string, unknown>) => ({
       schema_version: 'judgement.v2', judged_by: 'julian', round: 1,
       topic: 'fire', topic_synset_id: 's1',
       vehicle: 'blaze', vehicle_synset_id: 'v1',
       proposer: 'test', chain_signature: 'sig1',
-      linkage: 'good', metaphor: 'dead', tier: null,
+      linkage: 'good', metaphor: 'dead', tiers: [],
       confidence: 'high', notes: '', supersedes_ts: null,
       ...overrides,
     })
 
-    it('threads the latest judgement axes, tier and notes into the priorVerdict prop', async () => {
+    it('threads the latest judgement axes, tiers and notes into the priorVerdict prop', async () => {
       ;(el as any).mode = 'grade'
       ;(el as any).viewportWidth = 1200
       ;(el as any).gradeChains = [chain]
       ;(el as any).gradeJudgements = [
         judgement({ linkage: 'bad', metaphor: 'live', notes: 'first pass — padding', ts: '2026-05-30T00:00:00Z' }),
-        judgement({ linkage: 'good', metaphor: 'dead', tier: 'obvious', notes: 'merge: too literal', ts: '2026-05-31T00:00:00Z' }),
+        judgement({ linkage: 'good', metaphor: 'live', tiers: ['strong', 'surprising'], notes: 'merge: too literal', ts: '2026-05-31T00:00:00Z' }),
       ]
       ;(el as any).selectedChain = chain
       await el.updateComplete
@@ -1193,8 +1195,9 @@ describe('mf-app grade-mode integration', () => {
       expect(panel).not.toBeNull()
       expect(panel.priorVerdict).not.toBeNull()
       expect(panel.priorVerdict).toMatchObject({
-        linkage: 'good', metaphor: 'dead', tier: 'obvious', notes: 'merge: too literal',
+        linkage: 'good', metaphor: 'live', notes: 'merge: too literal',
       })
+      expect(panel.priorVerdict.tiers).toEqual(['strong', 'surprising'])
       expect(panel.priorVerdict.ts).toBe('2026-05-31T00:00:00Z')
       expect(panel.priorVerdict).not.toHaveProperty('label')
     })
@@ -1215,8 +1218,9 @@ describe('mf-app grade-mode integration', () => {
 
       const panel = el.shadowRoot!.querySelector('mf-grade-panel') as any
       expect(panel.priorVerdict).toMatchObject({
-        linkage: 'good', metaphor: 'dead', tier: null, notes: 'old pass',
+        linkage: 'good', metaphor: 'dead', notes: 'old pass',
       })
+      expect(panel.priorVerdict.tiers).toEqual([])
     })
 
     it('threads empty notes when the latest judgement has none', async () => {

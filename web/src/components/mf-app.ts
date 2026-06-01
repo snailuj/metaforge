@@ -625,7 +625,7 @@ export class MfApp extends LitElement {
       chain_signature: chain.chain_signature,
       linkage: e.detail.linkage,
       metaphor: e.detail.metaphor,
-      tier: e.detail.tier,
+      tiers: e.detail.tiers,
       confidence: e.detail.confidence,
       notes: e.detail.notes,
       supersedes_ts: null,
@@ -676,7 +676,7 @@ export class MfApp extends LitElement {
    * Look up whether a chain has already been judged by the current user.
    * Judgements arrive as an append-log, so the latest verdict for a signature
    * is the last matching record — re-grades supersede earlier passes. We surface
-   * both axes, the optional tier and the notes so the re-grade banner can echo
+   * both axes, the multi-select tiers and the notes so the re-grade banner can echo
    * the grader's prior verdict and reasoning.
    *
    * Stored records may be v1 (flat `label`) or v2 (two axes); `normaliseJudgement`
@@ -687,17 +687,17 @@ export class MfApp extends LitElement {
    */
   private priorVerdict(
     chain: ChainRecord,
-  ): { linkage: Linkage; metaphor: MetaphorVerdict; tier: Tier | null; ts: string; notes: string } | null {
+  ): { linkage: Linkage; metaphor: MetaphorVerdict; tiers: Tier[]; ts: string; notes: string } | null {
     let latest: JudgementRecord | null = null
     for (const j of this.gradeJudgements) {
       if (j.chain_signature === chain.chain_signature) latest = j
     }
     if (!latest) return null
-    const { linkage, metaphor, tier } = normaliseJudgement(latest)
+    const { linkage, metaphor, tiers } = normaliseJudgement(latest)
     return {
       linkage: linkage ?? 'bad',
       metaphor: metaphor ?? 'irrelevant',
-      tier,
+      tiers,
       ts: latest.ts ?? '',
       notes: latest.notes ?? '',
     }
