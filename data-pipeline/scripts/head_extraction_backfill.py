@@ -32,14 +32,23 @@ def normalise(s: str) -> str:
     return unicodedata.normalize("NFC", s.strip())
 
 
+HEAD_PROMPT_INSTRUCTIONS = (
+    "For each phrase below, return the single-word concept that the phrase "
+    "most centres on — typically a noun. Prefer a head likely to be re-used "
+    "across other metaphor traversals over a hyper-specific one. "
+    "Preserve modifiers that flip or invert meaning: a negation, opposition, or "
+    "relational modifier changes the head — 'resists change' -> 'resistance' or "
+    "'stability', not 'change'; 'avoids risk' -> 'caution', not 'risk'. Prefer a "
+    "single word that still names a common concept so it resolves to a synset.\n\n"
+)
+
+
 def extract_heads_batch(phrases: list[str]) -> dict[str, str]:
     """Haiku batched call. Returns {phrase: head}."""
     prompt = (
-        "For each phrase below, return the single-word concept that the phrase "
-        "most centres on — typically a noun. Prefer a head likely to be re-used "
-        "across other metaphor traversals over a hyper-specific one.\n\n"
-        "Output strict JSON: {\"phrases\": [{\"phrase\": \"...\", \"head\": \"...\"}, ...]}\n\n"
-        "Phrases:\n" + "\n".join(f"- {p}" for p in phrases)
+        HEAD_PROMPT_INSTRUCTIONS
+        + "Output strict JSON: {\"phrases\": [{\"phrase\": \"...\", \"head\": \"...\"}, ...]}\n\n"
+        + "Phrases:\n" + "\n".join(f"- {p}" for p in phrases)
     )
     resp = prompt_json(prompt, model=HAIKU_MODEL, expect=dict)
     return {item["phrase"]: item["head"].lower() for item in resp["phrases"]}

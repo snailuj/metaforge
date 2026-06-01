@@ -41,6 +41,10 @@ Return 10 vehicles, each with 3-6 one-word path concepts (lowercase, no
 punctuation). Each path concept is a curated dimension along which topic and
 vehicle structurally match.
 
+Each path concept must preserve the source phrase's semantic polarity: never
+reduce a phrase to a bare object noun when a negation or opposing modifier flips
+its meaning (e.g. "resists change" -> "resistance"/"stability", not "change").
+
 Return JSON:
 {{
   "topic": "{topic}",
