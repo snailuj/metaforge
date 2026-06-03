@@ -47,3 +47,16 @@ def test_prompt_lists_haiku_vehicles_with_their_features():
     ])
     assert "fire" in p and "heat" in p and "burning" in p
     assert "volcano" in p and "pressure" in p
+
+
+def test_prompt_requires_context_free_hops():
+    """Each adjacent pair must read as apt in isolation, not leaning on context
+    accumulated earlier in the chain — so an edge stays valid when reused by a
+    different path (the reusable-edge property the metaphor graph relies on)."""
+    p = build_prompt(
+        topic="anger", gloss="g",
+        haiku_metaphors=[{"vehicle": "fire", "shared_features": []}],
+    ).lower()
+    assert "stand on its own" in p
+    assert "in isolation" in p
+    assert "context accumulated earlier" in p

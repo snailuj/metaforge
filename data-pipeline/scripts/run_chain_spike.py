@@ -96,7 +96,7 @@ For the topic below, Haiku produced a list of 10 candidate vehicles with shared 
 
 1) You have full creative license to substitute weak/conventional vehicles with more vivid, literary, cross-domain ones — exactly the kind of substitutions an editor would make (e.g. "anger → fermentation" rather than "anger → fire" if it is apter).
 2) For EACH vehicle, return an ORDERED CHAIN of concept steps from topic to vehicle — a recognisable conceptual walk, NOT a flat set.
-3) Use as many steps as the traversal naturally needs. Prefer SMALLER LEAPS over fewer steps. Every step must add new conceptual ground — no near-synonyms, no padding. Each adjacent pair should feel reachable without explanation; removing any step should break the chain's coherence.
+3) Use as many steps as the traversal naturally needs. Prefer SMALLER LEAPS over fewer steps. Every step must add new conceptual ground — no near-synonyms, no padding. CRUCIALLY, each adjacent pair must stand on its own: a reader shown ONLY those two concepts, blind to every other step in the chain, must still find the leap apt. Do not let a step lean on context accumulated earlier in the chain to justify it — each hop must read as apt in isolation, so the same hop stays valid when a different path reuses it. (Every step is still load-bearing — removing it should skip necessary ground — but no step may DEPEND on the specific steps before it for its own aptness.)
 4) Return exactly 10 vehicles.
 5) Each step in the chain must be a JSON object with two keys:
    - "phrase": the full step label (a single word or very short noun phrase)
