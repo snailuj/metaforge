@@ -785,6 +785,29 @@ describe('mf-app grade-mode integration', () => {
     expect(mobileLayout).toBeNull()
   })
 
+  it('mobile chain-card label shows snapped heads, not prose phrases (bad_head visibility)', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 600
+    ;(el as any).pathFilter = 'both'
+    ;(el as any).gradeChains = [{
+      schema_version: 'chain.v1',
+      topic: 'anchor', vehicle: 'habit',
+      topic_synset_id: '', vehicle_synset_id: '',
+      chain_signature: 'c'.repeat(64),
+      chain: [
+        { phrase: 'anchor', head: 'anchor', synset_id: '' },
+        { phrase: 'resists change', head: 'resistance', synset_id: '' },
+        { phrase: 'habit', head: 'habit', synset_id: '' },
+      ],
+      proposer: 'sonnet_v1', round: 1, generated_at: 'x',
+    }]
+    await el.updateComplete
+    const card = el.shadowRoot!.querySelector('[data-testid="chain-card"]')!
+    const text = card.textContent || ''
+    expect(text).toContain('resistance')        // the snapped head
+    expect(text).not.toContain('resists change') // not the prose phrase
+  })
+
   it('topic-selected event fetches chains and judgements then populates gradeChains', async () => {
     ;(el as any).mode = 'grade'
     ;(el as any).viewportWidth = 600

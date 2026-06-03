@@ -727,9 +727,11 @@ export class MfApp extends LitElement {
     )
   }
 
-  /** Render the flat-text chain label for mobile cards. */
+  /** Render the flat-text chain label for mobile cards. Shows the snapped
+   *  heads (not the prose phrases) so a mis-snapped head is visible at a glance
+   *  on mobile, matching the desktop graph's head-primary labels. */
   private chainLabel(chain: ChainRecord): string {
-    return chain.chain.map(s => s.phrase).join(' → ')
+    return chain.chain.map(s => s.head).join(' → ')
   }
 
   private async doLookup(word: string) {

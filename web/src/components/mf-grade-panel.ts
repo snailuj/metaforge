@@ -32,6 +32,9 @@ export class MfGradePanel extends LitElement {
         :host { display: block; padding: 0.5rem; }
         .chain { font-size: 1rem; line-height: 1.6; margin: 0.5rem 0; }
         .arrow { color: #4d5260; margin: 0 0.3rem; }
+        /* Original prose phrase, shown muted beside its snapped head only when
+           the two differ — so a mis-snapped head (bad_head) is judgeable. */
+        .phrase-sub { color: #7a8190; font-size: 0.8em; font-style: italic; margin-left: 0.3rem; }
         .group-label { font-size: 0.75rem; color: #8a93a2; text-transform: uppercase; letter-spacing: 0.05em; }
         .verdict-row { display: flex; gap: 0.5rem; margin: 0.4rem 0; align-items: center; }
         button.verdict {
@@ -230,7 +233,8 @@ export class MfGradePanel extends LitElement {
             ` : ''}
             <div class="chain">
                 ${steps.map((s, i) => html`
-                    <span>${s.phrase}</span>${i < steps.length - 1 ? html`<span class="arrow">→</span>` : ''}
+                    <span class="step">${s.head}${s.phrase !== s.head
+                        ? html`<span class="phrase-sub">${s.phrase}</span>` : ''}</span>${i < steps.length - 1 ? html`<span class="arrow">→</span>` : ''}
                 `)}
             </div>
             <div class="verdict-row">

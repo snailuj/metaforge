@@ -35,12 +35,31 @@ describe('mf-grade-panel', () => {
         expect(MfGradePanel).toBeDefined();
     });
 
-    it('renders chain phrases with arrows', async () => {
+    it('renders chain steps with arrows', async () => {
         const text = el.shadowRoot!.textContent || '';
         expect(text).toContain('anger');
         expect(text).toContain('hostility');
         expect(text).toContain('venom');
         expect(text).toContain('→');
+    });
+
+    it('shows the snapped head primary, with the prose phrase only when it differs (bad_head judging)', async () => {
+        el.chain = {
+            ...CHAIN,
+            chain: [
+                { phrase: 'anchor', head: 'anchor', synset_id: '1' },
+                { phrase: 'resists change', head: 'resistance', synset_id: '2' },
+                { phrase: 'habit', head: 'habit', synset_id: '3' },
+            ],
+        };
+        await el.updateComplete;
+        const text = el.shadowRoot!.textContent || '';
+        expect(text).toContain('resistance');     // snapped head — primary
+        expect(text).toContain('resists change');  // original phrase shown because head differs
+        // Only the differing step carries a phrase sub-label; equal steps don't duplicate.
+        const subs = el.shadowRoot!.querySelectorAll('.phrase-sub');
+        expect(subs.length).toBe(1);
+        expect(subs[0].textContent).toContain('resists change');
     });
 
     it('L submits linkage:good + metaphor:live by default', async () => {
