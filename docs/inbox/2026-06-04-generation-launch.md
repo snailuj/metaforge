@@ -5,6 +5,12 @@ proxy-judge live-rate tripwire, and the LLM sense-disambiguation pass are on bra
 `metaphor-graph/enrich-stage-a` (the consolidated Stage-A run branch). All JSONL-native
 (grading-tool consumes the round files directly); DB ingestion deferred per the 2026-06-04 call.
 
+## SESSION-3 UPDATE (tripwire false-trip fixed) — READ FIRST
+- **Bug found via the 200-loop's own pause:** the run paused at batch 13 (`live_rate 0.028 < abs_floor 0.03`) on GOOD chains. Root cause: a session-limit **429 storm** (114 topics, $0 each) produced zero-record batches, and the runner fed those into the tripwire as synthetic-`dead`. The brake can't tell "Sonnet is producing dead metaphors" from "the API is down". `chains_written` froze at 137 from batch 2 while the live-rate decayed purely on synthetic-dead-from-429.
+- **Fixed (`6b3cd03b`, TDD):** `generate_metaphor_edges.run()` now tracks **clean-empty** topics (model answered, answer barren — a real collapse signal) separately from **errored** topics (no verdict; retried on resume). Only clean-empty feeds synthetic-dead. Mirror RED test added (`test_run_tripwire_ignores_transient_errors`). This matters most for the **multi-day 10k run**, which crosses session-limit windows repeatedly and would otherwise false-pause on every reset.
+- **200-loop status:** 50/197 topics done (490 chains, ~9.8 each, all well-formed); 3 genuinely spent-and-empty (`.attempted`); 144 remain. Resumed clean after the 15:00 UTC reset — session confirmed clear (chains writing). Real spend so far ≈ $3–4 (the est_cost $24 was ~$21 phantom 429 charges).
+- **Known follow-up (NOT fixed):** cost-accounting still charges the per-topic estimate on a 429 (which actually costs $0) and on reused-Haiku (free via `--haiku-jsonl`). Safe direction for the spend brake (over-counts, never under), but `est_cost_usd` overstates real spend and a long 429 outage could falsely approach `--max-cost-usd`. Captured in PIPELINE inbox.
+
 ## SESSION-2 UPDATES (after Julian review) — READ FIRST
 - **Tripwire recalibrated:** abs_floor 0.08→**0.03**, window→40, rel_drop→0.6. The 200-loop false-fired at 0.0625 on GOOD chains; measured healthy live-rate is ~0.10 (not the n=5 0.20). Re-measure per cohort; keep the floor well below the healthy band.
 - **Disambiguation rebuilt resilient:** per-chunk checkpoint (`<output>.partial.jsonl`, flush+fsync) + resume + progress log + a free WordNet POS pre-filter (drops 12% verb/adj sneak-ins). The prior accumulate-in-memory version lost 2h25m on a kill.
