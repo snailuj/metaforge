@@ -7,6 +7,7 @@ a head lemma to a cheap model and takes the dominant everyday sense, or abstains
 
 DB queries run against an in-memory fixture; LLM access is injected (prompt_fn).
 """
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -37,22 +38,26 @@ def _db() -> sqlite3.Connection:
         ("9591", "n", "play in which children take the roles of parents"),
         ("30227", "n", "a strong emotion of displeasure"),
         ("100", "n", "the 8th letter of the alphabet"),   # a junk 'letter of the' sense
+        # a verb-PRIMARY lemma that is also an enriched noun (1 noun, 3 verb senses)
+        ("200", "n", "a high place affording a wide view"),
+        ("201", "v", "look down on"), ("202", "v", "watch over"), ("203", "v", "fail to notice"),
     ]
     conn.executemany("INSERT INTO synsets VALUES (?,?,?)", synsets)
     conn.executemany("INSERT INTO lemmas VALUES (?,?)", [
         ("house", "51775"), ("house", "9591"),   # two noun senses
         ("anger", "30227"),                        # single noun sense
         ("the", "100"),                            # stopword
+        ("overlook", "200"), ("overlook", "201"), ("overlook", "202"), ("overlook", "203"),
     ])
     conn.executemany("INSERT INTO frequencies VALUES (?,?)", [
-        ("house", 5.0), ("anger", 4.5), ("the", 7.0), ("ox", 4.9),
+        ("house", 5.0), ("anger", 4.5), ("the", 7.0), ("ox", 4.9), ("overlook", 4.8),
     ])
     # curated + enriched (one row per synset; enriched = has a synset_properties_curated row)
     pvc = [(1, "51775", "house", "n", 3), (2, "9591", "house", "n", 9),
-           (3, "30227", "anger", "n", 2), (4, "100", "the", "n", 1)]
+           (3, "30227", "anger", "n", 2), (4, "100", "the", "n", 1), (5, "200", "overlook", "n", 4)]
     conn.executemany("INSERT INTO property_vocab_curated VALUES (?,?,?,?,?)", pvc)
     conn.executemany("INSERT INTO synset_properties_curated VALUES (?,?,?)",
-                     [("51775", 1, 0), ("9591", 2, 0), ("30227", 3, 0), ("100", 4, 0)])
+                     [("51775", 1, 0), ("9591", 2, 0), ("30227", 3, 0), ("100", 4, 0), ("200", 5, 0)])
     return conn
 
 
@@ -64,6 +69,21 @@ def test_head_lemmas_filters_stopwords_and_short_and_orders_by_zipf():
     assert "the" not in lemmas            # stopword removed
     assert "ox" not in lemmas             # length < 3 (also not an enriched noun)
     assert lemmas == ["house", "anger"]   # zipf desc: 5.0 then 4.5
+
+
+def test_wn_noun_primary():
+    conn = _db()
+    assert md.wn_noun_primary(conn, "house") is True       # 2 noun, 0 verb
+    assert md.wn_noun_primary(conn, "anger") is True        # 1 noun, 0 verb
+    assert md.wn_noun_primary(conn, "overlook") is False    # 1 noun, 3 verb -> verb-primary
+
+
+def test_head_lemmas_drops_verb_primary_by_default():
+    conn = _db()
+    kept = [r["lemma"] for r in md.head_lemmas(conn, limit=10, min_zipf=2.5)]
+    assert "overlook" not in kept                            # filtered (free WordNet POS ratio)
+    assert "overlook" in [r["lemma"] for r in
+                          md.head_lemmas(conn, limit=10, min_zipf=2.5, noun_primary_only=False)]
 
 
 def test_candidate_senses_returns_all_noun_senses():
@@ -142,6 +162,39 @@ def test_disambiguate_autoaccepts_single_sense_without_llm():
     assert by_word["house"]["topic_synset_id"] == "51775"  # LLM picked everyday sense
     assert len(calls) == 1                                  # single-sense never hit the model
     assert "anger" not in calls[0]                          # ...and wasn't in the prompt
+
+
+def test_disambiguate_resumes_from_checkpoint(tmp_path):
+    """Resilience: a resolved lemma already in the checkpoint is NOT re-spent on
+    resume (idempotent recovery — no wasted prior-run work)."""
+    cp = tmp_path / "cp.jsonl"
+    cp.write_text(json.dumps({"word": "house", "topic_synset_id": "51775", "gloss": "a dwelling"}) + "\n")
+    called = []
+
+    def fake(prompt, model="haiku"):
+        called.append(prompt)
+        return {"picks": [{"lemma": "house", "sense_index": 2}]}
+
+    cands = [{"lemma": "house", "senses": [
+        {"synset_id": "51775", "gloss": "a dwelling"}, {"synset_id": "9591", "gloss": "playing house"}]}]
+    out = md.disambiguate(cands, prompt_fn=fake, checkpoint_path=str(cp))
+    assert called == []  # house already checkpointed -> no LLM re-spend
+    assert any(o["word"] == "house" and o["topic_synset_id"] == "51775" for o in out)
+
+
+def test_disambiguate_writes_checkpoint_incrementally(tmp_path):
+    """Each resolved topic is flushed to the checkpoint as it is produced, so a
+    crash mid-run loses at most one chunk, not the whole pass."""
+    cp = tmp_path / "cp.jsonl"
+    cands = [
+        {"lemma": "anger", "senses": [{"synset_id": "30227", "gloss": "x"}]},          # single-sense auto
+        {"lemma": "house", "senses": [{"synset_id": "51775", "gloss": "a dwelling"},
+                                      {"synset_id": "9591", "gloss": "play"}]},          # LLM
+    ]
+    md.disambiguate(cands, prompt_fn=lambda p, model="haiku": {"picks": [{"lemma": "house", "sense_index": 1}]},
+                    checkpoint_path=str(cp))
+    words = {json.loads(l)["word"] for l in cp.read_text().splitlines() if l.strip()}
+    assert words == {"anger", "house"}  # both durably checkpointed
 
 
 def test_disambiguate_chunk_error_abstains_chunk_without_crashing():
