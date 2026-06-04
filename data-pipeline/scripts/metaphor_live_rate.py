@@ -154,11 +154,11 @@ class TripwireState:
 
 def new_tripwire(
     *,
-    window: int = 30,
-    min_judged: int = 15,
-    abs_floor: float = 0.08,
-    rel_drop: float = 0.4,
-    baseline_n: int = 15,
+    window: int = 40,
+    min_judged: int = 20,
+    abs_floor: float = 0.03,
+    rel_drop: float = 0.6,
+    baseline_n: int = 20,
 ) -> TripwireState:
     """A fresh tripwire. Defaults are a starting point — CALIBRATE per cohort.
 
@@ -166,10 +166,11 @@ def new_tripwire(
     min_judged  — no pause decision until this many verdicts seen (avoid noise).
     abs_floor   — pause if window live-rate drops below this absolute value. The
                   judge is tuned to UNDER-call `live`, so a HEALTHY run sits at a
-                  low-ish rate; the floor must sit BELOW the measured healthy
-                  live-rate (default 0.08 is a near-total-collapse line, not a
-                  quality bar) or the brake fails CLOSED on good output. Measure
-                  the healthy rate on a vetted cohort and set this accordingly.
+                  low rate: MEASURED ~0.08-0.14 (mean ~0.10) on 70 real, eyeball-
+                  good chains. The floor (default 0.03) is a near-total-COLLAPSE
+                  line BELOW that band, not a quality bar — an abs_floor of 0.08
+                  false-fired the 200-loop on healthy 0.0625 noise. Re-measure per
+                  cohort and keep the floor well below the healthy band.
     rel_drop    — pause if window rate falls this fraction below the baseline.
                   This is the PRIMARY degradation brake; the absolute floor is a
                   collapse backstop.

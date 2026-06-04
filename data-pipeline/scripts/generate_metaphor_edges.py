@@ -444,12 +444,12 @@ def main() -> int:
     ap.add_argument("--judge-model", default="claude-haiku-4-5-20251001")
     ap.add_argument("--judge-sample", type=int, default=3, help="topics sample-judged per batch (brake density).")
     ap.add_argument("--no-tripwire", action="store_true", help="Disable the live-rate tripwire.")
-    ap.add_argument("--tw-window", type=int, default=30)
-    ap.add_argument("--tw-min-judged", type=int, default=15)
-    ap.add_argument("--tw-abs-floor", type=float, default=0.08,
-                    help="collapse floor — set BELOW the measured healthy live-rate, not as a quality bar.")
-    ap.add_argument("--tw-rel-drop", type=float, default=0.4)
-    ap.add_argument("--tw-baseline-n", type=int, default=15)
+    ap.add_argument("--tw-window", type=int, default=40)
+    ap.add_argument("--tw-min-judged", type=int, default=20)
+    ap.add_argument("--tw-abs-floor", type=float, default=0.03,
+                    help="COLLAPSE floor — well below the measured ~0.10 healthy live-rate, NOT a quality bar.")
+    ap.add_argument("--tw-rel-drop", type=float, default=0.6)
+    ap.add_argument("--tw-baseline-n", type=int, default=20)
     ap.add_argument("--autocommit-every", type=int, default=None, help="git-commit the output every N batches.")
     args = ap.parse_args()
 

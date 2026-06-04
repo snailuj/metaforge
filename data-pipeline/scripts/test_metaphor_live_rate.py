@@ -159,11 +159,12 @@ def test_tripwire_window_only_considers_recent_verdicts():
 
 
 def test_default_tripwire_does_not_pause_a_healthy_conservative_rate():
-    """The judge is tuned to UNDER-call live, so a healthy run sits at a low-ish
-    live-rate (~0.2). The default tripwire must NOT fail closed on that — the old
-    0.25 floor would have perma-paused it."""
+    """MEASURED on 70 real topics: the conservative judge's healthy live-rate is
+    ~0.08-0.14 on GOOD chains (it under-calls live hard). The default tripwire
+    must NOT fail closed on that — abs_floor 0.08 false-fired the 200-loop at a
+    real 0.0625. The collapse floor must sit BELOW the measured healthy band."""
     st = mlr.new_tripwire()  # all defaults
-    st = _feed(st, (["live"] + ["dead"] * 4) * 12)  # steady 0.20 over 60 verdicts
+    st = _feed(st, (["live"] + ["dead"] * 11) * 6)  # steady ~0.083 over 72 verdicts
     assert mlr.should_pause(st) is False
 
 
