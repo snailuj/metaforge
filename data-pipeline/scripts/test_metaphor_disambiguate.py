@@ -190,6 +190,29 @@ def test_vetted_from_glossed_ambiguous_uses_llm_and_keeps_curated_gloss():
                     "gloss": "a place where people live"}]  # curated gloss preserved
 
 
+def test_gloss_match_prompt_targets_the_curated_gloss():
+    p = md.build_gloss_match_prompt([{"lemma": "anger", "gloss": "a feeling of displeasure",
+        "senses": [{"synset_id": "1", "gloss": "emotion of displeasure"},
+                   {"synset_id": "2", "gloss": "oriented toward a grievance"}]}])
+    assert "a feeling of displeasure" in p          # the TARGET gloss to match
+    assert "displeasure" in p and "grievance" in p  # candidate glosses
+    assert any(k in p.lower() for k in ("same", "match", "closest"))
+    assert "sense_index" in p
+
+
+def test_vetted_ambiguous_disambiguates_toward_the_curated_gloss():
+    conn = _db()
+    seen = []
+
+    def fake(prompt, model="haiku"):
+        seen.append(prompt)
+        return {"picks": [{"lemma": "house", "sense_index": 1}]}
+
+    md.vetted_topics_from_glossed(
+        conn, [{"word": "house", "gloss": "a place where people live"}], prompt_fn=fake)
+    assert "a place where people live" in seen[0]  # match is steered BY the curated gloss
+
+
 def test_vetted_from_glossed_drops_word_with_no_noun_sense():
     conn = _db()
     out = md.vetted_topics_from_glossed(

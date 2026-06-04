@@ -151,13 +151,22 @@ def vetted_topics_from_glossed(
         else:
             need_llm.append({"lemma": word, "gloss": gloss, "senses": senses})
 
+    # Disambiguate the genuine remainder by GLOSS-MATCH (steered by the curated
+    # gloss), not dominant-sense — so the synset_id is consistent with the gloss.
+    if prompt_fn is None:
+        from claude_client import prompt_json
+        prompt_fn = prompt_json
     gloss_by_word = {c["lemma"]: c["gloss"] for c in need_llm}
-    llm_out = disambiguate(
-        [{"lemma": c["lemma"], "senses": c["senses"]} for c in need_llm],
-        prompt_fn=prompt_fn, model=model, chunk_size=chunk_size,
-    )
-    for o in llm_out:
-        resolved.append({**o, "gloss": gloss_by_word.get(o["word"], o["gloss"])})
+    for chunk in _chunks(need_llm, chunk_size):
+        prompt = build_gloss_match_prompt(chunk)
+        try:
+            raw = prompt_fn(prompt, model=model)
+        except Exception as exc:  # noqa: BLE001 — a chunk failure abstains, never crashes
+            log.warning("gloss-match chunk failed (abstained): %s", exc)
+            continue
+        items = [{"lemma": c["lemma"], "senses": c["senses"]} for c in chunk]
+        for o in parse_disambiguation_batch(raw if isinstance(raw, dict) else {}, items):
+            resolved.append({**o, "gloss": gloss_by_word.get(o["word"], o["gloss"])})
     return resolved
 
 
@@ -190,6 +199,35 @@ sense pollutes the dataset.
 
 Respond with STRICT JSON and nothing else. sense_index is the 1-based number of
 the chosen sense, or null to abstain:
+{{"picks": [{{"lemma": "<lemma>", "sense_index": <int or null>}}, ...]}}"""
+
+
+def build_gloss_match_prompt(items: list[dict]) -> str:
+    """Prompt asking which candidate sense MATCHES a given target gloss.
+
+    Distinct from build_disambiguation_prompt (dominant-everyday-sense): a
+    pre-glossed cohort already encodes the intended sense in its gloss, so the
+    synset must be picked to MATCH that gloss, not by frequency."""
+    blocks = []
+    for it in items:
+        lines = [f'LEMMA "{it["lemma"]}"  — target meaning: {it["gloss"]}', "  candidate senses:"]
+        for i, s in enumerate(it["senses"], 1):
+            lines.append(f'    {i}. {s["gloss"]}')
+        blocks.append("\n".join(lines))
+    body = "\n\n".join(blocks)
+    return f"""You align word senses to a target meaning for a metaphor dataset.
+
+For each LEMMA below, choose the candidate sense whose meaning is the SAME as
+(or closest to) the given target meaning. The target meaning is authoritative —
+pick the sense that matches it, NOT the most common sense.
+
+If NO candidate sense matches the target meaning, ABSTAIN by returning null for
+sense_index — do not force a poor match.
+
+{body}
+
+Respond with STRICT JSON and nothing else. sense_index is the 1-based number of
+the matching sense, or null to abstain:
 {{"picks": [{{"lemma": "<lemma>", "sense_index": <int or null>}}, ...]}}"""
 
 
