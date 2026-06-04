@@ -112,6 +112,55 @@ def select_candidate_topics(conn: sqlite3.Connection, *, limit: int = 10000, min
     return out
 
 
+def _norm_gloss(s: str) -> str:
+    return " ".join((s or "").lower().split())
+
+
+def vetted_topics_from_glossed(
+    conn: sqlite3.Connection,
+    glossed: list[dict],
+    *,
+    prompt_fn=None,
+    model: str = DEFAULT_MODEL,
+    chunk_size: int = 30,
+) -> list[dict]:
+    """Resolve a PRE-GLOSSED cohort (e.g. the 200 spike topics: {word, gloss})
+    to vetted {word, topic_synset_id, gloss} with maximum confidence and minimum
+    spend:
+
+      1. exact gloss->synset match  (the curated gloss IS a synset definition),
+      2. single-sense lemma         (no ambiguity),
+      3. otherwise LLM-disambiguate  (only the genuinely ambiguous remainder).
+
+    The curated input gloss is preserved on output (it pins the intended sense);
+    only the synset_id is resolved. Words with no noun sense are dropped.
+    """
+    resolved: list[dict] = []
+    need_llm: list[dict] = []
+    for g in glossed:
+        word, gloss = g["word"], g["gloss"]
+        senses = candidate_senses(conn, word)
+        if not senses:
+            log.info("drop %r: no noun sense", word)
+            continue
+        exact = [s for s in senses if _norm_gloss(s["gloss"]) == _norm_gloss(gloss)]
+        if exact:
+            resolved.append({"word": word, "topic_synset_id": exact[0]["synset_id"], "gloss": gloss})
+        elif len(senses) == 1:
+            resolved.append({"word": word, "topic_synset_id": senses[0]["synset_id"], "gloss": gloss})
+        else:
+            need_llm.append({"lemma": word, "gloss": gloss, "senses": senses})
+
+    gloss_by_word = {c["lemma"]: c["gloss"] for c in need_llm}
+    llm_out = disambiguate(
+        [{"lemma": c["lemma"], "senses": c["senses"]} for c in need_llm],
+        prompt_fn=prompt_fn, model=model, chunk_size=chunk_size,
+    )
+    for o in llm_out:
+        resolved.append({**o, "gloss": gloss_by_word.get(o["word"], o["gloss"])})
+    return resolved
+
+
 # ---------------------------------------------------------------------------
 # Disambiguation prompt + parse (pure)
 # ---------------------------------------------------------------------------

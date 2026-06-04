@@ -154,6 +154,49 @@ def test_disambiguate_chunk_error_abstains_chunk_without_crashing():
     assert out == []  # abstained, run survived
 
 
+def test_vetted_from_glossed_exact_match_skips_llm():
+    conn = _db()
+    called = []
+
+    def fake(prompt, model="haiku"):
+        called.append(prompt)
+        return {"picks": []}
+
+    out = md.vetted_topics_from_glossed(
+        conn, [{"word": "house", "gloss": "a dwelling that serves as living quarters"}],
+        prompt_fn=fake,
+    )
+    assert out == [{"word": "house", "topic_synset_id": "51775",
+                    "gloss": "a dwelling that serves as living quarters"}]
+    assert called == []  # exact gloss->synset match needs no LLM
+
+
+def test_vetted_from_glossed_single_sense_skips_llm():
+    conn = _db()
+    out = md.vetted_topics_from_glossed(
+        conn, [{"word": "anger", "gloss": "rage"}], prompt_fn=lambda p, model="haiku": {"picks": []})
+    assert out == [{"word": "anger", "topic_synset_id": "30227", "gloss": "rage"}]
+
+
+def test_vetted_from_glossed_ambiguous_uses_llm_and_keeps_curated_gloss():
+    conn = _db()
+
+    def fake(prompt, model="haiku"):
+        return {"picks": [{"lemma": "house", "sense_index": 1}]}  # 51775 = dwelling
+
+    out = md.vetted_topics_from_glossed(
+        conn, [{"word": "house", "gloss": "a place where people live"}], prompt_fn=fake)
+    assert out == [{"word": "house", "topic_synset_id": "51775",
+                    "gloss": "a place where people live"}]  # curated gloss preserved
+
+
+def test_vetted_from_glossed_drops_word_with_no_noun_sense():
+    conn = _db()
+    out = md.vetted_topics_from_glossed(
+        conn, [{"word": "zzznope", "gloss": "x"}], prompt_fn=lambda p, model="haiku": {"picks": []})
+    assert out == []
+
+
 def test_write_topics_file_roundtrips(tmp_path):
     topics = [{"word": "house", "topic_synset_id": "51775", "gloss": "a dwelling"}]
     p = tmp_path / "vetted.json"
