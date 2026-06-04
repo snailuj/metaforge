@@ -1,0 +1,178 @@
+{
+  "n_resolved": 1509,
+  "n_apt": 984,
+  "n_inapt": 525,
+  "single_feature_auc": {
+    "cos_dist": 0.574,
+    "concr_gap_snap": 0.734,
+    "concr_grad_lemma": 0.746,
+    "shared_n": 0.527,
+    "shared_idf": 0.528,
+    "type_new": 0.525,
+    "type_union": 0.523,
+    "poly_t": 0.503,
+    "poly_v": 0.558,
+    "pcount_t": 0.503,
+    "pcount_v": 0.584
+  },
+  "grouped_cv_auc_mean": 0.764,
+  "grouped_cv_auc_std": 0.022,
+  "grouped_cv_fold_aucs": [
+    0.766,
+    0.775,
+    0.727,
+    0.76,
+    0.795
+  ],
+  "mean_abs_coef": {
+    "cos_dist": 0.22,
+    "concr_gap_snap": 0.309,
+    "concr_grad_lemma": 0.704,
+    "shared_n": 0.324,
+    "shared_idf": 0.504,
+    "type_new": 0.057,
+    "type_union": 0.153,
+    "poly_t": 0.061,
+    "poly_v": 0.046,
+    "pcount_t": 0.079,
+    "pcount_v": 0.255
+  },
+  "precision_at_topk": [
+    {
+      "keep_frac": 0.1,
+      "k": 150,
+      "apt_precision": 0.907,
+      "apt_recall": 0.138,
+      "lift_over_base": 1.39
+    },
+    {
+      "keep_frac": 0.25,
+      "k": 377,
+      "apt_precision": 0.886,
+      "apt_recall": 0.339,
+      "lift_over_base": 1.359
+    },
+    {
+      "keep_frac": 0.5,
+      "k": 754,
+      "apt_precision": 0.822,
+      "apt_recall": 0.63,
+      "lift_over_base": 1.261
+    },
+    {
+      "keep_frac": 0.75,
+      "k": 1131,
+      "apt_precision": 0.752,
+      "apt_recall": 0.865,
+      "lift_over_base": 1.154
+    },
+    {
+      "keep_frac": 1.0,
+      "k": 1509,
+      "apt_precision": 0.652,
+      "apt_recall": 1.0,
+      "lift_over_base": 1.0
+    }
+  ],
+  "calibration": [
+    {
+      "bin": "[0.0,0.1)",
+      "n": 28,
+      "pred_mean": 0.068,
+      "empirical_apt": 0.107
+    },
+    {
+      "bin": "[0.1,0.2)",
+      "n": 87,
+      "pred_mean": 0.159,
+      "empirical_apt": 0.184
+    },
+    {
+      "bin": "[0.2,0.3)",
+      "n": 165,
+      "pred_mean": 0.25,
+      "empirical_apt": 0.37
+    },
+    {
+      "bin": "[0.3,0.4)",
+      "n": 225,
+      "pred_mean": 0.352,
+      "empirical_apt": 0.578
+    },
+    {
+      "bin": "[0.4,0.5)",
+      "n": 213,
+      "pred_mean": 0.449,
+      "empirical_apt": 0.61
+    },
+    {
+      "bin": "[0.5,0.6)",
+      "n": 164,
+      "pred_mean": 0.552,
+      "empirical_apt": 0.683
+    },
+    {
+      "bin": "[0.6,0.7)",
+      "n": 179,
+      "pred_mean": 0.651,
+      "empirical_apt": 0.771
+    },
+    {
+      "bin": "[0.7,0.8)",
+      "n": 182,
+      "pred_mean": 0.748,
+      "empirical_apt": 0.852
+    },
+    {
+      "bin": "[0.8,0.9)",
+      "n": 226,
+      "pred_mean": 0.849,
+      "empirical_apt": 0.889
+    },
+    {
+      "bin": "[0.9,1.0)",
+      "n": 40,
+      "pred_mean": 0.923,
+      "empirical_apt": 0.95
+    }
+  ],
+  "dead_leakage_vs_apt_recall": [
+    {
+      "target_apt_recall": 0.5,
+      "score_cut": 0.631,
+      "dead_kept_frac": 0.377,
+      "all_inapt_kept_frac": 0.154
+    },
+    {
+      "target_apt_recall": 0.6,
+      "score_cut": 0.552,
+      "dead_kept_frac": 0.41,
+      "all_inapt_kept_frac": 0.225
+    },
+    {
+      "target_apt_recall": 0.7,
+      "score_cut": 0.466,
+      "dead_kept_frac": 0.541,
+      "all_inapt_kept_frac": 0.324
+    },
+    {
+      "target_apt_recall": 0.8,
+      "score_cut": 0.388,
+      "dead_kept_frac": 0.639,
+      "all_inapt_kept_frac": 0.455
+    },
+    {
+      "target_apt_recall": 0.9,
+      "score_cut": 0.33,
+      "dead_kept_frac": 0.721,
+      "all_inapt_kept_frac": 0.568
+    }
+  ],
+  "per_inapt_class_auc": {
+    "dead_metaphor": 0.608,
+    "same_domain": 0.838,
+    "single_dimension": 0.743,
+    "synonym_or_hypernym": 0.878,
+    "wrong_concreteness": 0.777
+  }
+}

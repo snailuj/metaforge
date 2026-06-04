@@ -1,0 +1,6 @@
+gloss-pairs resolved: 1690 (apt=1097, inapt=593); miss=22
+  gloss jaccard: AUC(apt-vs-inapt)=0.537
+  gloss shared: AUC(apt-vs-inapt)=0.536
+  apt   pairs sharing >=1 gloss content word: 4.6% (mean 0.05)
+  inapt pairs sharing >=1 gloss content word: 11.8% (mean 0.17)
+INTERPRETATION: AUC~0.5 => gloss text overlap does not separate apt from inapt either (4th substrate fails).

@@ -1,0 +1,182 @@
+{
+  "params": {
+    "db": "data-pipeline/output/lexicon_v2.db",
+    "topics_json": "docs/inbox/2026-06-03-context-free-edges/artifacts/cohort_topics.json",
+    "topic_sids": [],
+    "df_cap": 200,
+    "min_shared": 3,
+    "mode": "idf_sal",
+    "k": 8,
+    "fanout_scan": false,
+    "output": "docs/inbox/2026-06-03-context-free-edges/artifacts/derived_cohort_v1.json"
+  },
+  "n_synsets": 81000,
+  "topics": [
+    {
+      "topic": "anger",
+      "topic_synset_id": "30227",
+      "topic_lemma": "anger",
+      "n_topic_clusters_surviving": 2,
+      "candidates": []
+    },
+    {
+      "topic": "time",
+      "topic_synset_id": "445",
+      "topic_lemma": "time",
+      "n_topic_clusters_surviving": 0,
+      "candidates": []
+    },
+    {
+      "topic": "ideas",
+      "topic_synset_id": "64981",
+      "topic_lemma": "idea",
+      "n_topic_clusters_surviving": 7,
+      "candidates": [
+        {
+          "vehicle_synset_id": "28185",
+          "vehicle_lemma": "conceptualise",
+          "score": 16.0882,
+          "n_shared": 3,
+          "topic_concr": 2.5,
+          "vehicle_concr": 3.24
+        }
+      ]
+    },
+    {
+      "topic": "life",
+      "topic_synset_id": "92",
+      "topic_lemma": "life",
+      "n_topic_clusters_surviving": 2,
+      "candidates": []
+    },
+    {
+      "topic": "argument",
+      "topic_synset_id": "67993",
+      "topic_lemma": "argument",
+      "n_topic_clusters_surviving": 4,
+      "candidates": []
+    },
+    {
+      "topic": "heart",
+      "topic_synset_id": "51552",
+      "topic_lemma": "heart",
+      "n_topic_clusters_surviving": 3,
+      "candidates": []
+    },
+    {
+      "topic": "light",
+      "topic_synset_id": "64121",
+      "topic_lemma": "light",
+      "n_topic_clusters_surviving": 1,
+      "candidates": []
+    },
+    {
+      "topic": "road",
+      "topic_synset_id": "3672",
+      "topic_lemma": "road",
+      "n_topic_clusters_surviving": 3,
+      "candidates": []
+    },
+    {
+      "topic": "anchor",
+      "topic_synset_id": "23626",
+      "topic_lemma": "anchor",
+      "n_topic_clusters_surviving": 0,
+      "candidates": []
+    },
+    {
+      "topic": "mirror",
+      "topic_synset_id": "53081",
+      "topic_lemma": "mirror",
+      "n_topic_clusters_surviving": 4,
+      "candidates": []
+    },
+    {
+      "topic": "deadline",
+      "topic_synset_id": "103919",
+      "topic_lemma": "deadline",
+      "n_topic_clusters_surviving": 3,
+      "candidates": []
+    },
+    {
+      "topic": "recursion",
+      "topic_synset_id": "64328",
+      "topic_lemma": "recursion",
+      "n_topic_clusters_surviving": 3,
+      "candidates": []
+    },
+    {
+      "topic": "ambush",
+      "topic_synset_id": "22876",
+      "topic_lemma": "lying in wait",
+      "n_topic_clusters_surviving": 2,
+      "candidates": []
+    },
+    {
+      "topic": "threshold",
+      "topic_synset_id": "104402",
+      "topic_lemma": "threshold",
+      "n_topic_clusters_surviving": 3,
+      "candidates": []
+    },
+    {
+      "topic": "gridlock",
+      "topic_synset_id": "76552",
+      "topic_lemma": "gridlock",
+      "n_topic_clusters_surviving": 4,
+      "candidates": []
+    },
+    {
+      "topic": "anxiety",
+      "topic_synset_id": "72810",
+      "topic_lemma": "anxiety",
+      "n_topic_clusters_surviving": 6,
+      "candidates": []
+    },
+    {
+      "topic": "hope",
+      "topic_synset_id": "59187",
+      "topic_lemma": "hope",
+      "n_topic_clusters_surviving": 4,
+      "candidates": []
+    },
+    {
+      "topic": "grief",
+      "topic_synset_id": "64254",
+      "topic_lemma": "grief",
+      "n_topic_clusters_surviving": 2,
+      "candidates": []
+    },
+    {
+      "topic": "courage",
+      "topic_synset_id": "59234",
+      "topic_lemma": "courage",
+      "n_topic_clusters_surviving": 2,
+      "candidates": []
+    },
+    {
+      "topic": "doubt",
+      "topic_synset_id": "14297",
+      "topic_lemma": "doubt",
+      "n_topic_clusters_surviving": 4,
+      "candidates": [
+        {
+          "vehicle_synset_id": "7437",
+          "vehicle_lemma": "incertain",
+          "score": 19.5028,
+          "n_shared": 3,
+          "topic_concr": 1.79,
+          "vehicle_concr": 2.0
+        },
+        {
+          "vehicle_synset_id": "10809",
+          "vehicle_lemma": "?",
+          "score": 18.2829,
+          "n_shared": 3,
+          "topic_concr": 1.79,
+          "vehicle_concr": 1.96
+        }
+      ]
+    }
+  ]
+}
