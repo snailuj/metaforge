@@ -275,6 +275,28 @@ def test_run_tripwire_pauses_on_all_empty_batches(tmp_path):
     assert res["chains_written"] == 0
 
 
+def test_run_tripwire_ignores_transient_errors(tmp_path):
+    """A 429/transient-error storm ALSO produces zero-record batches — but those
+    carry NO liveness signal (the topic never got a verdict; it's retried on
+    resume). They must NOT feed synthetic-dead, or a session-limit outage
+    false-trips the brake on healthy generation. Mirror of the all-empty test:
+    same zero records, opposite cause, opposite verdict."""
+    out = tmp_path / "c.jsonl"
+
+    def boom(prompt):
+        raise RuntimeError("429 session limit · resets 3pm (UTC)")
+
+    tw = mlr.new_tripwire(window=4, min_judged=2, abs_floor=0.5, rel_drop=0.9, baseline_n=2)
+    res = mge.run(
+        topics=_topics(6), output_jsonl=str(out), haiku_fn=_haiku,
+        sonnet_fn=boom, resolve_synset=_resolve_vehicles,
+        batch_size=1, tripwire=tw, judge_fn=lambda rec: {"verdict": "dead", "ok": True},
+        judge_sample=2, now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert res["paused"] is False and res["pause_reason"] is None
+    assert res["topics_processed"] == 6  # all attempted; none cut off by a false pause
+
+
 def test_run_judge_samples_spread_across_distinct_topics(tmp_path):
     """The brake must see >=1 record per topic, not judge_sample records from a
     single prolific topic — else clustered degradation is invisible."""

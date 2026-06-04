@@ -279,6 +279,7 @@ def run(
     for bstart in range(0, len(pending), batch_size):
         batch = pending[bstart:bstart + batch_size]
         batch_recs: list[dict] = []
+        batch_clean_empty = 0  # topics that returned cleanly but yielded no records
         t0 = time.monotonic()
 
         for t in batch:
@@ -322,8 +323,11 @@ def run(
                 batch_recs.extend(recs)
             elif not errored:
                 # processed cleanly but produced nothing usable -> record so a
-                # permanently-empty topic is never re-billed on resume.
+                # permanently-empty topic is never re-billed on resume. This is a
+                # genuine liveness signal (the model answered; the answer was barren),
+                # unlike a transient error, so it feeds the tripwire below.
                 _append_attempted(output_jsonl, tsid)
+                batch_clean_empty += 1
 
             # In-loop cost guard: bound overshoot to ~one topic, not a whole batch.
             if max_cost_usd is not None and est_cost >= max_cost_usd:
@@ -345,8 +349,12 @@ def run(
                         continue
                     if verdict.get("ok"):
                         tripwire = mlr.record_verdict(tripwire, verdict["verdict"])
-            elif batch:
-                # attempted topics but ZERO usable records IS a liveness collapse
+            elif batch_clean_empty:
+                # topics that answered cleanly but produced ZERO usable records ARE
+                # a liveness collapse -> feed synthetic-dead. A batch that is empty
+                # ONLY because every topic transiently errored (e.g. 429 session
+                # limit) carries no verdict and must NOT feed the brake, or an
+                # outage false-trips it; those topics simply retry on resume.
                 for _ in range(judge_sample):
                     tripwire = mlr.record_verdict(tripwire, "dead")
             window_rate = mlr.live_rate(list(tripwire.recent))
