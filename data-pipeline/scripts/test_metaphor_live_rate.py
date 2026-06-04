@@ -53,6 +53,17 @@ def test_judge_prompt_asks_for_the_three_verdicts():
     assert "live" in p and "dead" in p and "irrelevant" in p
 
 
+def test_judge_prompt_is_an_imperative_one_shot_task():
+    """Regression: a role-setup opener ('You are a judge...') made the model
+    reply conversationally ('provide the metaphor pairs and I'll respond')
+    instead of classifying the metaphor already in the prompt. The prompt must
+    LEAD with the classify task and CLOSE demanding JSON-only output."""
+    p = mlr.build_judge_prompt(_record())
+    assert "classify" in p[:120].lower()        # task first, not a role preamble
+    tail = p[-220:].lower()
+    assert "only" in tail and "json" in tail     # JSON-only demand at the very end
+
+
 def test_judge_prompt_is_conservative_zero_false_positive():
     """When unsure the judge must NOT call live — the monitor under-calls live
     by design so a 'live' signal is trustworthy."""

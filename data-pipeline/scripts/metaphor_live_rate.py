@@ -28,6 +28,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))  
 log = logging.getLogger(__name__)
 
 DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
+# The judge is a sampled MONITOR — a flaky response should fail fast and be
+# skipped (ok=False, not counted), never trigger the client's full 5x retry
+# storm (which cost ~10 min/batch in the smoke before this cap).
+JUDGE_MAX_RETRIES = 2
 _VALID_VERDICTS = ("live", "dead", "irrelevant")
 
 
@@ -76,32 +80,36 @@ def _render_chain(record: dict) -> str:
 
 
 def build_judge_prompt(record: dict) -> str:
-    """Conservative liveness judge prompt for a single chain.v1 record."""
+    """Conservative liveness judge prompt for a single chain.v1 record.
+
+    Structured as an imperative ONE-SHOT task (instruction + the concrete
+    metaphor first, JSON-only demand last). A role-preamble opener ('You are a
+    judge…') made the model treat it as setup and reply 'provide the metaphor
+    pairs and I'll respond' instead of classifying the metaphor already given.
+    """
     topic = record.get("topic", "")
     vehicle = record.get("vehicle", "")
     chain_str = _render_chain(record)
-    return f"""You are a strict, conservative judge of metaphor quality.
+    return f"""Classify this ONE metaphor as exactly "live", "dead", or "irrelevant".
 
-A metaphor pairs a TOPIC with a VEHICLE via an ordered conceptual chain:
+THE METAPHOR TO CLASSIFY:
+  {topic} → {vehicle}
+  via the conceptual chain: {chain_str}
 
-  {chain_str}
-
-  topic = {topic}
-  vehicle = {vehicle}
-
-Classify the {topic} → {vehicle} metaphor as exactly one of:
+Definitions:
   - "live": an apt, vivid, cross-domain metaphor a careful writer would use —
     the vehicle illuminates the topic in a fresh, non-obvious way.
   - "dead": a cliché, a near-synonym, a conventional/dead metaphor, or a pairing
     whose connection is purely literal or definitional (no cross-domain leap).
   - "irrelevant": no genuine metaphorical connection between topic and vehicle.
 
-CRITICAL — be conservative and avoid false positives: if you are unsure, in any
-doubt, or the aptness is only weak, do NOT call it "live". Reserve "live" for
-metaphors you are confident a discerning editor would keep. Under-calling live
-is correct; over-calling live is a serious error.
+Be a strict, conservative judge: if you are unsure, in any doubt, or the aptness
+is only weak, do NOT call it "live". Reserve "live" for metaphors you are
+confident a discerning editor would keep. Under-calling live is correct;
+over-calling live is a serious error.
 
-Respond with STRICT JSON and nothing else:
+The metaphor is given above — classify it now. Output ONLY this JSON object and
+nothing else (no preamble, no request for input):
 {{"verdict": "live|dead|irrelevant", "confidence": <0.0-1.0>, "reason": "<short>"}}"""
 
 
@@ -115,7 +123,7 @@ def judge_chain(record: dict, *, prompt_fn=None, model: str = DEFAULT_JUDGE_MODE
     """
     if prompt_fn is None:
         from claude_client import prompt_json  # lazy: keeps unit tests import-light
-        prompt_fn = prompt_json
+        prompt_fn = lambda p, model: prompt_json(p, model=model, max_retries=JUDGE_MAX_RETRIES)
     prompt = build_judge_prompt(record)
     try:
         raw = prompt_fn(prompt, model=model)
