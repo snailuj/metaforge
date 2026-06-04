@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -73,6 +74,7 @@ def chain_records_from_sonnet(
     skipped (a chain.v1 record requires a vehicle_synset_id).
     """
     out: list[dict] = []
+    seen_sigs: set[str] = set()
     for v in sonnet_resp.get("vehicles", []) if isinstance(sonnet_resp, dict) else []:
         if not isinstance(v, dict):
             continue
@@ -83,6 +85,11 @@ def chain_records_from_sonnet(
         vehicle_synset_id = resolve_synset(vehicle)
         if not vehicle_synset_id:
             log.info("skip vehicle %r for topic %r: no synset", vehicle, topic)
+            continue
+        if vehicle_synset_id == topic_synset_id:
+            # self-metaphor (topic echoed as vehicle, or a lemma resolving back to
+            # the topic synset) is not a metaphor — drop it, don't grade it.
+            log.info("skip self-metaphor %r for topic %r", vehicle, topic)
             continue
 
         raw_chain = v.get("chain", []) if isinstance(v.get("chain"), list) else []
@@ -101,6 +108,11 @@ def chain_records_from_sonnet(
         steps.append({"phrase": vehicle, "head": vehicle, "synset_id": vehicle_synset_id})
 
         phrases = [s["phrase"] for s in steps]
+        signature = compute_chain_signature(proposer, phrases)
+        if signature in seen_sigs:
+            # identical walk emitted twice in one response -> one card, not two
+            # (chain_signature is the grading dedup/verdict key).
+            continue
         rec = {
             "schema_version": "chain.v1",
             "topic": topic,
@@ -110,7 +122,7 @@ def chain_records_from_sonnet(
             "proposer": proposer,
             "round": round_num,
             "chain": steps,
-            "chain_signature": compute_chain_signature(proposer, phrases),
+            "chain_signature": signature,
             "generated_at": generated_at,
         }
         try:
@@ -118,6 +130,7 @@ def chain_records_from_sonnet(
         except Exception as exc:  # noqa: BLE001 — invalid record is a skip, not a crash
             log.warning("skip invalid chain %s->%s: %s", topic, vehicle, exc)
             continue
+        seen_sigs.add(signature)
         out.append(rec)
     return out
 
@@ -146,6 +159,44 @@ def completed_topic_synset_ids(output_jsonl: str) -> set[str]:
             if tsid is not None:
                 done.add(tsid)
     return done
+
+
+def _attempted_path(output_jsonl: str) -> str:
+    return output_jsonl + ".attempted"
+
+
+def read_attempted(output_jsonl: str) -> set[str]:
+    """topic_synset_ids that completed the pipeline but produced ZERO usable
+    records (e.g. every vehicle unresolvable). These are spent-and-empty, so a
+    resume must NOT re-bill them — distinct from transient errors, which are not
+    recorded here and so DO retry."""
+    p = Path(_attempted_path(output_jsonl))
+    if not p.exists():
+        return set()
+    return {line.strip() for line in p.open() if line.strip()}
+
+
+def _append_attempted(output_jsonl: str, topic_synset_id: str) -> None:
+    with open(_attempted_path(output_jsonl), "a") as f:
+        f.write(topic_synset_id + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def _spread_sample(records: list[dict], k: int) -> list[dict]:
+    """At most one record per distinct topic_synset_id, up to k — so the brake's
+    window sees k different TOPICS, not k vehicles of one prolific topic."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for r in records:
+        t = r.get("topic_synset_id")
+        if t in seen:
+            continue
+        seen.add(t)
+        out.append(r)
+        if len(out) >= k:
+            break
+    return out
 
 
 def load_vetted_topics(path: str) -> list[dict]:
@@ -214,12 +265,12 @@ def run(
     out_path = Path(output_jsonl)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    completed = completed_topic_synset_ids(output_jsonl)
+    # Resume key = topics already in the output OR recorded spent-and-empty.
+    completed = completed_topic_synset_ids(output_jsonl) | read_attempted(output_jsonl)
     pending = [t for t in topics if t["topic_synset_id"] not in completed]
     if max_topics is not None:
         pending = pending[:max_topics]
 
-    per_topic_cost = haiku_cost_per_topic + sonnet_cost_per_topic
     topics_processed = chains_written = batches = 0
     est_cost = 0.0
     paused = False
@@ -233,52 +284,79 @@ def run(
         for t in batch:
             word, tsid, gloss = t["word"], t["topic_synset_id"], t.get("gloss", "")
             topics_processed += 1
+            recs: list[dict] = []
+            errored = False
             try:
-                apt = haiku_fn(word, gloss)
+                # Charge each LLM call on ATTEMPT (try/finally) so a call that
+                # raised — possibly after paid retries — still counts. Over-counting
+                # is the safe direction for a spend brake; under-counting is not.
+                try:
+                    apt = haiku_fn(word, gloss)
+                finally:
+                    est_cost += haiku_cost_per_topic
                 metaphors = apt.get("metaphors", []) if isinstance(apt, dict) else []
-                if not metaphors:
+                if metaphors:
+                    prompt = build_prompt(word, gloss, metaphors, anti_examples or None)
+                    try:
+                        sresp = sonnet_fn(prompt)
+                    finally:
+                        est_cost += sonnet_cost_per_topic
+                    recs = chain_records_from_sonnet(
+                        topic=word, topic_synset_id=tsid, gloss=gloss, sonnet_resp=sresp,
+                        proposer=proposer, round_num=round_num, generated_at=now_fn(),
+                        resolve_synset=resolve_synset,
+                    )
+                else:
                     log.info("skip %s: no Haiku metaphors", word)
-                    continue
-                prompt = build_prompt(word, gloss, metaphors, anti_examples or None)
-                sresp = sonnet_fn(prompt)
-                recs = chain_records_from_sonnet(
-                    topic=word, topic_synset_id=tsid, gloss=gloss, sonnet_resp=sresp,
-                    proposer=proposer, round_num=round_num, generated_at=now_fn(),
-                    resolve_synset=resolve_synset,
-                )
             except Exception as exc:  # noqa: BLE001 — one topic's failure must not abort the run
-                log.warning("topic %r generation failed (skipped, will retry on resume): %s", word, exc)
-                continue
+                errored = True
+                log.warning("topic %r generation failed (will retry on resume): %s", word, exc)
+
             if recs:
                 with out_path.open("a") as f:
                     for r in recs:
                         f.write(json.dumps(r, ensure_ascii=False) + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
                 chains_written += len(recs)
                 batch_recs.extend(recs)
-            est_cost += per_topic_cost
+            elif not errored:
+                # processed cleanly but produced nothing usable -> record so a
+                # permanently-empty topic is never re-billed on resume.
+                _append_attempted(output_jsonl, tsid)
+
+            # In-loop cost guard: bound overshoot to ~one topic, not a whole batch.
+            if max_cost_usd is not None and est_cost >= max_cost_usd:
+                paused, pause_reason = True, "cost_cap"
+                break
 
         batches += 1
         elapsed = time.monotonic() - t0
 
-        # --- tripwire: sample-judge this batch ---
-        sampled_rate = None
-        if tripwire is not None and judge_fn is not None and batch_recs:
-            for rec in batch_recs[:judge_sample]:
-                try:
-                    verdict = judge_fn(rec)
-                except Exception as exc:  # noqa: BLE001 — a judge failure must not crash the run
-                    log.warning("judge failed (not counted): %s", exc)
-                    continue
-                if verdict.get("ok"):
-                    tripwire = mlr.record_verdict(tripwire, verdict["verdict"])
-            sampled_rate = mlr.live_rate(list(tripwire.recent))
-            if mlr.should_pause(tripwire):
+        # --- tripwire: feed the brake even when a batch produced nothing ---
+        window_rate = None
+        if tripwire is not None and judge_fn is not None:
+            if batch_recs:
+                for rec in _spread_sample(batch_recs, judge_sample):
+                    try:
+                        verdict = judge_fn(rec)
+                    except Exception as exc:  # noqa: BLE001 — a judge failure must not crash the run
+                        log.warning("judge failed (not counted): %s", exc)
+                        continue
+                    if verdict.get("ok"):
+                        tripwire = mlr.record_verdict(tripwire, verdict["verdict"])
+            elif batch:
+                # attempted topics but ZERO usable records IS a liveness collapse
+                for _ in range(judge_sample):
+                    tripwire = mlr.record_verdict(tripwire, "dead")
+            window_rate = mlr.live_rate(list(tripwire.recent))
+            if not paused and mlr.should_pause(tripwire):
                 paused, pause_reason = True, "tripwire"
 
         row = {
             "batch": batches, "topics_in_batch": len(batch),
             "chains_written_total": chains_written, "est_cost_usd": round(est_cost, 4),
-            "elapsed_s": round(elapsed, 2), "live_rate_sample": sampled_rate,
+            "elapsed_s": round(elapsed, 2), "live_rate_window": window_rate,
         }
         log.info("batch %s: %s", batches, row)
         if log_fn:
@@ -289,9 +367,6 @@ def run(
                 commit_fn()
             except Exception as exc:  # noqa: BLE001 — a commit hiccup must not lose generated work
                 log.warning("autocommit failed (continuing): %s", exc)
-
-        if max_cost_usd is not None and est_cost >= max_cost_usd:
-            paused, pause_reason = True, "cost_cap"
 
         if paused:
             log.warning("run paused: %s (after batch %s)", pause_reason, batches)
@@ -342,8 +417,12 @@ def make_judge_fn(model: str):
 def make_git_commit_fn(paths: list[str], message: str, cwd: str | None = None):
     def _commit():
         subprocess.run(["git", "add", *paths], check=True, cwd=cwd)
-        # allow-empty avoids a non-zero exit when a batch produced no new lines
-        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", message], check=True, cwd=cwd)
+        # A batch that produced no new lines is a benign no-op, not an error —
+        # avoid manufacturing empty commits that clutter the auto-commit trail.
+        res = subprocess.run(["git", "commit", "-q", "-m", message], cwd=cwd,
+                             capture_output=True, text=True)
+        if res.returncode != 0 and "nothing to commit" not in (res.stdout + res.stderr):
+            raise RuntimeError(f"git commit failed: {res.stderr.strip() or res.stdout.strip()}")
     return _commit
 
 
@@ -363,17 +442,26 @@ def main() -> int:
     ap.add_argument("--sonnet-model", default="claude-sonnet-4-6")
     ap.add_argument("--haiku-model", default="claude-haiku-4-5-20251001")
     ap.add_argument("--judge-model", default="claude-haiku-4-5-20251001")
-    ap.add_argument("--judge-sample", type=int, default=2)
+    ap.add_argument("--judge-sample", type=int, default=3, help="topics sample-judged per batch (brake density).")
     ap.add_argument("--no-tripwire", action="store_true", help="Disable the live-rate tripwire.")
-    ap.add_argument("--tw-window", type=int, default=40)
-    ap.add_argument("--tw-min-judged", type=int, default=40)
-    ap.add_argument("--tw-abs-floor", type=float, default=0.25)
+    ap.add_argument("--tw-window", type=int, default=30)
+    ap.add_argument("--tw-min-judged", type=int, default=15)
+    ap.add_argument("--tw-abs-floor", type=float, default=0.08,
+                    help="collapse floor — set BELOW the measured healthy live-rate, not as a quality bar.")
     ap.add_argument("--tw-rel-drop", type=float, default=0.4)
-    ap.add_argument("--tw-baseline-n", type=int, default=40)
+    ap.add_argument("--tw-baseline-n", type=int, default=15)
     ap.add_argument("--autocommit-every", type=int, default=None, help="git-commit the output every N batches.")
     args = ap.parse_args()
 
     import sqlite3
+    # Make a mis-targeted autocommit visible on day 1 of a multi-day run.
+    if args.autocommit_every:
+        try:
+            branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                                    capture_output=True, text=True).stdout.strip()
+            log.info("autocommit ON: branch=%s cwd=%s output=%s", branch, os.getcwd(), args.output)
+        except Exception as exc:  # noqa: BLE001 — diagnostics must not block the run
+            log.warning("could not resolve git branch for autocommit log: %s", exc)
     topics = load_vetted_topics(args.topics)
     conn = sqlite3.connect(args.db)
     try:

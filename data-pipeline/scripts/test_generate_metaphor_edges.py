@@ -217,3 +217,127 @@ def test_run_autocommits_every_n_batches(tmp_path):
         now_fn=lambda: "2026-06-04T00:00:00+00:00",
     )
     assert len(commits) == 2  # one per batch (2 topics, batch_size 1)
+
+
+# --- review hardening: distinct-synset topics + a volcano/storm resolver -----
+def _topics(n):
+    return [{"word": f"w{i}", "topic_synset_id": str(100 + i), "gloss": "g"} for i in range(n)]
+
+
+def _resolve_vehicles(w):
+    return {"volcano": "9", "storm": "8", "pressure": "7"}.get(w)
+
+
+# --- money-safety: cost charged at point of spend, not only on success -------
+def test_run_charges_cost_on_attempt_even_when_every_topic_errors(tmp_path):
+    """Cost guard must NOT fail open: a topic that spent Haiku+Sonnet then errored
+    still accrues its spend, so --max-cost-usd can engage on an all-error tail."""
+    out = tmp_path / "c.jsonl"
+
+    def boom(prompt):
+        raise RuntimeError("sonnet down")
+
+    res = mge.run(
+        topics=_two_topics(), output_jsonl=str(out), haiku_fn=_haiku, sonnet_fn=boom,
+        resolve_synset=_resolve_all, now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert res["est_cost_usd"] == pytest.approx(
+        2 * (mge.HAIKU_COST_PER_TOPIC + mge.SONNET_COST_PER_TOPIC)
+    )
+
+
+def test_run_cost_cap_stops_within_batch(tmp_path):
+    """Overshoot must be bounded to ~one topic, not a whole batch."""
+    out = tmp_path / "c.jsonl"
+    res = mge.run(
+        topics=_topics(5), output_jsonl=str(out), haiku_fn=_haiku,
+        sonnet_fn=lambda p: _sonnet_resp(), resolve_synset=_resolve_vehicles,
+        batch_size=20, max_cost_usd=0.6, now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    # per_topic ~0.252: stops once est_cost >= 0.6, i.e. after the 3rd topic
+    assert res["paused"] is True and res["pause_reason"] == "cost_cap"
+    assert res["topics_processed"] == 3
+
+
+# --- safety brake: zero-record batches must feed the tripwire ----------------
+def test_run_tripwire_pauses_on_all_empty_batches(tmp_path):
+    """A cratering tail can produce ZERO valid records per batch (all vehicles
+    unresolvable). That total collapse must trip the brake, not slip past it."""
+    out = tmp_path / "c.jsonl"
+    tw = mlr.new_tripwire(window=4, min_judged=2, abs_floor=0.5, rel_drop=0.9, baseline_n=2)
+    res = mge.run(
+        topics=_topics(6), output_jsonl=str(out), haiku_fn=_haiku,
+        sonnet_fn=lambda p: _sonnet_resp(), resolve_synset=lambda w: None,  # nothing resolves
+        batch_size=1, tripwire=tw, judge_fn=lambda rec: {"verdict": "dead", "ok": True},
+        judge_sample=2, now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert res["paused"] is True and res["pause_reason"] == "tripwire"
+    assert res["chains_written"] == 0
+
+
+def test_run_judge_samples_spread_across_distinct_topics(tmp_path):
+    """The brake must see >=1 record per topic, not judge_sample records from a
+    single prolific topic — else clustered degradation is invisible."""
+    out = tmp_path / "c.jsonl"
+    seen = []
+
+    def judge(rec):
+        seen.append(rec["topic_synset_id"])
+        return {"verdict": "live", "ok": True}
+
+    def sonnet_two_vehicles(prompt):
+        return {"vehicles": [
+            {"vehicle": "volcano", "chain": [{"phrase": "x", "head": "x"}, {"phrase": "volcano", "head": "volcano"}]},
+            {"vehicle": "storm", "chain": [{"phrase": "y", "head": "y"}, {"phrase": "storm", "head": "storm"}]},
+        ]}
+
+    tw = mlr.new_tripwire(window=10, min_judged=100, abs_floor=0.0, rel_drop=1.0, baseline_n=10)
+    mge.run(
+        topics=_topics(2), output_jsonl=str(out), haiku_fn=_haiku, sonnet_fn=sonnet_two_vehicles,
+        resolve_synset=_resolve_vehicles, batch_size=20, tripwire=tw, judge_fn=judge,
+        judge_sample=2, now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert len(seen) == 2 and len(set(seen)) == 2  # two DISTINCT topics, not 2 vehicles of one
+
+
+# --- output integrity: self-metaphor + within-topic dedup -------------------
+def test_transform_skips_self_metaphor():
+    sonnet = {"vehicles": [{"vehicle": "fire", "chain": [
+        {"phrase": "fire", "head": "fire"}, {"phrase": "heat", "head": "heat"},
+        {"phrase": "fire", "head": "fire"}]}]}
+    recs = mge.chain_records_from_sonnet(
+        topic="fire", topic_synset_id="1", gloss="g", sonnet_resp=sonnet,
+        proposer="sonnet_v1", round_num=2, generated_at="2026-06-04T00:00:00+00:00",
+        resolve_synset=_resolver({"fire": "1", "heat": "3"}),  # vehicle 'fire' -> topic synset
+    )
+    assert recs == []
+
+
+def test_transform_dedups_repeated_walk():
+    v = {"vehicle": "volcano", "chain": [
+        {"phrase": "anger", "head": "anger"}, {"phrase": "pressure", "head": "pressure"},
+        {"phrase": "volcano", "head": "volcano"}]}
+    recs = mge.chain_records_from_sonnet(
+        topic="anger", topic_synset_id="1", gloss="g", sonnet_resp={"vehicles": [v, v]},
+        proposer="sonnet_v1", round_num=2, generated_at="2026-06-04T00:00:00+00:00",
+        resolve_synset=_resolver({"anger": "1", "volcano": "2", "pressure": "3"}),
+    )
+    assert len(recs) == 1  # identical walk emitted twice -> one record (signature dedup)
+
+
+# --- idempotency: zero-record topics must not be re-spent on resume ----------
+def test_run_does_not_respend_zero_record_topics(tmp_path):
+    out = tmp_path / "c.jsonl"
+    calls = []
+
+    def haiku(word, gloss):
+        calls.append(word)
+        return {"topic": word, "metaphors": [{"vehicle": "volcano", "shared_features": []}]}
+
+    kw = dict(output_jsonl=str(out), haiku_fn=haiku, sonnet_fn=lambda p: _sonnet_resp(),
+              resolve_synset=lambda w: None, now_fn=lambda: "2026-06-04T00:00:00+00:00")
+    r1 = mge.run(topics=_topics(2), **kw)
+    assert r1["chains_written"] == 0
+    r2 = mge.run(topics=_topics(2), **kw)  # permanently-empty topics must be skipped
+    assert r2["topics_processed"] == 0
+    assert len(calls) == 2  # Haiku spent only once per topic, never re-billed
