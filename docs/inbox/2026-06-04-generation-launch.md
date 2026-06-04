@@ -5,13 +5,39 @@ proxy-judge live-rate tripwire, and the LLM sense-disambiguation pass are on bra
 `metaphor-graph/enrich-stage-a` (the consolidated Stage-A run branch). All JSONL-native
 (grading-tool consumes the round files directly); DB ingestion deferred per the 2026-06-04 call.
 
+## LIVE STATUS (2026-06-04, end of build session)
+- **200-loop (round 2): RUNNING** in background → `data-pipeline/grading/sonnet_chains_provisional_r2.jsonl`
+  (Sonnet-only, stored-Haiku reuse; `--batch-size 10 --judge-sample 3`, tripwire on, caps 200 topics / $80).
+  Resumable: re-run the exact command to continue after any interruption (idempotent by topic_synset_id).
+- **Disambiguation → ~7.5k vetted topics: BUILDING** in background → `data-pipeline/output/generation_topics_10k.json`
+  (head_lemmas ~7,473 at min_zipf 2.5; single-sense auto, multi-sense LLM dominant-sense; ~$5–8 one-time).
+- **10k generation: NOT started — Julian's switch** (the multi-day ~$1.9k spend). Command below.
+- Monitor: `tail -f` the task output, or `wc -l data-pipeline/grading/sonnet_chains_provisional_r2.jsonl`.
+  Stop a run: `pkill -f generate_metaphor_edges` (resumable). Healthy live-rate ≈ 0.20 (see calibration).
+
 ## What runs where
 
 | Piece | Command (from repo root, run branch `metaphor-graph/enrich-stage-a`) |
 |---|---|
 | **200-loop (round 2)** | `data-pipeline/.venv/bin/python data-pipeline/scripts/generate_metaphor_edges.py --topics data-pipeline/output/generation_topics_200.json --output data-pipeline/grading/sonnet_chains_provisional_r2.jsonl --db data-pipeline/output/lexicon_v2.db --haiku-jsonl data-pipeline/output/metaphor_spike_apt_phase2_20260525T004154.jsonl --round 2 --batch-size 20 --autocommit-every 1` |
 | **disambiguation → 10k topics file** | `data-pipeline/.venv/bin/python data-pipeline/scripts/metaphor_disambiguate.py --db data-pipeline/output/lexicon_v2.db --limit 10000 -o data-pipeline/output/generation_topics_10k.json` |
-| **10k generation (Julian-launched, multi-day)** | as the 200-loop but `--topics …_10k.json --output …_r2_10k.jsonl --max-topics 10000 --max-cost-usd <cap>` (live Haiku — drop `--haiku-jsonl`) |
+| **10k generation (Julian-launched, multi-day)** | see the exact command below (live Haiku — drops `--haiku-jsonl`) |
+
+### 10k generation — Julian's launch command (after `generation_topics_10k.json` is built)
+```bash
+cd /home/agent/projects/metaforge
+nohup data-pipeline/.venv/bin/python data-pipeline/scripts/generate_metaphor_edges.py \
+  --topics data-pipeline/output/generation_topics_10k.json \
+  --output data-pipeline/grading/sonnet_chains_provisional_r2_10k.jsonl \
+  --db data-pipeline/output/lexicon_v2.db \
+  --round 2 --batch-size 20 --judge-sample 3 \
+  --max-topics 7500 --max-cost-usd 2000 \
+  > data-pipeline/output/generation_10k.log 2>&1 &
+```
+Live Haiku+Sonnet (~$0.25/topic). `--max-topics` is the hard cap; `--max-cost-usd` the soft guard;
+the tripwire (default `--tw-abs-floor 0.08`) is the emergency brake. Resumable: re-run to continue.
+To "feed after the 200 exhausts", point `--topics` at the 10k file once the 200-loop completes — or run
+both files into the SAME `--output` so resume-by-topic_synset_id de-dupes the overlap automatically.
 
 The 200-loop reuses the stored Haiku apt dump (no Haiku re-spend → Sonnet-only). The 10k run
 generates Haiku fresh (no stored dump for new topics).
@@ -52,6 +78,14 @@ of 20 — Sonnet generation dominates wall-clock.
   separate from the run branch).
 
 ## Known follow-ups (captured in PIPELINE inbox)
-- 1 topic dropped (`ideas` — plural, no noun sense; lemmatise to `idea` if wanted).
+- 2 of 200 dropped (`a`, `ideas` — single letter / plural, no noun sense; lemmatise `ideas`→`idea` if wanted).
+- **Frequency-head topic selection includes primarily-verb/function words** whose only noun sense is rare
+  (`down`→"feathers", `take`→"film take"). The disambiguator picks the dominant *noun* sense correctly, but
+  these are marginal metaphor topics. No POS-dominance data in the DB to filter them (same gap as
+  sense-frequency). A future POS-dominance filter (require the lemma's dominant POS = noun) would clean the
+  head; for now the grading loop filters quality downstream. Minority of topics.
 - Cross-file/cross-round `chain_signature` dedup belongs in the grading consumer.
 - DB `metaphor_judgments.label` is v1; reconcile before JSONL→DB judgment ingestion.
+- Feeding the LIVE grading tool: the r2 round file is generated in the main checkout on `enrich-stage-a`;
+  the live grader reads `.worktrees/next/data-pipeline/grading/` on `grading-live` — copy/commit the round
+  file there (deploy step) to grade round 2.
