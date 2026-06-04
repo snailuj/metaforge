@@ -5,6 +5,12 @@ proxy-judge live-rate tripwire, and the LLM sense-disambiguation pass are on bra
 `metaphor-graph/enrich-stage-a` (the consolidated Stage-A run branch). All JSONL-native
 (grading-tool consumes the round files directly); DB ingestion deferred per the 2026-06-04 call.
 
+## SESSION-2 UPDATES (after Julian review) — READ FIRST
+- **Tripwire recalibrated:** abs_floor 0.08→**0.03**, window→40, rel_drop→0.6. The 200-loop false-fired at 0.0625 on GOOD chains; measured healthy live-rate is ~0.10 (not the n=5 0.20). Re-measure per cohort; keep the floor well below the healthy band.
+- **Disambiguation rebuilt resilient:** per-chunk checkpoint (`<output>.partial.jsonl`, flush+fsync) + resume + progress log + a free WordNet POS pre-filter (drops 12% verb/adj sneak-ins). The prior accumulate-in-memory version lost 2h25m on a kill.
+- **⚠️ `claude` CLI session limit:** running 200-loop + disambiguation concurrently hit 429 "session limit · resets 10am UTC" ($0, resumable). **Run LLM jobs ONE AT A TIME**; the 10k run must lean on resume.
+- **SemCor is the principled next step (HOLD the 10k disambiguation for it):** importing SemCor tagcounts from `sqlunet_master.db` gives true per-sense usage frequency → a proper POS filter (catches gerunds/`thaw`/`regard` the WordNet ratio misses) AND deterministic dominant-sense selection that replaces most LLM disambiguation (free/reproducible). Rebuild 10k selection on tagcounts once the DB is uploaded.
+
 ## LIVE STATUS (2026-06-04, end of build session)
 - **200-loop (round 2): RUNNING** in background → `data-pipeline/grading/sonnet_chains_provisional_r2.jsonl`
   (Sonnet-only, stored-Haiku reuse; `--batch-size 10 --judge-sample 3`, tripwire on, caps 200 topics / $80).
