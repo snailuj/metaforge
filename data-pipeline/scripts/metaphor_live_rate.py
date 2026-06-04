@@ -146,20 +146,35 @@ class TripwireState:
 
 def new_tripwire(
     *,
-    window: int = 40,
-    min_judged: int = 40,
-    abs_floor: float = 0.25,
+    window: int = 30,
+    min_judged: int = 15,
+    abs_floor: float = 0.08,
     rel_drop: float = 0.4,
-    baseline_n: int = 40,
+    baseline_n: int = 15,
 ) -> TripwireState:
-    """A fresh tripwire. Defaults are conservative; tune per cohort.
+    """A fresh tripwire. Defaults are a starting point — CALIBRATE per cohort.
 
     window      — verdicts in the rolling window the rate is computed over.
     min_judged  — no pause decision until this many verdicts seen (avoid noise).
-    abs_floor   — pause if window live-rate drops below this absolute value.
+    abs_floor   — pause if window live-rate drops below this absolute value. The
+                  judge is tuned to UNDER-call `live`, so a HEALTHY run sits at a
+                  low-ish rate; the floor must sit BELOW the measured healthy
+                  live-rate (default 0.08 is a near-total-collapse line, not a
+                  quality bar) or the brake fails CLOSED on good output. Measure
+                  the healthy rate on a vetted cohort and set this accordingly.
     rel_drop    — pause if window rate falls this fraction below the baseline.
-    baseline_n  — freeze the baseline live-rate after this many verdicts.
+                  This is the PRIMARY degradation brake; the absolute floor is a
+                  collapse backstop.
+    baseline_n  — freeze the baseline live-rate after this many verdicts. Must be
+                  <= window (else the baseline is sampled over a truncated window,
+                  silently mis-anchoring the relative-drop arm).
+
+    Arming cost: the runner contributes ~judge_sample verdicts per batch, so the
+    brake arms after roughly (min_judged / judge_sample) batches of generation —
+    keep min_judged small enough that arming happens within an acceptable spend.
     """
+    if baseline_n > window:
+        raise ValueError(f"baseline_n ({baseline_n}) must be <= window ({window})")
     return TripwireState(
         window=window, min_judged=min_judged, abs_floor=abs_floor,
         rel_drop=rel_drop, baseline_n=baseline_n,

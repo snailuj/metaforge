@@ -10,6 +10,8 @@ LLM calls are injected (prompt_fn) so these tests make no API calls.
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import metaphor_live_rate as mlr
@@ -143,3 +145,25 @@ def test_tripwire_window_only_considers_recent_verdicts():
     assert mlr.should_pause(st) is True
     st = _feed(st, ["live"] * 5)      # window now all live -> recovered
     assert mlr.should_pause(st) is False
+
+
+def test_default_tripwire_does_not_pause_a_healthy_conservative_rate():
+    """The judge is tuned to UNDER-call live, so a healthy run sits at a low-ish
+    live-rate (~0.2). The default tripwire must NOT fail closed on that — the old
+    0.25 floor would have perma-paused it."""
+    st = mlr.new_tripwire()  # all defaults
+    st = _feed(st, (["live"] + ["dead"] * 4) * 12)  # steady 0.20 over 60 verdicts
+    assert mlr.should_pause(st) is False
+
+
+def test_default_tripwire_pauses_on_near_total_collapse():
+    st = mlr.new_tripwire()  # all defaults
+    st = _feed(st, ["dead"] * 30)  # rate 0.0 -> below the (lowered) absolute floor
+    assert mlr.should_pause(st) is True
+
+
+def test_new_tripwire_rejects_baseline_n_greater_than_window():
+    """Incoherent config: a baseline over more verdicts than the window can hold
+    silently mis-anchors the relative-drop arm. Fail fast."""
+    with pytest.raises(ValueError):
+        mlr.new_tripwire(window=20, baseline_n=40)
