@@ -488,6 +488,15 @@ def format_pause_message(summary: dict) -> str:
     return f"Metaforge generation paused: {reason}. {progress}. {tail}"
 
 
+def _write_summary(summary: dict, path: str) -> None:
+    """Write the run summary as JSON for an orchestrating wrapper to read
+    (e.g. the autonomous resume loop, which needs pause_reason + reset_text).
+    Drops the non-serialisable `tripwire` object."""
+    serialisable = {k: v for k, v in summary.items() if k != "tripwire"}
+    with open(path, "w") as f:
+        json.dump(serialisable, f, indent=2)
+
+
 def _default_ntfy_post(url: str, message: str, headers: dict) -> None:
     """Best-effort HTTP POST of `message` to an ntfy topic via stdlib urllib
     (no extra deps). Raises on transport failure; notify_ntfy swallows it."""
@@ -554,6 +563,8 @@ def main() -> int:
     ap.add_argument("--tw-rel-drop", type=float, default=0.6)
     ap.add_argument("--tw-baseline-n", type=int, default=20)
     ap.add_argument("--autocommit-every", type=int, default=None, help="git-commit the output every N batches.")
+    ap.add_argument("--summary-out", default=None,
+                    help="Write the run summary JSON here (for the autonomous resume wrapper).")
     args = ap.parse_args()
 
     import sqlite3
@@ -606,6 +617,8 @@ def main() -> int:
     finally:
         conn.close()
 
+    if args.summary_out:
+        _write_summary(summary, args.summary_out)
     summary.pop("tripwire", None)
     print(json.dumps(summary, indent=2))
     # Exit non-zero on the LOUD pause (unrecognised 429 reset format) so a

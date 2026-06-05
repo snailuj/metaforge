@@ -503,3 +503,14 @@ def test_notify_ntfy_swallows_post_errors(monkeypatch):
 
     # best-effort: a failed POST must not raise (would otherwise crash the run)
     assert mge.notify_ntfy("hello", post_fn=boom) is False
+
+
+# --- summary-out (machine-readable handoff for the autonomous wrapper) --------
+def test_write_summary_roundtrips_without_tripwire(tmp_path):
+    p = tmp_path / "summary.json"
+    mge._write_summary({"pause_reason": "session_limit", "reset_text": "resets 3pm (UTC)",
+                         "tripwire": object()}, str(p))  # tripwire is non-serialisable
+    got = json.loads(p.read_text())
+    assert got["pause_reason"] == "session_limit"
+    assert got["reset_text"] == "resets 3pm (UTC)"
+    assert "tripwire" not in got  # stripped — not JSON-serialisable, not needed downstream
