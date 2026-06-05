@@ -452,3 +452,54 @@ def test_run_no_notify_on_clean_completion(tmp_path):
         notify_fn=seen.append, now_fn=lambda: "2026-06-04T00:00:00+00:00",
     )
     assert seen == []
+
+
+# --- NTFY pause notification (poster + message formatter) ---------------------
+def test_format_pause_message_session_limit():
+    msg = mge.format_pause_message({
+        "pause_reason": "session_limit", "topics_processed": 12,
+        "chains_written": 118, "est_cost_usd": 3.1,
+        "reset_text": "resets 7:50am (UTC)", "reset_hour": 7, "reset_minute": 50,
+    })
+    assert "session_limit" in msg
+    assert "resets 7:50am (UTC)" in msg
+    assert "118" in msg  # progress is visible
+
+
+def test_format_pause_message_unparseable_is_loud():
+    msg = mge.format_pause_message({
+        "pause_reason": "session_limit_unparseable", "topics_processed": 5,
+        "chains_written": 40, "est_cost_usd": 1.0, "reset_text": "weird new text",
+    })
+    low = msg.lower()
+    assert "unparseable" in low or "unrecognised" in low or "server" in low
+
+
+def test_notify_ntfy_noop_when_unconfigured(monkeypatch):
+    monkeypatch.delenv("NTFY_URL", raising=False)
+    monkeypatch.delenv("NTFY_TOKEN", raising=False)
+    calls = []
+    sent = mge.notify_ntfy("hello", post_fn=lambda u, m, h: calls.append((u, m, h)))
+    assert sent is False and calls == []  # never posts without a configured URL
+
+
+def test_notify_ntfy_posts_with_auth_when_configured(monkeypatch):
+    monkeypatch.setenv("NTFY_URL", "https://ntfy.example/topic")
+    monkeypatch.setenv("NTFY_TOKEN", "tok123")
+    calls = []
+    sent = mge.notify_ntfy("hello", post_fn=lambda u, m, h: calls.append((u, m, h)))
+    assert sent is True
+    url, message, headers = calls[0]
+    assert url == "https://ntfy.example/topic" and message == "hello"
+    assert headers.get("Authorization") == "Bearer tok123"
+
+
+def test_notify_ntfy_swallows_post_errors(monkeypatch):
+    monkeypatch.setenv("NTFY_URL", "https://ntfy.example/topic")
+    monkeypatch.delenv("NTFY_TOKEN", raising=False)
+
+    def boom(u, m, h):
+        raise RuntimeError("network down")
+
+    # best-effort: a failed POST must not raise (would otherwise crash the run)
+    assert mge.notify_ntfy("hello", post_fn=boom) is False

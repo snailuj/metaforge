@@ -463,6 +463,60 @@ def make_judge_fn(model: str):
     return lambda rec: mlr.judge_chain(rec, model=model)
 
 
+def format_pause_message(summary: dict) -> str:
+    """Render a one-shot NTFY message from a paused run summary.
+
+    Leads with the reason, shows this-run progress, and (for a session limit)
+    the reset clause so the recipient knows when a resume is due. The
+    unparseable variant is worded loudly — it signals a possible server-side
+    format change that needs a human look."""
+    reason = summary.get("pause_reason") or "unknown"
+    progress = (
+        f"{summary.get('topics_processed', 0)} topics this run, "
+        f"{summary.get('chains_written', 0)} chains, "
+        f"est ${summary.get('est_cost_usd', 0)}"
+    )
+    if reason == "session_limit":
+        tail = f"resets {summary.get('reset_text') or '?'} — will resume after that."
+    elif reason == "session_limit_unparseable":
+        tail = (
+            "⚠️ 429 with an UNRECOGNISED reset format (possible server change) — "
+            f"raw={summary.get('reset_text')!r}. Manual check needed; auto-resume halted."
+        )
+    else:
+        tail = "check the run log."
+    return f"Metaforge generation paused: {reason}. {progress}. {tail}"
+
+
+def _default_ntfy_post(url: str, message: str, headers: dict) -> None:
+    """Best-effort HTTP POST of `message` to an ntfy topic via stdlib urllib
+    (no extra deps). Raises on transport failure; notify_ntfy swallows it."""
+    import urllib.request
+    req = urllib.request.Request(url, data=message.encode("utf-8"), headers=headers)
+    with urllib.request.urlopen(req, timeout=10) as resp:  # nosec - operator-configured URL
+        resp.read()
+
+
+def notify_ntfy(message: str, *, post_fn=None) -> bool:
+    """Post `message` to the ntfy channel from env (NTFY_URL + optional
+    NTFY_TOKEN). Returns True on send, False when unconfigured or on any
+    transport error. NEVER raises — a notification is advisory, and the token
+    is kept out of the repo (loaded from the environment / a gitignored file)."""
+    url = os.environ.get("NTFY_URL")
+    if not url:
+        log.warning("NTFY not configured (NTFY_URL unset); pause notification skipped")
+        return False
+    token = os.environ.get("NTFY_TOKEN")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    post = post_fn or _default_ntfy_post
+    try:
+        post(url, message, headers)
+        return True
+    except Exception as exc:  # noqa: BLE001 — advisory; a failed notify must not abort the run
+        log.warning("NTFY pause notification failed (continuing): %s", exc)
+        return False
+
+
 def make_git_commit_fn(paths: list[str], message: str, cwd: str | None = None):
     def _commit():
         subprocess.run(["git", "add", *paths], check=True, cwd=cwd)
@@ -546,6 +600,7 @@ def main() -> int:
             batch_size=args.batch_size, max_topics=args.max_topics, max_cost_usd=args.max_cost_usd,
             tripwire=tripwire, judge_fn=judge_fn, judge_sample=args.judge_sample, anti_examples=anti,
             autocommit_every=args.autocommit_every, commit_fn=commit_fn,
+            notify_fn=lambda s: notify_ntfy(format_pause_message(s)),
             haiku_cost_per_topic=haiku_cost,
         )
     finally:
@@ -553,7 +608,9 @@ def main() -> int:
 
     summary.pop("tripwire", None)
     print(json.dumps(summary, indent=2))
-    return 0
+    # Exit non-zero on the LOUD pause (unrecognised 429 reset format) so a
+    # server-side change surfaces to the shell/cron, not just the log.
+    return 2 if summary.get("pause_reason") == "session_limit_unparseable" else 0
 
 
 if __name__ == "__main__":
