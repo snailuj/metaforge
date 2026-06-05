@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "grading_sidecar
 import metaphor_live_rate as mlr  # noqa: E402
 from run_chain_spike import build_prompt  # noqa: E402  (Sonnet chain prompt + clauses)
 from models import ChainRecord, compute_chain_signature  # noqa: E402
+from claude_client import SessionLimitError, SessionLimitFormatError  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -253,13 +254,16 @@ def run(
     autocommit_every: int | None = None,
     commit_fn=None,
     log_fn=None,
+    notify_fn=None,
     haiku_cost_per_topic: float = HAIKU_COST_PER_TOPIC,
     sonnet_cost_per_topic: float = SONNET_COST_PER_TOPIC,
 ) -> dict:
     """Generate chains for `topics`, appending chain.v1 JSONL to output_jsonl.
 
-    Returns a summary dict. Pauses (without raising) when the tripwire trips or
-    the estimated cost guard is hit, leaving a resumable output file behind.
+    Returns a summary dict. Pauses (without raising) when the tripwire trips,
+    the estimated cost guard is hit, or a 429 session limit lands, leaving a
+    resumable output file behind. `notify_fn`, if given, is called once with
+    the summary dict on ANY pause (best-effort; its failure never aborts the run).
     """
     now_fn = now_fn or (lambda: datetime.now(timezone.utc).isoformat())
     out_path = Path(output_jsonl)
@@ -275,6 +279,9 @@ def run(
     est_cost = 0.0
     paused = False
     pause_reason = None
+    session_reset_text = None
+    session_reset_hour = None
+    session_reset_minute = None
 
     for bstart in range(0, len(pending), batch_size):
         batch = pending[bstart:bstart + batch_size]
@@ -309,6 +316,27 @@ def run(
                     )
                 else:
                     log.info("skip %s: no Haiku metaphors", word)
+            except SessionLimitFormatError as exc:
+                # A confirmed 429 whose reset format we can't parse: a possible
+                # server-side change. Halt the WHOLE run loudly rather than
+                # guess — surfaces the drift instead of silently grinding.
+                log.critical(
+                    "SESSION-LIMIT 429 with UNRECOGNISED reset format — possible "
+                    "server change. Halting run loudly (at topic %r): %s", word, exc)
+                paused, pause_reason = True, "session_limit_unparseable"
+                session_reset_text = exc.raw
+                break
+            except SessionLimitError as exc:
+                # Usage/session limit: resets in hours, not seconds. Stop the
+                # whole run cleanly (this topic and every later one will fail)
+                # and record the reset so the caller can schedule one resume.
+                log.warning(
+                    "session limit hit at topic %r — pausing for clean resume (resets %s)",
+                    word, exc.reset_text)
+                paused, pause_reason = True, "session_limit"
+                session_reset_text = exc.reset_text
+                session_reset_hour, session_reset_minute = exc.reset_hour, exc.reset_minute
+                break
             except Exception as exc:  # noqa: BLE001 — one topic's failure must not abort the run
                 errored = True
                 log.warning("topic %r generation failed (will retry on resume): %s", word, exc)
@@ -380,15 +408,28 @@ def run(
             log.warning("run paused: %s (after batch %s)", pause_reason, batches)
             break
 
-    return {
+    summary = {
         "topics_processed": topics_processed,
         "chains_written": chains_written,
         "batches": batches,
         "est_cost_usd": round(est_cost, 4),
         "paused": paused,
         "pause_reason": pause_reason,
+        "reset_text": session_reset_text,
+        "reset_hour": session_reset_hour,
+        "reset_minute": session_reset_minute,
         "tripwire": tripwire,
     }
+
+    # Notify on ANY pause (tripwire / cost_cap / session_limit[_unparseable]).
+    # Best-effort: a notification failure must never abort or mask the run.
+    if paused and notify_fn is not None:
+        try:
+            notify_fn(summary)
+        except Exception as exc:  # noqa: BLE001 — notification is advisory, not load-bearing
+            log.warning("pause notification failed (continuing): %s", exc)
+
+    return summary
 
 
 # ---------------------------------------------------------------------------

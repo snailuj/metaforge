@@ -363,3 +363,92 @@ def test_run_does_not_respend_zero_record_topics(tmp_path):
     r2 = mge.run(topics=_topics(2), **kw)  # permanently-empty topics must be skipped
     assert r2["topics_processed"] == 0
     assert len(calls) == 2  # Haiku spent only once per topic, never re-billed
+
+
+# --- session-limit fast-pause + pause notification ---------------------------
+# generate_metaphor_edges imports claude_client onto sys.path, so this resolves.
+from claude_client import SessionLimitError, SessionLimitFormatError  # noqa: E402
+
+
+def test_run_pauses_fast_on_session_limit(tmp_path):
+    """A 429 session limit must STOP the whole run immediately (not skip the
+    topic and grind on), recording the parsed reset time for a clean resume."""
+    out = tmp_path / "c.jsonl"
+
+    def limit(prompt):
+        raise SessionLimitError("limit", reset_text="resets 7:50am (UTC)",
+                                reset_hour=7, reset_minute=50)
+
+    res = mge.run(
+        topics=_topics(6), output_jsonl=str(out), haiku_fn=_haiku, sonnet_fn=limit,
+        resolve_synset=_resolve_vehicles, batch_size=2,
+        now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert res["paused"] is True and res["pause_reason"] == "session_limit"
+    assert res["reset_hour"] == 7 and res["reset_minute"] == 50
+    assert "7:50" in res["reset_text"]
+    assert res["topics_processed"] == 1          # stopped at the first, didn't grind 6
+    assert mge.completed_topic_synset_ids(str(out)) == set()  # nothing banked; retries on resume
+
+
+def test_run_session_limit_unparseable_pauses_loudly(tmp_path):
+    """A confirmed 429 whose reset format we can't parse must halt with a
+    DISTINCT loud reason, not the graceful session_limit path."""
+    out = tmp_path / "c.jsonl"
+
+    def boom(prompt):
+        raise SessionLimitFormatError("unparseable", raw="hit your limit (try later)")
+
+    res = mge.run(
+        topics=_topics(6), output_jsonl=str(out), haiku_fn=_haiku, sonnet_fn=boom,
+        resolve_synset=_resolve_vehicles, batch_size=2,
+        now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert res["paused"] is True
+    assert res["pause_reason"] == "session_limit_unparseable"
+    assert res["topics_processed"] == 1
+
+
+def test_run_notifies_on_session_limit_pause(tmp_path):
+    """notify_fn must fire on a pause, carrying the summary (reason + reset)."""
+    out = tmp_path / "c.jsonl"
+    seen = []
+
+    def limit(prompt):
+        raise SessionLimitError("limit", reset_text="resets 3pm (UTC)",
+                                reset_hour=15, reset_minute=0)
+
+    mge.run(
+        topics=_topics(3), output_jsonl=str(out), haiku_fn=_haiku, sonnet_fn=limit,
+        resolve_synset=_resolve_vehicles, batch_size=1, notify_fn=seen.append,
+        now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert len(seen) == 1
+    assert seen[0]["pause_reason"] == "session_limit"
+    assert seen[0]["reset_text"] == "resets 3pm (UTC)"
+
+
+def test_run_notifies_on_tripwire_pause(tmp_path):
+    """ANY pause notifies — not just session limits. Tripwire collapse too."""
+    out = tmp_path / "c.jsonl"
+    seen = []
+    tw = mlr.new_tripwire(window=1, min_judged=1, abs_floor=0.5, rel_drop=0.9, baseline_n=1)
+    mge.run(
+        topics=_two_topics(), output_jsonl=str(out), haiku_fn=_haiku,
+        sonnet_fn=lambda p: _sonnet_resp(), resolve_synset=_resolve_all,
+        batch_size=1, tripwire=tw, judge_fn=lambda rec: {"verdict": "dead", "ok": True},
+        judge_sample=1, notify_fn=seen.append, now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert len(seen) == 1 and seen[0]["pause_reason"] == "tripwire"
+
+
+def test_run_no_notify_on_clean_completion(tmp_path):
+    """A run that finishes without pausing must NOT notify."""
+    out = tmp_path / "c.jsonl"
+    seen = []
+    mge.run(
+        topics=_two_topics(), output_jsonl=str(out), haiku_fn=_haiku,
+        sonnet_fn=lambda p: _sonnet_resp(), resolve_synset=_resolve_all,
+        notify_fn=seen.append, now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert seen == []
