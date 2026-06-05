@@ -58,15 +58,23 @@ source .venv/bin/activate
 The script performs these steps in order:
 
 1. Create empty DB from `data-pipeline/SCHEMA.sql`
-2. Import OEWN synsets, lemmas, relations (`import_oewn.py`)
-3. Import SyntagNet collocations (`import_syntagnet.py`)
-4. Import VerbNet classes and roles (`import_verbnet.py`)
-5. Import Brysbaert GPT familiarity (`import_familiarity.py`)
-6. Backfill SUBTLEX-UK frequencies (`import_subtlex.py`)
-7. Build curated vocabulary — 35k entries (`build_vocab.py`)
-8. Build antonym pairs from WordNet relations (`build_antonyms.py`)
-9. Verify row counts
-10. (with `--dump`) Export as `PRE_ENRICH.sql`
+2. Import OEWN synsets (+ lexicographer `domainid`), lemmas, relations (`import_oewn.py`)
+3. Import WordNet lexicographer domains (`import_domains.py`)
+4. Import SemCor sense attributes — sensekey + tagcount (`import_semcor.py`)
+5. Import BNC POS-resolved frequency (`import_bnc.py`)
+6. Import seed-data provenance — sources + meta (`import_provenance.py`)
+7. Import SyntagNet collocations (`import_syntagnet.py`)
+8. Import VerbNet classes and roles (`import_verbnet.py`)
+9. Import Brysbaert GPT familiarity (`import_familiarity.py`)
+10. Backfill SUBTLEX-UK frequencies (`import_subtlex.py`)
+11. Build curated vocabulary — 35k entries (`build_vocab.py`)
+12. Build antonym pairs from WordNet relations (`build_antonyms.py`)
+13. Import Brysbaert concreteness ratings (`import_concreteness.py`)
+14. Verify row counts
+15. (with `--dump`) Export as `PRE_ENRICH.sql`
+
+> **Source DB name gotcha:** the import expects `data-pipeline/raw/sqlunet_master.db`. The shared copy is `~/.local/share/metaforge/sqlunet.db`; symlink it under the expected name so `import_raw.sh` finds it:
+> `ln -sfn ~/.local/share/metaforge/sqlunet.db ~/.local/share/metaforge/sqlunet_master.db`
 
 ## Verification
 
@@ -82,6 +90,11 @@ The script prints row counts automatically. Expected values (approximate):
 | vn_classes | ~400 |
 | property_vocab_curated | 35,000 |
 | property_antonyms | ~576 |
+| domains | 45 |
+| sense_attributes | 185,129 (34,767 SemCor-tagged) |
+| synsets (with domainid) | 107,519 (100%) |
+| bnc_frequencies | 26,980 |
+| seed_sources | 10 |
 | enrichment | 0 |
 | property_vocabulary | 0 |
 | synset_properties | 0 |

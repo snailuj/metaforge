@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Build the Metaforge lexicon database from raw linguistic sources.
 #
-# Creates lexicon_v2.db from SCHEMA.sql, imports OEWN + SyntagNet + VerbNet +
-# Brysbaert familiarity + SUBTLEX-UK frequencies, then builds curated vocabulary
-# and antonym pairs.
+# Creates lexicon_v2.db from SCHEMA.sql, imports OEWN (+ lexicographer domains +
+# SemCor sense attributes) + SyntagNet + VerbNet + BNC POS frequencies +
+# Brysbaert familiarity + SUBTLEX-UK frequencies + seed provenance, then builds
+# curated vocabulary and antonym pairs.
 #
 # Run only when raw data sources update or you need to recreate from scratch.
 # For normal enrichment lifecycle, use the pipeline management skill.
@@ -109,6 +110,18 @@ run_step "Create empty database from SCHEMA.sql" \
 run_step "Import OEWN synsets, lemmas, relations" \
     python "$SCRIPTS_DIR/import_oewn.py"
 
+run_step "Import WordNet lexicographer domains" \
+    python "$SCRIPTS_DIR/import_domains.py"
+
+run_step "Import SemCor sense attributes (sensekey + tagcount)" \
+    python "$SCRIPTS_DIR/import_semcor.py"
+
+run_step "Import BNC POS-resolved frequency" \
+    python "$SCRIPTS_DIR/import_bnc.py"
+
+run_step "Import seed-data provenance (sources + meta)" \
+    python "$SCRIPTS_DIR/import_provenance.py"
+
 run_step "Import SyntagNet collocations" \
     python "$SCRIPTS_DIR/import_syntagnet.py"
 
@@ -137,6 +150,12 @@ sqlite3 "$DB_PATH" <<'SQL'
 SELECT 'synsets' AS tbl, COUNT(*) FROM synsets
 UNION ALL SELECT 'lemmas', COUNT(*) FROM lemmas
 UNION ALL SELECT 'relations', COUNT(*) FROM relations
+UNION ALL SELECT 'domains', COUNT(*) FROM domains
+UNION ALL SELECT 'sense_attributes', COUNT(*) FROM sense_attributes
+UNION ALL SELECT 'sense_attributes (tagged)', COUNT(*) FROM sense_attributes WHERE tagcount > 0
+UNION ALL SELECT 'synsets (with domainid)', COUNT(*) FROM synsets WHERE domainid IS NOT NULL
+UNION ALL SELECT 'bnc_frequencies', COUNT(*) FROM bnc_frequencies
+UNION ALL SELECT 'seed_sources', COUNT(*) FROM seed_sources
 UNION ALL SELECT 'frequencies', COUNT(*) FROM frequencies
 UNION ALL SELECT 'syntagms', COUNT(*) FROM syntagms
 UNION ALL SELECT 'vn_classes', COUNT(*) FROM vn_classes
