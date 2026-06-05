@@ -1,0 +1,1625 @@
+{
+  "n": 324,
+  "topics": [
+    {
+      "word": "longing",
+      "topic_synset_id": "72598",
+      "gloss": "prolonged unfulfilled desire or need"
+    },
+    {
+      "word": "dread",
+      "topic_synset_id": "72797",
+      "gloss": "fearful expectation or anticipation"
+    },
+    {
+      "word": "euphoria",
+      "topic_synset_id": "72836",
+      "gloss": "a feeling of great (usually exaggerated) elation"
+    },
+    {
+      "word": "serenity",
+      "topic_synset_id": "59481",
+      "gloss": "a disposition free from stress or emotion"
+    },
+    {
+      "word": "anguish",
+      "topic_synset_id": "72656",
+      "gloss": "extreme mental distress"
+    },
+    {
+      "word": "nostalgia",
+      "topic_synset_id": "72603",
+      "gloss": "longing for something past"
+    },
+    {
+      "word": "awe",
+      "topic_synset_id": "72733",
+      "gloss": "an overwhelming feeling of wonder or admiration"
+    },
+    {
+      "word": "resentment",
+      "topic_synset_id": "72950",
+      "gloss": "a feeling of deep and bitter anger and ill-will"
+    },
+    {
+      "word": "elation",
+      "topic_synset_id": "72829",
+      "gloss": "a feeling of joy and pride"
+    },
+    {
+      "word": "despair",
+      "topic_synset_id": "72905",
+      "gloss": "the feeling that everything is wrong and nothing will turn out well"
+    },
+    {
+      "word": "remorse",
+      "topic_synset_id": "72875",
+      "gloss": "a feeling of deep regret (usually for some misdeed)"
+    },
+    {
+      "word": "contempt",
+      "topic_synset_id": "59541",
+      "gloss": "a manner that is generally disrespectful and contemptuous"
+    },
+    {
+      "word": "trepidation",
+      "topic_synset_id": "72798",
+      "gloss": "a feeling of alarm or dread"
+    },
+    {
+      "word": "sorrow",
+      "topic_synset_id": "72867",
+      "gloss": "an emotion of great sadness associated with loss or bereavement"
+    },
+    {
+      "word": "panic",
+      "topic_synset_id": "99680",
+      "gloss": "sudden mass fear and anxiety over anticipated events"
+    },
+    {
+      "word": "envy",
+      "topic_synset_id": "15363",
+      "gloss": "spite and resentment at seeing the success of another (personified as one of the deadly sins)"
+    },
+    {
+      "word": "gratitude",
+      "topic_synset_id": "72700",
+      "gloss": "a feeling of thankfulness and appreciation"
+    },
+    {
+      "word": "humiliation",
+      "topic_synset_id": "71623",
+      "gloss": "an instance in which you are caused to lose your prestige or self-respect"
+    },
+    {
+      "word": "loneliness",
+      "topic_synset_id": "58089",
+      "gloss": "a disposition toward being alone"
+    },
+    {
+      "word": "yearning",
+      "topic_synset_id": "72598",
+      "gloss": "prolonged unfulfilled desire or need"
+    },
+    {
+      "word": "foreboding",
+      "topic_synset_id": "71504",
+      "gloss": "an unfavorable omen"
+    },
+    {
+      "word": "infatuation",
+      "topic_synset_id": "64148",
+      "gloss": "an object of extravagant short-lived passion"
+    },
+    {
+      "word": "tenderness",
+      "topic_synset_id": "58112",
+      "gloss": "a tendency to express warm and affectionate feeling"
+    },
+    {
+      "word": "apprehension",
+      "topic_synset_id": "1760",
+      "gloss": "the act of apprehending (especially apprehending a criminal)"
+    },
+    {
+      "word": "indignation",
+      "topic_synset_id": "72777",
+      "gloss": "a feeling of righteous anger"
+    },
+    {
+      "word": "exhilaration",
+      "topic_synset_id": "72832",
+      "gloss": "the feeling of lively and cheerful joy"
+    },
+    {
+      "word": "desolation",
+      "topic_synset_id": "71756",
+      "gloss": "an event that results in total destruction"
+    },
+    {
+      "word": "rapture",
+      "topic_synset_id": "97413",
+      "gloss": "a state of elated bliss"
+    },
+    {
+      "word": "wrath",
+      "topic_synset_id": "15373",
+      "gloss": "belligerence aroused by a real or supposed wrong (personified as one of the deadly sins)"
+    },
+    {
+      "word": "agitation",
+      "topic_synset_id": "7349",
+      "gloss": "the act of agitating something; causing it to move around (usually vigorously)"
+    },
+    {
+      "word": "complacency",
+      "topic_synset_id": "72851",
+      "gloss": "the feeling you have when you are satisfied with yourself"
+    },
+    {
+      "word": "discontent",
+      "topic_synset_id": "72890",
+      "gloss": "a longing for something better than the present situation"
+    },
+    {
+      "word": "wistfulness",
+      "topic_synset_id": "72602",
+      "gloss": "a sadly pensive longing"
+    },
+    {
+      "word": "intuition",
+      "topic_synset_id": "64658",
+      "gloss": "an impression that something might be the case"
+    },
+    {
+      "word": "obsession",
+      "topic_synset_id": "78921",
+      "gloss": "an irrational motive for performing trivial or repetitive actions, even against your will"
+    },
+    {
+      "word": "delusion",
+      "topic_synset_id": "64555",
+      "gloss": "a mistaken or unfounded opinion or idea"
+    },
+    {
+      "word": "amnesia",
+      "topic_synset_id": "63446",
+      "gloss": "partial or total loss of memory"
+    },
+    {
+      "word": "confusion",
+      "topic_synset_id": "8384",
+      "gloss": "an act causing a disorderly combination of elements with identities lost and distinctions blended"
+    },
+    {
+      "word": "insight",
+      "topic_synset_id": "63638",
+      "gloss": "clear or deep perception of a situation"
+    },
+    {
+      "word": "paranoia",
+      "topic_synset_id": "99643",
+      "gloss": "a psychological disorder characterized by delusions of persecution or grandeur"
+    },
+    {
+      "word": "reverie",
+      "topic_synset_id": "63588",
+      "gloss": "an abstracted state of absorption"
+    },
+    {
+      "word": "premonition",
+      "topic_synset_id": "71162",
+      "gloss": "an early warning about a future event"
+    },
+    {
+      "word": "scepticism",
+      "topic_synset_id": "64968",
+      "gloss": "the disbelief in any claims of ultimate knowledge"
+    },
+    {
+      "word": "curiosity",
+      "topic_synset_id": "63499",
+      "gloss": "a state in which you want to learn more about something"
+    },
+    {
+      "word": "imagination",
+      "topic_synset_id": "63189",
+      "gloss": "the formation of a mental image of something that is not perceived as real and is not present to the senses"
+    },
+    {
+      "word": "perception",
+      "topic_synset_id": "63629",
+      "gloss": "the process of perceiving"
+    },
+    {
+      "word": "concentration",
+      "topic_synset_id": "8272",
+      "gloss": "strengthening the concentration (as of a solute in a mixture) by removing diluting material"
+    },
+    {
+      "word": "introspection",
+      "topic_synset_id": "64016",
+      "gloss": "the contemplation of your own thoughts and desires and conduct"
+    },
+    {
+      "word": "denial",
+      "topic_synset_id": "71049",
+      "gloss": "the act of refusing to comply (as with a request)"
+    },
+    {
+      "word": "certainty",
+      "topic_synset_id": "63572",
+      "gloss": "the state of being certain"
+    },
+    {
+      "word": "ambivalence",
+      "topic_synset_id": "72579",
+      "gloss": "mixed feelings or emotions"
+    },
+    {
+      "word": "hindsight",
+      "topic_synset_id": "64118",
+      "gloss": "understanding the nature of an event after it has happened"
+    },
+    {
+      "word": "foresight",
+      "topic_synset_id": "59422",
+      "gloss": "providence by virtue of planning prudently for the future"
+    },
+    {
+      "word": "delirium",
+      "topic_synset_id": "99589",
+      "gloss": "a usually brief state of excitement and mental confusion often accompanied by hallucinations"
+    },
+    {
+      "word": "stupor",
+      "topic_synset_id": "72736",
+      "gloss": "the feeling of distress and disbelief that you have when something bad happens accidentally"
+    },
+    {
+      "word": "lucidity",
+      "topic_synset_id": "59050",
+      "gloss": "free from obscurity and easy to understand; the comprehensibility of clear expression"
+    },
+    {
+      "word": "alliance",
+      "topic_synset_id": "96353",
+      "gloss": "a connection based on kinship or marriage or common interest"
+    },
+    {
+      "word": "rivalry",
+      "topic_synset_id": "21631",
+      "gloss": "the act of competing as for profit or a prize"
+    },
+    {
+      "word": "betrayal",
+      "topic_synset_id": "59350",
+      "gloss": "the quality of aiding an enemy"
+    },
+    {
+      "word": "loyalty",
+      "topic_synset_id": "59338",
+      "gloss": "the quality of being loyal"
+    },
+    {
+      "word": "hierarchy",
+      "topic_synset_id": "77521",
+      "gloss": "a series of ordered groupings of people or things within a system"
+    },
+    {
+      "word": "kinship",
+      "topic_synset_id": "96452",
+      "gloss": "a close connection marked by community of interests or similarity in nature or character"
+    },
+    {
+      "word": "solidarity",
+      "topic_synset_id": "58775",
+      "gloss": "a union of interests or purposes or sympathies among members of a group"
+    },
+    {
+      "word": "estrangement",
+      "topic_synset_id": "72688",
+      "gloss": "the feeling of being alienated from other people"
+    },
+    {
+      "word": "reconciliation",
+      "topic_synset_id": "22204",
+      "gloss": "the reestablishing of cordial relations"
+    },
+    {
+      "word": "conformity",
+      "topic_synset_id": "22169",
+      "gloss": "acting according to certain accepted standards"
+    },
+    {
+      "word": "camaraderie",
+      "topic_synset_id": "58243",
+      "gloss": "the quality of affording easy familiarity and sociability"
+    },
+    {
+      "word": "feud",
+      "topic_synset_id": "22699",
+      "gloss": "a bitter quarrel between two parties"
+    },
+    {
+      "word": "truce",
+      "topic_synset_id": "97326",
+      "gloss": "a state of peace agreed to between opponents so they can discuss peace terms"
+    },
+    {
+      "word": "diplomacy",
+      "topic_synset_id": "59156",
+      "gloss": "subtly skillful handling of a situation"
+    },
+    {
+      "word": "hospitality",
+      "topic_synset_id": "67908",
+      "gloss": "kindness in welcoming guests or strangers"
+    },
+    {
+      "word": "reputation",
+      "topic_synset_id": "65874",
+      "gloss": "the general estimation that the public has for a person"
+    },
+    {
+      "word": "prestige",
+      "topic_synset_id": "99837",
+      "gloss": "a high standing achieved through success or influence or wealth etc."
+    },
+    {
+      "word": "stigma",
+      "topic_synset_id": "68747",
+      "gloss": "a symbol of disgrace or infamy"
+    },
+    {
+      "word": "scandal",
+      "topic_synset_id": "71610",
+      "gloss": "a disgraceful event"
+    },
+    {
+      "word": "propaganda",
+      "topic_synset_id": "68133",
+      "gloss": "information that is spread for the purpose of promoting some cause"
+    },
+    {
+      "word": "ostracism",
+      "topic_synset_id": "4441",
+      "gloss": "the act of excluding someone from society by general consent"
+    },
+    {
+      "word": "courtship",
+      "topic_synset_id": "70964",
+      "gloss": "a man's courting of a woman; seeking the affections of a woman (usually with the hope of marriage)"
+    },
+    {
+      "word": "fellowship",
+      "topic_synset_id": "76751",
+      "gloss": "an association of people who share common beliefs or activities"
+    },
+    {
+      "word": "rapport",
+      "topic_synset_id": "96453",
+      "gloss": "a relationship of mutual understanding or trust and agreement between people"
+    },
+    {
+      "word": "intimacy",
+      "topic_synset_id": "58250",
+      "gloss": "close or warm friendship"
+    },
+    {
+      "word": "allegiance",
+      "topic_synset_id": "22208",
+      "gloss": "the act of binding yourself (intellectually or emotionally) to a course of action"
+    },
+    {
+      "word": "integrity",
+      "topic_synset_id": "59296",
+      "gloss": "moral soundness"
+    },
+    {
+      "word": "hypocrisy",
+      "topic_synset_id": "59289",
+      "gloss": "insincerity by virtue of pretending to have qualities or beliefs that you do not really have"
+    },
+    {
+      "word": "virtue",
+      "topic_synset_id": "59183",
+      "gloss": "a particular moral excellence"
+    },
+    {
+      "word": "corruption",
+      "topic_synset_id": "3346",
+      "gloss": "inducement (as of a public official) by improper means (as bribery) to violate duty (as by committing a felony)"
+    },
+    {
+      "word": "cruelty",
+      "topic_synset_id": "59173",
+      "gloss": "the quality of being cruel and causing tension or annoyance"
+    },
+    {
+      "word": "mercy",
+      "topic_synset_id": "72980",
+      "gloss": "the feeling that motivates compassion"
+    },
+    {
+      "word": "redemption",
+      "topic_synset_id": "1876",
+      "gloss": "(theology) the act of delivering from sin or saving from evil"
+    },
+    {
+      "word": "atonement",
+      "topic_synset_id": "93491",
+      "gloss": "compensation for a wrong"
+    },
+    {
+      "word": "piety",
+      "topic_synset_id": "59079",
+      "gloss": "righteousness by virtue of being pious"
+    },
+    {
+      "word": "temptation",
+      "topic_synset_id": "63559",
+      "gloss": "something that seduces or has the quality to seduce"
+    },
+    {
+      "word": "innocence",
+      "topic_synset_id": "97421",
+      "gloss": "a state or condition of being innocent of a specific crime or offense"
+    },
+    {
+      "word": "depravity",
+      "topic_synset_id": "15196",
+      "gloss": "a corrupt or depraved or degenerate act or practice"
+    },
+    {
+      "word": "nobility",
+      "topic_synset_id": "59300",
+      "gloss": "the quality of elevation of mind and exaltation of character or ideals or conduct"
+    },
+    {
+      "word": "treachery",
+      "topic_synset_id": "15234",
+      "gloss": "an act of deliberate betrayal"
+    },
+    {
+      "word": "honour",
+      "topic_synset_id": "59293",
+      "gloss": "the quality of being honorable and having a good name"
+    },
+    {
+      "word": "deceit",
+      "topic_synset_id": "15278",
+      "gloss": "the act of deceiving"
+    },
+    {
+      "word": "righteousness",
+      "topic_synset_id": "59076",
+      "gloss": "adhering to moral principles"
+    },
+    {
+      "word": "villainy",
+      "topic_synset_id": "15177",
+      "gloss": "a criminal or vicious act"
+    },
+    {
+      "word": "purity",
+      "topic_synset_id": "59196",
+      "gloss": "a woman's virtue or chastity"
+    },
+    {
+      "word": "wickedness",
+      "topic_synset_id": "100512",
+      "gloss": "absence of moral or spiritual values"
+    },
+    {
+      "word": "candour",
+      "topic_synset_id": "59306",
+      "gloss": "the quality of being honest and straightforward in attitude and speech"
+    },
+    {
+      "word": "duplicity",
+      "topic_synset_id": "15290",
+      "gloss": "acting in bad faith; deception by pretending to entertain one set of intentions while acting under the influence of another"
+    },
+    {
+      "word": "magnanimity",
+      "topic_synset_id": "59110",
+      "gloss": "liberality in bestowing gifts; extremely liberal and generous of spirit"
+    },
+    {
+      "word": "rebellion",
+      "topic_synset_id": "21772",
+      "gloss": "refusal to accept some authority or code or convention"
+    },
+    {
+      "word": "conquest",
+      "topic_synset_id": "1251",
+      "gloss": "success in mastering something difficult"
+    },
+    {
+      "word": "siege",
+      "topic_synset_id": "20168",
+      "gloss": "the action of an armed force that surrounds a fortified place and isolates it while continuing to attack"
+    },
+    {
+      "word": "mutiny",
+      "topic_synset_id": "18421",
+      "gloss": "open rebellion against constituted authority (especially by seamen or soldiers against their officers)"
+    },
+    {
+      "word": "insurgency",
+      "topic_synset_id": "18411",
+      "gloss": "an organized rebellion aimed at overthrowing a constituted government through the use of subversion and armed conflict"
+    },
+    {
+      "word": "oppression",
+      "topic_synset_id": "9353",
+      "gloss": "the act of subjugating by cruelty"
+    },
+    {
+      "word": "domination",
+      "topic_synset_id": "21007",
+      "gloss": "social control by dominating"
+    },
+    {
+      "word": "resistance",
+      "topic_synset_id": "21643",
+      "gloss": "group action in opposition to those in power"
+    },
+    {
+      "word": "subjugation",
+      "topic_synset_id": "1767",
+      "gloss": "the act of conquering"
+    },
+    {
+      "word": "uprising",
+      "topic_synset_id": "18397",
+      "gloss": "organized opposition to authority; a conflict in which one faction tries to wrest control from another"
+    },
+    {
+      "word": "blockade",
+      "topic_synset_id": "18286",
+      "gloss": "a war measure that isolates some area of importance to the enemy"
+    },
+    {
+      "word": "stalemate",
+      "topic_synset_id": "71855",
+      "gloss": "drawing position in chess: any of a player's possible moves would place their king in check"
+    },
+    {
+      "word": "retaliation",
+      "topic_synset_id": "22681",
+      "gloss": "action taken in return for an injury or offense"
+    },
+    {
+      "word": "vendetta",
+      "topic_synset_id": "22707",
+      "gloss": "a feud in which members of the opposing parties murder each other"
+    },
+    {
+      "word": "crusade",
+      "topic_synset_id": "15931",
+      "gloss": "a series of actions advancing a principle or tending toward a particular end"
+    },
+    {
+      "word": "persecution",
+      "topic_synset_id": "9339",
+      "gloss": "the act of persecuting (especially on the basis of race or religion)"
+    },
+    {
+      "word": "skirmish",
+      "topic_synset_id": "18353",
+      "gloss": "a minor short-term fight"
+    },
+    {
+      "word": "onslaught",
+      "topic_synset_id": "18537",
+      "gloss": "(military) an offensive against an enemy (using weapons)"
+    },
+    {
+      "word": "reprisal",
+      "topic_synset_id": "22693",
+      "gloss": "a retaliatory action against an enemy in wartime"
+    },
+    {
+      "word": "annexation",
+      "topic_synset_id": "1529",
+      "gloss": "the formal act of acquiring something (especially territory) by conquest or occupation"
+    },
+    {
+      "word": "decay",
+      "topic_synset_id": "94423",
+      "gloss": "a gradual decrease; as of stored charge or current"
+    },
+    {
+      "word": "momentum",
+      "topic_synset_id": "60184",
+      "gloss": "an impelling force or strength"
+    },
+    {
+      "word": "stagnation",
+      "topic_synset_id": "97537",
+      "gloss": "a state of inactivity (in business or art etc.)"
+    },
+    {
+      "word": "transition",
+      "topic_synset_id": "4296",
+      "gloss": "the act of passing from one state or place to the next"
+    },
+    {
+      "word": "erosion",
+      "topic_synset_id": "94519",
+      "gloss": "a gradual decline of something"
+    },
+    {
+      "word": "demise",
+      "topic_synset_id": "103723",
+      "gloss": "the time when something ends"
+    },
+    {
+      "word": "genesis",
+      "topic_synset_id": "71699",
+      "gloss": "a coming into being"
+    },
+    {
+      "word": "epoch",
+      "topic_synset_id": "104301",
+      "gloss": "a unit of geological time that is a subdivision of a period and is itself divided into ages"
+    },
+    {
+      "word": "inertia",
+      "topic_synset_id": "58157",
+      "gloss": "a disposition to remain inactive or inert"
+    },
+    {
+      "word": "culmination",
+      "topic_synset_id": "66698",
+      "gloss": "the decisive moment in a novel or play"
+    },
+    {
+      "word": "aftermath",
+      "topic_synset_id": "71544",
+      "gloss": "the outcome of an event especially as relative to an individual"
+    },
+    {
+      "word": "prelude",
+      "topic_synset_id": "70192",
+      "gloss": "music that precedes a fugue or introduces an act in an opera"
+    },
+    {
+      "word": "brink",
+      "topic_synset_id": "96978",
+      "gloss": "a region marking a boundary"
+    },
+    {
+      "word": "resurgence",
+      "topic_synset_id": "19704",
+      "gloss": "bringing again into activity and prominence"
+    },
+    {
+      "word": "obsolescence",
+      "topic_synset_id": "94755",
+      "gloss": "the process of becoming obsolete; falling into disuse or becoming out of date"
+    },
+    {
+      "word": "infancy",
+      "topic_synset_id": "103733",
+      "gloss": "the early stage of growth or development"
+    },
+    {
+      "word": "twilight",
+      "topic_synset_id": "87547",
+      "gloss": "the diffused light from the sky when the sun is below the horizon but its rays are refracted by the atmosphere of the earth"
+    },
+    {
+      "word": "dawn",
+      "topic_synset_id": "104394",
+      "gloss": "an opening time period"
+    },
+    {
+      "word": "watershed",
+      "topic_synset_id": "72208",
+      "gloss": "an event marking a unique or important historical change of course or one on which important developments depend"
+    },
+    {
+      "word": "turning point",
+      "topic_synset_id": "72208",
+      "gloss": "an event marking a unique or important historical change of course or one on which important developments depend"
+    },
+    {
+      "word": "heyday",
+      "topic_synset_id": "104546",
+      "gloss": "the period of greatest prosperity or productivity"
+    },
+    {
+      "word": "equilibrium",
+      "topic_synset_id": "97141",
+      "gloss": "a stable situation in which forces cancel one another"
+    },
+    {
+      "word": "symmetry",
+      "topic_synset_id": "96945",
+      "gloss": "balance among the parts of something"
+    },
+    {
+      "word": "friction",
+      "topic_synset_id": "97378",
+      "gloss": "a state of conflict between persons"
+    },
+    {
+      "word": "turbulence",
+      "topic_synset_id": "100298",
+      "gloss": "instability in the atmosphere"
+    },
+    {
+      "word": "cascade",
+      "topic_synset_id": "71905",
+      "gloss": "a sudden downpour (as of tears or sparks etc.) likened to a rain shower"
+    },
+    {
+      "word": "convergence",
+      "topic_synset_id": "63908",
+      "gloss": "a representation of common ground between theories or phenomena"
+    },
+    {
+      "word": "divergence",
+      "topic_synset_id": "71919",
+      "gloss": "a variation that deviates from the standard or norm"
+    },
+    {
+      "word": "oscillation",
+      "topic_synset_id": "71786",
+      "gloss": "a single complete execution of a periodically repeated phenomenon"
+    },
+    {
+      "word": "entropy",
+      "topic_synset_id": "60061",
+      "gloss": "(thermodynamics) a thermodynamic quantity representing the amount of energy in a system that is no longer available for doing mechanical work"
+    },
+    {
+      "word": "catalyst",
+      "topic_synset_id": "101344",
+      "gloss": "(chemistry) a substance that initiates or accelerates a chemical reaction without itself being affected"
+    },
+    {
+      "word": "fusion",
+      "topic_synset_id": "8405",
+      "gloss": "the act of fusing (or melting) together"
+    },
+    {
+      "word": "gravitation",
+      "topic_synset_id": "65824",
+      "gloss": "a figurative movement toward some attraction"
+    },
+    {
+      "word": "feedback",
+      "topic_synset_id": "68516",
+      "gloss": "response to an inquiry or experiment"
+    },
+    {
+      "word": "amplification",
+      "topic_synset_id": "60564",
+      "gloss": "the amount of increase in signal power or voltage or current expressed as the ratio of output to input"
+    },
+    {
+      "word": "saturation",
+      "topic_synset_id": "8937",
+      "gloss": "the act of soaking thoroughly with a liquid"
+    },
+    {
+      "word": "fracture",
+      "topic_synset_id": "99034",
+      "gloss": "breaking of hard tissue such as bone"
+    },
+    {
+      "word": "trajectory",
+      "topic_synset_id": "87356",
+      "gloss": "the path followed by an object moving through space"
+    },
+    {
+      "word": "vortex",
+      "topic_synset_id": "96827",
+      "gloss": "the shape of something rotating rapidly"
+    },
+    {
+      "word": "tension",
+      "topic_synset_id": "8092",
+      "gloss": "the action of stretching something tight"
+    },
+    {
+      "word": "leverage",
+      "topic_synset_id": "87317",
+      "gloss": "the mechanical advantage gained by being in a position to use a lever"
+    },
+    {
+      "word": "undercurrent",
+      "topic_synset_id": "64676",
+      "gloss": "a subdued emotional quality underlying an utterance; implicit meaning"
+    },
+    {
+      "word": "spiral",
+      "topic_synset_id": "96818",
+      "gloss": "a curve that lies on the surface of a cylinder or cone and cuts the element at a constant angle"
+    },
+    {
+      "word": "crescendo",
+      "topic_synset_id": "59946",
+      "gloss": "(music) a gradual increase in loudness"
+    },
+    {
+      "word": "rhetoric",
+      "topic_synset_id": "65703",
+      "gloss": "study of the technique and rules for using language effectively (especially in public speaking)"
+    },
+    {
+      "word": "eloquence",
+      "topic_synset_id": "70367",
+      "gloss": "powerful and effective language"
+    },
+    {
+      "word": "satire",
+      "topic_synset_id": "104946",
+      "gloss": "a genre of literature and performing arts, in which shortcomings are held up to ridicule, ideally with the intent of shaming others"
+    },
+    {
+      "word": "allegory",
+      "topic_synset_id": "66659",
+      "gloss": "an expressive style that uses fictional characters and events to describe some subject by suggestive resemblances; an extended metaphor"
+    },
+    {
+      "word": "irony",
+      "topic_synset_id": "58551",
+      "gloss": "incongruity between what might be expected and what actually occurs"
+    },
+    {
+      "word": "paradox",
+      "topic_synset_id": "68415",
+      "gloss": "(logic) a statement that contradicts itself"
+    },
+    {
+      "word": "manifesto",
+      "topic_synset_id": "68429",
+      "gloss": "a public declaration of intentions (as issued by a political party or government)"
+    },
+    {
+      "word": "sermon",
+      "topic_synset_id": "71265",
+      "gloss": "an address of a religious nature (usually delivered during a church service)"
+    },
+    {
+      "word": "confession",
+      "topic_synset_id": "19566",
+      "gloss": "(Roman Catholic Church) the act of a penitent disclosing their sinfulness before a priest in the sacrament of penance in the hope of absolution"
+    },
+    {
+      "word": "testimony",
+      "topic_synset_id": "67990",
+      "gloss": "something that serves as evidence"
+    },
+    {
+      "word": "narrative",
+      "topic_synset_id": "71142",
+      "gloss": "a message that tells the particulars of an act or occurrence or course of events; presented in writing or drama or cinema or as a radio or television program"
+    },
+    {
+      "word": "monologue",
+      "topic_synset_id": "70047",
+      "gloss": "a (usually long) dramatic speech by a single actor"
+    },
+    {
+      "word": "whisper",
+      "topic_synset_id": "72060",
+      "gloss": "a light noise, like the noise of silk clothing or leaves blowing in the wind"
+    },
+    {
+      "word": "echo",
+      "topic_synset_id": "19279",
+      "gloss": "an imitation or repetition"
+    },
+    {
+      "word": "murmur",
+      "topic_synset_id": "70582",
+      "gloss": "a schwa that is incidental to the pronunciation of a consonant"
+    },
+    {
+      "word": "cadence",
+      "topic_synset_id": "70468",
+      "gloss": "(prosody) the accent in a metrical foot of verse"
+    },
+    {
+      "word": "rumour",
+      "topic_synset_id": "71152",
+      "gloss": "gossip (usually a mixture of truth and untruth) passed around by word of mouth"
+    },
+    {
+      "word": "innuendo",
+      "topic_synset_id": "71237",
+      "gloss": "an indirect (and usually malicious) implication"
+    },
+    {
+      "word": "platitude",
+      "topic_synset_id": "70795",
+      "gloss": "a trite or obvious remark"
+    },
+    {
+      "word": "diatribe",
+      "topic_synset_id": "71209",
+      "gloss": "thunderous verbal attack"
+    },
+    {
+      "word": "eulogy",
+      "topic_synset_id": "68239",
+      "gloss": "a formal expression of praise"
+    },
+    {
+      "word": "lament",
+      "topic_synset_id": "66729",
+      "gloss": "a mournful poem; a lament for the dead"
+    },
+    {
+      "word": "anthem",
+      "topic_synset_id": "70171",
+      "gloss": "a song of praise (to God or to a saint or to a nation)"
+    },
+    {
+      "word": "wilderness",
+      "topic_synset_id": "78827",
+      "gloss": "a wild and uninhabited area left in its natural condition"
+    },
+    {
+      "word": "drought",
+      "topic_synset_id": "104281",
+      "gloss": "a prolonged shortage"
+    },
+    {
+      "word": "famine",
+      "topic_synset_id": "71651",
+      "gloss": "a severe shortage of food (as through crop failure) resulting in violent hunger and starvation and death"
+    },
+    {
+      "word": "deluge",
+      "topic_synset_id": "87212",
+      "gloss": "the rising of a body of water and its overflowing onto normally dry land"
+    },
+    {
+      "word": "avalanche",
+      "topic_synset_id": "72135",
+      "gloss": "a slide of large masses of snow and ice and mud down a mountain"
+    },
+    {
+      "word": "tempest",
+      "topic_synset_id": "97365",
+      "gloss": "a violent commotion or disturbance"
+    },
+    {
+      "word": "eclipse",
+      "topic_synset_id": "71932",
+      "gloss": "one celestial body obscures another"
+    },
+    {
+      "word": "mirage",
+      "topic_synset_id": "64772",
+      "gloss": "something illusory and unattainable"
+    },
+    {
+      "word": "undertow",
+      "topic_synset_id": "72130",
+      "gloss": "the seaward undercurrent created after waves have broken on the shore"
+    },
+    {
+      "word": "whirlpool",
+      "topic_synset_id": "72289",
+      "gloss": "a powerful circular current of water (usually the result of conflicting tides)"
+    },
+    {
+      "word": "quicksand",
+      "topic_synset_id": "79487",
+      "gloss": "a pit filled with loose wet sand into which objects are sucked down"
+    },
+    {
+      "word": "wildfire",
+      "topic_synset_id": "71600",
+      "gloss": "a raging and rapidly spreading conflagration"
+    },
+    {
+      "word": "frost",
+      "topic_synset_id": "87139",
+      "gloss": "weather cold enough to cause freezing"
+    },
+    {
+      "word": "harvest",
+      "topic_synset_id": "92616",
+      "gloss": "the yield from plants in a single growing season"
+    },
+    {
+      "word": "migration",
+      "topic_synset_id": "20928",
+      "gloss": "the movement of persons from one country or locality to another"
+    },
+    {
+      "word": "hibernation",
+      "topic_synset_id": "4564",
+      "gloss": "the act of retiring into inactivity"
+    },
+    {
+      "word": "metamorphosis",
+      "topic_synset_id": "8924",
+      "gloss": "a complete change of physical form or substance especially as by magic or witchcraft"
+    },
+    {
+      "word": "monsoon",
+      "topic_synset_id": "87375",
+      "gloss": "a seasonal wind in southern Asia; blows from the southwest (bringing rain) in summer and from the northeast in winter"
+    },
+    {
+      "word": "blizzard",
+      "topic_synset_id": "77897",
+      "gloss": "a series of unexpected and unpleasant occurrences"
+    },
+    {
+      "word": "tundra",
+      "topic_synset_id": "79674",
+      "gloss": "a vast treeless plain in the Arctic regions where the subsoil is permanently frozen"
+    },
+    {
+      "word": "wasteland",
+      "topic_synset_id": "78110",
+      "gloss": "an uninhabited wilderness that is worthless for cultivation"
+    },
+    {
+      "word": "tide",
+      "topic_synset_id": "72121",
+      "gloss": "the periodic rise and fall of the sea level under the gravitational pull of the moon"
+    },
+    {
+      "word": "current",
+      "topic_synset_id": "72145",
+      "gloss": "a steady flow of a fluid (usually from natural causes)"
+    },
+    {
+      "word": "elegance",
+      "topic_synset_id": "59014",
+      "gloss": "a refined quality of gracefulness and good taste"
+    },
+    {
+      "word": "grandeur",
+      "topic_synset_id": "59023",
+      "gloss": "the quality of being magnificent or splendid or grand"
+    },
+    {
+      "word": "splendour",
+      "topic_synset_id": "59023",
+      "gloss": "the quality of being magnificent or splendid or grand"
+    },
+    {
+      "word": "squalor",
+      "topic_synset_id": "100168",
+      "gloss": "sordid dirtiness"
+    },
+    {
+      "word": "austerity",
+      "topic_synset_id": "59361",
+      "gloss": "the trait of great self-denial (especially refraining from worldly pleasures)"
+    },
+    {
+      "word": "opulence",
+      "topic_synset_id": "100130",
+      "gloss": "wealth as evidenced by sumptuous living"
+    },
+    {
+      "word": "harmony",
+      "topic_synset_id": "97317",
+      "gloss": "a harmonious state of things in general and of their properties (as of colors and sounds); congruity of parts with one another and with the whole"
+    },
+    {
+      "word": "dissonance",
+      "topic_synset_id": "63689",
+      "gloss": "the auditory experience of sound that lacks musical quality; sound that is a disagreeable auditory experience"
+    },
+    {
+      "word": "minimalism",
+      "topic_synset_id": "77946",
+      "gloss": "an art movement in sculpture and painting that began in the 1950s and emphasized extreme simplification of form and color"
+    },
+    {
+      "word": "ornament",
+      "topic_synset_id": "49585",
+      "gloss": "something used to beautify"
+    },
+    {
+      "word": "patina",
+      "topic_synset_id": "53829",
+      "gloss": "a fine coating of oxide (produced by oxidation over a long period of time) on the surface of a metal (particularly copper)"
+    },
+    {
+      "word": "radiance",
+      "topic_synset_id": "59733",
+      "gloss": "the quality of being bright and sending out rays of light"
+    },
+    {
+      "word": "decadence",
+      "topic_synset_id": "99864",
+      "gloss": "the state of being degenerate in mental or moral qualities"
+    },
+    {
+      "word": "refinement",
+      "topic_synset_id": "99970",
+      "gloss": "a highly developed state of perfection; having a flawless or impeccable quality"
+    },
+    {
+      "word": "vulgarity",
+      "topic_synset_id": "59036",
+      "gloss": "the quality of lacking taste and refinement"
+    },
+    {
+      "word": "subtlety",
+      "topic_synset_id": "58531",
+      "gloss": "the quality of being difficult to detect or analyze"
+    },
+    {
+      "word": "bureaucracy",
+      "topic_synset_id": "75923",
+      "gloss": "a government that is administered primarily by bureaus that are staffed with nonelective officials"
+    },
+    {
+      "word": "monarchy",
+      "topic_synset_id": "77454",
+      "gloss": "an autocracy governed by a monarch who usually inherits the authority"
+    },
+    {
+      "word": "democracy",
+      "topic_synset_id": "65923",
+      "gloss": "the political orientation of those who favor government by the people or by their elected representatives"
+    },
+    {
+      "word": "oligarchy",
+      "topic_synset_id": "77447",
+      "gloss": "a political system governed by a few people"
+    },
+    {
+      "word": "doctrine",
+      "topic_synset_id": "64786",
+      "gloss": "a belief (or system of beliefs) accepted as authoritative by some group or school"
+    },
+    {
+      "word": "ideology",
+      "topic_synset_id": "63979",
+      "gloss": "imaginary or visionary theorization"
+    },
+    {
+      "word": "orthodoxy",
+      "topic_synset_id": "58956",
+      "gloss": "the quality of being orthodox (especially in religion)"
+    },
+    {
+      "word": "dogma",
+      "topic_synset_id": "64867",
+      "gloss": "a doctrine or code of beliefs accepted as authoritative"
+    },
+    {
+      "word": "sect",
+      "topic_synset_id": "76388",
+      "gloss": "a subdivision of a larger religious group"
+    },
+    {
+      "word": "syndicate",
+      "topic_synset_id": "76806",
+      "gloss": "an association of companies for some definite purpose"
+    },
+    {
+      "word": "cartel",
+      "topic_synset_id": "76807",
+      "gloss": "a consortium of independent organizations formed to limit competition by controlling the production and distribution of a product or service"
+    },
+    {
+      "word": "establishment",
+      "topic_synset_id": "50306",
+      "gloss": "a public or private structure (business or governmental or educational) including buildings and equipment for business or residence"
+    },
+    {
+      "word": "regimen",
+      "topic_synset_id": "64612",
+      "gloss": "(medicine) a systematic plan for therapy (often including diet)"
+    },
+    {
+      "word": "protocol",
+      "topic_synset_id": "63426",
+      "gloss": "code of correct conduct"
+    },
+    {
+      "word": "ritual",
+      "topic_synset_id": "19427",
+      "gloss": "the prescribed procedure for conducting religious ceremonies"
+    },
+    {
+      "word": "tradition",
+      "topic_synset_id": "63419",
+      "gloss": "a specific practice of long standing"
+    },
+    {
+      "word": "institution",
+      "topic_synset_id": "75937",
+      "gloss": "an organization founded and united for a specific purpose"
+    },
+    {
+      "word": "fraternity",
+      "topic_synset_id": "76060",
+      "gloss": "people engaged in a particular occupation"
+    },
+    {
+      "word": "heartbeat",
+      "topic_synset_id": "72112",
+      "gloss": "the rhythmic contraction and expansion of the arteries with each beat of the heart"
+    },
+    {
+      "word": "nerve",
+      "topic_synset_id": "59137",
+      "gloss": "impudent aggressiveness"
+    },
+    {
+      "word": "marrow",
+      "topic_synset_id": "61455",
+      "gloss": "the fatty network of connective tissue that fills the cavities of bones"
+    },
+    {
+      "word": "scar",
+      "topic_synset_id": "58442",
+      "gloss": "an indication of damage"
+    },
+    {
+      "word": "wound",
+      "topic_synset_id": "72659",
+      "gloss": "a figurative injury (to your feelings or pride)"
+    },
+    {
+      "word": "ache",
+      "topic_synset_id": "99189",
+      "gloss": "a dull persistent (usually moderately intense) pain"
+    },
+    {
+      "word": "numbness",
+      "topic_synset_id": "99187",
+      "gloss": "partial or total lack of sensation in a part of the body; a symptom of nerve damage or dysfunction"
+    },
+    {
+      "word": "vertigo",
+      "topic_synset_id": "99501",
+      "gloss": "a reeling sensation; a feeling that you are about to fall"
+    },
+    {
+      "word": "hunger",
+      "topic_synset_id": "97678",
+      "gloss": "a physiological need for food; the consequence of food deprivation"
+    },
+    {
+      "word": "thirst",
+      "topic_synset_id": "59686",
+      "gloss": "strong desire for something (not food or drink)"
+    },
+    {
+      "word": "exhaustion",
+      "topic_synset_id": "7876",
+      "gloss": "the act of exhausting something entirely"
+    },
+    {
+      "word": "adrenaline",
+      "topic_synset_id": "62106",
+      "gloss": "a catecholamine secreted by the adrenal medulla in response to stress (trade name Adrenalin); stimulates autonomic nerve action"
+    },
+    {
+      "word": "shiver",
+      "topic_synset_id": "16954",
+      "gloss": "a reflex motion caused by cold or fear or excitement"
+    },
+    {
+      "word": "tremor",
+      "topic_synset_id": "7692",
+      "gloss": "an involuntary vibration (as if from illness or fear)"
+    },
+    {
+      "word": "spasm",
+      "topic_synset_id": "4880",
+      "gloss": "(pathology) sudden constriction of a hollow organ (as a blood vessel)"
+    },
+    {
+      "word": "pang",
+      "topic_synset_id": "72646",
+      "gloss": "a sudden sharp feeling"
+    },
+    {
+      "word": "wealth",
+      "topic_synset_id": "60595",
+      "gloss": "the quality of profuse abundance"
+    },
+    {
+      "word": "debt",
+      "topic_synset_id": "68647",
+      "gloss": "an obligation to pay or do something"
+    },
+    {
+      "word": "bankruptcy",
+      "topic_synset_id": "100059",
+      "gloss": "inability to discharge all your debts as they come due"
+    },
+    {
+      "word": "surplus",
+      "topic_synset_id": "60614",
+      "gloss": "a quantity much larger than is needed"
+    },
+    {
+      "word": "scarcity",
+      "topic_synset_id": "60600",
+      "gloss": "a small and inadequate amount"
+    },
+    {
+      "word": "speculation",
+      "topic_synset_id": "93789",
+      "gloss": "an investment that is very risky but could yield great profits"
+    },
+    {
+      "word": "windfall",
+      "topic_synset_id": "72548",
+      "gloss": "a sudden happening that brings good fortune (as a sudden opportunity to make money)"
+    },
+    {
+      "word": "ransom",
+      "topic_synset_id": "1940",
+      "gloss": "the act of freeing from captivity or punishment"
+    },
+    {
+      "word": "bounty",
+      "topic_synset_id": "93372",
+      "gloss": "payment or reward (especially from a government) for acts such as catching criminals or killing predatory animals or enlisting in the military"
+    },
+    {
+      "word": "tribute",
+      "topic_synset_id": "15732",
+      "gloss": "payment extorted by gangsters on threat of violence"
+    },
+    {
+      "word": "dividend",
+      "topic_synset_id": "94167",
+      "gloss": "that part of the earnings of a corporation that is distributed to its shareholders; usually paid quarterly"
+    },
+    {
+      "word": "recession",
+      "topic_synset_id": "97540",
+      "gloss": "the state of the economy declines; a widespread decline in the GDP and employment and trade lasting from six months to a year"
+    },
+    {
+      "word": "glut",
+      "topic_synset_id": "60615",
+      "gloss": "the quality of being so overabundant that prices fall"
+    },
+    {
+      "word": "deficit",
+      "topic_synset_id": "94100",
+      "gloss": "an excess of liabilities over assets (usually over a certain period)"
+    },
+    {
+      "word": "labyrinth",
+      "topic_synset_id": "52888",
+      "gloss": "complex system of paths or tunnels in which it is easy to get lost"
+    },
+    {
+      "word": "crossroads",
+      "topic_synset_id": "63909",
+      "gloss": "a point where a choice must be made"
+    },
+    {
+      "word": "frontier",
+      "topic_synset_id": "65048",
+      "gloss": "an undeveloped field of study; a topic inviting research and development"
+    },
+    {
+      "word": "abyss",
+      "topic_synset_id": "78935",
+      "gloss": "a bottomless gulf or pit; any unfathomable (or apparently unfathomable) cavity or chasm or void extending below (often used figuratively)"
+    },
+    {
+      "word": "summit",
+      "topic_synset_id": "78551",
+      "gloss": "the top or extreme point of something (usually a mountain or hill)"
+    },
+    {
+      "word": "precipice",
+      "topic_synset_id": "79473",
+      "gloss": "a very steep cliff"
+    },
+    {
+      "word": "sanctuary",
+      "topic_synset_id": "55207",
+      "gloss": "a consecrated place where sacred objects are kept"
+    },
+    {
+      "word": "fortress",
+      "topic_synset_id": "50822",
+      "gloss": "a fortified defensive structure"
+    },
+    {
+      "word": "citadel",
+      "topic_synset_id": "45097",
+      "gloss": "a stronghold into which people could go for shelter during a battle"
+    },
+    {
+      "word": "gateway",
+      "topic_synset_id": "51070",
+      "gloss": "an entrance that can be closed by a gate"
+    },
+    {
+      "word": "crucible",
+      "topic_synset_id": "49227",
+      "gloss": "a vessel made of material that does not melt easily; used for high temperature chemical reactions"
+    },
+    {
+      "word": "compass",
+      "topic_synset_id": "48511",
+      "gloss": "navigational instrument for finding directions"
+    },
+    {
+      "word": "beacon",
+      "topic_synset_id": "45219",
+      "gloss": "a tower with a light that gives warning of shoals to passing ships"
+    },
+    {
+      "word": "lighthouse",
+      "topic_synset_id": "45219",
+      "gloss": "a tower with a light that gives warning of shoals to passing ships"
+    },
+    {
+      "word": "scaffold",
+      "topic_synset_id": "55258",
+      "gloss": "a temporary arrangement erected around a building for convenience of workers"
+    },
+    {
+      "word": "foundation",
+      "topic_synset_id": "77670",
+      "gloss": "an institution supported by an endowment"
+    },
+    {
+      "word": "keystone",
+      "topic_synset_id": "52175",
+      "gloss": "the central building block at the top of an arch or vault"
+    },
+    {
+      "word": "chasm",
+      "topic_synset_id": "79059",
+      "gloss": "a deep opening in the earth's surface"
+    },
+    {
+      "word": "fault line",
+      "topic_synset_id": "78357",
+      "gloss": "(geology) line determined by the intersection of a geological fault and the earth's surface"
+    },
+    {
+      "word": "chaos",
+      "topic_synset_id": "66058",
+      "gloss": "(physics) a dynamical system that is extremely sensitive to its initial conditions"
+    },
+    {
+      "word": "void",
+      "topic_synset_id": "97014",
+      "gloss": "an empty area or space"
+    },
+    {
+      "word": "limbo",
+      "topic_synset_id": "63216",
+      "gloss": "(theology) in Roman Catholicism, the place of unbaptized but innocent or righteous souls (such as infants and virtuous individuals)"
+    },
+    {
+      "word": "purgatory",
+      "topic_synset_id": "63220",
+      "gloss": "(theology) in Roman Catholic theology the place where those who have died in a state of grace undergo limited torment to expiate their sins"
+    },
+    {
+      "word": "oblivion",
+      "topic_synset_id": "63455",
+      "gloss": "total forgetfulness"
+    },
+    {
+      "word": "destiny",
+      "topic_synset_id": "71729",
+      "gloss": "an event (or a course of events) that will inevitably happen in the future"
+    },
+    {
+      "word": "fate",
+      "topic_synset_id": "79798",
+      "gloss": "the ultimate agency regarded as predetermining the course of events"
+    },
+    {
+      "word": "fortune",
+      "topic_synset_id": "87025",
+      "gloss": "an unknown and unpredictable phenomenon that leads to a favorable outcome"
+    },
+    {
+      "word": "doom",
+      "topic_synset_id": "71751",
+      "gloss": "an unpleasant or disastrous destiny"
+    },
+    {
+      "word": "salvation",
+      "topic_synset_id": "3796",
+      "gloss": "a means of preserving from harm or unpleasantness"
+    },
+    {
+      "word": "ruin",
+      "topic_synset_id": "55109",
+      "gloss": "a ruined building"
+    },
+    {
+      "word": "legacy",
+      "topic_synset_id": "93322",
+      "gloss": "(law) a gift of personal property by will"
+    },
+    {
+      "word": "myth",
+      "topic_synset_id": "66692",
+      "gloss": "a traditional story accepted as history; serves to explain the world view of a people"
+    },
+    {
+      "word": "taboo",
+      "topic_synset_id": "64809",
+      "gloss": "a prejudice (especially in Polynesia and other South Pacific islands) that prohibits the use or mention of something because of its sacred nature"
+    },
+    {
+      "word": "omen",
+      "topic_synset_id": "71502",
+      "gloss": "a sign of something about to happen"
+    },
+    {
+      "word": "curse",
+      "topic_synset_id": "72220",
+      "gloss": "a severe affliction"
+    },
+    {
+      "word": "blessing",
+      "topic_synset_id": "70967",
+      "gloss": "a ceremonial prayer invoking divine protection"
+    },
+    {
+      "word": "miracle",
+      "topic_synset_id": "71520",
+      "gloss": "any amazing or wonderful occurrence"
+    },
+    {
+      "word": "illusion",
+      "topic_synset_id": "64768",
+      "gloss": "an erroneous mental representation"
+    },
+    {
+      "word": "facade",
+      "topic_synset_id": "50375",
+      "gloss": "the face or front of a building"
+    },
+    {
+      "word": "veneer",
+      "topic_synset_id": "50388",
+      "gloss": "an ornamental coating to a building"
+    },
+    {
+      "word": "mosaic",
+      "topic_synset_id": "53170",
+      "gloss": "art consisting of a design made of small pieces of colored stone or glass"
+    },
+    {
+      "word": "tapestry",
+      "topic_synset_id": "56765",
+      "gloss": "a wall hanging of heavy handwoven fabric often with pictorial designs"
+    },
+    {
+      "word": "kaleidoscope",
+      "topic_synset_id": "52138",
+      "gloss": "an optical toy in a tube; it produces symmetrical patterns as bits of colored glass are reflected by mirrors"
+    },
+    {
+      "word": "spectrum",
+      "topic_synset_id": "60654",
+      "gloss": "a broad range of related objects or values or qualities or ideas or activities"
+    },
+    {
+      "word": "continuum",
+      "topic_synset_id": "103642",
+      "gloss": "a continuous nonspatial whole or extent or succession in which no part or portion is distinct or distinguishable from adjacent parts"
+    }
+  ]
+}
