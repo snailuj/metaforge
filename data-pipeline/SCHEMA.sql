@@ -13,7 +13,13 @@
 CREATE TABLE synsets (
     synset_id TEXT PRIMARY KEY,
     pos TEXT NOT NULL CHECK (pos IN ('n', 'v', 'a', 'r', 's')),
-    definition TEXT NOT NULL
+    definition TEXT NOT NULL,
+    -- WordNet lexicographer-file domain (references domains.domainid, populated
+    -- by import_oewn). A coarse 45-class semantic-type label — a type/grouping
+    -- signal for M05/Bridge/thesaurus, NOT a cascade aptness feature (domain
+    -- mismatch is a background condition of forge output, not a live/dead
+    -- discriminator). See docs/inbox/2026-06-05-sqlunet-data-strategy-review.md.
+    domainid INTEGER
 );
 
 CREATE TABLE lemmas (
@@ -58,6 +64,77 @@ CREATE INDEX idx_frequencies_lemma ON frequencies(lemma);
 CREATE INDEX idx_frequencies_zipf ON frequencies(zipf);
 CREATE INDEX idx_frequencies_rarity ON frequencies(rarity);
 CREATE INDEX idx_frequencies_familiarity ON frequencies(familiarity);
+
+-- ============================================================
+-- SQLUNET sense keys, SemCor frequency, domains, BNC, provenance
+-- (added 2026-06-05 — see docs/inbox/2026-06-05-sqlunet-data-strategy-review.md)
+-- ============================================================
+
+-- WordNet lexicographer-file domains: 45 coarse semantic-type classes
+-- (noun.artifact, noun.feeling, verb.motion, ...). The target of
+-- synsets.domainid. A type/grouping signal for M05/Bridge/thesaurus — NOT a
+-- cascade aptness feature (see the review's domains evaluation: domain
+-- mismatch is a background condition, not a live/dead discriminator).
+CREATE TABLE domains (
+    domainid   INTEGER PRIMARY KEY,
+    domain     TEXT NOT NULL,
+    domainname TEXT NOT NULL,
+    posid      TEXT NOT NULL CHECK (posid IN ('n', 'v', 'a', 'r', 's'))
+);
+
+-- Sense-level attributes for every WordNet sense. Two payloads dropped by the
+-- original import:
+--   sensekey  the stable cross-resource sense id (joins SyntagNet/VerbNet/etc.)
+--   tagcount  SemCor empirical usage count — the dominant-sense prior that
+--             unblocks topic disambiguation. NULL where SemCor never tagged the
+--             sense (~81% of senses); LLM disambiguation remains the fallback.
+-- Grain mirrors the lemmas table (one row per word-sense); keyed on sensekey
+-- (verified unique + non-null across all 185k senses).
+CREATE TABLE sense_attributes (
+    sensekey  TEXT PRIMARY KEY,
+    lemma     TEXT NOT NULL,
+    synset_id TEXT NOT NULL,
+    sensenum  INTEGER,
+    tagcount  INTEGER,
+    FOREIGN KEY (synset_id) REFERENCES synsets(synset_id)
+);
+
+CREATE INDEX idx_sense_attributes_lemma ON sense_attributes(lemma);
+CREATE INDEX idx_sense_attributes_synset ON sense_attributes(synset_id);
+-- Dominant-sense lookup: highest-tagcount synset for a lemma.
+CREATE INDEX idx_sense_attributes_lemma_tagcount ON sense_attributes(lemma, tagcount);
+
+-- BNC POS-resolved word frequency (British National Corpus, 100M words).
+-- Supplies the POS-dominance topic filter (drop noun-lemma topics that are
+-- really verb-dominant, e.g. take/get/say). Word+POS granular — complements
+-- the word-level `frequencies` table (no POS split) and SemCor tagcount.
+CREATE TABLE bnc_frequencies (
+    lemma TEXT NOT NULL,
+    pos   TEXT NOT NULL CHECK (pos IN ('n', 'v', 'a', 'r', 's')),
+    freq  INTEGER NOT NULL,
+    PRIMARY KEY (lemma, pos)
+);
+
+CREATE INDEX idx_bnc_frequencies_lemma ON bnc_frequencies(lemma);
+
+-- Seed-data provenance: every upstream dataset (name / version / WordNet
+-- version / licence reference) + the build metadata. Licence-audit anchor;
+-- closes the documented provenance gap (Pipeline Architectural Review).
+CREATE TABLE seed_sources (
+    idsource  INTEGER PRIMARY KEY,
+    name      TEXT NOT NULL,
+    version   TEXT,
+    wnversion TEXT,
+    url       TEXT,
+    provider  TEXT,
+    reference TEXT
+);
+
+CREATE TABLE seed_meta (
+    created TEXT,
+    dbsize  INTEGER,
+    build   TEXT
+);
 
 -- ============================================================
 -- VerbNet (classes, roles, examples, members)
