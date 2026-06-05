@@ -958,3 +958,103 @@ def test_prompt_batch_non_list_includes_head_tail(mock_invoke):
     msg = str(excinfo.value)
     assert "head=" in msg
     assert "tail=" in msg
+
+
+# --- session-limit 429 fast-detection ----------------------------------------
+# A 429 usage/session limit resets in HOURS, not seconds, so retrying it is
+# futile churn. The client must classify it on sight, parse its reset time,
+# and surface it immediately. An UNPARSEABLE reset (server-side format change)
+# must fail LOUDLY, not silently degrade to the blind retry grind.
+
+from claude_client import (
+    parse_reset_time, SessionLimitError, SessionLimitFormatError,
+    _parse_events as _pe,
+)
+
+
+def _make_429_stdout(result_text, status=429):
+    return json.dumps({
+        "type": "result", "subtype": "success", "is_error": True,
+        "api_error_status": status, "result": result_text,
+    })
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("You've hit your session limit · resets 3pm (UTC)", (15, 0)),
+    ("You've hit your session limit · resets 10am UTC", (10, 0)),
+    ("You've hit your session limit · resets 2:50am (UTC)", (2, 50)),
+    ("You've hit your session limit · resets 7:50am (UTC)", (7, 50)),
+    ("resets 12am (UTC)", (0, 0)),
+    ("resets 12pm (UTC)", (12, 0)),
+])
+def test_parse_reset_time_known_formats(text, expected):
+    assert parse_reset_time(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "You've hit your session limit",            # no reset clause at all
+    "resets soon",                              # no time
+    "resets 25:99 (UTC)",                       # out of range / wrong shape
+    "limit resets at 0750 UTC",                 # 24h shape we don't accept
+    "",
+])
+def test_parse_reset_time_unparseable_raises(text):
+    with pytest.raises(ValueError):
+        parse_reset_time(text)
+
+
+def test_session_limit_error_subclasses_rate_limit():
+    # Must subclass RateLimitError so _invoke_with_retries surfaces it
+    # immediately (its `except RateLimitError: raise` arm) — no retry storm.
+    from claude_client import RateLimitError
+    assert issubclass(SessionLimitError, RateLimitError)
+    assert issubclass(SessionLimitFormatError, RateLimitError)
+
+
+def test_parse_events_session_limit_parseable_nonzero_exit():
+    # The real shape: CLI exits non-zero with the 429 JSON on stdout.
+    stdout = _make_429_stdout("You've hit your session limit · resets 7:50am (UTC)")
+    with pytest.raises(SessionLimitError) as ei:
+        _pe(stdout, 1, "")
+    assert ei.value.reset_hour == 7 and ei.value.reset_minute == 50
+    assert "7:50" in ei.value.reset_text
+
+
+def test_parse_events_session_limit_parseable_is_error_zero_exit():
+    # Defensive: same 429 arriving via is_error with a zero exit code.
+    stdout = _make_429_stdout("usage limit reached · resets 3pm (UTC)")
+    with pytest.raises(SessionLimitError) as ei:
+        _pe(stdout, 0, "")
+    assert ei.value.reset_hour == 15 and ei.value.reset_minute == 0
+
+
+def test_parse_events_session_limit_unparseable_is_loud():
+    # 429 confirmed, but the reset clause is gone/changed -> LOUD format error,
+    # NOT a generic retryable ClaudeError.
+    stdout = _make_429_stdout("You've hit your session limit (try later)")
+    with pytest.raises(SessionLimitFormatError) as ei:
+        _pe(stdout, 1, "")
+    assert "session" in str(ei.value).lower()
+
+
+def test_parse_events_non_429_nonzero_exit_still_generic():
+    # A normal non-429 failure must stay a plain ClaudeError (unchanged path).
+    with pytest.raises(ClaudeError) as ei:
+        _pe(json.dumps({"type": "result", "is_error": True, "result": "boom"}), 1, "")
+    assert not isinstance(ei.value, SessionLimitError)
+    assert not isinstance(ei.value, SessionLimitFormatError)
+
+
+def test_invoke_with_retries_does_not_retry_session_limit(monkeypatch):
+    import claude_client
+    calls = {"n": 0}
+
+    def fake_invoke(prompt, model, verbose=False):
+        calls["n"] += 1
+        raise SessionLimitError("limit", reset_text="resets 3pm (UTC)",
+                                reset_hour=15, reset_minute=0)
+
+    monkeypatch.setattr(claude_client, "_invoke", fake_invoke)
+    with pytest.raises(SessionLimitError):
+        claude_client._invoke_with_retries("p", model="haiku", max_retries=5)
+    assert calls["n"] == 1  # surfaced immediately; no retry storm

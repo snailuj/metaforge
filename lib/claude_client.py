@@ -34,6 +34,108 @@ class RateLimitError(ClaudeError):
     """Usage/rate limit exhausted."""
 
 
+class SessionLimitError(RateLimitError):
+    """A 429 usage/session limit that resets at a known wall-clock time.
+
+    Subclasses RateLimitError so the retry loop surfaces it IMMEDIATELY (no
+    backoff/retry) — a session limit resets in hours, not seconds, so retrying
+    it in-process is pure churn. Carries the parsed reset time so the caller
+    can pause and schedule a single, informed resume."""
+
+    def __init__(self, msg, *, reset_text="", reset_hour=None, reset_minute=None):
+        super().__init__(msg)
+        self.reset_text = reset_text
+        self.reset_hour = reset_hour
+        self.reset_minute = reset_minute
+
+
+class SessionLimitFormatError(RateLimitError):
+    """A 429 usage/session limit whose reset-time format we could NOT parse.
+
+    Raised LOUDLY (distinct class) when the server returns a confirmed 429 but
+    the reset clause is missing or in an unrecognised shape — e.g. a server-side
+    message change. Surfacing this rather than silently treating it as a generic
+    retryable error stops a format drift from degrading into a blind retry
+    grind. Also subclasses RateLimitError so it surfaces without retry."""
+
+    def __init__(self, msg, *, raw=""):
+        super().__init__(msg)
+        self.raw = raw
+
+
+# Matches 'resets 7:50am (UTC)', 'resets 3pm (UTC)', 'resets 10am UTC'.
+# Deliberately strict: a 24h shape ('0750') or a date-stamped format won't
+# match, so a server-side wording change trips parse_reset_time → ValueError →
+# SessionLimitFormatError (loud) rather than a silent mis-parse.
+_RESET_TIME_RE = re.compile(r"resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", re.IGNORECASE)
+
+
+def parse_reset_time(text):
+    """Parse a Claude session-limit reset clause -> (hour_24, minute).
+
+    'You've hit your session limit · resets 7:50am (UTC)' -> (7, 50).
+    Raises ValueError when no recognised 'resets <h[:mm]><am|pm>' clause is
+    present, so the caller can fail loudly on an unexpected (changed) format
+    instead of guessing a reset time."""
+    m = _RESET_TIME_RE.search(text or "")
+    if not m:
+        raise ValueError(f"no parseable 'resets <time>' clause in: {text!r}")
+    hour = int(m.group(1))
+    minute = int(m.group(2) or 0)
+    ampm = m.group(3).lower()
+    if not (1 <= hour <= 12) or not (0 <= minute <= 59):
+        raise ValueError(f"reset time out of range in: {text!r}")
+    if ampm == "pm" and hour != 12:
+        hour += 12
+    if ampm == "am" and hour == 12:
+        hour = 0
+    return hour, minute
+
+
+def _detect_session_limit(stdout):
+    """Return the result text of a 429 usage/session-limit event in `stdout`,
+    or None if stdout is not a 429 limit (or isn't parseable JSON).
+
+    The session limit arrives as a CLI result object (single dict or event
+    list) carrying `api_error_status == 429`; that status is the robust,
+    wording-independent signal."""
+    try:
+        parsed = json.loads(stdout)
+    except (ValueError, TypeError):
+        return None
+    events = parsed if isinstance(parsed, list) else [parsed]
+    for e in events:
+        if not isinstance(e, dict):
+            continue
+        status = e.get("api_error_status")
+        if status == 429 or str(status) == "429":
+            return e.get("result") or ""
+    return None
+
+
+def _raise_if_session_limit(stdout):
+    """If `stdout` encodes a 429 session/usage limit, raise SessionLimitError
+    (reset parsed) or SessionLimitFormatError (reset UNPARSEABLE -> loud).
+
+    No-op (returns None) when stdout is not a 429 limit, so callers fall through
+    to their normal error handling."""
+    text = _detect_session_limit(stdout)
+    if text is None:
+        return
+    try:
+        hour, minute = parse_reset_time(text)
+    except ValueError as e:
+        raise SessionLimitFormatError(
+            "429 session/usage limit detected but reset-time format "
+            f"unrecognised (possible server change): {text!r}",
+            raw=text,
+        ) from e
+    raise SessionLimitError(
+        f"429 session/usage limit; {text!r}",
+        reset_text=text.strip(), reset_hour=hour, reset_minute=minute,
+    )
+
+
 class _StdoutDiagnosticMixin:
     """Shared typed-diagnostic __init__ for ClaudeError subclasses that
     carry stdout head/tail/total_len fields.
@@ -347,6 +449,11 @@ def _stdout_diagnostic_fields(
 def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
     """Parse Claude CLI JSON event output and return the result text."""
     if returncode != 0:
+        # A 429 session/usage limit arrives here as exit!=0 with the error
+        # JSON on stdout. Classify it before the generic raise so the retry
+        # loop surfaces it immediately instead of grinding it 5× (the limit
+        # resets in hours). Unparseable reset format -> loud SessionLimitFormatError.
+        _raise_if_session_limit(stdout)
         # Include stdout head/tail too — stderr alone often loses partial
         # event output (e.g. a CLI segfault after a 3-event prefix). The
         # retry-loop WARNING logs the full exception message, so this
@@ -393,6 +500,9 @@ def _parse_events(stdout: str, returncode: int, stderr: str) -> str:
             stdout_head=head, stdout_tail=tail, total_len=total,
         )
     if result_event.get("is_error"):
+        # Classify a 429 session/usage limit first (zero-exit is_error variant)
+        # so it surfaces immediately with its parsed reset time.
+        _raise_if_session_limit(stdout)
         error_text = result_event.get("result", "")
         if any(ind in error_text.lower() for ind in _RATE_LIMIT_INDICATORS):
             raise RateLimitError(error_text)
