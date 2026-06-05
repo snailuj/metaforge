@@ -5,6 +5,23 @@ proxy-judge live-rate tripwire, and the LLM sense-disambiguation pass are on bra
 `metaphor-graph/enrich-stage-a` (the consolidated Stage-A run branch). All JSONL-native
 (grading-tool consumes the round files directly); DB ingestion deferred per the 2026-06-04 call.
 
+## SESSION-4 UPDATE (session-limit fast-pause + NTFY + autonomous wrapper) — READ FIRST
+The 429 churn is fixed end-to-end, and the multi-day run is now launch-once.
+- **Client classifies a 429 session limit on sight** (`5093ff5f`): `claude_client._parse_events` raises `SessionLimitError` (carries the parsed reset time) instead of a generic retryable error — so the runner stops *immediately* instead of grinding each topic ×5 (~500 retries / ~2.5h per outage before). A confirmed 429 whose reset clause is missing/changed → `SessionLimitFormatError` (LOUD), so a server-side format drift halts visibly rather than degrading to a blind grind. `parse_reset_time` is deliberately strict (am/pm clock only).
+- **Runner fast-pauses + notifies** (`a79a45d4`): `run()` catches `SessionLimitError` → `pause_reason="session_limit"` + reset fields in the summary; `SessionLimitFormatError` → `pause_reason="session_limit_unparseable"` + CRITICAL log. A `notify_fn` fires on **any** pause (tripwire/cost_cap/session_limit[_unparseable]).
+- **NTFY on pause** (`512ea323`): `main()` pushes an ntfy alert on every pause via `notify_ntfy(format_pause_message(summary))`. Reads `NTFY_URL`/`NTFY_TOKEN` from env (token kept OUT of the repo — in gitignored `data-pipeline/.env.ntfy`); no-ops with a warning if unset; best-effort (never aborts the run). `main()` exits **2** on `session_limit_unparseable` so the drift reaches the shell/cron. Channel currently = `ntfy.julianit.me/vault-sync` (from crontab); change `NTFY_URL` for a dedicated topic.
+- **Autonomous wrapper** (`2a72f37f`): `data-pipeline/scripts/run_generation_loop.sh` — launch once, walk away. Runs the generator, and on a graceful `session_limit` sleeps exactly until the parsed reset (via `parse_reset_time`), then resumes. Idempotent, so killing the wrapper never double-bills. Stops on completion/cost_cap (0), tripwire (3), unparseable (2). **This is the new 10k launch path** (supersedes the raw nohup command below).
+- **200-loop:** finished/finishing — was 163/197 done (1617 chains) at this write, 31 remaining, completing in the open window. The fast-pause path is validated by tests + the prior cycles' real 429 storms (no false pause).
+
+### 10k launch (NEW — autonomous wrapper)
+```bash
+cd /home/agent/projects/metaforge
+# build the topics file first (SemCor-gated; see hold below), then:
+nohup data-pipeline/scripts/run_generation_loop.sh \
+  > data-pipeline/output/generation_loop.log 2>&1 &
+```
+Tunables are env vars at the top of the script (`TOPICS`, `OUTPUT`, `MAX_TOPICS=7500`, `MAX_COST_USD=2000`, `HAIKU_JSONL`, …). It sources `data-pipeline/.env.ntfy` for alerts. The raw single-shot command in the older block below still works for a one-window run.
+
 ## SESSION-3 UPDATE (tripwire false-trip fixed) — READ FIRST
 - **Bug found via the 200-loop's own pause:** the run paused at batch 13 (`live_rate 0.028 < abs_floor 0.03`) on GOOD chains. Root cause: a session-limit **429 storm** (114 topics, $0 each) produced zero-record batches, and the runner fed those into the tripwire as synthetic-`dead`. The brake can't tell "Sonnet is producing dead metaphors" from "the API is down". `chains_written` froze at 137 from batch 2 while the live-rate decayed purely on synthetic-dead-from-429.
 - **Fixed (`6b3cd03b`, TDD):** `generate_metaphor_edges.run()` now tracks **clean-empty** topics (model answered, answer barren — a real collapse signal) separately from **errored** topics (no verdict; retried on resume). Only clean-empty feeds synthetic-dead. Mirror RED test added (`test_run_tripwire_ignores_transient_errors`). This matters most for the **multi-day 10k run**, which crosses session-limit windows repeatedly and would otherwise false-pause on every reset.
