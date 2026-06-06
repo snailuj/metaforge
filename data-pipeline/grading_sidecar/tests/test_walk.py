@@ -90,3 +90,25 @@ def test_build_walk_entries_carry_dwell_position():
     assert all("dwell_index" in e and "dwell_n" in e for e in a)
     assert a[0]["dwell_n"] == len(a)
     assert sorted(e["dwell_index"] for e in a) == list(range(len(a)))
+
+
+# --- assemble_paths (join chains x liveness x structural) --------------------
+def test_assemble_joins_liveness_and_structural():
+    chains = [{"chain_signature": "1", "topic": "t", "vehicle": "a"}]
+    paths = walk.assemble_paths(
+        chains, liveness_by_sig={"1": 8},
+        structural_by_sig={"1": {"bad_head": True, "leap": False, "weak_linkage": True}})
+    assert paths[0]["liveness"] == 8
+    assert paths[0]["bad_head"] is True and paths[0]["weak_linkage"] is True and paths[0]["leap"] is False
+
+
+def test_assemble_defaults_missing_liveness_to_midpoint():
+    chains = [{"chain_signature": "x", "topic": "t", "vehicle": "a"}]
+    paths = walk.assemble_paths(chains, liveness_by_sig={}, structural_by_sig={}, default_liveness=5)
+    assert paths[0]["liveness"] == 5  # untriaged chain still appears, mid-ranked
+
+
+def test_assemble_missing_structural_is_unflagged():
+    chains = [{"chain_signature": "x", "topic": "t", "vehicle": "a"}]
+    paths = walk.assemble_paths(chains, liveness_by_sig={"x": 6}, structural_by_sig={})
+    assert paths[0]["bad_head"] is False and paths[0]["leap"] is False and paths[0]["weak_linkage"] is False

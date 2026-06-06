@@ -30,6 +30,31 @@ def _is_weak(p: dict) -> bool:
     return bool(p.get("bad_head") or p.get("leap") or p.get("weak_linkage"))
 
 
+def assemble_paths(chains: list[dict], *, liveness_by_sig: dict[str, int],
+                   structural_by_sig: dict[str, dict],
+                   default_liveness: int = int(DEFAULT_MIDPOINT)) -> list[dict]:
+    """Join chain records with triage liveness + structural flags into the minimal
+    path dicts build_walk consumes (keyed by chain_signature).
+
+    Untriaged chains keep `default_liveness` (the midpoint) so they still appear in
+    the walk, mid-ranked, rather than vanishing; missing structural data = unflagged.
+    """
+    out: list[dict] = []
+    for c in chains:
+        sig = c["chain_signature"]
+        st = structural_by_sig.get(sig) or {}
+        out.append({
+            "chain_signature": sig,
+            "topic": c["topic"],
+            "vehicle": c["vehicle"],
+            "liveness": liveness_by_sig.get(sig, default_liveness),
+            "bad_head": bool(st.get("bad_head")),
+            "leap": bool(st.get("leap")),
+            "weak_linkage": bool(st.get("weak_linkage")),
+        })
+    return out
+
+
 def dwell_set(paths: list[dict], *, n_max: int = DEFAULT_N_MAX,
               midpoint: float = DEFAULT_MIDPOINT) -> list[dict]:
     """Select the contrastive, panel-exercising subset to grade for ONE topic.
