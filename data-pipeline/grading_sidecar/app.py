@@ -18,7 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from .autocommit import autocommit_loop
 from . import paths as paths_mod
-from .routes import healthz, judgements, chains, topics, stats, calibration, design_notes
+from .routes import healthz, judgements, chains, topics, stats, calibration, design_notes, walk
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -81,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(healthz.router)
     app.include_router(judgements.router)
     app.include_router(chains.router)
+    app.include_router(walk.router)
     app.include_router(topics.router)
     app.include_router(stats.router)
     app.include_router(calibration.router)

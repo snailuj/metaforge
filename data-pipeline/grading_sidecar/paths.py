@@ -11,3 +11,9 @@ GRADING_DIR = REPO_ROOT / "data-pipeline" / "grading"
 CHAINS_GLOB = "sonnet_chains_provisional_r*.jsonl"
 JUDGEMENTS_PATH = GRADING_DIR / "judgements_provisional.jsonl"
 DESIGN_NOTES_PATH = GRADING_DIR / "design_notes_provisional.md"
+# Triage sidecar data feeding the signal-prioritised walk (see walk.py). Liveness
+# is split across snapshot files (handpicked + r2 rounds) so it is globbed; the
+# structural flags are a single file. Joined to GRADING_DIR dynamically by the
+# walk route so tests can monkey-patch GRADING_DIR for isolation.
+TRIAGE_SCORES_GLOB = "triage_scores*.jsonl"
+TRIAGE_STRUCTURAL_NAME = "triage_structural.jsonl"
