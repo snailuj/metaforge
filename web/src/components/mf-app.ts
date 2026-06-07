@@ -12,6 +12,7 @@ import type {
   JudgementRecord,
   TopicSummary,
   VerdictSubmitDetail,
+  WalkEntry,
   Linkage,
   MetaphorVerdict,
   Tier,
@@ -29,6 +30,7 @@ import './mf-toast'
 import './mf-error-banner'
 import './mf-topic-picker'
 import './mf-grade-panel'
+import './mf-grade-walk'
 import './mf-design-notes'
 import './mf-mobile-notes-overlay'
 
@@ -384,6 +386,21 @@ export class MfApp extends LitElement {
   // mf-force-graph, which toggles visibility in place (no force-sim re-heat).
   @state() private pathFilter: 'both' | 'ungraded' | 'graded' = 'both'
 
+  // Walk sub-mode (grade mode). 'topic' = today's topic-picker flow; 'walk' steps
+  // through the server-ordered acquisition list (GET /api/grading/walk) one chain
+  // at a time. walkGradedSigs is a SESSION set — a chain graded this session drops
+  // out of the visible walk (so the next ungraded one slides in) without a refetch.
+  @state() private gradeView: 'topic' | 'walk' = 'topic'
+  @state() private walkEntries: WalkEntry[] = []
+  @state() private walkIndex = 0
+  @state() private walkSkipGraded = true
+  @state() private walkGradedSigs: Set<string> = new Set()
+  // Memoised single-element array fed to the desktop context graph, rebuilt only
+  // when the current chain changes so the force-sim doesn't re-frame on every
+  // unrelated mf-app re-render.
+  private _walkGraphSig = ''
+  private _walkGraphChains: ChainRecord[] = []
+
   private currentWord = ''
   private lookupId = 0
   private selectId = 0
@@ -551,6 +568,8 @@ export class MfApp extends LitElement {
   /** Fetch topics and design-notes history when entering grade mode. */
   private async initGradeMode(): Promise<void> {
     this.loadPendingQueue()
+    const storedView = localStorage.getItem('mf-grade-view')
+    if (storedView === 'walk' || storedView === 'topic') this.gradeView = storedView
     try {
       const [topicsRes, notesRes] = await Promise.all([
         this.gradingClient.getTopics(),
@@ -562,6 +581,7 @@ export class MfApp extends LitElement {
       console.warn('[mf-app] initGradeMode failed', err)
       this.errorMessage = 'Failed to load grading data'
     }
+    if (this.gradeView === 'walk') void this.initWalk()
   }
 
   private async handleTopicSelected(e: CustomEvent<TopicSummary>): Promise<void> {
@@ -586,6 +606,90 @@ export class MfApp extends LitElement {
     this.selectedChain = e.detail
   }
 
+  // --- Walk sub-mode ---
+
+  /** Switch grade view (topic ↔ walk). Persisted so a reload returns the operator
+   *  to where they were; entering the walk (re)fetches the acquisition order. */
+  private setGradeView(view: 'topic' | 'walk'): void {
+    this.gradeView = view
+    localStorage.setItem('mf-grade-view', view)
+    // Start each view clean; the walk repopulates selectedChain from its own list.
+    this.selectedChain = null
+    if (view === 'walk') void this.initWalk()
+  }
+
+  /** Fetch the server-ordered walk and land on the first ungraded chain. */
+  private async initWalk(): Promise<void> {
+    try {
+      const res = await this.gradingClient.getWalk()
+      this.walkEntries = res.entries
+      this.walkGradedSigs = new Set()
+      this.walkIndex = 0
+      this.syncWalkSelection()
+    } catch (err) {
+      console.warn('[mf-app] initWalk failed', err)
+      this.errorMessage = 'Failed to load walk'
+    }
+  }
+
+  /** The walk minus chains graded THIS session (when skip-graded is on). Indexing
+   *  into this list means a freshly-graded chain drops out and the next ungraded
+   *  one takes its slot with no refetch. */
+  private get visibleWalkEntries(): WalkEntry[] {
+    if (!this.walkSkipGraded) return this.walkEntries
+    return this.walkEntries.filter(e => !this.walkGradedSigs.has(e.chain_signature))
+  }
+
+  /** Clamp the index into the visible list and project the current entry onto
+   *  selectedChain (which the panel + handleVerdictSubmit key off). */
+  private syncWalkSelection(): void {
+    const visible = this.visibleWalkEntries
+    if (visible.length === 0) {
+      this.walkIndex = 0
+      this.selectedChain = null
+      return
+    }
+    this.walkIndex = Math.max(0, Math.min(this.walkIndex, visible.length - 1))
+    this.selectedChain = visible[this.walkIndex].record
+  }
+
+  private walkNext(): void {
+    this.walkIndex = Math.min(this.walkIndex + 1, this.visibleWalkEntries.length - 1)
+    this.syncWalkSelection()
+  }
+
+  private walkPrev(): void {
+    this.walkIndex = Math.max(this.walkIndex - 1, 0)
+    this.syncWalkSelection()
+  }
+
+  private toggleWalkSkipGraded(): void {
+    this.walkSkipGraded = !this.walkSkipGraded
+    this.syncWalkSelection()
+  }
+
+  /** Submit a verdict from the walk, then advance. Reuses handleVerdictSubmit
+   *  verbatim (POST + refetch); afterward records the graded signature so the
+   *  chain drops out of the visible walk and the next one slides into place. */
+  private async handleWalkVerdictSubmit(e: CustomEvent<VerdictSubmitDetail>): Promise<void> {
+    const graded = this.selectedChain
+    await this.handleVerdictSubmit(e)
+    if (graded) this.walkGradedSigs = new Set([...this.walkGradedSigs, graded.chain_signature])
+    this.syncWalkSelection()
+  }
+
+  /** Stable single-element array for the desktop context graph — rebuilt only when
+   *  the current chain's signature changes, so the graph re-frames on navigation
+   *  but not on incidental re-renders. */
+  private walkGraphChainsFor(record: ChainRecord | null): ChainRecord[] {
+    const sig = record?.chain_signature ?? ''
+    if (sig !== this._walkGraphSig) {
+      this._walkGraphSig = sig
+      this._walkGraphChains = record ? [record] : []
+    }
+    return this._walkGraphChains
+  }
+
   private toggleNotesPanel(): void {
     this.notesPanelCollapsed = !this.notesPanelCollapsed
   }
@@ -608,6 +712,23 @@ export class MfApp extends LitElement {
           ${opt('ungraded', 'Ungraded')}
           ${opt('graded', 'Graded')}
         </div>
+      </div>
+    `
+  }
+
+  /** Topic ↔ Walk view toggle, shown in both grade views' top row. */
+  private renderGradeViewToggle() {
+    const opt = (view: 'topic' | 'walk', label: string) => html`
+      <button
+        data-testid="grade-view-${view}"
+        aria-pressed=${this.gradeView === view}
+        @click=${() => this.setGradeView(view)}
+      >${label}</button>
+    `
+    return html`
+      <div class="grade-view-toggle" role="group" aria-label="Grade view" data-testid="grade-view-toggle">
+        ${opt('topic', 'By topic')}
+        ${opt('walk', 'Walk')}
       </div>
     `
   }
@@ -835,6 +956,7 @@ export class MfApp extends LitElement {
     return html`
       <div class="grade-layout" data-testid="grade-layout">
         <div class="grade-top">
+          ${this.renderGradeViewToggle()}
           <mf-topic-picker
             .topics=${this.gradeTopics}
             @topic-selected=${this.handleTopicSelected}
@@ -902,6 +1024,7 @@ export class MfApp extends LitElement {
     return html`
       <div class="grade-layout" data-testid="grade-layout-mobile">
         <div class="grade-top">
+          ${this.renderGradeViewToggle()}
           <mf-topic-picker
             .topics=${this.gradeTopics}
             @topic-selected=${this.handleTopicSelected}
@@ -948,6 +1071,55 @@ export class MfApp extends LitElement {
     `
   }
 
+  /** Signal-prioritised walk: step through the server-ordered acquisition list.
+   *  Desktop renders the current chain in its topic-graph context; mobile shows
+   *  the bare chain (the panel's own step render) with no force-graph element. */
+  private renderGradeWalk() {
+    const visible = this.visibleWalkEntries
+    const entry = visible[this.walkIndex] ?? null
+    const isDesktop = this.viewportWidth >= 900
+    return html`
+      <div class="grade-layout" data-testid="grade-walk-layout">
+        <div class="grade-top">
+          ${this.renderGradeViewToggle()}
+        </div>
+
+        ${entry === null
+          ? html`<div class="grade-empty" data-testid="walk-empty">No ungraded chains in the walk — switch to By topic to review or re-grade.</div>`
+          : html`
+            <div class="grade-main">
+              ${isDesktop
+                ? html`
+                  <div class="grade-graph-pane">
+                    <mf-force-graph
+                      .graphData=${this.graphData}
+                      .mode=${'grade'}
+                      .gradeChains=${this.walkGraphChainsFor(entry.record)}
+                      .judgements=${this.gradeJudgements}
+                      .viewportWidth=${this.viewportWidth}
+                    ></mf-force-graph>
+                  </div>`
+                : ''}
+              <mf-grade-walk
+                data-testid="grade-walk"
+                .chain=${entry.record}
+                .priorVerdict=${this.priorVerdict(entry.record)}
+                .topic=${entry.topic}
+                .index=${this.walkIndex}
+                .total=${visible.length}
+                .dwellIndex=${entry.dwell_index}
+                .dwellN=${entry.dwell_n}
+                .skipGraded=${this.walkSkipGraded}
+                @walk-prev=${this.walkPrev}
+                @walk-next=${this.walkNext}
+                @walk-skip-toggle=${this.toggleWalkSkipGraded}
+                @verdict-submit=${this.handleWalkVerdictSubmit}
+              ></mf-grade-walk>
+            </div>`}
+      </div>
+    `
+  }
+
   render() {
     return html`
       ${this.errorMessage
@@ -966,7 +1138,9 @@ export class MfApp extends LitElement {
         : ''}
 
       ${this.mode === 'grade'
-        ? (this.viewportWidth >= 900 ? this.renderGradeModeDesktop() : this.renderGradeModeMobile())
+        ? (this.gradeView === 'walk'
+            ? this.renderGradeWalk()
+            : (this.viewportWidth >= 900 ? this.renderGradeModeDesktop() : this.renderGradeModeMobile()))
         : this.renderBrowseMode()}
 
       <mf-toast></mf-toast>

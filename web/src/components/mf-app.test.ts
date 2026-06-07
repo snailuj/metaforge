@@ -1303,3 +1303,138 @@ describe('mf-app grade-mode integration', () => {
     })
   })
 })
+
+describe('mf-app walk view', () => {
+  let el: MfApp
+
+  function walkEntry(topic: string, sig: string, dwellIndex: number, dwellN: number) {
+    return {
+      chain_signature: sig, topic, vehicle: 'v', dwell_index: dwellIndex, dwell_n: dwellN,
+      record: {
+        schema_version: 'chain.v1',
+        topic, topic_synset_id: 's1', vehicle: 'v', vehicle_synset_id: 'v1',
+        proposer: 't', round: 2,
+        chain: [{ phrase: topic, head: topic, synset_id: 's1' }, { phrase: 'v', head: 'v', synset_id: 'v1' }],
+        chain_signature: sig, generated_at: '2026-01-01T00:00:00Z',
+      },
+    }
+  }
+
+  function makeWalkFetchStub(entries: ReturnType<typeof walkEntry>[]) {
+    return vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = input.toString()
+      const method = (input as Request).method
+      if (url.includes('/healthz')) return { ok: true, status: 200, json: async () => ({}) } as Response
+      if (url.includes('/topics')) return { ok: true, status: 200, json: async () => ({ topics: [{ topic: 'anger', topic_synset_id: 's1' }] }) } as Response
+      if (url.includes('/walk')) return { ok: true, status: 200, json: async () => ({ count: entries.length, entries }) } as Response
+      if (url.includes('/judgements') && method === 'POST') return { ok: true, status: 200, json: async () => ({ schema_version: 'judgement.v2', ts: '2026-01-01T00:00:00Z' }) } as Response
+      if (url.includes('/judgements')) return { ok: true, status: 200, json: async () => ({ count: 0, records: [] }) } as Response
+      if (url.includes('/design-notes')) return { ok: true, status: 200, json: async () => ({ content: '' }) } as Response
+      return { ok: false, status: 404, json: async () => ({}) } as Response
+    })
+  }
+
+  async function mountGradeDesktop(entries: ReturnType<typeof walkEntry>[]): Promise<MfApp> {
+    makeWalkFetchStub(entries)
+    localStorage.clear()
+    window.location.hash = ''
+    const app = new MfApp()
+    document.body.appendChild(app)
+    await app.updateComplete
+    await new Promise(r => setTimeout(r, 50))
+    ;(app as any).mode = 'grade'
+    ;(app as any).viewportWidth = 1200
+    await app.updateComplete
+    return app
+  }
+
+  async function enterWalk(app: MfApp): Promise<void> {
+    const btn = app.shadowRoot!.querySelector('[data-testid="grade-view-walk"]') as HTMLButtonElement
+    btn.click()
+    await new Promise(r => setTimeout(r, 0))
+    await app.updateComplete
+  }
+
+  afterEach(() => {
+    if (el && el.parentNode) document.body.removeChild(el)
+    vi.restoreAllMocks()
+    window.location.hash = ''
+    localStorage.clear()
+  })
+
+  it('a grade-view toggle is offered in topic view', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)])
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-view-walk"]')).not.toBeNull()
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-view-topic"]')).not.toBeNull()
+  })
+
+  it('entering walk fetches the walk and renders the shell on the first chain', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-walk-layout"]')).not.toBeNull()
+    const walk = el.shadowRoot!.querySelector('mf-grade-walk') as any
+    expect(walk.chain.chain_signature).toBe('s1')
+    expect(walk.total).toBe(2)
+  })
+
+  it('persists the grade view to localStorage', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)])
+    await enterWalk(el)
+    expect(localStorage.getItem('mf-grade-view')).toBe('walk')
+  })
+
+  it('shows the force-graph context on desktop but not on mobile', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)])
+    await enterWalk(el)
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-walk-layout"] mf-force-graph')).not.toBeNull()
+    ;(el as any).viewportWidth = 500
+    await el.updateComplete
+    expect(el.shadowRoot!.querySelector('mf-force-graph')).toBeNull()
+    expect(el.shadowRoot!.querySelector('mf-grade-walk')).not.toBeNull()
+  })
+
+  it('walk-next advances to the next chain', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-next', { bubbles: true, composed: true }))
+    await el.updateComplete
+    const walk = el.shadowRoot!.querySelector('mf-grade-walk') as any
+    expect(walk.chain.chain_signature).toBe('s2')
+    expect((el as any).selectedChain.chain_signature).toBe('s2')
+  })
+
+  it('submitting a verdict drops the graded chain and advances', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      bubbles: true, composed: true,
+    }))
+    await new Promise(r => setTimeout(r, 0))
+    await el.updateComplete
+    const walk = el.shadowRoot!.querySelector('mf-grade-walk') as any
+    expect(walk.chain.chain_signature).toBe('s2')
+    expect(walk.total).toBe(1)
+  })
+
+  it('skip-graded toggle reveals a session-graded chain again', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      bubbles: true, composed: true,
+    }))
+    await new Promise(r => setTimeout(r, 0))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).total).toBe(1)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-skip-toggle', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).total).toBe(2)
+  })
+
+  it('shows an empty state when the walk has no ungraded chains', async () => {
+    el = await mountGradeDesktop([])
+    await enterWalk(el)
+    expect(el.shadowRoot!.querySelector('[data-testid="walk-empty"]')).not.toBeNull()
+  })
+})
