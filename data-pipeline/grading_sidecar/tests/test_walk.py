@@ -52,6 +52,36 @@ def test_dwell_set_small_topic_returns_all():
     assert len(walk.dwell_set([_p("t", "a", 8, "1"), _p("t", "b", 2, "2")])) == 2
 
 
+def test_dwell_set_recovers_weak_path_when_first_candidate_collides():
+    # The FIRST weak candidate (lowest liveness) shares a vehicle with the clearest-live
+    # pick, so it dedups out. A distinct-vehicle weak path exists but is neither the
+    # boundary nor reached by fill (n_max=3) — so only the weak slot can recover it. The
+    # weak slot exists to exercise bad_head/leap/linkage controls; it must not silently
+    # give up after one colliding candidate.
+    paths = [
+        _p("t", "shared", 9, "live"),
+        _p("t", "d", 1, "dead"),
+        _p("t", "shared", 6, "weaklow", bad_head=True),   # first weak candidate, vehicle collides
+        _p("t", "other", 7, "weakhigh", bad_head=True),   # distinct-vehicle weak — only the weak slot recovers it
+        _p("t", "B", 5, "bound"),                         # the boundary pick (closest to midpoint)
+    ]
+    got = {p["chain_signature"] for p in walk.dwell_set(paths, n_max=3)}
+    assert "weakhigh" in got, f"weak path silently dropped: {got}"
+
+
+def test_dwell_set_emits_live_dead_weak_boundary_in_order():
+    # documented grading order: clearest-live -> clearest-dead -> a weak path -> boundary -> extras
+    paths = [
+        _p("t", "L", 9, "live"),
+        _p("t", "D", 1, "dead"),
+        _p("t", "W", 6, "weak", bad_head=True),
+        _p("t", "B", 5, "bound"),
+        _p("t", "E", 7, "extra"),
+    ]
+    order = [p["chain_signature"] for p in walk.dwell_set(paths, n_max=5)]
+    assert order == ["live", "dead", "weak", "bound", "extra"]
+
+
 # --- build_walk -------------------------------------------------------------
 def test_build_walk_skips_graded():
     paths = [_p("t", "a", 8, "1"), _p("t", "b", 2, "2")]

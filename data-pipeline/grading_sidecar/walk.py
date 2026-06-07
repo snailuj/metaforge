@@ -76,19 +76,28 @@ def dwell_set(paths: list[dict], *, n_max: int = DEFAULT_N_MAX,
     seen_sig: set[str] = set()
     seen_veh: set[str] = set()
 
-    def add(p):
+    def add(p) -> bool:
         if p is None or len(picks) >= n_max:
-            return
+            return False
         if p["chain_signature"] in seen_sig or p["vehicle"] in seen_veh:
-            return
+            return False
         picks.append(p)
         seen_sig.add(p["chain_signature"])
         seen_veh.add(p["vehicle"])
+        return True
 
-    add(by_live[-1])                                              # clearest-live
-    add(by_live[0])                                              # clearest-dead
-    add(next((p for p in by_live if _is_weak(p)), None))        # exercise the panel
-    add(min(paths, key=lambda p: abs(p["liveness"] - midpoint)))  # boundary
+    def add_first(candidates) -> None:
+        # Take the first candidate that actually lands — a single colliding head
+        # (e.g. a weak path sharing the clearest-live vehicle) must not forfeit the
+        # whole slot when a distinct-vehicle candidate is still available.
+        for c in candidates:
+            if add(c):
+                return
+
+    add(by_live[-1])                                                       # clearest-live
+    add(by_live[0])                                                        # clearest-dead
+    add_first(p for p in by_live if _is_weak(p))                           # exercise the panel
+    add_first(sorted(paths, key=lambda p: abs(p["liveness"] - midpoint)))  # boundary
     for p in sorted(paths, key=lambda p: -abs(p["liveness"] - midpoint)):  # fill
         add(p)
     return picks
