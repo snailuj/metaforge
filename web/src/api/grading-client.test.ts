@@ -53,4 +53,20 @@ describe('GradingClient', () => {
         await expect(client.postJudgement({} as any)).rejects.toThrow();
         expect(fetchMock).toHaveBeenCalledTimes(1);
     });
+
+    it('getWalk fetches the walk endpoint and returns entries', async () => {
+        const payload = { count: 1, entries: [{ chain_signature: 's1', topic: 'anger', vehicle: 'venom', dwell_index: 0, dwell_n: 2, record: { chain_signature: 's1' } }] };
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => payload });
+        const client = new GradingClient();
+        const res = await client.getWalk();
+        expect(fetchMock).toHaveBeenCalledWith('/api/grading/walk');
+        expect(res.count).toBe(1);
+        expect(res.entries[0].record.chain_signature).toBe('s1');
+    });
+
+    it('getWalk throws on non-200', async () => {
+        fetchMock.mockResolvedValue({ ok: false, status: 500 });
+        const client = new GradingClient();
+        await expect(client.getWalk()).rejects.toThrow('getWalk: 500');
+    });
 });

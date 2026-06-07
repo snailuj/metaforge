@@ -71,6 +71,28 @@ export interface TopicSummary {
     topic_synset_id: string;
 }
 
+// One step of the signal-prioritised grading walk (GET /api/grading/walk). The
+// server orders these by acquisition value (per-topic dwell, label-coverage
+// steering); the client never re-sorts. `record` is the full chain for rendering.
+//
+// NOTE: the server also attaches the triage `liveness` score and structural
+// flags that DROVE the ordering, but they are deliberately omitted from this
+// type — surfacing a predicted score/flag would anchor the grader's fresh
+// judgement. The walk consumes only ordering + dwell position, never the priors.
+export interface WalkEntry {
+    chain_signature: string;
+    topic: string;
+    vehicle: string;
+    dwell_index: number;
+    dwell_n: number;
+    record: ChainRecord;
+}
+
+export interface WalkResponse {
+    count: number;
+    entries: WalkEntry[];
+}
+
 // Normalised two-axis view of a stored judgement, regardless of v1/v2 source.
 // linkage/metaphor may be null where a flat v1 label carried no signal on that axis.
 export interface NormalisedJudgement {

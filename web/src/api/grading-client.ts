@@ -1,4 +1,4 @@
-import type { ChainRecord, JudgementRecord, TopicSummary } from '../types/grading';
+import type { ChainRecord, JudgementRecord, TopicSummary, WalkResponse } from '../types/grading';
 
 const BASE = '/api/grading';
 const RETRY_DELAYS_MS = [1000, 3000, 9000];
@@ -24,6 +24,12 @@ export class GradingClient {
         const url = topic ? `${BASE}/chains?topic=${encodeURIComponent(topic)}` : `${BASE}/chains`;
         const r = await fetch(url);
         if (!r.ok) throw new Error(`getChains: ${r.status}`);
+        return r.json();
+    }
+
+    async getWalk(): Promise<WalkResponse> {
+        const r = await fetch(`${BASE}/walk`);
+        if (!r.ok) throw new Error(`getWalk: ${r.status}`);
         return r.json();
     }
 
