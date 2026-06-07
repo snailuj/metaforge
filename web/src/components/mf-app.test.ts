@@ -1320,22 +1320,32 @@ describe('mf-app walk view', () => {
     }
   }
 
-  function makeWalkFetchStub(entries: ReturnType<typeof walkEntry>[]) {
+  function makeWalkFetchStub(
+    entries: ReturnType<typeof walkEntry>[],
+    opts: { judgements?: any[]; walkFails?: boolean } = {},
+  ) {
+    const judgements = opts.judgements ?? []
     return vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
       const url = input.toString()
       const method = (input as Request).method
       if (url.includes('/healthz')) return { ok: true, status: 200, json: async () => ({}) } as Response
       if (url.includes('/topics')) return { ok: true, status: 200, json: async () => ({ topics: [{ topic: 'anger', topic_synset_id: 's1' }] }) } as Response
-      if (url.includes('/walk')) return { ok: true, status: 200, json: async () => ({ count: entries.length, entries }) } as Response
+      if (url.includes('/walk')) {
+        if (opts.walkFails) return { ok: false, status: 500, json: async () => ({}) } as Response
+        return { ok: true, status: 200, json: async () => ({ count: entries.length, entries }) } as Response
+      }
       if (url.includes('/judgements') && method === 'POST') return { ok: true, status: 200, json: async () => ({ schema_version: 'judgement.v2', ts: '2026-01-01T00:00:00Z' }) } as Response
-      if (url.includes('/judgements')) return { ok: true, status: 200, json: async () => ({ count: 0, records: [] }) } as Response
+      if (url.includes('/judgements')) return { ok: true, status: 200, json: async () => ({ count: judgements.length, records: judgements }) } as Response
       if (url.includes('/design-notes')) return { ok: true, status: 200, json: async () => ({ content: '' }) } as Response
       return { ok: false, status: 404, json: async () => ({}) } as Response
     })
   }
 
-  async function mountGradeDesktop(entries: ReturnType<typeof walkEntry>[]): Promise<MfApp> {
-    makeWalkFetchStub(entries)
+  async function mountGradeDesktop(
+    entries: ReturnType<typeof walkEntry>[],
+    opts: { judgements?: any[]; walkFails?: boolean } = {},
+  ): Promise<MfApp> {
+    makeWalkFetchStub(entries, opts)
     localStorage.clear()
     window.location.hash = ''
     const app = new MfApp()
@@ -1436,5 +1446,85 @@ describe('mf-app walk view', () => {
     el = await mountGradeDesktop([])
     await enterWalk(el)
     expect(el.shadowRoot!.querySelector('[data-testid="walk-empty"]')).not.toBeNull()
+  })
+
+  it('walk-prev steps back to the previous chain', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-next', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s2')
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-prev', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s1')
+    expect((el as any).walkIndex).toBe(0)
+  })
+
+  it('surfaces an error and no shell when the walk fails to load', async () => {
+    el = await mountGradeDesktop([], { walkFails: true })
+    await enterWalk(el)
+    expect((el as any).errorMessage).toBe('Failed to load walk')
+    expect(el.shadowRoot!.querySelector('mf-grade-walk')).toBeNull()
+  })
+
+  it('clamps the index when skip-graded is re-enabled past the new boundary', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    // skip OFF, advance to the last entry, grade it (so it becomes session-graded)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-skip-toggle', { bubbles: true, composed: true }))
+    await el.updateComplete
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-next', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el as any).walkIndex).toBe(1)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      bubbles: true, composed: true,
+    }))
+    await new Promise(r => setTimeout(r, 0))
+    await el.updateComplete
+    // skip is OFF so s2 is still visible at index 1; toggle skip ON -> visible shrinks to [s1]
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-skip-toggle', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el as any).walkIndex).toBe(0)
+    expect((el as any).selectedChain.chain_signature).toBe('s1')
+  })
+
+  it('offers an in-walk "Show graded" escape when all chains are session-graded', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)])
+    await enterWalk(el)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      bubbles: true, composed: true,
+    }))
+    await new Promise(r => setTimeout(r, 0))
+    await el.updateComplete
+    const showGraded = el.shadowRoot!.querySelector('[data-testid="walk-show-graded"]') as HTMLButtonElement
+    expect(showGraded).not.toBeNull()
+    showGraded.click()
+    await el.updateComplete
+    expect(el.shadowRoot!.querySelector('mf-grade-walk')).not.toBeNull()
+  })
+
+  it('prefills the prior verdict in walk mode from the GLOBAL judgement set', async () => {
+    // skip OFF so a session/prior-graded chain stays visible; its prior verdict must echo.
+    const prior = {
+      schema_version: 'judgement.v2', ts: '2026-05-31T00:00:00Z', judged_by: 'julian', round: 2,
+      topic: 'anger', topic_synset_id: 's1', vehicle: 'v', vehicle_synset_id: 'v1', proposer: 't',
+      chain_signature: 's1', linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '',
+    }
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)], { judgements: [prior] })
+    await enterWalk(el)
+    const panel = el.shadowRoot!.querySelector('mf-grade-walk')!.shadowRoot!.querySelector('mf-grade-panel') as any
+    expect(panel.priorVerdict).not.toBeNull()
+    expect(panel.priorVerdict.metaphor).toBe('live')
+  })
+
+  it('does not render triage priors (liveness/flags) even if an entry carries them', async () => {
+    // defensive: the server strips priors, but a stray field must never reach the DOM.
+    const leaky = { ...walkEntry('anger', 's1', 0, 1), liveness: 9, bad_head: true, leap: true, weak_linkage: true }
+    el = await mountGradeDesktop([leaky as any])
+    await enterWalk(el)
+    const text = el.shadowRoot!.querySelector('[data-testid="grade-walk-layout"]')!.textContent ?? ''
+    expect(text).not.toMatch(/bad_head|weak_linkage|liveness/)
   })
 })

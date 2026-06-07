@@ -86,10 +86,10 @@ export class MfGradeWalk extends LitElement {
     render() {
         const pos = this.total === 0 ? '0 / 0' : `${this.index + 1} / ${this.total}`
         return html`
-            <div class="walk-bar">
+            <div class="walk-bar" role="toolbar" aria-label="Walk navigation">
                 <button data-testid="walk-prev" ?disabled=${this.index <= 0}
                         @click=${() => this.emit('walk-prev')}>‹ Prev</button>
-                <span class="pos" data-testid="walk-pos">${pos}</span>
+                <span class="pos" data-testid="walk-pos" aria-live="polite">${pos}</span>
                 <button data-testid="walk-next" ?disabled=${this.index >= this.total - 1}
                         @click=${() => this.emit('walk-next')}>Next ›</button>
                 <span class="dwell" data-testid="walk-dwell">${this.topic} · ${this.dwellIndex + 1}/${this.dwellN}</span>

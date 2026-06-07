@@ -395,6 +395,9 @@ export class MfApp extends LitElement {
   @state() private walkIndex = 0
   @state() private walkSkipGraded = true
   @state() private walkGradedSigs: Set<string> = new Set()
+  // The walk spans ALL topics, so it needs the global verdict set (gradeJudgements
+  // is topic-scoped) for prior-verdict prefill + context-graph edge colouring.
+  @state() private walkJudgements: JudgementRecord[] = []
   // Memoised single-element array fed to the desktop context graph, rebuilt only
   // when the current chain changes so the force-sim doesn't re-frame on every
   // unrelated mf-app re-render.
@@ -618,11 +621,17 @@ export class MfApp extends LitElement {
     if (view === 'walk') void this.initWalk()
   }
 
-  /** Fetch the server-ordered walk and land on the first ungraded chain. */
+  /** Fetch the server-ordered walk and land on the first ungraded chain. Also load
+   *  the GLOBAL verdict set so prior-verdict prefill + context-graph colouring work
+   *  across topics (the walk is cross-topic; gradeJudgements is topic-scoped). */
   private async initWalk(): Promise<void> {
     try {
-      const res = await this.gradingClient.getWalk()
-      this.walkEntries = res.entries
+      const [walkRes, judgementsRes] = await Promise.all([
+        this.gradingClient.getWalk(),
+        this.gradingClient.getJudgements(),
+      ])
+      this.walkEntries = walkRes.entries
+      this.walkJudgements = judgementsRes.records
       this.walkGradedSigs = new Set()
       this.walkIndex = 0
       this.syncWalkSelection()
@@ -630,6 +639,12 @@ export class MfApp extends LitElement {
       console.warn('[mf-app] initWalk failed', err)
       this.errorMessage = 'Failed to load walk'
     }
+  }
+
+  /** Verdicts the current grade view should resolve against: the global set while
+   *  walking (cross-topic), the topic-scoped set in topic view. */
+  private get activeJudgements(): JudgementRecord[] {
+    return this.gradeView === 'walk' ? this.walkJudgements : this.gradeJudgements
   }
 
   /** The walk minus chains graded THIS session (when skip-graded is on). Indexing
@@ -673,8 +688,21 @@ export class MfApp extends LitElement {
    *  chain drops out of the visible walk and the next one slides into place. */
   private async handleWalkVerdictSubmit(e: CustomEvent<VerdictSubmitDetail>): Promise<void> {
     const graded = this.selectedChain
-    await this.handleVerdictSubmit(e)
-    if (graded) this.walkGradedSigs = new Set([...this.walkGradedSigs, graded.chain_signature])
+    const recorded = await this.handleVerdictSubmit(e)
+    // Auth expired (or no chain) — do not drop the chain or advance the walk.
+    if (!recorded || !graded) {
+      this.syncWalkSelection()
+      return
+    }
+    this.walkGradedSigs = new Set([...this.walkGradedSigs, graded.chain_signature])
+    // Refresh the GLOBAL verdict set (handleVerdictSubmit only refetched the topic
+    // scope into gradeJudgements) so prior-verdict echo + graph stay correct in walk.
+    try {
+      const jr = await this.gradingClient.getJudgements()
+      this.walkJudgements = jr.records
+    } catch (err) {
+      console.warn('[mf-app] walk judgement refresh failed', err)
+    }
     this.syncWalkSelection()
   }
 
@@ -733,8 +761,10 @@ export class MfApp extends LitElement {
     `
   }
 
-  private async handleVerdictSubmit(e: CustomEvent<VerdictSubmitDetail>): Promise<void> {
-    if (!this.selectedChain) return
+  /** Returns true if the verdict was persisted OR queued for retry (i.e. recorded),
+   *  false only when auth expired (caller should not advance). */
+  private async handleVerdictSubmit(e: CustomEvent<VerdictSubmitDetail>): Promise<boolean> {
+    if (!this.selectedChain) return false
     const chain = this.selectedChain
     const prior = this.priorVerdict(chain)
     const judgement: JudgementRecord = {
@@ -771,18 +801,20 @@ export class MfApp extends LitElement {
           this.errorMessage = ''
         }
       }
+      return true
     } catch (err: unknown) {
       const status = (err as { status?: number }).status ?? (err instanceof Error && err.message.includes('401') ? 401 : 0)
       if (status === 401 || (err instanceof Error && err.message.includes('401'))) {
         this.handleAuthExpired()
-      } else {
-        console.warn('[mf-app] handleVerdictSubmit failed', err)
-        // Push to queue so the judgement is not lost; advance past this chain
-        this.pendingQueue = [...this.pendingQueue, judgement]
-        this.savePendingQueue()
-        this.selectedChain = null
-        this.errorMessage = `${this.pendingQueue.length} verdict${this.pendingQueue.length === 1 ? '' : 's'} pending — will retry on next save`
+        return false
       }
+      console.warn('[mf-app] handleVerdictSubmit failed', err)
+      // Push to queue so the judgement is not lost; advance past this chain
+      this.pendingQueue = [...this.pendingQueue, judgement]
+      this.savePendingQueue()
+      this.selectedChain = null
+      this.errorMessage = `${this.pendingQueue.length} verdict${this.pendingQueue.length === 1 ? '' : 's'} pending — will retry on next save`
+      return true
     }
   }
 
@@ -814,7 +846,7 @@ export class MfApp extends LitElement {
     chain: ChainRecord,
   ): { linkage: Linkage; metaphor: MetaphorVerdict; tiers: Tier[]; tags: Tag[]; confidence: Confidence; ts: string; notes: string } | null {
     let latest: JudgementRecord | null = null
-    for (const j of this.gradeJudgements) {
+    for (const j of this.activeJudgements) {
       if (j.chain_signature === chain.chain_signature) latest = j
     }
     if (!latest) return null
@@ -1072,12 +1104,16 @@ export class MfApp extends LitElement {
   }
 
   /** Signal-prioritised walk: step through the server-ordered acquisition list.
-   *  Desktop renders the current chain in its topic-graph context; mobile shows
-   *  the bare chain (the panel's own step render) with no force-graph element. */
+   *  Desktop renders the current chain in graph context (single-chain context is
+   *  the accepted v1 scope — the topic constellation is deferred); mobile shows the
+   *  bare chain (the panel's own step render) with no force-graph element. */
   private renderGradeWalk() {
     const visible = this.visibleWalkEntries
     const entry = visible[this.walkIndex] ?? null
     const isDesktop = this.viewportWidth >= 900
+    // Entries exist but are all session-graded with skip on — offer an in-walk escape
+    // so the operator isn't forced out to topic view just to review what they graded.
+    const hiddenBySkip = entry === null && this.walkSkipGraded && this.walkEntries.length > 0
     return html`
       <div class="grade-layout" data-testid="grade-walk-layout">
         <div class="grade-top">
@@ -1085,7 +1121,13 @@ export class MfApp extends LitElement {
         </div>
 
         ${entry === null
-          ? html`<div class="grade-empty" data-testid="walk-empty">No ungraded chains in the walk — switch to By topic to review or re-grade.</div>`
+          ? html`
+            <div class="grade-empty" data-testid="walk-empty">
+              No ungraded chains in the walk — switch to By topic to review or re-grade.
+              ${hiddenBySkip
+                ? html`<button data-testid="walk-show-graded" @click=${this.toggleWalkSkipGraded}>Show graded</button>`
+                : ''}
+            </div>`
           : html`
             <div class="grade-main">
               ${isDesktop
@@ -1095,7 +1137,7 @@ export class MfApp extends LitElement {
                       .graphData=${this.graphData}
                       .mode=${'grade'}
                       .gradeChains=${this.walkGraphChainsFor(entry.record)}
-                      .judgements=${this.gradeJudgements}
+                      .judgements=${this.walkJudgements}
                       .viewportWidth=${this.viewportWidth}
                     ></mf-force-graph>
                   </div>`
