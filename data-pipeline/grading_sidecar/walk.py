@@ -24,6 +24,11 @@ from __future__ import annotations
 
 DEFAULT_N_MAX = 5
 DEFAULT_MIDPOINT = 5.0
+# Liveness bands that predict which metaphor verdict a grade will land on. Mirrors
+# the Forge Reader rubric (>=7 LIVE/HIT, <=4 DEAD/INERT); the 5-6 mid-band is
+# "serviceable" and predicts neither, so a mid-only topic carries no metaphor signal.
+LIVE_THRESHOLD = 7
+DEAD_THRESHOLD = 4
 
 
 def _is_weak(p: dict) -> bool:
@@ -89,21 +94,94 @@ def dwell_set(paths: list[dict], *, n_max: int = DEFAULT_N_MAX,
     return picks
 
 
+def topic_axis_signals(paths: list[dict]) -> set[str]:
+    """The grading-panel axes a topic's paths are PREDICTED to exercise.
+
+    Derived from triage only (we can't know the grade in advance, but the triage
+    signal is a good prior): high liveness predicts a `metaphor:live` grade, low
+    predicts `metaphor:dead`; each structural flag predicts the control where that
+    fault lands (bad_head/leap → tags; weak_linkage → a bad linkage verdict). Used
+    to steer the walk toward topics that can fill under-collected label axes.
+    """
+    sigs: set[str] = set()
+    for p in paths:
+        lv = p["liveness"]
+        if lv >= LIVE_THRESHOLD:
+            sigs.add("metaphor:live")
+        if lv <= DEAD_THRESHOLD:
+            sigs.add("metaphor:dead")
+        if p.get("bad_head"):
+            sigs.add("tag:bad_head")
+        if p.get("leap"):
+            sigs.add("tag:leap")
+        if p.get("weak_linkage"):
+            sigs.add("linkage:bad")
+    return sigs
+
+
+def collected_labels_from_verdicts(verdicts: list[dict]) -> dict[str, int]:
+    """Count how often each steerable label-axis has already been graded.
+
+    Verdicts are normalise_judgement-shaped dicts (linkage / metaphor / tags),
+    so v1 and v2 records count uniformly. None-valued axes (e.g. v1 bad_path has
+    no metaphor; irrelevant has no linkage) are skipped so they never appear as a
+    bogus ``axis:None`` key. The result feeds the coverage deficit in build_walk.
+    """
+    counts: dict[str, int] = {}
+
+    def bump(label: str) -> None:
+        counts[label] = counts.get(label, 0) + 1
+
+    for v in verdicts:
+        metaphor = v.get("metaphor")
+        if metaphor:
+            bump(f"metaphor:{metaphor}")
+        linkage = v.get("linkage")
+        if linkage:
+            bump(f"linkage:{linkage}")
+        for tag in (v.get("tags") or []):
+            if tag:
+                bump(f"tag:{tag}")
+    return counts
+
+
+def _deficit(label: str, collected_labels: dict[str, int]) -> float:
+    """How starved an axis is: 1.0 when never collected, decaying as it fills."""
+    return 1.0 / (1.0 + collected_labels.get(label, 0))
+
+
+def _steer(topic_paths: list[dict], collected_labels: dict[str, int]) -> float:
+    """A topic's steering boost = the biggest coverage gap it can fill.
+
+    Max (not sum) so the score focuses on the single most under-collected axis the
+    topic reaches, rather than rewarding topics that touch many already-covered
+    axes. With no labels yet, every deficit is 1.0 so this is a near-uniform offset
+    and contrast spread decides — steering only differentiates as labels accrue.
+    """
+    sigs = topic_axis_signals(topic_paths)
+    return max((_deficit(s, collected_labels) for s in sigs), default=0.0)
+
+
 def _spread(topic_paths: list[dict]) -> int:
     lv = [p["liveness"] for p in topic_paths]
     return max(lv) - min(lv) if lv else 0
 
 
 def build_walk(paths: list[dict], *, graded_sigs: set[str] | None = None,
+               collected_labels: dict[str, int] | None = None,
                n_max: int = DEFAULT_N_MAX, midpoint: float = DEFAULT_MIDPOINT) -> list[dict]:
     """Flatten triaged paths into the signal-prioritised walk order.
 
     Skips already-graded paths, groups the rest by topic, builds each topic's
-    dwell set, orders topics by contrast potential (wide liveness spread =
-    cheap, high-signal contrast; ties broken toward topics that carry a
-    structural flag so the panel gets exercised early), then emits each topic's
-    dwell set contiguously (you dwell, then advance). Each entry is annotated
-    with its position in the topic's dwell (dwell_index / dwell_n).
+    dwell set, orders topics by a combined score = contrast potential (wide
+    liveness spread = cheap, high-signal contrast) + label-coverage steering
+    (boost topics that can fill the most under-collected grading-panel axis),
+    then emits each topic's dwell set contiguously (you dwell, then advance).
+    Each entry is annotated with its dwell position (dwell_index / dwell_n).
+
+    `collected_labels` is the corpus-wide tally of axes already graded (from
+    collected_labels_from_verdicts). Pass None to disable steering (pure spread
+    ordering) — the steering term contributes 0 and the order is unchanged.
     """
     graded_sigs = graded_sigs or set()
     pending = [p for p in paths if p["chain_signature"] not in graded_sigs]
@@ -114,9 +192,14 @@ def build_walk(paths: list[dict], *, graded_sigs: set[str] | None = None,
 
     def topic_key(item):
         topic, tpaths = item
+        # spread normalised to 0..1 so it composes with the 0..1 steering deficit;
+        # off (collected_labels is None) the steer term is 0 and this reduces to
+        # pure spread ordering. Flagged-first remains a final tiebreak.
+        score = _spread(tpaths) / 10.0
+        if collected_labels is not None:
+            score += _steer(tpaths, collected_labels)
         has_flag = any(_is_weak(p) for p in tpaths)
-        # wide spread first; among equal spreads, flagged topics first; then name
-        return (-_spread(tpaths), 0 if has_flag else 1, topic)
+        return (-score, 0 if has_flag else 1, topic)
 
     walk_out: list[dict] = []
     for topic, tpaths in sorted(by_topic.items(), key=topic_key):

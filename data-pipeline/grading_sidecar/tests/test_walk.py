@@ -112,3 +112,80 @@ def test_assemble_missing_structural_is_unflagged():
     chains = [{"chain_signature": "x", "topic": "t", "vehicle": "a"}]
     paths = walk.assemble_paths(chains, liveness_by_sig={"x": 6}, structural_by_sig={})
     assert paths[0]["bad_head"] is False and paths[0]["leap"] is False and paths[0]["weak_linkage"] is False
+
+
+# --- topic_axis_signals (what panel axes a topic's paths can exercise) --------
+def test_topic_axis_signals_maps_liveness_and_flags():
+    # high-liveness -> metaphor:live, low -> metaphor:dead, flag -> its tag/linkage axis
+    paths = [_p("t", "a", 9, "1"), _p("t", "b", 2, "2"),
+             _p("t", "c", 6, "3", bad_head=True), _p("t", "d", 5, "4", weak=True)]
+    sigs = walk.topic_axis_signals(paths)
+    assert "metaphor:live" in sigs          # 9 >= LIVE_THRESHOLD
+    assert "metaphor:dead" in sigs          # 2 <= DEAD_THRESHOLD
+    assert "tag:bad_head" in sigs
+    assert "linkage:bad" in sigs            # weak_linkage predicts a bad-linkage verdict
+
+
+def test_topic_axis_signals_midband_has_no_metaphor_signal():
+    # a topic that is all mid-liveness and unflagged predicts neither live nor dead
+    sigs = walk.topic_axis_signals([_p("t", "a", 5, "1"), _p("t", "b", 6, "2")])
+    assert "metaphor:live" not in sigs and "metaphor:dead" not in sigs
+
+
+# --- collected_labels_from_verdicts ------------------------------------------
+def test_collected_labels_counts_axes_from_verdicts():
+    verdicts = [
+        {"linkage": "good", "metaphor": "live", "tags": ["bad_head"]},
+        {"linkage": "bad", "metaphor": "dead", "tags": []},
+    ]
+    c = walk.collected_labels_from_verdicts(verdicts)
+    assert c["metaphor:live"] == 1 and c["metaphor:dead"] == 1
+    assert c["linkage:good"] == 1 and c["linkage:bad"] == 1
+    assert c["tag:bad_head"] == 1
+
+
+def test_collected_labels_ignores_none_axes():
+    # v1 bad_path -> metaphor None; irrelevant -> linkage None; must not count "None" keys
+    verdicts = [{"linkage": None, "metaphor": "irrelevant", "tags": []},
+                {"linkage": "bad", "metaphor": None, "tags": ["leap"]}]
+    c = walk.collected_labels_from_verdicts(verdicts)
+    assert c.get("metaphor:irrelevant") == 1
+    assert c.get("linkage:bad") == 1
+    assert c.get("tag:leap") == 1
+    assert "metaphor:None" not in c and "linkage:None" not in c
+
+
+# --- build_walk label-coverage steering --------------------------------------
+def test_build_walk_no_collected_labels_is_pure_spread():
+    # steering OFF (None) -> identical to spread ordering (regression guard)
+    paths = [
+        _p("WIDE", "a", 9, "w1"), _p("WIDE", "b", 1, "w2"),
+        _p("NARROW", "c", 6, "n1"), _p("NARROW", "d", 5, "n2"),
+    ]
+    out = walk.build_walk(paths, collected_labels=None)
+    assert out[0]["topic"] == "WIDE"
+
+
+def test_build_walk_steers_toward_undercollected_axis():
+    # both topics flagged (so the flagged-first tiebreak is neutral) and equal spread;
+    # live/dead AND tag:leap are saturated, tag:bad_head is starved -> the bad_head
+    # topic must surface first purely on the coverage deficit.
+    paths = [
+        _p("BADHEAD", "a", 8, "h1"), _p("BADHEAD", "b", 2, "h2"), _p("BADHEAD", "c", 5, "h3", bad_head=True),
+        _p("LEAP", "d", 8, "l1"), _p("LEAP", "e", 2, "l2"), _p("LEAP", "f", 5, "l3", leap=True),
+    ]
+    collected = {"metaphor:live": 50, "metaphor:dead": 50, "tag:leap": 50}
+    out = walk.build_walk(paths, collected_labels=collected)
+    assert out[0]["topic"] == "BADHEAD"
+
+
+def test_build_walk_steering_can_override_spread():
+    # NARROW_FLAG has a small spread but exercises a STARVED axis (bad_head);
+    # WIDE_PLAIN has a wide spread but only well-covered axes -> steering flips order.
+    paths = [
+        _p("NARROW_FLAG", "a", 6, "n1"), _p("NARROW_FLAG", "b", 4, "n2", bad_head=True),
+        _p("WIDE_PLAIN", "c", 9, "w1"), _p("WIDE_PLAIN", "d", 1, "w2"),
+    ]
+    collected = {"metaphor:live": 50, "metaphor:dead": 50}
+    out = walk.build_walk(paths, collected_labels=collected)
+    assert out[0]["topic"] == "NARROW_FLAG"
