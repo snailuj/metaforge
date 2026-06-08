@@ -36,7 +36,7 @@ export class MfGradePanel extends LitElement {
            the two differ — so a mis-snapped head (bad_head) is judgeable. */
         .phrase-sub { color: #7a8190; font-size: 0.8em; font-style: italic; margin-left: 0.3rem; }
         .group-label { font-size: 0.75rem; color: #8a93a2; text-transform: uppercase; letter-spacing: 0.05em; }
-        .verdict-row { display: flex; gap: 0.5rem; margin: 0.4rem 0; align-items: center; }
+        .verdict-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.4rem 0; align-items: center; }
         button.verdict {
             padding: 0.5rem 0.9rem; font-size: 0.9rem; cursor: pointer;
             background: #181b22; color: #e6e6e6; border: 1px solid #2a3140;
@@ -51,7 +51,7 @@ export class MfGradePanel extends LitElement {
             border-radius: 4px;
         }
         button.linkage.bad { border-color: #d6a560; background: #4a3b2a; color: #f0d29a; }
-        .conf-row { display: flex; gap: 0.4rem; margin: 0.4rem 0; align-items: center; }
+        .conf-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0; align-items: center; }
         button.conf {
             padding: 0.3rem 0.6rem; cursor: pointer;
             background: #181b22; color: #c8c8c8; border: 1px solid #2a3140;
