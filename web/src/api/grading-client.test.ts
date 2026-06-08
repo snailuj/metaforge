@@ -69,4 +69,23 @@ describe('GradingClient', () => {
         const client = new GradingClient();
         await expect(client.getWalk()).rejects.toThrow('getWalk: 500');
     });
+
+    it('getSignalReport fetches the signal endpoint and returns the report', async () => {
+        const payload = { n: 72, n_live: 44, n_dead: 28, n_topics: 15, n_both_class_topics: 12,
+            n_powered_topics: 6, base_rate_live: 0.611, per_topic: [],
+            geometry_available: true, geometry_features: [{ name: 'max_hop_cos', within_topic_auc: 0.674, n_pairs: 89 }],
+            server_ts: 'x' };
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => payload });
+        const client = new GradingClient();
+        const res = await client.getSignalReport();
+        expect(fetchMock).toHaveBeenCalledWith('/api/grading/signal');
+        expect(res.n).toBe(72);
+        expect(res.geometry_features[0].within_topic_auc).toBe(0.674);
+    });
+
+    it('getSignalReport throws on non-200', async () => {
+        fetchMock.mockResolvedValue({ ok: false, status: 500 });
+        const client = new GradingClient();
+        await expect(client.getSignalReport()).rejects.toThrow('getSignalReport: 500');
+    });
 });

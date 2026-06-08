@@ -93,6 +93,37 @@ export interface WalkResponse {
     entries: WalkEntry[];
 }
 
+// On-demand signal/coverage report (GET /api/grading/signal). Re-read after a
+// grading batch: coverage = the binding breadth constraint; geometry = the
+// within-topic "one big leap" concordance (max_hop_cos etc.).
+export interface SignalTopic {
+    topic_synset_id: string;
+    topic: string;
+    live: number;
+    dead: number;
+    pairs: number;
+}
+
+export interface SignalFeature {
+    name: string;
+    within_topic_auc: number | null;
+    n_pairs: number;
+}
+
+export interface SignalReport {
+    n: number;
+    n_live: number;
+    n_dead: number;
+    base_rate_live: number;
+    n_topics: number;
+    n_both_class_topics: number;
+    n_powered_topics: number;
+    per_topic: SignalTopic[];
+    geometry_available: boolean;
+    geometry_features: SignalFeature[];
+    server_ts: string;
+}
+
 // Normalised two-axis view of a stored judgement, regardless of v1/v2 source.
 // linkage/metaphor may be null where a flat v1 label carried no signal on that axis.
 export interface NormalisedJudgement {

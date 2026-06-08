@@ -31,6 +31,7 @@ import './mf-error-banner'
 import './mf-topic-picker'
 import './mf-grade-panel'
 import './mf-grade-walk'
+import './mf-signal-report'
 import './mf-design-notes'
 import './mf-mobile-notes-overlay'
 
@@ -786,7 +787,7 @@ export class MfApp extends LitElement {
     `
   }
 
-  /** Topic ↔ Walk view toggle, shown in both grade views' top row. */
+  /** Topic ↔ Walk view toggle + on-demand signal report, shown in every grade view's top row. */
   private renderGradeViewToggle() {
     const opt = (view: 'topic' | 'walk', label: string) => html`
       <button
@@ -800,6 +801,7 @@ export class MfApp extends LitElement {
         ${opt('topic', 'By topic')}
         ${opt('walk', 'Walk')}
       </div>
+      <mf-signal-report .client=${this.gradingClient}></mf-signal-report>
     `
   }
 
