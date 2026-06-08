@@ -392,7 +392,7 @@ export class MfApp extends LitElement {
   // out of the visible walk (so the next ungraded one slides in) without a refetch.
   @state() private gradeView: 'topic' | 'walk' = 'topic'
   @state() private walkEntries: WalkEntry[] = []
-  @state() private walkIndex = 0
+  @state() private walkPos = 0
   @state() private walkSkipGraded = true
   @state() private walkGradedSigs: Set<string> = new Set()
   // The walk spans ALL topics, so it needs the global verdict set (gradeJudgements
@@ -633,7 +633,7 @@ export class MfApp extends LitElement {
       this.walkEntries = walkRes.entries
       this.walkJudgements = judgementsRes.records
       this.walkGradedSigs = new Set()
-      this.walkIndex = 0
+      this.walkPos = 0
       this.syncWalkSelection()
     } catch (err) {
       console.warn('[mf-app] initWalk failed', err)
@@ -647,49 +647,75 @@ export class MfApp extends LitElement {
     return this.gradeView === 'walk' ? this.walkJudgements : this.gradeJudgements
   }
 
-  /** The walk minus chains graded THIS session (when skip-graded is on). Indexing
-   *  into this list means a freshly-graded chain drops out and the next ungraded
-   *  one takes its slot with no refetch. */
-  private get visibleWalkEntries(): WalkEntry[] {
-    if (!this.walkSkipGraded) return this.walkEntries
-    return this.walkEntries.filter(e => !this.walkGradedSigs.has(e.chain_signature))
+  /** The walk addresses the FULL ordered list (walkPos), not a filtered view. A
+   *  graded chain stays in place so Prev can return to it; only forward motion
+   *  (Next / auto-advance) skips graded chains. */
+  private get walkCurrent(): WalkEntry | null {
+    return this.walkEntries[this.walkPos] ?? null
   }
 
-  /** Clamp the index into the visible list and project the current entry onto
+  private isWalkGraded(e: WalkEntry | null): boolean {
+    return !!e && this.walkGradedSigs.has(e.chain_signature)
+  }
+
+  /** Next ungraded position strictly after `from` (or any next position when
+   *  skip-graded is off); -1 if none ahead. */
+  private nextUngradedPos(from: number): number {
+    for (let i = from + 1; i < this.walkEntries.length; i++) {
+      if (!this.walkSkipGraded || !this.isWalkGraded(this.walkEntries[i])) return i
+    }
+    return -1
+  }
+
+  private get canWalkPrev(): boolean {
+    return this.walkPos > 0
+  }
+
+  private get canWalkNext(): boolean {
+    return this.nextUngradedPos(this.walkPos) >= 0
+  }
+
+  /** Clamp walkPos into the full list and project the current entry onto
    *  selectedChain (which the panel + handleVerdictSubmit key off). */
   private syncWalkSelection(): void {
-    const visible = this.visibleWalkEntries
-    if (visible.length === 0) {
-      this.walkIndex = 0
+    if (this.walkEntries.length === 0) {
+      this.walkPos = 0
       this.selectedChain = null
       return
     }
-    this.walkIndex = Math.max(0, Math.min(this.walkIndex, visible.length - 1))
-    this.selectedChain = visible[this.walkIndex].record
+    this.walkPos = Math.max(0, Math.min(this.walkPos, this.walkEntries.length - 1))
+    this.selectedChain = this.walkCurrent?.record ?? null
   }
 
+  /** Forward to the next ungraded chain (fresh work) — disabled when none remain. */
   private walkNext(): void {
-    this.walkIndex = Math.min(this.walkIndex + 1, this.visibleWalkEntries.length - 1)
-    this.syncWalkSelection()
+    const n = this.nextUngradedPos(this.walkPos)
+    if (n >= 0) {
+      this.walkPos = n
+      this.syncWalkSelection()
+    }
   }
 
+  /** Literal step back — lands on the previous chain whether or not it is graded,
+   *  so the operator can revisit what they just graded (verdict pre-fills). */
   private walkPrev(): void {
-    this.walkIndex = Math.max(this.walkIndex - 1, 0)
-    this.syncWalkSelection()
+    if (this.walkPos > 0) {
+      this.walkPos -= 1
+      this.syncWalkSelection()
+    }
   }
 
   private toggleWalkSkipGraded(): void {
     this.walkSkipGraded = !this.walkSkipGraded
-    this.syncWalkSelection()
   }
 
-  /** Submit a verdict from the walk, then advance. Reuses handleVerdictSubmit
-   *  verbatim (POST + refetch); afterward records the graded signature so the
-   *  chain drops out of the visible walk and the next one slides into place. */
+  /** Submit a verdict from the walk, then advance to the next ungraded chain.
+   *  Reuses handleVerdictSubmit verbatim (POST + refetch); the graded chain stays
+   *  in the list (Prev can revisit it) — only the forward cursor moves past it. */
   private async handleWalkVerdictSubmit(e: CustomEvent<VerdictSubmitDetail>): Promise<void> {
     const graded = this.selectedChain
     const recorded = await this.handleVerdictSubmit(e)
-    // Auth expired (or no chain) — do not drop the chain or advance the walk.
+    // Auth expired (or no chain) — do not record or advance.
     if (!recorded || !graded) {
       this.syncWalkSelection()
       return
@@ -703,6 +729,8 @@ export class MfApp extends LitElement {
     } catch (err) {
       console.warn('[mf-app] walk judgement refresh failed', err)
     }
+    const n = this.nextUngradedPos(this.walkPos)
+    if (n >= 0) this.walkPos = n   // else stay on the just-graded chain (all done — still reviewable)
     this.syncWalkSelection()
   }
 
@@ -1108,12 +1136,30 @@ export class MfApp extends LitElement {
    *  the accepted v1 scope — the topic constellation is deferred); mobile shows the
    *  bare chain (the panel's own step render) with no force-graph element. */
   private renderGradeWalk() {
-    const visible = this.visibleWalkEntries
-    const entry = visible[this.walkIndex] ?? null
+    const entry = this.walkCurrent
     const isDesktop = this.viewportWidth >= 900
-    // Entries exist but are all session-graded with skip on — offer an in-walk escape
-    // so the operator isn't forced out to topic view just to review what they graded.
-    const hiddenBySkip = entry === null && this.walkSkipGraded && this.walkEntries.length > 0
+    // The walk shell needs the same width treatment as the topic-mode verdict panel,
+    // else the flex:1 graph pane squeezes it to nothing (the head-chain gets clipped):
+    // desktop → fixed-width .grade-panel-pane; mobile → full-width .grade-mobile-panel.
+    const shell = html`
+      <mf-grade-walk
+        data-testid="grade-walk"
+        .chain=${entry?.record ?? null}
+        .priorVerdict=${entry ? this.priorVerdict(entry.record) : null}
+        .topic=${entry?.topic ?? ''}
+        .index=${this.walkPos}
+        .total=${this.walkEntries.length}
+        .dwellIndex=${entry?.dwell_index ?? 0}
+        .dwellN=${entry?.dwell_n ?? 0}
+        .skipGraded=${this.walkSkipGraded}
+        .canPrev=${this.canWalkPrev}
+        .canNext=${this.canWalkNext}
+        .graded=${this.isWalkGraded(entry)}
+        @walk-prev=${this.walkPrev}
+        @walk-next=${this.walkNext}
+        @walk-skip-toggle=${this.toggleWalkSkipGraded}
+        @verdict-submit=${this.handleWalkVerdictSubmit}
+      ></mf-grade-walk>`
     return html`
       <div class="grade-layout" data-testid="grade-walk-layout">
         <div class="grade-top">
@@ -1121,13 +1167,7 @@ export class MfApp extends LitElement {
         </div>
 
         ${entry === null
-          ? html`
-            <div class="grade-empty" data-testid="walk-empty">
-              No ungraded chains in the walk — switch to By topic to review or re-grade.
-              ${hiddenBySkip
-                ? html`<button data-testid="walk-show-graded" @click=${this.toggleWalkSkipGraded}>Show graded</button>`
-                : ''}
-            </div>`
+          ? html`<div class="grade-empty" data-testid="walk-empty">No chains in the walk — switch to By topic.</div>`
           : html`
             <div class="grade-main">
               ${isDesktop
@@ -1140,23 +1180,9 @@ export class MfApp extends LitElement {
                       .judgements=${this.walkJudgements}
                       .viewportWidth=${this.viewportWidth}
                     ></mf-force-graph>
-                  </div>`
-                : ''}
-              <mf-grade-walk
-                data-testid="grade-walk"
-                .chain=${entry.record}
-                .priorVerdict=${this.priorVerdict(entry.record)}
-                .topic=${entry.topic}
-                .index=${this.walkIndex}
-                .total=${visible.length}
-                .dwellIndex=${entry.dwell_index}
-                .dwellN=${entry.dwell_n}
-                .skipGraded=${this.walkSkipGraded}
-                @walk-prev=${this.walkPrev}
-                @walk-next=${this.walkNext}
-                @walk-skip-toggle=${this.toggleWalkSkipGraded}
-                @verdict-submit=${this.handleWalkVerdictSubmit}
-              ></mf-grade-walk>
+                  </div>
+                  <div class="grade-panel-pane">${shell}</div>`
+                : html`<div class="grade-mobile-panel">${shell}</div>`}
             </div>`}
       </div>
     `

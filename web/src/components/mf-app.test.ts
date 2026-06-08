@@ -1413,7 +1413,7 @@ describe('mf-app walk view', () => {
     expect((el as any).selectedChain.chain_signature).toBe('s2')
   })
 
-  it('submitting a verdict drops the graded chain and advances', async () => {
+  it('submitting a verdict advances past the graded chain (which stays reviewable)', async () => {
     el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
     await enterWalk(el)
     el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
@@ -1423,11 +1423,12 @@ describe('mf-app walk view', () => {
     await new Promise(r => setTimeout(r, 0))
     await el.updateComplete
     const walk = el.shadowRoot!.querySelector('mf-grade-walk') as any
-    expect(walk.chain.chain_signature).toBe('s2')
-    expect(walk.total).toBe(1)
+    expect(walk.chain.chain_signature).toBe('s2')         // advanced to the next ungraded
+    expect(walk.total).toBe(2)                            // s1 stays addressable (Prev can review it)
+    expect([...(el as any).walkGradedSigs]).toContain('s1')
   })
 
-  it('skip-graded toggle reveals a session-graded chain again', async () => {
+  it('Prev returns to the chain just graded (for review)', async () => {
     el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
     await enterWalk(el)
     el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
@@ -1436,10 +1437,12 @@ describe('mf-app walk view', () => {
     }))
     await new Promise(r => setTimeout(r, 0))
     await el.updateComplete
-    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).total).toBe(1)
-    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-skip-toggle', { bubbles: true, composed: true }))
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s2')
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-prev', { bubbles: true, composed: true }))
     await el.updateComplete
-    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).total).toBe(2)
+    const walk = el.shadowRoot!.querySelector('mf-grade-walk') as any
+    expect(walk.chain.chain_signature).toBe('s1')         // back to the chain we just graded
+    expect(walk.graded).toBe(true)
   })
 
   it('shows an empty state when the walk has no ungraded chains', async () => {
@@ -1457,7 +1460,7 @@ describe('mf-app walk view', () => {
     el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-prev', { bubbles: true, composed: true }))
     await el.updateComplete
     expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s1')
-    expect((el as any).walkIndex).toBe(0)
+    expect((el as any).walkPos).toBe(0)
   })
 
   it('surfaces an error and no shell when the walk fails to load', async () => {
@@ -1467,29 +1470,35 @@ describe('mf-app walk view', () => {
     expect(el.shadowRoot!.querySelector('mf-grade-walk')).toBeNull()
   })
 
-  it('clamps the index when skip-graded is re-enabled past the new boundary', async () => {
-    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+  it('Next skips graded chains by default; skip-off steps through them', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 3), walkEntry('anger', 's2', 1, 3), walkEntry('anger', 's3', 2, 3)])
     await enterWalk(el)
-    // skip OFF, advance to the last entry, grade it (so it becomes session-graded)
-    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-skip-toggle', { bubbles: true, composed: true }))
-    await el.updateComplete
-    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-next', { bubbles: true, composed: true }))
-    await el.updateComplete
-    expect((el as any).walkIndex).toBe(1)
+    // grade s1 -> auto-advance over it to s2
     el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
       detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
       bubbles: true, composed: true,
     }))
     await new Promise(r => setTimeout(r, 0))
     await el.updateComplete
-    // skip is OFF so s2 is still visible at index 1; toggle skip ON -> visible shrinks to [s1]
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s2')
+    // Prev back to the graded s1, then Next (skip ON) jumps over s1 to s2
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-prev', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s1')
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-next', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s2')
+    // skip OFF: from s1, Next steps to the literal next (s1 -> s2 still, but now graded ones are not skipped)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-prev', { bubbles: true, composed: true }))
+    await el.updateComplete // back to s1
     el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-skip-toggle', { bubbles: true, composed: true }))
     await el.updateComplete
-    expect((el as any).walkIndex).toBe(0)
-    expect((el as any).selectedChain.chain_signature).toBe('s1')
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-next', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s2')
   })
 
-  it('offers an in-walk "Show graded" escape when all chains are session-graded', async () => {
+  it('disables Next when no ungraded chains remain ahead', async () => {
     el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)])
     await enterWalk(el)
     el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
@@ -1498,11 +1507,9 @@ describe('mf-app walk view', () => {
     }))
     await new Promise(r => setTimeout(r, 0))
     await el.updateComplete
-    const showGraded = el.shadowRoot!.querySelector('[data-testid="walk-show-graded"]') as HTMLButtonElement
-    expect(showGraded).not.toBeNull()
-    showGraded.click()
-    await el.updateComplete
-    expect(el.shadowRoot!.querySelector('mf-grade-walk')).not.toBeNull()
+    const walk = el.shadowRoot!.querySelector('mf-grade-walk') as any
+    expect(walk.canNext).toBe(false)   // s1 graded, nothing ahead — but it stays reviewable
+    expect(walk.graded).toBe(true)
   })
 
   it('prefills the prior verdict in walk mode from the GLOBAL judgement set', async () => {

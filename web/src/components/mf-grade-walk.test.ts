@@ -49,14 +49,19 @@ describe('mf-grade-walk', () => {
     expect(dwell).toContain('2/4')
   })
 
-  it('disables prev at the start and next at the end', async () => {
-    const first = await mount({ index: 0, total: 3 })
+  it('disables prev/next from explicit canPrev/canNext flags', async () => {
+    const first = await mount({ canPrev: false, canNext: true })
     expect((first.shadowRoot!.querySelector('[data-testid="walk-prev"]') as HTMLButtonElement).disabled).toBe(true)
     expect((first.shadowRoot!.querySelector('[data-testid="walk-next"]') as HTMLButtonElement).disabled).toBe(false)
     document.body.removeChild(first)
-    el = await mount({ index: 2, total: 3 })
+    el = await mount({ canPrev: true, canNext: false })
     expect((el.shadowRoot!.querySelector('[data-testid="walk-next"]') as HTMLButtonElement).disabled).toBe(true)
     expect((el.shadowRoot!.querySelector('[data-testid="walk-prev"]') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('marks the current chain as already graded', async () => {
+    el = await mount({ graded: true })
+    expect(el.shadowRoot!.querySelector('[data-testid="walk-graded"]')).not.toBeNull()
   })
 
   it('emits walk-next / walk-prev on button click', async () => {
