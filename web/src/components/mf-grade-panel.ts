@@ -213,9 +213,31 @@ export class MfGradePanel extends LitElement {
 
     private _toggleTag(tag: Tag) {
         // Multi-select toggle: clicking a selected chip removes only it.
-        this.selectedTags = this.selectedTags.includes(tag)
-            ? this.selectedTags.filter(t => t !== tag)
-            : [...this.selectedTags, tag];
+        const willSelect = !this.selectedTags.includes(tag);
+        this.selectedTags = willSelect
+            ? [...this.selectedTags, tag]
+            : this.selectedTags.filter(t => t !== tag);
+        // Selecting a tag scaffolds a matching note line and drops the cursor
+        // straight after it, so the operator can elaborate or hit another tag
+        // without reaching for the textarea. Deselecting never touches the note
+        // (it may already carry typed elaboration).
+        if (willSelect) this._scaffoldNote(tag);
+    }
+
+    private _scaffoldNote(tag: Tag) {
+        const label = `${tag.replace(/_/g, ' ')}: `;
+        // Each tag gets its own line; no leading blank line on an empty note.
+        this.notes = this.notes.length === 0
+            ? label
+            : `${this.notes.replace(/\n*$/, '')}\n${label}`;
+        // Focus + caret-to-end after the value re-renders.
+        this.updateComplete.then(() => {
+            const ta = this.renderRoot.querySelector('textarea') as HTMLTextAreaElement | null;
+            if (!ta) return;
+            ta.focus();
+            const end = ta.value.length;
+            ta.setSelectionRange(end, end);
+        });
     }
 
     render() {

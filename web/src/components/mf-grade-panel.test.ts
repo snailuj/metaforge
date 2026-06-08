@@ -313,4 +313,50 @@ describe('mf-grade-panel', () => {
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
         expect(d.tags).toEqual([]);
     });
+
+    const notesValue = () => (el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement).value;
+
+    it('tapping a tag scaffolds the notes with its label prefix and still selects it', async () => {
+        await clickTag('leap');
+        expect(notesValue()).toBe('leap: ');
+        expect(tagSelected('leap')).toBe(true);
+    });
+
+    it('bad_head scaffolds a space-normalised "bad head: " prefix', async () => {
+        await clickTag('bad_head');
+        expect(notesValue()).toBe('bad head: ');
+    });
+
+    it('a second tag appends its prefix on a new line', async () => {
+        await clickTag('leap');
+        await clickTag('padding');
+        expect(notesValue()).toBe('leap: \npadding: ');
+    });
+
+    it('tapping a tag focuses the textarea with the cursor at the end', async () => {
+        await clickTag('merge');
+        await tick();
+        const ta = el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement;
+        expect(el.shadowRoot!.activeElement).toBe(ta);
+        expect(ta.selectionStart).toBe(ta.value.length);
+        expect(ta.selectionEnd).toBe(ta.value.length);
+    });
+
+    it('deselecting a tag leaves already-typed notes untouched', async () => {
+        await clickTag('leap');                 // notes -> 'leap: '
+        const ta = el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement;
+        ta.value = 'leap: too abrupt'; ta.dispatchEvent(new Event('input'));
+        await el.updateComplete;
+        await clickTag('leap');                 // toggle OFF — must not edit notes
+        expect(notesValue()).toBe('leap: too abrupt');
+        expect(tagSelected('leap')).toBe(false);
+    });
+
+    it('scaffolds onto an existing typed note on a fresh line', async () => {
+        const ta = el.shadowRoot!.querySelector('textarea') as HTMLTextAreaElement;
+        ta.value = 'general thought'; ta.dispatchEvent(new Event('input'));
+        await el.updateComplete;
+        await clickTag('bad_head');
+        expect(notesValue()).toBe('general thought\nbad head: ');
+    });
 });
