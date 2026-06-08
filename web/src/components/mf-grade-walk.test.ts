@@ -64,6 +64,11 @@ describe('mf-grade-walk', () => {
     expect(el.shadowRoot!.querySelector('[data-testid="walk-graded"]')).not.toBeNull()
   })
 
+  it('shows the ungraded-remaining count', async () => {
+    el = await mount({ ungradedLeft: 42 })
+    expect(el.shadowRoot!.querySelector('[data-testid="walk-left"]')!.textContent).toContain('42 left')
+  })
+
   it('emits walk-next / walk-prev on button click', async () => {
     el = await mount({ index: 1, total: 3 })
     let next = false, prev = false

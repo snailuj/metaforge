@@ -1403,6 +1403,19 @@ describe('mf-app walk view', () => {
     expect(el.shadowRoot!.querySelector('mf-grade-walk')).not.toBeNull()
   })
 
+  it('mobile walk uses a scroll container, not the clipped desktop grade-main', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)])
+    await enterWalk(el)
+    ;(el as any).viewportWidth = 500
+    await el.updateComplete
+    const layout = el.shadowRoot!.querySelector('[data-testid="grade-walk-layout"]')!
+    // .grade-main is the desktop graph row (flex:1; overflow:hidden) — must NOT wrap the
+    // mobile shell, or the panel clips with no scroll. Mobile uses a scrollable region.
+    expect(layout.querySelector('.grade-main')).toBeNull()
+    expect(layout.querySelector('.grade-walk-scroll')).not.toBeNull()
+    expect(layout.querySelector('.grade-walk-scroll mf-grade-walk')).not.toBeNull()
+  })
+
   it('walk-next advances to the next chain', async () => {
     el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
     await enterWalk(el)
@@ -1496,6 +1509,19 @@ describe('mf-app walk view', () => {
     el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-next', { bubbles: true, composed: true }))
     await el.updateComplete
     expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s2')
+  })
+
+  it('decrements the ungraded-remaining count as chains are graded', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).ungradedLeft).toBe(2)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      bubbles: true, composed: true,
+    }))
+    await new Promise(r => setTimeout(r, 0))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).ungradedLeft).toBe(1)
   })
 
   it('disables Next when no ungraded chains remain ahead', async () => {

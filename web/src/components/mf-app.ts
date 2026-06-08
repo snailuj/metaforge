@@ -338,6 +338,15 @@ export class MfApp extends LitElement {
       border-top: 1px solid #2a3140;
     }
 
+    /* Mobile walk: a full-width, vertically scrollable region so the whole shell
+       (head-chain + verdict controls + notes) is reachable. Unlike .grade-main it
+       does not clip — it takes the column's remaining height and scrolls. */
+    .grade-walk-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--space-md, 1rem);
+    }
+
     .grade-mobile-notes-btn {
       position: fixed;
       bottom: 1rem;
@@ -673,6 +682,11 @@ export class MfApp extends LitElement {
 
   private get canWalkNext(): boolean {
     return this.nextUngradedPos(this.walkPos) >= 0
+  }
+
+  /** Ungraded chains remaining in the whole walk (queue-progress readout). */
+  private get walkUngradedRemaining(): number {
+    return this.walkEntries.reduce((n, e) => n + (this.isWalkGraded(e) ? 0 : 1), 0)
   }
 
   /** Clamp walkPos into the full list and project the current entry onto
@@ -1138,9 +1152,11 @@ export class MfApp extends LitElement {
   private renderGradeWalk() {
     const entry = this.walkCurrent
     const isDesktop = this.viewportWidth >= 900
-    // The walk shell needs the same width treatment as the topic-mode verdict panel,
-    // else the flex:1 graph pane squeezes it to nothing (the head-chain gets clipped):
-    // desktop → fixed-width .grade-panel-pane; mobile → full-width .grade-mobile-panel.
+    // The walk shell needs proper sizing or the head-chain clips: desktop → the
+    // fixed-width, internally-scrolling .grade-panel-pane beside the graph; mobile →
+    // a full-width scroll region (.grade-walk-scroll) directly under .grade-layout —
+    // NOT .grade-main, whose row-flex + overflow:hidden (built for the desktop graph)
+    // squeezes the width and clips the panel with no way to scroll.
     const shell = html`
       <mf-grade-walk
         data-testid="grade-walk"
@@ -1155,6 +1171,7 @@ export class MfApp extends LitElement {
         .canPrev=${this.canWalkPrev}
         .canNext=${this.canWalkNext}
         .graded=${this.isWalkGraded(entry)}
+        .ungradedLeft=${this.walkUngradedRemaining}
         @walk-prev=${this.walkPrev}
         @walk-next=${this.walkNext}
         @walk-skip-toggle=${this.toggleWalkSkipGraded}
@@ -1168,22 +1185,21 @@ export class MfApp extends LitElement {
 
         ${entry === null
           ? html`<div class="grade-empty" data-testid="walk-empty">No chains in the walk — switch to By topic.</div>`
-          : html`
-            <div class="grade-main">
-              ${isDesktop
-                ? html`
-                  <div class="grade-graph-pane">
-                    <mf-force-graph
-                      .graphData=${this.graphData}
-                      .mode=${'grade'}
-                      .gradeChains=${this.walkGraphChainsFor(entry.record)}
-                      .judgements=${this.walkJudgements}
-                      .viewportWidth=${this.viewportWidth}
-                    ></mf-force-graph>
-                  </div>
-                  <div class="grade-panel-pane">${shell}</div>`
-                : html`<div class="grade-mobile-panel">${shell}</div>`}
-            </div>`}
+          : isDesktop
+            ? html`
+              <div class="grade-main">
+                <div class="grade-graph-pane">
+                  <mf-force-graph
+                    .graphData=${this.graphData}
+                    .mode=${'grade'}
+                    .gradeChains=${this.walkGraphChainsFor(entry.record)}
+                    .judgements=${this.walkJudgements}
+                    .viewportWidth=${this.viewportWidth}
+                  ></mf-force-graph>
+                </div>
+                <div class="grade-panel-pane">${shell}</div>
+              </div>`
+            : html`<div class="grade-walk-scroll">${shell}</div>`}
       </div>
     `
   }

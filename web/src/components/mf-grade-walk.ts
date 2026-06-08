@@ -43,6 +43,7 @@ export class MfGradeWalk extends LitElement {
         button:disabled { opacity: 0.4; cursor: default; }
         .pos { font-variant-numeric: tabular-nums; color: #c8c8c8; min-width: 4.5em; text-align: center; }
         .dwell { color: #8a93a2; font-size: 0.8rem; }
+        .left { color: #8a93a2; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
         .graded { color: #6db86d; font-size: 0.78rem; font-weight: 600; }
         button.skip { margin-left: auto; }
         button.skip.on { background: #2a3140; color: #fff; border-color: #6db86d; }
@@ -62,6 +63,8 @@ export class MfGradeWalk extends LitElement {
     @property({ type: Boolean }) canPrev = true
     @property({ type: Boolean }) canNext = true
     @property({ type: Boolean }) graded = false
+    // Ungraded chains still remaining in the whole walk — queue-progress readout.
+    @property({ type: Number }) ungradedLeft = 0
 
     private boundKey = (e: KeyboardEvent) => this.onKeydown(e)
 
@@ -97,6 +100,7 @@ export class MfGradeWalk extends LitElement {
                 <button data-testid="walk-prev" ?disabled=${!this.canPrev}
                         @click=${() => this.emit('walk-prev')}>‹ Prev</button>
                 <span class="pos" data-testid="walk-pos" aria-live="polite">${pos}</span>
+                <span class="left" data-testid="walk-left">${this.ungradedLeft} left</span>
                 <button data-testid="walk-next" ?disabled=${!this.canNext}
                         @click=${() => this.emit('walk-next')}>Next ›</button>
                 ${this.graded ? html`<span class="graded" data-testid="walk-graded" title="already graded — your verdict is pre-filled">✓ graded</span>` : ''}
