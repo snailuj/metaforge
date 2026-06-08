@@ -17,3 +17,7 @@ DESIGN_NOTES_PATH = GRADING_DIR / "design_notes_provisional.md"
 # walk route so tests can monkey-patch GRADING_DIR for isolation.
 TRIAGE_SCORES_GLOB = "triage_scores*.jsonl"
 TRIAGE_STRUCTURAL_NAME = "triage_structural.jsonl"
+# Precomputed per-chain path geometry (max_hop_cos etc.), keyed by chain_signature,
+# served by the /signal report. Generated offline against the typed lexicon
+# (the sidecar has no DB/numpy); absence degrades the report to coverage-only.
+CHAIN_GEOMETRY_NAME = "chain_geometry_provisional.jsonl"
