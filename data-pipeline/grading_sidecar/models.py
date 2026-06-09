@@ -134,6 +134,38 @@ _V1_LABEL_MAP: dict[str, tuple[Optional[str], Optional[str]]] = {
 }
 
 
+# Structural tags that imply a broken topic→vehicle bridge (bad linkage),
+# regardless of whether the grader also tapped the linkage button. Julian treats
+# these as implying bad linkage and skips the redundant tap (esp. mobile), so a
+# stored linkage=good on a tagged row is an untouched default, not a positive.
+# 'padding' is EXCLUDED — a padded path can still bridge a good pairing; 'other'
+# is unspecified. Mirrors LINKAGE_FORCING_TAGS in web/src/components/mf-grade-panel.ts.
+LINKAGE_FORCING_TAGS = ("bad_head", "leap", "merge")
+
+
+def effective_linkage(norm: dict):
+    """Linkage corrected for the tag-implies-bad-linkage convention (read-time).
+
+    Returns 'bad' when the recorded linkage is bad OR any structural forcing tag is
+    present; else the recorded linkage (which may be None for a v1 'irrelevant' row).
+    Pure interpretation — never mutates the stored verdict.
+    """
+    if norm.get("linkage") == "bad":
+        return "bad"
+    if any(t in LINKAGE_FORCING_TAGS for t in (norm.get("tags") or [])):
+        return "bad"
+    return norm.get("linkage")
+
+
+def has_bad_head(norm: dict) -> bool:
+    """True when the row is tagged bad_head — a mis-extracted vehicle, so the
+    topic→vehicle pairing being judged is a phantom and its liveness label is
+    unreliable. Such rows are excluded from the LIVENESS signal but still count as
+    bad LINKAGE (see effective_linkage); the two axes are orthogonal.
+    """
+    return "bad_head" in (norm.get("tags") or [])
+
+
 def normalise_judgement(raw: dict) -> dict:
     """Return a dict carrying linkage/metaphor/tiers regardless of v1/v2 source.
 

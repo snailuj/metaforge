@@ -12,11 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from grading_sidecar import signal_report as signal
 
 
-def _v2(ts, sig, metaphor, *, topic="anxiety", tsid="72810", supersedes=None):
+def _v2(ts, sig, metaphor, *, topic="anxiety", tsid="72810", supersedes=None, tags=None):
     return {"schema_version": "judgement.v2", "ts": ts, "topic": topic,
             "topic_synset_id": tsid, "vehicle": "swarm", "vehicle_synset_id": "9",
             "chain_signature": sig, "linkage": "good", "metaphor": metaphor,
-            "tiers": [], "tags": [], "confidence": "high", "supersedes_ts": supersedes}
+            "tiers": [], "tags": tags or [], "confidence": "high", "supersedes_ts": supersedes}
 
 
 def test_resolve_verdicts_latest_wins_and_supersede():
@@ -101,3 +101,42 @@ def test_build_report_with_geometry():
     by_name = {f["name"]: f for f in rep["geometry_features"]}
     assert by_name["max_hop_cos"]["within_topic_auc"] == 1.0
     assert by_name["max_hop_cos"]["n_pairs"] == 1
+
+
+def test_signal_report_excludes_bad_head_from_liveness():
+    # A mis-extracted vehicle (bad_head) makes the judged pairing a phantom, so its
+    # liveness label is unreliable -> dropped from the liveness rows + counted.
+    judgements = [
+        _v2("2026-06-01T10:00:00+00:00", "s1", "live"),
+        _v2("2026-06-01T10:01:00+00:00", "s2", "dead"),
+        _v2("2026-06-01T10:02:00+00:00", "s3", "live", tags=["bad_head"]),
+    ]
+    rep = signal.build_signal_report(judgements, {}, server_ts="2026-06-08T00:00:00Z")
+    assert rep["n"] == 2                     # bad_head row excluded from liveness
+    assert rep["n_excluded_bad_head"] == 1
+
+
+def test_signal_report_keeps_leap_padding_in_liveness():
+    # leap/padding are bad LINKAGE but the vehicle is right -> liveness label valid.
+    judgements = [
+        _v2("2026-06-01T10:00:00+00:00", "s1", "live", tags=["leap"]),
+        _v2("2026-06-01T10:01:00+00:00", "s2", "dead", tags=["padding"]),
+    ]
+    rep = signal.build_signal_report(judgements, {}, server_ts="2026-06-08T00:00:00Z")
+    assert rep["n"] == 2
+    assert rep["n_excluded_bad_head"] == 0
+
+
+def test_signal_report_linkage_counts_use_effective_rule():
+    # Linkage axis is orthogonal to liveness: a forcing tag counts as bad linkage
+    # even when (bad_head) it is also dropped from the liveness rows.
+    judgements = [
+        _v2("2026-06-01T10:00:00+00:00", "s1", "live"),                  # good
+        _v2("2026-06-01T10:01:00+00:00", "s2", "dead", tags=["leap"]),   # forced bad
+        _v2("2026-06-01T10:02:00+00:00", "s3", "live", tags=["padding"]),  # stays good
+        _v2("2026-06-01T10:03:00+00:00", "s4", "live", tags=["bad_head"]),  # bad linkage AND excluded from liveness
+    ]
+    rep = signal.build_signal_report(judgements, {}, server_ts="2026-06-08T00:00:00Z")
+    assert rep["n_linkage_bad"] == 2     # s2 (leap), s4 (bad_head)
+    assert rep["n_linkage_good"] == 2    # s1, s3 (padding)
+    assert rep["n_excluded_bad_head"] == 1

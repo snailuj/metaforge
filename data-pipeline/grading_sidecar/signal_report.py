@@ -18,7 +18,7 @@ rather than counting every raw line (which stats.py does deliberately).
 """
 from __future__ import annotations
 
-from .models import normalise_judgement
+from .models import normalise_judgement, effective_linkage, has_bad_head
 
 # The within-topic discriminators that survived the adversarial audit. max_hop /
 # dispersion = "one big leap"; path_total is the length-ish companion.
@@ -106,9 +106,15 @@ def build_signal_report(judgements: list[dict], geometry_by_sig: dict, *, server
     """Assemble the full dashboard from raw verdicts + an optional geometry map."""
     resolved = [normalise_judgement(j) for j in resolve_verdicts(judgements)]
     rows = []
+    n_excluded_bad_head = 0
     for n in resolved:
         label = binary_label(n)
         if label is None:
+            continue
+        if has_bad_head(n):
+            # Wrong vehicle → the judged pairing is a phantom; drop from liveness
+            # (but it still counts as bad linkage in the linkage tally below).
+            n_excluded_bad_head += 1
             continue
         rows.append({
             "sig": n.get("chain_signature"),
@@ -125,5 +131,10 @@ def build_signal_report(judgements: list[dict], geometry_by_sig: dict, *, server
             features.append({"name": name, "within_topic_auc": auc, "n_pairs": n_pairs})
     report["geometry_available"] = bool(geometry_by_sig)
     report["geometry_features"] = features
+    # Linkage axis (orthogonal to liveness): re-derived from tags so a row tagged
+    # bad_head/leap/merge counts as bad even where the grader left linkage=good.
+    report["n_excluded_bad_head"] = n_excluded_bad_head
+    report["n_linkage_good"] = sum(1 for n in resolved if effective_linkage(n) == "good")
+    report["n_linkage_bad"] = sum(1 for n in resolved if effective_linkage(n) == "bad")
     report["server_ts"] = server_ts
     return report

@@ -7,6 +7,7 @@ import pytest
 from grading_sidecar.models import (
     ChainRecord, ChainStep, JudgementRecord, DesignNotePost,
     compute_chain_signature, normalise_phrase, normalise_judgement,
+    effective_linkage, has_bad_head,
 )
 
 def _step(phrase, head, synset_id):
@@ -243,3 +244,36 @@ def test_normalise_judgement_v2_returns_tags_list():
 
 def test_normalise_judgement_v1_returns_empty_tags():
     assert normalise_judgement({"label": "live"})["tags"] == []
+
+# --- linkage re-derivation: structural tags imply bad linkage (Julian skips the
+# redundant linkage tap; padding alone is NOT bad — a padded path can still bridge
+# a good pairing). bad_head additionally poisons the LIVENESS label (wrong vehicle). ---
+
+def test_effective_linkage_explicit_bad_stays_bad():
+    assert effective_linkage({"linkage": "bad", "tags": []}) == "bad"
+
+def test_effective_linkage_forcing_tag_overrides_good():
+    for tag in ("bad_head", "leap", "merge"):
+        assert effective_linkage({"linkage": "good", "tags": [tag]}) == "bad", tag
+
+def test_effective_linkage_padding_alone_stays_good():
+    assert effective_linkage({"linkage": "good", "tags": ["padding"]}) == "good"
+
+def test_effective_linkage_other_alone_stays_good():
+    assert effective_linkage({"linkage": "good", "tags": ["other"]}) == "good"
+
+def test_effective_linkage_padding_with_forcing_tag_is_bad():
+    assert effective_linkage({"linkage": "good", "tags": ["padding", "leap"]}) == "bad"
+
+def test_effective_linkage_preserves_none_for_v1_irrelevant():
+    # v1 'irrelevant' normalises to linkage None; with no forcing tag it stays None.
+    assert effective_linkage({"linkage": None, "tags": []}) is None
+
+def test_effective_linkage_missing_tags_key_is_safe():
+    assert effective_linkage({"linkage": "good"}) == "good"
+
+def test_has_bad_head():
+    assert has_bad_head({"tags": ["bad_head"]}) is True
+    assert has_bad_head({"tags": ["leap", "padding"]}) is False
+    assert has_bad_head({"tags": []}) is False
+    assert has_bad_head({}) is False
