@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
-import type { ChainRecord, Linkage, MetaphorVerdict, Tier, Tag, Confidence } from '../types/grading'
+import type { ChainRecord, GlossMap, Linkage, MetaphorVerdict, Tier, Tag, Confidence } from '../types/grading'
 import './mf-grade-panel'
 
 // Shape of the muted "last saved" prior verdict the panel echoes — mirrors what
@@ -51,6 +51,7 @@ export class MfGradeWalk extends LitElement {
 
     @property({ attribute: false }) chain: ChainRecord | null = null
     @property({ attribute: false }) priorVerdict: PriorVerdict | null = null
+    @property({ attribute: false }) glosses: GlossMap = {}
     @property() topic = ''
     @property({ type: Number }) index = 0
     @property({ type: Number }) total = 0
@@ -112,6 +113,7 @@ export class MfGradeWalk extends LitElement {
             <mf-grade-panel
                 .chain=${this.chain}
                 .priorVerdict=${this.priorVerdict}
+                .glosses=${this.glosses}
             ></mf-grade-panel>
         `
     }

@@ -88,4 +88,18 @@ describe('GradingClient', () => {
         const client = new GradingClient();
         await expect(client.getSignalReport()).rejects.toThrow('getSignalReport: 500');
     });
+
+    it('getGlosses fetches the glosses endpoint and returns the map', async () => {
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ glosses: { '1': { pos: 'n', definition: 'an antique' } } }) });
+        const client = new GradingClient();
+        const res = await client.getGlosses();
+        expect(fetchMock).toHaveBeenCalledWith('/api/grading/glosses');
+        expect(res.glosses['1'].pos).toBe('n');
+    });
+
+    it('getGlosses throws on non-200', async () => {
+        fetchMock.mockResolvedValue({ ok: false, status: 500 });
+        const client = new GradingClient();
+        await expect(client.getGlosses()).rejects.toThrow('getGlosses: 500');
+    });
 });

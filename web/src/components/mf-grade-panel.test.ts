@@ -359,4 +359,25 @@ describe('mf-grade-panel', () => {
         await clickTag('bad_head');
         expect(notesValue()).toBe('general thought\nbad head: ');
     });
+
+    it('shows topic + vehicle POS and gloss when glosses are provided', async () => {
+        el.glosses = {
+            '1': { pos: 's', definition: 'belonging to or lasting from times long ago' },  // adjective
+            '3': { pos: 'n', definition: 'a poison secreted by some animals' },
+        };
+        await el.updateComplete;
+        const senses = el.shadowRoot!.querySelector('[data-testid="senses"]')!;
+        const text = senses.textContent || '';
+        expect(text).toContain('anger');        // topic lemma
+        expect(text).toContain('venom');         // vehicle lemma
+        expect(text).toContain('belonging to'); // topic gloss
+        // POS normalised to a readable label (s -> adj)
+        expect((el.shadowRoot!.querySelector('[data-testid="pos-topic"]') as HTMLElement).textContent).toContain('adj');
+        expect((el.shadowRoot!.querySelector('[data-testid="pos-vehicle"]') as HTMLElement).textContent).toContain('noun');
+    });
+
+    it('renders no senses block when no glosses are available', async () => {
+        // default: el.glosses is {} (beforeEach sets no glosses)
+        expect(el.shadowRoot!.querySelector('[data-testid="senses"]')).toBeNull();
+    });
 });

@@ -21,3 +21,7 @@ TRIAGE_STRUCTURAL_NAME = "triage_structural.jsonl"
 # served by the /signal report. Generated offline against the typed lexicon
 # (the sidecar has no DB/numpy); absence degrades the report to coverage-only.
 CHAIN_GEOMETRY_NAME = "chain_geometry_provisional.jsonl"
+# Precomputed synset gloss + POS (synset_id -> {pos, definition}) for the chain
+# synsets, served by /glosses so the grader can disambiguate a topic's sense.
+# Generated offline from the lexicon's synsets table (the sidecar has no DB).
+CHAIN_GLOSSES_NAME = "chain_glosses_provisional.jsonl"

@@ -18,6 +18,7 @@ import type {
   Tier,
   Tag,
   Confidence,
+  GlossMap,
 } from '@/types/grading'
 import { normaliseJudgement } from '@/types/grading'
 import type { MfToast } from './mf-toast'
@@ -383,6 +384,9 @@ export class MfApp extends LitElement {
   // Grade-mode state
   @state() private gradeTopics: TopicSummary[] = []
   @state() private gradeChains: ChainRecord[] = []
+  // synset_id → {pos, definition} for chain synsets; fetched once on grade entry,
+  // threaded to the panels so the grader sees the topic's sense. Empty on failure.
+  @state() private gradeGlosses: GlossMap = {}
   @state() private gradeJudgements: JudgementRecord[] = []
   @state() private selectedChain: ChainRecord | null = null
   @state() private notesHistory = ''
@@ -584,12 +588,14 @@ export class MfApp extends LitElement {
     const storedView = localStorage.getItem('mf-grade-view')
     if (storedView === 'walk' || storedView === 'topic') this.gradeView = storedView
     try {
-      const [topicsRes, notesRes] = await Promise.all([
+      const [topicsRes, notesRes, glossesRes] = await Promise.all([
         this.gradingClient.getTopics(),
         this.gradingClient.getDesignNotes(),
+        this.gradingClient.getGlosses().catch(() => ({ glosses: {} })),
       ])
       this.gradeTopics = topicsRes.topics
       this.notesHistory = notesRes.content
+      this.gradeGlosses = glossesRes.glosses
     } catch (err) {
       console.warn('[mf-app] initGradeMode failed', err)
       this.errorMessage = 'Failed to load grading data'
@@ -1062,6 +1068,7 @@ export class MfApp extends LitElement {
                 <mf-grade-panel
                   .chain=${this.selectedChain}
                   .priorVerdict=${this.priorVerdict(this.selectedChain)}
+                  .glosses=${this.gradeGlosses}
                   @verdict-submit=${this.handleVerdictSubmit}
                 ></mf-grade-panel>
               </div>`
@@ -1126,6 +1133,7 @@ export class MfApp extends LitElement {
               <mf-grade-panel
                 .chain=${this.selectedChain}
                 .priorVerdict=${this.priorVerdict(this.selectedChain)}
+                .glosses=${this.gradeGlosses}
                 @verdict-submit=${this.handleVerdictSubmit}
               ></mf-grade-panel>
             </div>`
@@ -1164,6 +1172,7 @@ export class MfApp extends LitElement {
         data-testid="grade-walk"
         .chain=${entry?.record ?? null}
         .priorVerdict=${entry ? this.priorVerdict(entry.record) : null}
+        .glosses=${this.gradeGlosses}
         .topic=${entry?.topic ?? ''}
         .index=${this.walkPos}
         .total=${this.walkEntries.length}

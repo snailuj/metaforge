@@ -1,7 +1,10 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { ChainRecord, Linkage, MetaphorVerdict, Tier, Tag, Confidence, VerdictSubmitDetail } from '../types/grading';
+import type { ChainRecord, GlossMap, Linkage, MetaphorVerdict, Tier, Tag, Confidence, VerdictSubmitDetail } from '../types/grading';
 import { TAGS } from '../types/grading';
+
+// WordNet POS code → grader-readable label. 's' is an adjective satellite.
+const POS_LABEL: Record<string, string> = { n: 'noun', v: 'verb', a: 'adj', s: 'adj', r: 'adv' };
 
 // Prior verdict shown in the muted last-saved line — the latest v2 judgement for this bridge.
 interface PriorVerdict {
@@ -35,6 +38,14 @@ export class MfGradePanel extends LitElement {
         /* Original prose phrase, shown muted beside its snapped head only when
            the two differ — so a mis-snapped head (bad_head) is judgeable. */
         .phrase-sub { color: #7a8190; font-size: 0.8em; font-style: italic; margin-left: 0.3rem; }
+        .senses { margin: 0.3rem 0 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; }
+        .sense { font-size: 0.82rem; color: #b8bfca; line-height: 1.4; }
+        .sense-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #8a93a2; margin-right: 0.35rem; }
+        .sense .pos {
+            font-size: 0.7rem; color: #9ec4ff; border: 1px solid #2f3a4d; border-radius: 3px;
+            padding: 0 0.3rem; margin: 0 0.35rem; vertical-align: middle;
+        }
+        .sense .gloss { color: #97a0ae; }
         .group-label { font-size: 0.75rem; color: #8a93a2; text-transform: uppercase; letter-spacing: 0.05em; }
         .verdict-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.4rem 0; align-items: center; }
         button.verdict {
@@ -88,6 +99,9 @@ export class MfGradePanel extends LitElement {
 
     @property({ attribute: false }) chain: ChainRecord | null = null;
     @property({ attribute: false }) priorVerdict: PriorVerdict | null = null;
+    // synset_id → {pos, definition}; supplied by mf-app so the grader can see the
+    // topic's sense (noun vs adjective). Empty map → no sense block rendered.
+    @property({ attribute: false }) glosses: GlossMap = {};
 
     @state() private confidence: Confidence = 'high';
     @state() private notes = '';
@@ -140,6 +154,30 @@ export class MfGradePanel extends LitElement {
             this.selectedTags = [];
             this.notes = '';
         }
+    }
+
+    // Topic + vehicle sense rows (head lemma · POS · gloss) so the grader can
+    // tell which sense a synset_id pins. Only rows we have a gloss for are shown.
+    private _renderSenses(chain: ChainRecord) {
+        const rows: Array<['topic' | 'vehicle', string, string]> = [
+            ['topic', chain.topic, chain.topic_synset_id],
+            ['vehicle', chain.vehicle, chain.vehicle_synset_id],
+        ];
+        const items = rows
+            .map(([label, lemma, sid]) => ({ label, lemma, g: this.glosses[sid] }))
+            .filter(x => x.g && (x.g.pos || x.g.definition));
+        if (!items.length) return '';
+        return html`
+            <div class="senses" data-testid="senses">
+                ${items.map(x => html`
+                    <div class="sense">
+                        <span class="sense-label">${x.label}</span><strong>${x.lemma}</strong>
+                        ${x.g!.pos ? html`<span class="pos" data-testid="pos-${x.label}">${POS_LABEL[x.g!.pos] ?? x.g!.pos}</span>` : ''}
+                        ${x.g!.definition ? html`<span class="gloss">${x.g!.definition}</span>` : ''}
+                    </div>
+                `)}
+            </div>
+        `;
     }
 
     // ISO-8601 → "YYYY-MM-DD HH:MM" by slice (deterministic; no Date/locale).
@@ -259,6 +297,7 @@ export class MfGradePanel extends LitElement {
                         ? html`<span class="phrase-sub">${s.phrase}</span>` : ''}</span>${i < steps.length - 1 ? html`<span class="arrow">→</span>` : ''}
                 `)}
             </div>
+            ${this._renderSenses(this.chain)}
             <div class="verdict-row">
                 <span class="group-label">Metaphor:</span>
                 <button class="verdict live ${this.priorVerdict?.metaphor === 'live' ? 'was-prior' : ''}" data-testid="metaphor-live"

@@ -71,6 +71,14 @@ export interface TopicSummary {
     topic_synset_id: string;
 }
 
+// synset_id → WordNet gloss + POS, served by GET /api/grading/glosses. Lets the
+// grade panel show the topic's sense (noun vs adjective for "antique", etc.).
+export interface Gloss {
+    pos: string | null;
+    definition: string | null;
+}
+export type GlossMap = Record<string, Gloss>;
+
 // One step of the signal-prioritised grading walk (GET /api/grading/walk). The
 // server orders these by acquisition value (per-topic dwell, label-coverage
 // steering); the client never re-sorts. `record` is the full chain for rendering.
