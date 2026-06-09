@@ -29,6 +29,13 @@ const CONFIDENCE_KEYS: Record<string, Confidence> = {
 
 const TIERS: readonly Tier[] = ['strong', 'ironic', 'surprising'] as const;
 
+// Structural tags that imply a broken topic→vehicle bridge (bad linkage). Julian
+// treats these as implying bad linkage and skips the redundant linkage tap (esp.
+// on mobile), so selecting one sets linkage=bad at source. 'padding' is excluded —
+// a padded path can still bridge a good pairing; 'other' is unspecified. Mirrors
+// LINKAGE_FORCING_TAGS in the Python sidecar (grading_sidecar/models.py).
+const LINKAGE_FORCING_TAGS: readonly Tag[] = ['bad_head', 'leap', 'merge'];
+
 @customElement('mf-grade-panel')
 export class MfGradePanel extends LitElement {
     static styles = css`
@@ -255,11 +262,16 @@ export class MfGradePanel extends LitElement {
         this.selectedTags = willSelect
             ? [...this.selectedTags, tag]
             : this.selectedTags.filter(t => t !== tag);
-        // Selecting a tag scaffolds a matching note line and drops the cursor
-        // straight after it, so the operator can elaborate or hit another tag
-        // without reaching for the textarea. Deselecting never touches the note
-        // (it may already carry typed elaboration).
-        if (willSelect) this._scaffoldNote(tag);
+        if (willSelect) {
+            // A structural tag implies the bridge is broken — record linkage:bad at
+            // source so the grader needn't also tap the linkage button. Set-only:
+            // deselecting never reverts (an explicit bad may stand for other reasons).
+            if (LINKAGE_FORCING_TAGS.includes(tag)) this.pendingLinkage = 'bad';
+            // Scaffold a matching note line and drop the cursor straight after it, so
+            // the operator can elaborate or hit another tag without reaching for the
+            // textarea. Deselecting never touches the note (it may carry typed text).
+            this._scaffoldNote(tag);
+        }
     }
 
     private _scaffoldNote(tag: Tag) {

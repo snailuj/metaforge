@@ -248,6 +248,9 @@ describe('mf-grade-panel', () => {
     const tagSelected = (tag: string) =>
         (el.shadowRoot!.querySelector(`[data-testid="chip-${tag}"]`) as HTMLElement)
             .classList.contains('selected');
+    const linkageBad = () =>
+        (el.shadowRoot!.querySelector('[data-testid="linkage-toggle"]') as HTMLElement)
+            .classList.contains('bad');
 
     it('exposes bad_head as a tag chip', () => {
         expect(el.shadowRoot!.querySelector('[data-testid="chip-bad_head"]')).toBeTruthy();
@@ -358,6 +361,49 @@ describe('mf-grade-panel', () => {
         await el.updateComplete;
         await clickTag('bad_head');
         expect(notesValue()).toBe('general thought\nbad head: ');
+    });
+
+    // A structural tag implies a broken bridge → linkage:bad is set at source, so
+    // the grader needn't also tap the linkage button. bad_head/leap/merge force it;
+    // padding (bloated-but-valid path) and 'other' do not. Set-only: deselecting a
+    // forcing tag never reverts linkage (an explicit bad may stand for other reasons).
+    it('selecting bad_head auto-sets linkage to bad', async () => {
+        await clickTag('bad_head');
+        expect(linkageBad()).toBe(true);
+    });
+
+    it('selecting leap auto-sets linkage to bad', async () => {
+        await clickTag('leap');
+        expect(linkageBad()).toBe(true);
+    });
+
+    it('selecting merge auto-sets linkage to bad', async () => {
+        await clickTag('merge');
+        expect(linkageBad()).toBe(true);
+    });
+
+    it('selecting padding alone leaves linkage at the default good', async () => {
+        await clickTag('padding');
+        expect(linkageBad()).toBe(false);
+    });
+
+    it('selecting other does not force linkage bad', async () => {
+        await clickTag('other');
+        expect(linkageBad()).toBe(false);
+    });
+
+    it('deselecting a forcing tag does not revert linkage to good', async () => {
+        await clickTag('bad_head');   // -> bad
+        await clickTag('bad_head');   // toggle off — must NOT revert
+        expect(linkageBad()).toBe(true);
+    });
+
+    it('a forcing tag carries linkage:bad into the submit', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
+        await clickTag('bad_head');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        expect(d.linkage).toBe('bad');
     });
 
     it('shows topic + vehicle POS and gloss when glosses are provided', async () => {
