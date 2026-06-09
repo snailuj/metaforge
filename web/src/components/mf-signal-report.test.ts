@@ -8,6 +8,7 @@ const tick = () => new Promise(r => setTimeout(r, 0));
 const REPORT: SignalReport = {
     n: 72, n_live: 44, n_dead: 28, base_rate_live: 0.611,
     n_topics: 15, n_both_class_topics: 12, n_powered_topics: 6,
+    n_excluded_bad_head: 0, n_linkage_good: 58, n_linkage_bad: 14,
     per_topic: [{ topic_synset_id: 'T', topic: 'adornment', live: 5, dead: 5, pairs: 25 }],
     geometry_available: true,
     geometry_features: [
@@ -58,6 +59,23 @@ describe('mf-signal-report', () => {
         expect(text).toContain('max_hop_cos');
         expect(text).toContain('0.67');   // AUC formatted
         expect(text).toContain('89');     // n_pairs
+    });
+
+    it('shows the re-derived linkage split and flags bad_head exclusions', async () => {
+        getSignalReport.mockResolvedValue({ ...REPORT, n_linkage_good: 50, n_linkage_bad: 22, n_excluded_bad_head: 8 });
+        await load();
+        const linkage = el.shadowRoot!.querySelector('[data-testid="signal-linkage"]')!.textContent!;
+        expect(linkage).toContain('22');   // bad linkage
+        expect(linkage).toContain('50');   // good linkage
+        const badhead = el.shadowRoot!.querySelector('[data-testid="signal-badhead"]')!.textContent!;
+        expect(badhead).toContain('8');
+        expect(badhead.toLowerCase()).toContain('bad_head');
+    });
+
+    it('hides the bad_head flag when none are excluded', async () => {
+        getSignalReport.mockResolvedValue({ ...REPORT, n_excluded_bad_head: 0 });
+        await load();
+        expect(el.shadowRoot!.querySelector('[data-testid="signal-badhead"]')).toBeNull();
     });
 
     it('notes when geometry is unavailable', async () => {

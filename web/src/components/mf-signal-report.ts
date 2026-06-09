@@ -25,6 +25,7 @@ export class MfSignalReport extends LitElement {
         }
         .row { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; margin: 0.15rem 0; }
         .stat strong { color: #8fd28f; font-weight: 600; }
+        .warn { color: #d6a560; }
         .muted { color: #8a93a2; }
         .geom { margin-top: 0.4rem; border-top: 1px solid #2a3140; padding-top: 0.4rem; }
         .feat { font-variant-numeric: tabular-nums; }
@@ -84,6 +85,13 @@ export class MfSignalReport extends LitElement {
                     <span class="stat"><strong>${r.n_topics}</strong> topics</span>
                     <span class="stat"><strong>${r.n_both_class_topics}</strong> both-class</span>
                     <span class="stat"><strong>${r.n_powered_topics}</strong> powered <span class="muted">(≥5 pairs)</span></span>
+                </div>
+                <div class="row">
+                    <span class="stat" data-testid="signal-linkage"><strong>${r.n_linkage_bad}</strong> bad-linkage
+                        <span class="muted">/ ${r.n_linkage_good} good</span></span>
+                    ${r.n_excluded_bad_head > 0
+                        ? html`<span class="warn" data-testid="signal-badhead">⚠ ${r.n_excluded_bad_head} bad_head excluded from liveness</span>`
+                        : ''}
                 </div>
                 ${r.geometry_available && r.geometry_features.length
                     ? html`

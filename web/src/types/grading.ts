@@ -126,6 +126,14 @@ export interface SignalReport {
     n_topics: number;
     n_both_class_topics: number;
     n_powered_topics: number;
+    // Liveness rows tagged bad_head (wrong vehicle) are excluded from the signal —
+    // a phantom pairing. Surfaced as a data-quality flag (head-extraction is known
+    // broken). Orthogonal to linkage: these still count as bad linkage below.
+    n_excluded_bad_head: number;
+    // Linkage axis re-derived from tags: bad if linkage=bad OR any of {bad_head,
+    // leap, merge}. Corrects the lazy "didn't tap bad-linkage" default on tagged rows.
+    n_linkage_good: number;
+    n_linkage_bad: number;
     per_topic: SignalTopic[];
     geometry_available: boolean;
     geometry_features: SignalFeature[];
