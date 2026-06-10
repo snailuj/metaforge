@@ -106,34 +106,38 @@ def build_signal_report(judgements: list[dict], geometry_by_sig: dict, *, server
     """Assemble the full dashboard from raw verdicts + an optional geometry map."""
     resolved = [normalise_judgement(j) for j in resolve_verdicts(judgements)]
     rows = []
-    n_excluded_bad_head = 0
     for n in resolved:
         label = binary_label(n)
         if label is None:
             continue
-        if has_bad_head(n):
-            # Wrong vehicle → the judged pairing is a phantom; drop from liveness
-            # (but it still counts as bad linkage in the linkage tally below).
-            n_excluded_bad_head += 1
-            continue
+        # bad_head is an intermediate-extraction error; the endpoints are
+        # canonicalised, so the pairing — and this live/dead verdict — stay valid.
+        # Keep the row in the count; flag it so geometry can hold it out below.
         rows.append({
             "sig": n.get("chain_signature"),
             "tsid": n.get("topic_synset_id"),
             "topic": n.get("topic"),
             "y": 1 if label == "live" else 0,
+            "bad_head": has_bad_head(n),
         })
 
     report = coverage(rows)
+    # Geometry concordance uses only geometry-RELIABLE rows: a bad_head chain has a
+    # mis-snapped intermediate synset, so its centroid hops are unreliable (dropping
+    # them strengthens concordance, per the path-geometry findings). The live/dead
+    # verdict itself is untouched — bad_head rows stay in the coverage counts above.
+    geo_rows = [r for r in rows if not r["bad_head"]]
+    n_bad_head = sum(1 for r in rows if r["bad_head"])
     features = []
     if geometry_by_sig:
         for name in GEOMETRY_FEATURES:
-            auc, n_pairs = within_topic_concordance(rows, geometry_by_sig, name)
+            auc, n_pairs = within_topic_concordance(geo_rows, geometry_by_sig, name)
             features.append({"name": name, "within_topic_auc": auc, "n_pairs": n_pairs})
     report["geometry_available"] = bool(geometry_by_sig)
     report["geometry_features"] = features
+    report["n_bad_head"] = n_bad_head
     # Linkage axis (orthogonal to liveness): re-derived from tags so a row tagged
     # bad_head/leap/merge counts as bad even where the grader left linkage=good.
-    report["n_excluded_bad_head"] = n_excluded_bad_head
     report["n_linkage_good"] = sum(1 for n in resolved if effective_linkage(n) == "good")
     report["n_linkage_bad"] = sum(1 for n in resolved if effective_linkage(n) == "bad")
     report["server_ts"] = server_ts

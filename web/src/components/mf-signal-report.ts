@@ -89,8 +89,9 @@ export class MfSignalReport extends LitElement {
                 <div class="row">
                     <span class="stat" data-testid="signal-linkage"><strong>${r.n_linkage_bad}</strong> bad-linkage
                         <span class="muted">/ ${r.n_linkage_good} good</span></span>
-                    ${r.n_excluded_bad_head > 0
-                        ? html`<span class="warn" data-testid="signal-badhead">⚠ ${r.n_excluded_bad_head} bad_head excluded from liveness</span>`
+                    ${r.n_bad_head > 0
+                        ? html`<span class="warn" data-testid="signal-badhead">⚠ ${r.n_bad_head} bad_head
+                            <span class="muted">(held out of geometry)</span></span>`
                         : ''}
                 </div>
                 ${r.geometry_available && r.geometry_features.length

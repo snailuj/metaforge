@@ -103,40 +103,58 @@ def test_build_report_with_geometry():
     assert by_name["max_hop_cos"]["n_pairs"] == 1
 
 
-def test_signal_report_excludes_bad_head_from_liveness():
-    # A mis-extracted vehicle (bad_head) makes the judged pairing a phantom, so its
-    # liveness label is unreliable -> dropped from the liveness rows + counted.
+def test_signal_report_keeps_bad_head_in_liveness_count():
+    # bad_head is an intermediate-extraction error (endpoints are canonicalised),
+    # so the topic→vehicle pairing — and the live/dead verdict — stay valid: counted.
     judgements = [
         _v2("2026-06-01T10:00:00+00:00", "s1", "live"),
         _v2("2026-06-01T10:01:00+00:00", "s2", "dead"),
         _v2("2026-06-01T10:02:00+00:00", "s3", "live", tags=["bad_head"]),
     ]
     rep = signal.build_signal_report(judgements, {}, server_ts="2026-06-08T00:00:00Z")
-    assert rep["n"] == 2                     # bad_head row excluded from liveness
-    assert rep["n_excluded_bad_head"] == 1
+    assert rep["n"] == 3                     # bad_head row stays in the count
+    assert rep["n_live"] == 2                # s1 + s3
+    assert rep["n_bad_head"] == 1
 
 
-def test_signal_report_keeps_leap_padding_in_liveness():
-    # leap/padding are bad LINKAGE but the vehicle is right -> liveness label valid.
+def test_signal_report_holds_bad_head_out_of_geometry_only():
+    # The mis-snapped intermediate synset makes the geometry unreliable, so the
+    # bad_head row is dropped from the concordance pairs — but stays in the count.
+    judgements = [
+        _v2("2026-06-01T10:00:00+00:00", "s1", "live"),
+        _v2("2026-06-01T10:01:00+00:00", "s2", "dead"),
+        _v2("2026-06-01T10:02:00+00:00", "s3", "live", tags=["bad_head"]),
+    ]
+    geo = {"s1": {"max_hop_cos": 0.9}, "s2": {"max_hop_cos": 0.2}, "s3": {"max_hop_cos": 0.5}}
+    rep = signal.build_signal_report(judgements, geo, server_ts="2026-06-08T00:00:00Z")
+    assert rep["n"] == 3 and rep["n_bad_head"] == 1
+    by_name = {f["name"]: f for f in rep["geometry_features"]}
+    assert by_name["max_hop_cos"]["n_pairs"] == 1   # only s1(live)/s2(dead) — s3 held out
+
+
+def test_signal_report_keeps_leap_padding_in_geometry():
+    # leap/padding have correct synsets — valid liveness AND valid geometry.
     judgements = [
         _v2("2026-06-01T10:00:00+00:00", "s1", "live", tags=["leap"]),
         _v2("2026-06-01T10:01:00+00:00", "s2", "dead", tags=["padding"]),
     ]
-    rep = signal.build_signal_report(judgements, {}, server_ts="2026-06-08T00:00:00Z")
-    assert rep["n"] == 2
-    assert rep["n_excluded_bad_head"] == 0
+    geo = {"s1": {"max_hop_cos": 0.9}, "s2": {"max_hop_cos": 0.2}}
+    rep = signal.build_signal_report(judgements, geo, server_ts="2026-06-08T00:00:00Z")
+    assert rep["n"] == 2 and rep["n_bad_head"] == 0
+    assert rep["geometry_features"][0]["n_pairs"] == 1   # pair kept
 
 
 def test_signal_report_linkage_counts_use_effective_rule():
     # Linkage axis is orthogonal to liveness: a forcing tag counts as bad linkage
-    # even when (bad_head) it is also dropped from the liveness rows.
+    # even when (bad_head) it is held out of the geometry concordance.
     judgements = [
         _v2("2026-06-01T10:00:00+00:00", "s1", "live"),                  # good
         _v2("2026-06-01T10:01:00+00:00", "s2", "dead", tags=["leap"]),   # forced bad
         _v2("2026-06-01T10:02:00+00:00", "s3", "live", tags=["padding"]),  # stays good
-        _v2("2026-06-01T10:03:00+00:00", "s4", "live", tags=["bad_head"]),  # bad linkage AND excluded from liveness
+        _v2("2026-06-01T10:03:00+00:00", "s4", "live", tags=["bad_head"]),  # bad linkage; geometry-held-out
     ]
     rep = signal.build_signal_report(judgements, {}, server_ts="2026-06-08T00:00:00Z")
     assert rep["n_linkage_bad"] == 2     # s2 (leap), s4 (bad_head)
     assert rep["n_linkage_good"] == 2    # s1, s3 (padding)
-    assert rep["n_excluded_bad_head"] == 1
+    assert rep["n"] == 4                 # all four counted in liveness
+    assert rep["n_bad_head"] == 1

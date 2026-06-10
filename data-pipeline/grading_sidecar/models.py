@@ -158,10 +158,15 @@ def effective_linkage(norm: dict):
 
 
 def has_bad_head(norm: dict) -> bool:
-    """True when the row is tagged bad_head — a mis-extracted vehicle, so the
-    topic→vehicle pairing being judged is a phantom and its liveness label is
-    unreliable. Such rows are excluded from the LIVENESS signal but still count as
-    bad LINKAGE (see effective_linkage); the two axes are orthogonal.
+    """True when the row is tagged bad_head — a mis-extracted INTERMEDIATE head.
+
+    The topic/vehicle endpoints are canonicalised (head==phrase, see ChainRecord),
+    so bad_head can only land on an intermediate step: it never touches the pairing.
+    The live/dead verdict therefore stays valid (a bad_head chain can be a live
+    metaphor) and the row stays in the liveness count; bad_head still counts as bad
+    LINKAGE (see effective_linkage). What it DOES corrupt is the mis-snapped
+    intermediate synset → unreliable path geometry, so such rows are held out of the
+    geometry concordance only.
     """
     return "bad_head" in (norm.get("tags") or [])
 
