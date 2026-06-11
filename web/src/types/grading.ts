@@ -141,6 +141,20 @@ export interface SignalReport {
     server_ts: string;
 }
 
+// Blind re-grade self-agreement (GET /api/grading/regrade/agreement). Per verdict
+// axis: raw observed agreement + 2-class Cohen's κ. Both null where undefined
+// (no overlapping pairs, or every label identical). This is the intra-rater
+// reliability FLOOR — the audit's prerequisite before any κ gate is interpretable.
+export interface AxisAgreement {
+    agreement: number | null;
+    kappa: number | null;
+}
+export interface RegradeAgreement {
+    n_pairs: number;
+    metaphor: AxisAgreement;
+    linkage: AxisAgreement;
+}
+
 // Normalised two-axis view of a stored judgement, regardless of v1/v2 source.
 // linkage/metaphor may be null where a flat v1 label carried no signal on that axis.
 export interface NormalisedJudgement {

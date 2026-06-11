@@ -1,4 +1,4 @@
-import type { ChainRecord, GlossMap, JudgementRecord, SignalReport, TopicSummary, WalkResponse } from '../types/grading';
+import type { ChainRecord, GlossMap, JudgementRecord, RegradeAgreement, SignalReport, TopicSummary, WalkResponse } from '../types/grading';
 
 const BASE = '/api/grading';
 const RETRY_DELAYS_MS = [1000, 3000, 9000];
@@ -53,19 +53,32 @@ export class GradingClient {
     }
 
     async postJudgement(j: JudgementRecord): Promise<JudgementRecord> {
+        return this._postWithRetry(`${BASE}/judgements`, j, 'postJudgement');
+    }
+
+    /** Blind re-grade verdict → the SEPARATE regrades file (never the gold
+     *  judgements). Same retry policy as postJudgement. */
+    async postRegrade(j: JudgementRecord): Promise<JudgementRecord> {
+        return this._postWithRetry(`${BASE}/regrade`, j, 'postRegrade');
+    }
+
+    /** POST JSON with the shared retry policy: 3x on 5xx/network (exponential
+     *  backoff), never on 4xx (a 4xx is a contract error — retrying is pointless).
+     *  `label` only shapes the thrown message so callers can distinguish endpoints. */
+    private async _postWithRetry(url: string, body: unknown, label: string): Promise<any> {
         let lastError: Error | null = null;
         for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
             try {
-                const r = await fetch(`${BASE}/judgements`, {
+                const r = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(j),
+                    body: JSON.stringify(body),
                 });
                 if (r.ok) return r.json();
                 if (r.status >= 400 && r.status < 500) {
-                    throw new Error(`postJudgement: ${r.status} (no retry)`);
+                    throw new Error(`${label}: ${r.status} (no retry)`);
                 }
-                lastError = new Error(`postJudgement: ${r.status}`);
+                lastError = new Error(`${label}: ${r.status}`);
             } catch (e) {
                 if (e instanceof Error && e.message.includes('no retry')) throw e;
                 lastError = e as Error;
@@ -75,6 +88,21 @@ export class GradingClient {
             }
         }
         throw lastError!;
+    }
+
+    /** Draw a blind, class-stratified re-grade batch (chains only, no verdicts). */
+    async getRegradeSample(opts: { n: number; minAgeDays: number; seed: number }): Promise<{ count: number; records: ChainRecord[] }> {
+        const q = `n=${opts.n}&min_age_days=${opts.minAgeDays}&seed=${opts.seed}`;
+        const r = await fetch(`${BASE}/regrade/sample?${q}`);
+        if (!r.ok) throw new Error(`getRegradeSample: ${r.status}`);
+        return r.json();
+    }
+
+    /** Intra-rater self-agreement of gold vs blind re-grades (per-axis κ + agreement). */
+    async getRegradeAgreement(): Promise<RegradeAgreement> {
+        const r = await fetch(`${BASE}/regrade/agreement`);
+        if (!r.ok) throw new Error(`getRegradeAgreement: ${r.status}`);
+        return r.json();
     }
 
     async getDesignNotes(): Promise<{ content: string }> {

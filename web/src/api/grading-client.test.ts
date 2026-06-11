@@ -102,4 +102,59 @@ describe('GradingClient', () => {
         const client = new GradingClient();
         await expect(client.getGlosses()).rejects.toThrow('getGlosses: 500');
     });
+
+    it('getRegradeSample passes n/min_age_days/seed and returns blind chains', async () => {
+        const payload = { count: 1, records: [{ chain_signature: 's1', topic: 'anger', chain: [] }] };
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => payload });
+        const client = new GradingClient();
+        const res = await client.getRegradeSample({ n: 8, minAgeDays: 2, seed: 5 });
+        expect(fetchMock).toHaveBeenCalledWith('/api/grading/regrade/sample?n=8&min_age_days=2&seed=5');
+        expect(res.records[0].chain_signature).toBe('s1');
+    });
+
+    it('getRegradeSample throws on non-200', async () => {
+        fetchMock.mockResolvedValue({ ok: false, status: 500 });
+        const client = new GradingClient();
+        await expect(client.getRegradeSample({ n: 1, minAgeDays: 1, seed: 1 })).rejects.toThrow('getRegradeSample: 500');
+    });
+
+    it('postRegrade posts to the regrade endpoint (separate file, never gold)', async () => {
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ metaphor: 'live' }) });
+        const client = new GradingClient();
+        const res = await client.postRegrade({ metaphor: 'live' } as any);
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(url).toBe('/api/grading/regrade');
+        expect(init.method).toBe('POST');
+        expect(res.metaphor).toBe('live');
+    });
+
+    it('postRegrade retries 3x on 5xx like postJudgement', async () => {
+        vi.useFakeTimers();
+        fetchMock
+            .mockResolvedValueOnce({ ok: false, status: 500 })
+            .mockResolvedValueOnce({ ok: false, status: 500 })
+            .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ts: 'y' }) });
+        const client = new GradingClient();
+        const promise = client.postRegrade({} as any);
+        await vi.runAllTimersAsync();
+        expect((await promise).ts).toBe('y');
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        vi.useRealTimers();
+    });
+
+    it('getRegradeAgreement returns the per-axis agreement report', async () => {
+        const payload = { n_pairs: 12, metaphor: { agreement: 0.83, kappa: 0.62 }, linkage: { agreement: 0.75, kappa: 0.4 } };
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => payload });
+        const client = new GradingClient();
+        const res = await client.getRegradeAgreement();
+        expect(fetchMock).toHaveBeenCalledWith('/api/grading/regrade/agreement');
+        expect(res.n_pairs).toBe(12);
+        expect(res.metaphor.kappa).toBe(0.62);
+    });
+
+    it('getRegradeAgreement throws on non-200', async () => {
+        fetchMock.mockResolvedValue({ ok: false, status: 500 });
+        const client = new GradingClient();
+        await expect(client.getRegradeAgreement()).rejects.toThrow('getRegradeAgreement: 500');
+    });
 });
