@@ -13,36 +13,47 @@ from __future__ import annotations
 
 import datetime as dt
 
+import logging
+
 from fastapi import APIRouter, Depends, Query
 
 from ..auth import verify_secret
+from ..chain_store import load_chains
 from ..models import JudgementRecord, normalise_judgement
 from ..persistence import append_jsonl, read_jsonl_skip_malformed
 from ..regrade import sample_regrade, self_agreement
 from ..signal_report import resolve_verdicts
 from .. import paths as paths_mod
 
+log = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(verify_secret)])
-
-# Identity fields carried into a blind sample item — enough to locate and render
-# the chain, deliberately WITHOUT any verdict-bearing field (metaphor, linkage,
-# tiers, tags, notes, confidence). Whitelist, not blacklist, so a future verdict
-# field can't leak into the blind view by omission.
-_BLIND_FIELDS = ("chain_signature", "topic", "topic_synset_id", "vehicle",
-                 "vehicle_synset_id", "proposer", "round")
 
 
 @router.get("/api/grading/regrade/sample")
 def get_regrade_sample(n: int = Query(default=12, ge=1, le=100),
                        min_age_days: int = Query(default=3, ge=0),
                        seed: int = Query(default=1)) -> dict:
-    """Draw a blind, class-stratified re-grade batch from the gold verdicts."""
+    """Draw a blind, class-stratified re-grade batch from the gold verdicts.
+
+    Returns the CHAIN records (path included), not the verdicts: a ChainRecord
+    carries no live/dead/linkage field, so the operator sees the chain to re-grade
+    with no prior verdict to anchor on. A sampled signature with no surviving chain
+    record is skipped (don't 500 a pruned line)."""
     judgements, _ = read_jsonl_skip_malformed(paths_mod.JUDGEMENTS_PATH)
     today = dt.date.today().isoformat()
     sample = sample_regrade(judgements, n=n, min_age_days=min_age_days,
                             today=today, seed=seed)
-    blinded = [{k: row[k] for k in _BLIND_FIELDS if k in row} for row in sample]
-    return {"count": len(blinded), "records": blinded}
+    chain_by_sig = {c["chain_signature"]: c for c in load_chains()}
+    records, missing = [], 0
+    for row in sample:
+        chain = chain_by_sig.get(row["chain_signature"])
+        if chain is None:
+            missing += 1
+            continue
+        records.append(chain)
+    if missing:
+        log.warning("regrade sample: %d sampled signature(s) had no chain record", missing)
+    return {"count": len(records), "records": records}
 
 
 @router.post("/api/grading/regrade")

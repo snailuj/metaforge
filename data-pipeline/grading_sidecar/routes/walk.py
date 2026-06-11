@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from fastapi import APIRouter, Depends, Query
 from ..auth import verify_secret
+from ..chain_store import load_chains as _load_chains
 from ..models import normalise_judgement
 from ..persistence import read_jsonl_skip_malformed
 from .. import paths as paths_mod
@@ -25,33 +26,10 @@ from ..walk import assemble_paths, build_walk, collected_labels_from_verdicts
 log = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(verify_secret)])
 
-# Keys a chain record must carry to be gradeable. read_jsonl_skip_malformed only
-# drops JSON-decode failures, so a valid-JSON line with schema drift would reach
-# assemble_paths and KeyError-500 the whole walk; we skip such lines instead.
-_REQUIRED_CHAIN_KEYS = ("chain_signature", "topic", "vehicle")
-
 # Response contract. The triage priors (liveness + structural flags) that DROVE the
 # ordering are deliberately excluded — surfacing a predicted score/flag would anchor
 # the grader's fresh judgement (the walk's KEY INVARIANT). They never leave the server.
 _WALK_PUBLIC_FIELDS = ("chain_signature", "topic", "vehicle", "dwell_index", "dwell_n")
-
-
-def _load_chains() -> list[dict]:
-    """Union all round files; drop records missing required keys (valid JSON with
-    schema drift) and dedup by signature (last file wins), so one malformed or
-    duplicated generator line can neither 500 the walk nor desync record↔score."""
-    by_sig: dict[str, dict] = {}
-    dropped = 0
-    for p in sorted(paths_mod.GRADING_DIR.glob(paths_mod.CHAINS_GLOB)):
-        recs, _ = read_jsonl_skip_malformed(p)
-        for r in recs:
-            if not all(r.get(k) for k in _REQUIRED_CHAIN_KEYS):
-                dropped += 1
-                continue
-            by_sig[r["chain_signature"]] = r
-    if dropped:
-        log.warning("walk: dropped %d chain record(s) missing required keys", dropped)
-    return list(by_sig.values())
 
 
 def _load_liveness() -> dict[str, int]:

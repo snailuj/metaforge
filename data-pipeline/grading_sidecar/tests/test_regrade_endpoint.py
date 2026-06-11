@@ -25,6 +25,16 @@ def _v2(ts, sig, metaphor, *, topic="anxiety", tsid="72810", linkage="good"):
             "confidence": "high", "notes": "", "supersedes_ts": None}
 
 
+def _chain(sig, *, topic="anxiety", tsid="72810", vehicle="swarm"):
+    return {"schema_version": "chain.v1", "topic": topic, "topic_synset_id": tsid,
+            "vehicle": vehicle, "vehicle_synset_id": "9", "proposer": "sonnet",
+            "round": 1, "chain_signature": sig,
+            "chain": [{"phrase": topic, "head": topic, "synset_id": tsid},
+                      {"phrase": "shoal", "head": "shoal", "synset_id": "5"},
+                      {"phrase": vehicle, "head": vehicle, "synset_id": "9"}],
+            "generated_at": "2026-06-01T00:00:00+00:00"}
+
+
 def _sig(c):
     return c * 64
 
@@ -41,7 +51,9 @@ def regrade_client(client, tmp_path, monkeypatch):
     return client
 
 
-def test_sample_is_blinded(regrade_client):
+def test_sample_returns_blind_chain_records(regrade_client, tmp_path):
+    _write_jsonl(tmp_path / "sonnet_chains_provisional_r1.jsonl",
+                 _chain(_sig("a")), _chain(_sig("b")))
     _write_jsonl(
         paths_mod.JUDGEMENTS_PATH,
         _v2("2020-01-01T10:00:00+00:00", _sig("a"), "live"),
@@ -54,11 +66,25 @@ def test_sample_is_blinded(regrade_client):
     for it in items:
         assert it["chain_signature"] in (_sig("a"), _sig("b"))
         assert it["topic"] == "anxiety"
-        # The verdict is gone — otherwise the re-grade would not be blind.
+        assert len(it["chain"]) == 3            # full path so the operator can re-grade linkage
+        # No verdict rides along — otherwise the re-grade would not be blind.
         assert "metaphor" not in it
         assert "linkage" not in it
         assert "tiers" not in it
         assert "tags" not in it
+
+
+def test_sample_drops_sig_with_no_chain(regrade_client, tmp_path):
+    # Verdict exists but the chain file no longer carries it -> skip, don't 500.
+    _write_jsonl(tmp_path / "sonnet_chains_provisional_r1.jsonl", _chain(_sig("a")))
+    _write_jsonl(
+        paths_mod.JUDGEMENTS_PATH,
+        _v2("2020-01-01T10:00:00+00:00", _sig("a"), "live"),
+        _v2("2020-01-01T10:01:00+00:00", _sig("b"), "dead"),
+    )
+    items = regrade_client.get(
+        "/api/grading/regrade/sample?n=10&min_age_days=1&seed=1").json()["records"]
+    assert [it["chain_signature"] for it in items] == [_sig("a")]
 
 
 def test_post_regrade_writes_separate_file_not_gold(regrade_client):
