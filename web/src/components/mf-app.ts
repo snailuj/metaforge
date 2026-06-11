@@ -32,6 +32,7 @@ import './mf-error-banner'
 import './mf-topic-picker'
 import './mf-grade-panel'
 import './mf-grade-walk'
+import './mf-grade-regrade'
 import './mf-signal-report'
 import './mf-design-notes'
 import './mf-mobile-notes-overlay'
@@ -404,7 +405,7 @@ export class MfApp extends LitElement {
   // through the server-ordered acquisition list (GET /api/grading/walk) one chain
   // at a time. walkGradedSigs is a SESSION set — a chain graded this session drops
   // out of the visible walk (so the next ungraded one slides in) without a refetch.
-  @state() private gradeView: 'topic' | 'walk' = 'topic'
+  @state() private gradeView: 'topic' | 'walk' | 'regrade' = 'topic'
   @state() private walkEntries: WalkEntry[] = []
   @state() private walkPos = 0
   @state() private walkSkipGraded = true
@@ -586,7 +587,7 @@ export class MfApp extends LitElement {
   private async initGradeMode(): Promise<void> {
     this.loadPendingQueue()
     const storedView = localStorage.getItem('mf-grade-view')
-    if (storedView === 'walk' || storedView === 'topic') this.gradeView = storedView
+    if (storedView === 'walk' || storedView === 'topic' || storedView === 'regrade') this.gradeView = storedView
     try {
       const [topicsRes, notesRes, glossesRes] = await Promise.all([
         this.gradingClient.getTopics(),
@@ -629,10 +630,11 @@ export class MfApp extends LitElement {
 
   /** Switch grade view (topic ↔ walk). Persisted so a reload returns the operator
    *  to where they were; entering the walk (re)fetches the acquisition order. */
-  private setGradeView(view: 'topic' | 'walk'): void {
+  private setGradeView(view: 'topic' | 'walk' | 'regrade'): void {
     this.gradeView = view
     localStorage.setItem('mf-grade-view', view)
     // Start each view clean; the walk repopulates selectedChain from its own list.
+    // Re-grade is self-contained (owns its own sample + cursor + POSTs).
     this.selectedChain = null
     if (view === 'walk') void this.initWalk()
   }
@@ -795,7 +797,7 @@ export class MfApp extends LitElement {
 
   /** Topic ↔ Walk view toggle + on-demand signal report, shown in every grade view's top row. */
   private renderGradeViewToggle() {
-    const opt = (view: 'topic' | 'walk', label: string) => html`
+    const opt = (view: 'topic' | 'walk' | 'regrade', label: string) => html`
       <button
         data-testid="grade-view-${view}"
         aria-pressed=${this.gradeView === view}
@@ -806,6 +808,7 @@ export class MfApp extends LitElement {
       <div class="grade-view-toggle" role="group" aria-label="Grade view" data-testid="grade-view-toggle">
         ${opt('topic', 'By topic')}
         ${opt('walk', 'Walk')}
+        ${opt('regrade', 'Blind re-grade')}
       </div>
       <mf-signal-report .client=${this.gradingClient}></mf-signal-report>
     `
@@ -1215,6 +1218,25 @@ export class MfApp extends LitElement {
     `
   }
 
+  /** Blind re-grade view — its own top toggle row + the self-contained re-grade
+   *  shell (owns sample/cursor/POSTs to the separate regrades file). */
+  private renderGradeRegrade() {
+    return html`
+      <div class="grade-layout" data-testid="grade-regrade-layout">
+        <div class="grade-top">
+          ${this.renderGradeViewToggle()}
+        </div>
+        <div class="grade-walk-scroll">
+          <mf-grade-regrade
+            data-testid="grade-regrade"
+            .client=${this.gradingClient}
+            .glosses=${this.gradeGlosses}
+          ></mf-grade-regrade>
+        </div>
+      </div>
+    `
+  }
+
   render() {
     return html`
       ${this.errorMessage
@@ -1235,7 +1257,9 @@ export class MfApp extends LitElement {
       ${this.mode === 'grade'
         ? (this.gradeView === 'walk'
             ? this.renderGradeWalk()
-            : (this.viewportWidth >= 900 ? this.renderGradeModeDesktop() : this.renderGradeModeMobile()))
+            : this.gradeView === 'regrade'
+              ? this.renderGradeRegrade()
+              : (this.viewportWidth >= 900 ? this.renderGradeModeDesktop() : this.renderGradeModeMobile()))
         : this.renderBrowseMode()}
 
       <mf-toast></mf-toast>
