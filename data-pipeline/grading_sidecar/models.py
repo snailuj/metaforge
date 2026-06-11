@@ -177,8 +177,10 @@ def normalise_judgement(raw: dict) -> dict:
     Non-destructive — used on read so old `label` records and new axis records are
     uniform to consumers (latest-verdict, stats, edge colour). v2 records pass through
     (defaulting tiers to []); v1 records gain axes via _V1_LABEL_MAP and tiers=[].
-    No tiers have ever been assigned, so there is no value-migration; a stray legacy
-    `tier` key is harmlessly ignored. The original keys (incl. `label`) are preserved.
+    v1 records predate tiers entirely, so they get tiers=[] with no value-migration;
+    a stray legacy `tier` key is harmlessly ignored. (Do NOT read this as "tiers are
+    unused" — v2 records carry them routinely; that misreading once contaminated an
+    audit.) The original keys (incl. `label`) are preserved.
     """
     if "linkage" in raw or "metaphor" in raw:
         return {**raw, "tiers": raw.get("tiers", []), "tags": raw.get("tags", [])}
