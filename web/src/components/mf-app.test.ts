@@ -1561,3 +1561,50 @@ describe('mf-app walk view', () => {
     expect(text).not.toMatch(/bad_head|weak_linkage|liveness/)
   })
 })
+
+describe('mf-app blind re-grade view', () => {
+  let el: MfApp
+
+  beforeEach(async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200 } as Response)
+    localStorage.clear()
+    window.location.hash = ''
+    el = new MfApp()
+    document.body.appendChild(el)
+    await el.updateComplete
+    await new Promise(r => setTimeout(r, 50))
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 1200
+    await el.updateComplete
+  })
+
+  afterEach(() => {
+    document.body.removeChild(el)
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  it('offers a Blind re-grade view toggle', () => {
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-view-regrade"]')).toBeTruthy()
+  })
+
+  it('switches to the self-contained re-grade shell, wired with the grading client', async () => {
+    ;(el.shadowRoot!.querySelector('[data-testid="grade-view-regrade"]') as HTMLButtonElement).click()
+    await el.updateComplete
+
+    expect((el as any).gradeView).toBe('regrade')
+    const shell = el.shadowRoot!.querySelector('mf-grade-regrade') as any
+    expect(shell).toBeTruthy()
+    expect(shell.client).toBe((el as any).gradingClient)
+    expect(shell.glosses).toBe((el as any).gradeGlosses)
+    // The topic grading layout (graph + panel) is not mounted in this view.
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-layout"]')).toBeNull()
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-regrade-layout"]')).toBeTruthy()
+  })
+
+  it('persists the re-grade view selection across reload', async () => {
+    ;(el.shadowRoot!.querySelector('[data-testid="grade-view-regrade"]') as HTMLButtonElement).click()
+    await el.updateComplete
+    expect(localStorage.getItem('mf-grade-view')).toBe('regrade')
+  })
+})
