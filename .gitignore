@@ -9,7 +9,11 @@ data-pipeline/output/*.sql
 data-pipeline/output/sweep_*.json
 data-pipeline/output/sweep_*.md
 data-pipeline/output/checkpoint_*.json
-data-pipeline/output/checkpoint_*.json.pre-*
+data-pipeline/output/judge_cache.jsonl
+data-pipeline/output/judge_*.json
+data-pipeline/output/checkpoint_*.json
+data-pipeline/output/judge_cache.jsonl
+data-pipeline/output/judge_*.json.pre-*
 # Diagnostic / sweep result artefacts — environment-specific, regenerated
 # on every snap or sweep run. They should not be committed; previous slips
 # (e.g. docs(m05) gamma verdict) smuggled +45k regenerated lines into
