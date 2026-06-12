@@ -399,3 +399,76 @@ def test_main_writes_complete_result(tmp_path):
     saved = _json.loads(out.read_text())
     assert saved["complete"] is True
     assert saved["judge"] == "stub-perfect" and "git_commit" in saved
+
+
+# --- session-limit auto-resume (operator finding 2026-06-12: the 429 message
+# carries the reset time — parse it and wait, don't crash) ---------------------
+
+def test_parse_reset_utc_variants():
+    import datetime as dt
+    now = dt.datetime(2026, 6, 12, 14, 0, tzinfo=dt.timezone.utc)
+    at = jh._parse_reset_utc('429; "You\'ve hit your session limit · resets 5:30pm (UTC)"', now)
+    assert (at.hour, at.minute, at.day) == (17, 30, 12)        # later today
+    at = jh._parse_reset_utc("session limit · resets 10am (UTC)",
+                             dt.datetime(2026, 6, 12, 18, 0, tzinfo=dt.timezone.utc))
+    assert (at.hour, at.minute, at.day) == (10, 0, 13)         # already past -> tomorrow
+    at = jh._parse_reset_utc("resets 12am (UTC)", now)
+    assert (at.hour, at.day) == (0, 13)                        # midnight = start of tomorrow
+    assert jh._parse_reset_utc("no time in here", now) is None
+
+
+def test_main_waits_for_reset_then_resumes(tmp_path, monkeypatch):
+    class SessionLimitError(Exception):
+        pass
+
+    import json as _json
+    calls = {"n": 0}
+
+    def flaky_run_axis(rows, judge_fn, axis_key, *, checkpoint_fn=None, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            if checkpoint_fn:
+                checkpoint_fn({"complete": False, "halted": "session_limit",
+                               "n_scored": 3, "per_repeat": []})
+            raise SessionLimitError("hit your session limit · resets 5:30pm (UTC)")
+        return {"complete": True, "kappa": 1.0, "kappa_band": [1.0, 1.0],
+                "accuracy": 1.0, "majority_baseline": 0.5, "confusion": [[1, 0], [0, 1]],
+                "n_items": 2, "n_scored": 2, "n_abstain": 0, "n_folds_skipped": 0,
+                "n_topics": 2, "per_repeat": [], "halted": None, "elapsed_s": 1.0,
+                "items_per_s": 2.0, "axis_key": axis_key,
+                "config": {"k_shot": 6, "n_repeats": 5, "seed": 0}}
+
+    slept = []
+    monkeypatch.setattr(jh, "run_axis", flaky_run_axis)
+    monkeypatch.setattr(jh, "_sleep", slept.append)
+    gold = tmp_path / "gold.jsonl"
+    gold.write_text(_json.dumps(_v2_gold("2026-06-01T10:00:00+00:00", "a" * 64,
+                                         "live", "anxiety", "1")) + "\n")
+    out = tmp_path / "result.json"
+    rc = jh.main(["--axis", "liveness", "--judge", "stub-perfect",
+                  "--gold", str(gold), "-o", str(out)])
+    assert rc == 0
+    assert calls["n"] == 2                          # halted once, resumed once
+    assert len(slept) == 1 and slept[0] > 0         # really waited for the reset
+    assert _json.loads(out.read_text())["complete"] is True
+
+
+def test_main_no_wait_flag_halts_75(tmp_path, monkeypatch):
+    class SessionLimitError(Exception):
+        pass
+
+    import json as _json
+
+    def limited_run_axis(rows, judge_fn, axis_key, *, checkpoint_fn=None, **kw):
+        raise SessionLimitError("hit your session limit · resets 5:30pm (UTC)")
+
+    slept = []
+    monkeypatch.setattr(jh, "run_axis", limited_run_axis)
+    monkeypatch.setattr(jh, "_sleep", slept.append)
+    gold = tmp_path / "gold.jsonl"
+    gold.write_text(_json.dumps(_v2_gold("2026-06-01T10:00:00+00:00", "a" * 64,
+                                         "live", "anxiety", "1")) + "\n")
+    rc = jh.main(["--axis", "liveness", "--judge", "stub-perfect",
+                  "--gold", str(gold), "--no-wait-on-limit"])
+    assert rc == 75
+    assert slept == []                              # the flag means halt, never sleep

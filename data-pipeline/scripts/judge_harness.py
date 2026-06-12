@@ -21,11 +21,13 @@ duck-typed by class name so this module stays importable with no LLM deps.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import logging
 import math
 import os
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -108,6 +110,37 @@ def _is_session_limit(exc: BaseException) -> bool:
     """Duck-typed claude_client.SessionLimitError detection (by class name in the
     MRO) so the harness never needs the LLM layer importable to run offline."""
     return any(c.__name__ == "SessionLimitError" for c in type(exc).__mro__)
+
+
+# Injectable sleep seam so the wait-for-reset path is testable without waiting.
+_sleep = time.sleep
+
+# Successive limit-waits before giving up — guards against a reset that never
+# actually frees quota (each wait is typically a multi-hour window).
+_MAX_LIMIT_WAITS = 4
+
+# Seconds past the advertised reset before resuming — don't race the boundary.
+_RESET_BUFFER_S = 90
+
+_RESET_RE = re.compile(r"resets\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)", re.IGNORECASE)
+
+
+def _parse_reset_utc(message: str, now: "dt.datetime"):
+    """Reset datetime (UTC) parsed from a session-limit message, or None.
+
+    The claude CLI phrases it 'resets 5:30pm (UTC)' / 'resets 10am (UTC)' — both
+    observed formats are UTC wall-clock times. A time at-or-before `now` means
+    the NEXT occurrence (tomorrow); 12am/12pm follow the usual convention.
+    """
+    m = _RESET_RE.search(message)
+    if not m:
+        return None
+    hour, minute, half = int(m.group(1)), int(m.group(2) or 0), m.group(3).lower()
+    hour = hour % 12 + (12 if half == "pm" else 0)
+    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= now:
+        candidate += dt.timedelta(days=1)
+    return candidate
 
 
 def _kappa_or_none(y_true: list[int], y_pred: list[int]):
@@ -353,6 +386,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--cache", default=None, help="judge LLM cache JSONL path")
     p.add_argument("-o", "--output", default=None, help="write result JSON here")
+    p.add_argument("--no-wait-on-limit", action="store_true",
+                   help="halt with exit 75 on a session limit instead of sleeping "
+                        "until the advertised reset and resuming from cache")
     p.add_argument("-v", "--verbose", action="store_true")
     return p
 
@@ -373,18 +409,34 @@ def main(argv: list[str] | None = None) -> int:
     checkpoint = ((lambda partial: _atomic_write_json(args.output, {**partial, **run_meta}))
                   if args.output else None)
 
-    try:
-        result = run_axis(rows, judge_fn, axis_key, k_shot=args.k_shot,
-                          n_repeats=args.n_repeats, seed=args.seed,
-                          checkpoint_fn=checkpoint)
-    except BaseException as exc:  # noqa: BLE001 — only the resumable halt is handled
-        if _is_session_limit(exc):
-            log.error("halted on session limit (%s); partial result at %s; "
-                      "re-run the SAME command to resume — banked calls replay "
-                      "from cache at no cost", exc,
-                      args.output or "(no -o given, nothing flushed)")
-            return 75  # EX_TEMPFAIL: temporary failure, retry the identical command
-        raise
+    waits = 0
+    while True:
+        try:
+            result = run_axis(rows, judge_fn, axis_key, k_shot=args.k_shot,
+                              n_repeats=args.n_repeats, seed=args.seed,
+                              checkpoint_fn=checkpoint)
+            break
+        except BaseException as exc:  # noqa: BLE001 — only the resumable halt is handled
+            if not _is_session_limit(exc):
+                raise
+            waits += 1
+            reset_at = _parse_reset_utc(str(exc), dt.datetime.now(dt.timezone.utc))
+            if args.no_wait_on_limit or waits > _MAX_LIMIT_WAITS or reset_at is None:
+                log.error("halted on session limit (%s); partial result at %s; "
+                          "re-run the SAME command to resume — banked calls replay "
+                          "from cache at no cost%s", exc,
+                          args.output or "(no -o given, nothing flushed)",
+                          "" if args.no_wait_on_limit or reset_at is not None
+                          else " [no reset time parseable from the message]")
+                return 75  # EX_TEMPFAIL: temporary failure, retry the identical command
+            wait_s = (reset_at - dt.datetime.now(dt.timezone.utc)).total_seconds() \
+                + _RESET_BUFFER_S
+            log.warning("session limit (wait %d/%d); partial flushed to %s; sleeping "
+                        "%.0fs until %s UTC then resuming — banked calls replay from "
+                        "cache", waits, _MAX_LIMIT_WAITS,
+                        args.output or "(no -o)", wait_s,
+                        reset_at.strftime("%H:%M"))
+            _sleep(wait_s)
 
     result = {**result, **run_meta}
     title = f"Judge agreement — {args.axis} / {args.judge}"
