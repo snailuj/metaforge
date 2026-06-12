@@ -24,8 +24,10 @@ import argparse
 import json
 import logging
 import math
+import os
 import random
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -116,8 +118,14 @@ def _kappa_or_none(y_true: list[int], y_pred: list[int]):
     return None if math.isnan(kappa) else float(kappa)
 
 
+# Progress heartbeat cadence (items). Batch practice: a multi-hundred-call LLM
+# run must be observable from its log alone — not inferred from cache file sizes.
+_HEARTBEAT_EVERY = 25
+
+
 def run_axis(rows: list[dict], judge_fn, axis_key: str, *,
-             k_shot: int = 6, n_repeats: int = 5, seed: int = 0) -> dict:
+             k_shot: int = 6, n_repeats: int = 5, seed: int = 0,
+             checkpoint_fn=None) -> dict:
     """Score one judge on one axis over repeated leave-one-topic-out folds.
 
     Pools (y_true, y_pred) per repeat for the band and across all repeats for
@@ -125,6 +133,12 @@ def run_axis(rows: list[dict], judge_fn, axis_key: str, *,
     SessionLimitError pass-through is an abstention: logged, counted, excluded
     from scoring. Single-class test folds are skipped with a log line (their
     items are never presented to the judge).
+
+    checkpoint_fn (optional) receives a partial result dict (complete=False)
+    after every finished repeat, and once more on a session-limit halt
+    (halted="session_limit", in-flight repeat included marked partial=True)
+    BEFORE the error re-raises — a 99%-complete run must leave its artefact.
+    The final return carries complete=True.
     """
     n_topics = len({_topic_of(r) for r in rows})
     folds = topic_folds(rows, n_repeats, seed)
@@ -132,6 +146,42 @@ def run_axis(rows: list[dict], judge_fn, axis_key: str, *,
     all_pred: list[int] = []
     per_repeat: list[dict] = []
     n_items = n_abstain = n_folds_skipped = 0
+    started = time.monotonic()
+    # ETA denominator is an upper bound (skipped folds discovered lazily).
+    approx_total = n_repeats * len(rows)
+
+    def _assemble(pool_true: list[int], pool_pred: list[int], reps: list[dict],
+                  *, complete: bool, halted: str | None = None) -> dict:
+        rep_kappas = [r["kappa"] for r in reps if r["kappa"] is not None]
+        band = ([float(np.percentile(rep_kappas, 5)), float(np.percentile(rep_kappas, 95))]
+                if rep_kappas else [None, None])
+        n_scored = len(pool_true)
+        accuracy = (sum(t == p for t, p in zip(pool_true, pool_pred)) / n_scored
+                    if n_scored else None)
+        majority = (max(pool_true.count(label) for label in _LABELS) / n_scored
+                    if n_scored else None)
+        confusion = (confusion_matrix(pool_true, pool_pred, labels=list(_LABELS)).tolist()
+                     if n_scored else [[0, 0], [0, 0]])
+        elapsed = time.monotonic() - started
+        return {
+            "axis_key": axis_key,
+            "kappa": _kappa_or_none(pool_true, pool_pred),
+            "kappa_band": band,
+            "accuracy": accuracy,
+            "majority_baseline": majority,
+            "confusion": confusion,
+            "n_items": n_items,
+            "n_scored": n_scored,
+            "n_abstain": n_abstain,
+            "n_folds_skipped": n_folds_skipped,
+            "n_topics": n_topics,
+            "per_repeat": reps,
+            "complete": complete,
+            "halted": halted,
+            "elapsed_s": round(elapsed, 1),
+            "items_per_s": round(n_scored / elapsed, 3) if elapsed > 0 and n_scored else None,
+            "config": {"k_shot": k_shot, "n_repeats": n_repeats, "seed": seed},
+        }
 
     for rep in range(n_repeats):
         rep_true: list[int] = []
@@ -158,6 +208,17 @@ def run_axis(rows: list[dict], judge_fn, axis_key: str, *,
                     raise
                 except BaseException as exc:  # noqa: BLE001 — abstention boundary by design
                     if _is_session_limit(exc):
+                        # Flush the partial artefact BEFORE halting — everything
+                        # scored so far stays on disk; resume replays from cache.
+                        if checkpoint_fn is not None:
+                            n_abstain += rep_abstain
+                            partial_rep = {"repeat": rep,
+                                           "kappa": _kappa_or_none(rep_true, rep_pred),
+                                           "n_scored": len(rep_true),
+                                           "n_abstain": rep_abstain, "partial": True}
+                            checkpoint_fn(_assemble(all_true + rep_true, all_pred + rep_pred,
+                                                    per_repeat + [partial_rep],
+                                                    complete=False, halted="session_limit"))
                         raise  # halt cleanly; the judge-side cache makes resume free
                     log.warning("judge abstained on %s (topic=%s, repeat=%d): %s",
                                 item.get("chain_signature"), held_topic, rep, exc)
@@ -165,6 +226,15 @@ def run_axis(rows: list[dict], judge_fn, axis_key: str, *,
                     continue
                 rep_true.append(int(item[axis_key]))
                 rep_pred.append(pred)
+                if n_items % _HEARTBEAT_EVERY == 0:
+                    elapsed = time.monotonic() - started
+                    rate = n_items / elapsed if elapsed > 0 else 0.0
+                    eta = (approx_total - n_items) / rate if rate > 0 else float("inf")
+                    log.info("progress: repeat %d/%d topic=%s processed %d/~%d "
+                             "scored %d abstained %d elapsed %.0fs rate %.2f/s eta ~%.0fs",
+                             rep + 1, n_repeats, held_topic, n_items, approx_total,
+                             len(all_true) + len(rep_true), n_abstain + rep_abstain,
+                             elapsed, rate, eta)
         rep_kappa = _kappa_or_none(rep_true, rep_pred)
         per_repeat.append({"repeat": rep, "kappa": rep_kappa,
                            "n_scored": len(rep_true), "n_abstain": rep_abstain})
@@ -173,32 +243,21 @@ def run_axis(rows: list[dict], judge_fn, axis_key: str, *,
         all_true.extend(rep_true)
         all_pred.extend(rep_pred)
         n_abstain += rep_abstain
+        if checkpoint_fn is not None:
+            checkpoint_fn(_assemble(all_true, all_pred, list(per_repeat), complete=False))
 
-    rep_kappas = [r["kappa"] for r in per_repeat if r["kappa"] is not None]
-    band = ([float(np.percentile(rep_kappas, 5)), float(np.percentile(rep_kappas, 95))]
-            if rep_kappas else [None, None])
-    n_scored = len(all_true)
-    accuracy = (sum(t == p for t, p in zip(all_true, all_pred)) / n_scored
-                if n_scored else None)
-    majority = (max(all_true.count(label) for label in _LABELS) / n_scored
-                if n_scored else None)
-    confusion = (confusion_matrix(all_true, all_pred, labels=list(_LABELS)).tolist()
-                 if n_scored else [[0, 0], [0, 0]])
-    return {
-        "axis_key": axis_key,
-        "kappa": _kappa_or_none(all_true, all_pred),
-        "kappa_band": band,
-        "accuracy": accuracy,
-        "majority_baseline": majority,
-        "confusion": confusion,
-        "n_items": n_items,
-        "n_scored": n_scored,
-        "n_abstain": n_abstain,
-        "n_folds_skipped": n_folds_skipped,
-        "n_topics": n_topics,
-        "per_repeat": per_repeat,
-        "config": {"k_shot": k_shot, "n_repeats": n_repeats, "seed": seed},
-    }
+    return _assemble(all_true, all_pred, per_repeat, complete=True)
+
+
+def _atomic_write_json(path: str, obj: dict) -> None:
+    """Crash-safe full-file replace (tmp + fsync + rename) — a reader never sees
+    a torn JSON, and a checkpoint overwrite cannot corrupt the previous one."""
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, indent=2)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
 
 
 def _fmt(value, spec: str = ".3f") -> str:
@@ -305,17 +364,33 @@ def main(argv: list[str] | None = None) -> int:
     axis_key = AXIS_KEYS[args.axis]
     rows = _load_rows(args.axis, args.gold, args.grading_dir)
     judge_fn = _make_judge(args.judge, axis_key, args)
-    result = run_axis(rows, judge_fn, axis_key,
-                      k_shot=args.k_shot, n_repeats=args.n_repeats, seed=args.seed)
 
     from utils import get_git_commit  # sibling import; evidence for committed reports
-    result = {**result, "axis": args.axis, "judge": args.judge, "model": args.model,
-              "git_commit": get_git_commit()}
+    run_meta = {"axis": args.axis, "judge": args.judge, "model": args.model,
+                "git_commit": get_git_commit()}
+    # Every flush — checkpoint, halt, or final — carries the run metadata, so a
+    # partial artefact is self-describing without the invoking command line.
+    checkpoint = ((lambda partial: _atomic_write_json(args.output, {**partial, **run_meta}))
+                  if args.output else None)
+
+    try:
+        result = run_axis(rows, judge_fn, axis_key, k_shot=args.k_shot,
+                          n_repeats=args.n_repeats, seed=args.seed,
+                          checkpoint_fn=checkpoint)
+    except BaseException as exc:  # noqa: BLE001 — only the resumable halt is handled
+        if _is_session_limit(exc):
+            log.error("halted on session limit (%s); partial result at %s; "
+                      "re-run the SAME command to resume — banked calls replay "
+                      "from cache at no cost", exc,
+                      args.output or "(no -o given, nothing flushed)")
+            return 75  # EX_TEMPFAIL: temporary failure, retry the identical command
+        raise
+
+    result = {**result, **run_meta}
     title = f"Judge agreement — {args.axis} / {args.judge}"
     print(render_markdown_report(result, title))
     if args.output:
-        with open(args.output, "w", encoding="utf-8") as fh:
-            json.dump(result, fh, indent=2)
+        _atomic_write_json(args.output, result)
         log.info("wrote result -> %s", args.output)
     return 0
 

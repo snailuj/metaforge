@@ -290,3 +290,112 @@ def test_load_rows_attaches_context_from_grading_dir(tmp_path):
     assert rows[0]["chain_missing"] is False
     assert len(rows[0]["chain"]) == 3
     assert rows[0]["topic_gloss"] == {"pos": "n", "definition": "a worried state"}
+
+
+# --- checkpointing + observability (batch practice, 2026-06-12 operator finding:
+# an all-or-nothing -o write threw away a 99%-complete run when the session
+# limit hit; only the call-level cache saved the spend) ------------------------
+
+def test_checkpoint_fn_called_per_repeat_with_partials():
+    rows = _corpus(4, 4)
+    payloads = []
+    result = jh.run_axis(rows, lambda fs, item: int(item["y_live"]), "y_live",
+                         k_shot=2, n_repeats=3, seed=0, checkpoint_fn=payloads.append)
+    assert len(payloads) == 3                       # one flush per completed repeat
+    assert all(p["complete"] is False for p in payloads)
+    assert [len(p["per_repeat"]) for p in payloads] == [1, 2, 3]
+    assert result["complete"] is True
+    assert result["elapsed_s"] >= 0
+    import json as _json
+    _json.dumps(payloads[-1])                       # checkpoint payloads must be JSON-safe
+
+
+def test_session_limit_flushes_partial_checkpoint_before_raising():
+    class SessionLimitError(Exception):
+        pass
+
+    rows = _corpus(4, 4)
+    calls = {"n": 0}
+
+    def limited_judge(few_shot, item):
+        calls["n"] += 1
+        if calls["n"] == 7:
+            raise SessionLimitError("429 session limit")
+        return int(item["y_live"])
+
+    payloads = []
+    with pytest.raises(SessionLimitError):
+        jh.run_axis(rows, limited_judge, "y_live", k_shot=2, n_repeats=3, seed=0,
+                    checkpoint_fn=payloads.append)
+    assert payloads, "halt must flush a partial result before re-raising"
+    last = payloads[-1]
+    assert last["halted"] == "session_limit"
+    assert last["complete"] is False
+    assert last["n_scored"] == 6                    # everything scored pre-halt is kept
+    assert last["per_repeat"][-1].get("partial") is True
+
+
+def test_heartbeat_logs_progress(monkeypatch, caplog):
+    import logging as _logging
+    monkeypatch.setattr(jh, "_HEARTBEAT_EVERY", 5)
+    rows = _corpus(4, 4)
+    with caplog.at_level(_logging.INFO):
+        jh.run_axis(rows, lambda fs, item: int(item["y_live"]), "y_live",
+                    k_shot=2, n_repeats=2, seed=0)
+    beats = [r for r in caplog.records if "progress:" in r.getMessage()]
+    assert beats, "expected periodic progress heartbeats at INFO"
+    assert "eta" in beats[0].getMessage()
+
+
+def test_atomic_write_json(tmp_path):
+    target = tmp_path / "out.json"
+    jh._atomic_write_json(str(target), {"a": 1})
+    import json as _json
+    assert _json.loads(target.read_text()) == {"a": 1}
+    assert not (tmp_path / "out.json.tmp").exists()
+
+
+def test_main_session_limit_exits_75_with_partial_file(tmp_path, monkeypatch):
+    class SessionLimitError(Exception):
+        pass
+
+    def fake_run_axis(rows, judge_fn, axis_key, *, checkpoint_fn=None, **kw):
+        if checkpoint_fn:
+            checkpoint_fn({"complete": False, "halted": "session_limit",
+                           "n_scored": 3, "per_repeat": []})
+        raise SessionLimitError("429 session limit")
+
+    import json as _json
+    gold = tmp_path / "gold.jsonl"
+    gold.write_text("\n".join(_json.dumps(_v2_gold(
+        f"2026-06-01T10:0{i}:00+00:00", c * 64, m, t, tid))
+        for i, (c, m, t, tid) in enumerate([("a", "live", "anxiety", "1"),
+                                            ("b", "dead", "anxiety", "1"),
+                                            ("c", "live", "anchor", "2"),
+                                            ("d", "dead", "anchor", "2")])) + "\n")
+    out = tmp_path / "result.json"
+    monkeypatch.setattr(jh, "run_axis", fake_run_axis)
+    rc = jh.main(["--axis", "liveness", "--judge", "stub-perfect",
+                  "--gold", str(gold), "-o", str(out)])
+    assert rc == 75                                  # EX_TEMPFAIL: resumable halt
+    saved = _json.loads(out.read_text())
+    assert saved["halted"] == "session_limit"
+    assert saved["judge"] == "stub-perfect"          # run metadata rides every flush
+
+
+def test_main_writes_complete_result(tmp_path):
+    import json as _json
+    gold = tmp_path / "gold.jsonl"
+    gold.write_text("\n".join(_json.dumps(_v2_gold(
+        f"2026-06-01T10:0{i}:00+00:00", c * 64, m, t, tid))
+        for i, (c, m, t, tid) in enumerate([("a", "live", "anxiety", "1"),
+                                            ("b", "dead", "anxiety", "1"),
+                                            ("c", "live", "anchor", "2"),
+                                            ("d", "dead", "anchor", "2")])) + "\n")
+    out = tmp_path / "result.json"
+    rc = jh.main(["--axis", "liveness", "--judge", "stub-perfect",
+                  "--gold", str(gold), "-o", str(out), "--n-repeats", "2"])
+    assert rc == 0
+    saved = _json.loads(out.read_text())
+    assert saved["complete"] is True
+    assert saved["judge"] == "stub-perfect" and "git_commit" in saved
