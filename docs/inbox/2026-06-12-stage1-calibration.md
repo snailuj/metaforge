@@ -37,3 +37,29 @@ model classes and Stage-1 closes until the generation-side extraction is repaire
 
 Decision at time of writing: with the operator (sonnet arm vs immediate pivot to Stage-2 liveness
 calibration, which is orthogonal by design and unaffected by this result).
+
+## Addendum — sonnet arm (2026-06-12, later): FAIL — Stage-1 CLOSED
+
+Sonnet, same config: **κ 0.131, band [0.074, 0.179]**, accuracy 0.608 (majority 0.570), 342/342
+scored, zero abstentions. Confusion good→[176, 19], bad→[**115**, 32]: sonnet misses **78% of
+bad-linkage chains** — even more conservative than haiku (59% missed). Both model classes fail the
+gate in the same direction. **Stage-1 is closed pending the extractor fix; do not prompt-tune past
+two independent model classes.**
+
+Two $0 follow-up diagnostics sharpen the conclusion:
+
+1. **Mechanical head-mismatch detection: 0/44 recall.** Every gold `bad_head` row has its head
+   present as a token of its phrase — the defect is choosing the WRONG word as semantic head, not a
+   malformed extraction. No string heuristic covers it; it is a semantic judgement that two LLM
+   classes also failed to reproduce from chain text alone.
+2. **Cohort rates: the generation-side repair halved bad_head but did not solve it.** Graded chains
+   by generation date: 2026-05-30 round (pre-fix) **54%** bad_head; 2026-06-04/05 rounds (post
+   head-polarity clauses + sense disambiguation) **26–33%**.
+
+Implication for the Phase B gate: the gate's purpose (protect the operator's grading attention and
+the corpus from construction garbage) is NOT achievable by LLM triage or string filtering today, and
+only partially achieved at source. However — bad_head corrupts INTERMEDIATES only (endpoints are
+canonicalised); the Stage-2 liveness judge operates on the (topic, vehicle) PAIRING and never sees
+intermediates. Under the forge-not-index purpose (the corpus is a distillation/few-shot asset of
+judged pairings), Stage-2 is the load-bearing gate for Phase B, not Stage-1. Re-pointing the gate is
+an operator decision, pending the Stage-2 read.

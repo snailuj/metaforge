@@ -1,0 +1,54 @@
+{
+  "axis_key": "y_link",
+  "kappa": 0.13076135199726868,
+  "kappa_band": [
+    0.07367702287470121,
+    0.17876408330488217
+  ],
+  "accuracy": 0.6081871345029239,
+  "majority_baseline": 0.5701754385964912,
+  "confusion": [
+    [
+      176,
+      19
+    ],
+    [
+      115,
+      32
+    ]
+  ],
+  "n_items": 342,
+  "n_scored": 342,
+  "n_abstain": 0,
+  "n_folds_skipped": 27,
+  "n_topics": 30,
+  "per_repeat": [
+    {
+      "repeat": 0,
+      "kappa": 0.14373506316148854,
+      "n_scored": 114,
+      "n_abstain": 0
+    },
+    {
+      "repeat": 1,
+      "kappa": 0.06589279617616928,
+      "n_scored": 114,
+      "n_abstain": 0
+    },
+    {
+      "repeat": 2,
+      "kappa": 0.18265619665414812,
+      "n_scored": 114,
+      "n_abstain": 0
+    }
+  ],
+  "config": {
+    "k_shot": 6,
+    "n_repeats": 3,
+    "seed": 0
+  },
+  "axis": "construction",
+  "judge": "stage1",
+  "model": "sonnet",
+  "git_commit": "b99e22b7"
+}
