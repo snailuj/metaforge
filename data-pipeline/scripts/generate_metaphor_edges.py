@@ -230,6 +230,21 @@ def estimate_cost(
     return n_topics * (haiku_per_topic + sonnet_per_topic)
 
 
+def load_avoid_vehicles(path: str | None) -> list[str]:
+    """Load the over-used-vehicle AVOID list — a JSON array of lemma strings.
+
+    None/absent path → [] (no AVOID block; current behaviour). A non-list or
+    malformed file raises ValueError: a mis-shaped diversity payload must fail
+    loudly, not silently steer nothing on a multi-day run.
+    """
+    if not path:
+        return []
+    data = json.loads(Path(path).read_text())
+    if not isinstance(data, list) or not all(isinstance(v, str) for v in data):
+        raise ValueError(f"avoid-vehicles file must be a JSON list of strings: {path!r}")
+    return data
+
+
 # ---------------------------------------------------------------------------
 # The batch driver
 # ---------------------------------------------------------------------------
@@ -250,6 +265,7 @@ def run(
     judge_fn=None,
     judge_sample: int = 2,
     anti_examples: list[dict] | None = None,
+    avoid_vehicles: list[str] | None = None,
     now_fn=None,
     autocommit_every: int | None = None,
     commit_fn=None,
@@ -304,7 +320,10 @@ def run(
                     est_cost += haiku_cost_per_topic
                 metaphors = apt.get("metaphors", []) if isinstance(apt, dict) else []
                 if metaphors:
-                    prompt = build_prompt(word, gloss, metaphors, anti_examples or None)
+                    prompt = build_prompt(
+                        word, gloss, metaphors,
+                        anti_examples or None, avoid_vehicles or None,
+                    )
                     try:
                         sresp = sonnet_fn(prompt)
                     finally:
@@ -441,10 +460,11 @@ def make_live_sonnet_fn(model: str):
     return lambda prompt: prompt_json(prompt, model=model)
 
 
-def make_live_haiku_fn(model: str):
+def make_live_haiku_fn(model: str, avoid_vehicles: list[str] | None = None):
     from claude_client import prompt_json
     from metaphor_spike_1a import build_apt_prompt
-    return lambda word, gloss: prompt_json(build_apt_prompt(word, gloss), model=model)
+    return lambda word, gloss: prompt_json(
+        build_apt_prompt(word, gloss, avoid_vehicles or None), model=model)
 
 
 def make_stored_haiku_fn(haiku_jsonl: str):
@@ -546,6 +566,9 @@ def main() -> int:
     ap.add_argument("--db", required=True, help="lexicon_v2.db for vehicle/head synset resolution.")
     ap.add_argument("--haiku-jsonl", default=None, help="Stored Haiku apt JSONL to reuse (no Haiku re-spend).")
     ap.add_argument("--anti-examples-json", default=None, help="Editor-judged bad paths (round>1 feedback).")
+    ap.add_argument("--avoid-vehicles", default=None,
+                    help="JSON list of over-used vehicles to soft-discourage (mode-collapse "
+                         "diversity nudge). Absent → no AVOID block (current behaviour).")
     ap.add_argument("--proposer", default="sonnet_v1")
     ap.add_argument("--round", type=int, default=2, dest="round_num")
     ap.add_argument("--batch-size", type=int, default=20)
@@ -580,11 +603,20 @@ def main() -> int:
     conn = sqlite3.connect(args.db)
     try:
         resolve_synset = make_resolver(conn)
+        avoid_vehicles = load_avoid_vehicles(args.avoid_vehicles)
+        if avoid_vehicles:
+            log.info("vehicle AVOID nudge ON: %d over-used vehicles", len(avoid_vehicles))
         if args.haiku_jsonl:
+            # Stored Haiku reuse: the Haiku proposal prompt is never built, so the
+            # AVOID nudge can only reach the Sonnet substitution prompt. WARN so the
+            # operator knows proposer-side steering is inert under --haiku-jsonl.
+            if avoid_vehicles:
+                log.warning("--avoid-vehicles set WITH --haiku-jsonl: the Haiku proposer is "
+                            "bypassed, so steering applies only to Sonnet substitution.")
             haiku_fn = make_stored_haiku_fn(args.haiku_jsonl)
             haiku_cost = 0.0
         else:
-            haiku_fn = make_live_haiku_fn(args.haiku_model)
+            haiku_fn = make_live_haiku_fn(args.haiku_model, avoid_vehicles)
             haiku_cost = HAIKU_COST_PER_TOPIC
         sonnet_fn = make_live_sonnet_fn(args.sonnet_model)
 
@@ -610,6 +642,7 @@ def main() -> int:
             resolve_synset=resolve_synset, proposer=args.proposer, round_num=args.round_num,
             batch_size=args.batch_size, max_topics=args.max_topics, max_cost_usd=args.max_cost_usd,
             tripwire=tripwire, judge_fn=judge_fn, judge_sample=args.judge_sample, anti_examples=anti,
+            avoid_vehicles=avoid_vehicles,
             autocommit_every=args.autocommit_every, commit_fn=commit_fn,
             notify_fn=lambda s: notify_ntfy(format_pause_message(s)),
             haiku_cost_per_topic=haiku_cost,

@@ -74,6 +74,28 @@ def test_apt_and_inapt_prompts_are_different():
     assert apt != inapt
 
 
+def test_apt_prompt_includes_avoid_vehicles_when_provided():
+    """Soft diversity nudge: over-used vehicles are listed and discouraged, but
+    NOT hard-banned — the model may still pick one if it is genuinely the best."""
+    prompt = build_apt_prompt("grief", "deep sorrow",
+                              avoid_vehicles=["fermentation", "undertow", "tide"])
+    assert "over-used" in prompt.lower()
+    assert "fermentation" in prompt
+    assert "undertow" in prompt
+    assert "tide" in prompt
+    # Soft, not a hard ban — keep the door open for a genuine best fit.
+    assert "unless" in prompt.lower()
+
+
+def test_apt_prompt_omits_avoid_block_when_absent_or_empty():
+    base = build_apt_prompt("grief", "deep sorrow")
+    empty = build_apt_prompt("grief", "deep sorrow", avoid_vehicles=[])
+    assert "over-used" not in base.lower()
+    assert "over-used" not in empty.lower()
+    # Absent and empty render identically — empty is a true no-op.
+    assert base == empty
+
+
 def test_validate_apt_response_valid():
     raw = {
         "topic": "anger",

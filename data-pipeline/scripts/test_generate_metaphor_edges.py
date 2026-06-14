@@ -112,6 +112,23 @@ def test_load_vetted_topics_rejects_missing_fields(tmp_path):
         mge.load_vetted_topics(str(p))
 
 
+def test_load_avoid_vehicles(tmp_path):
+    p = tmp_path / "avoid.json"
+    p.write_text('["fermentation", "undertow", "tide"]')
+    assert mge.load_avoid_vehicles(str(p)) == ["fermentation", "undertow", "tide"]
+
+
+def test_load_avoid_vehicles_none_path_returns_empty():
+    assert mge.load_avoid_vehicles(None) == []
+
+
+def test_load_avoid_vehicles_rejects_non_list(tmp_path):
+    p = tmp_path / "avoid.json"
+    p.write_text('{"avoid_vehicles": ["fermentation"]}')
+    with pytest.raises(ValueError):
+        mge.load_avoid_vehicles(str(p))
+
+
 def test_estimate_cost_scales_linearly():
     one = mge.estimate_cost(1)
     assert mge.estimate_cost(100) == pytest.approx(one * 100)
@@ -156,6 +173,37 @@ def test_run_writes_valid_chainrecords(tmp_path):
     for l in lines:
         ChainRecord(**l)  # all grading-ingestible
     assert {l["topic_synset_id"] for l in lines} == {"1", "2"}
+
+
+def test_run_threads_avoid_vehicles_into_sonnet_prompt(tmp_path):
+    """The avoid-list reaches the Sonnet substitution prompt, so the soft
+    diversity nudge applies where the final vehicle is actually chosen."""
+    out = tmp_path / "chains.jsonl"
+    seen_prompts = []
+
+    def sonnet(prompt):
+        seen_prompts.append(prompt)
+        return _sonnet_resp()
+
+    mge.run(
+        topics=_two_topics(), output_jsonl=str(out), haiku_fn=_haiku, sonnet_fn=sonnet,
+        resolve_synset=_resolve_all, batch_size=20,
+        avoid_vehicles=["fermentation", "undertow"],
+        now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert any("fermentation" in p and "over-used" in p.lower() for p in seen_prompts)
+
+
+def test_run_omits_avoid_block_without_avoid_vehicles(tmp_path):
+    out = tmp_path / "chains.jsonl"
+    seen_prompts = []
+    mge.run(
+        topics=_two_topics(), output_jsonl=str(out), haiku_fn=_haiku,
+        sonnet_fn=lambda p: (seen_prompts.append(p) or _sonnet_resp()),
+        resolve_synset=_resolve_all, batch_size=20,
+        now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert all("over-used" not in p.lower() for p in seen_prompts)
 
 
 def test_run_resumes_and_skips_completed(tmp_path):

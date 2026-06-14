@@ -161,7 +161,7 @@ Output: {{"topic":"time","metaphors":[
     {{"dimension":"behaviour","concept":"taking"}},
     {{"dimension":"effect","concept":"loss"}},
     {{"dimension":"emotional","concept":"grief"}}],"confidence":0.75}}]}}
-
+{avoid_block}
 Input: {topic} ({gloss})
 Output:\
 """
@@ -217,9 +217,33 @@ Output:\
 """
 
 
-def build_apt_prompt(topic: str, gloss: str) -> str:
-    """Render the apt prompt template for a single topic."""
-    return _APT_TEMPLATE.format(topic=topic, gloss=gloss)
+def render_avoid_block(avoid_vehicles: list[str] | None) -> str:
+    """Soft diversity nudge listing corpus-wide over-used vehicles.
+
+    Returns "" when the list is empty/absent (a true no-op). The phrasing is a
+    NUDGE, not a hard ban — an over-used vehicle that is genuinely the best fit
+    is still allowed, so we never trade aptness for novelty. Shared by the Haiku
+    proposal prompt and the Sonnet substitution prompt (both emit vehicles), so
+    the mode-collapse steering applies wherever a vehicle is chosen.
+    """
+    if not avoid_vehicles:
+        return ""
+    listed = ", ".join(avoid_vehicles)
+    return (
+        "\nThese vehicles are over-used across the corpus; prefer fresh, "
+        "specific, non-elemental alternatives unless one is genuinely the best "
+        f"fit for this topic: {listed}.\n"
+    )
+
+
+def build_apt_prompt(topic: str, gloss: str, avoid_vehicles: list[str] | None = None) -> str:
+    """Render the apt prompt template for a single topic.
+
+    `avoid_vehicles`, when non-empty, injects a soft diversity nudge steering the
+    proposer away from the corpus-wide over-used vehicle head (mode-collapse fix).
+    """
+    return _APT_TEMPLATE.format(
+        topic=topic, gloss=gloss, avoid_block=render_avoid_block(avoid_vehicles))
 
 
 def build_inapt_prompt(topic: str, gloss: str) -> str:

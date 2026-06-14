@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))  
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "grading_sidecar"))  # models
 
 from metaphor_graph import lookup_primary_synset  # noqa: E402
+from metaphor_spike_1a import render_avoid_block  # noqa: E402  (shared soft AVOID block)
 from claude_client import prompt_json, ClaudeError  # noqa: E402
 from models import compute_chain_signature  # noqa: E402
 
@@ -52,6 +53,7 @@ def build_prompt(
     gloss: str,
     haiku_metaphors: list[dict],
     anti_examples: list[dict] | None = None,
+    avoid_vehicles: list[str] | None = None,
 ) -> str:
     """Return the Sonnet prompt string for ordered-chain generation.
 
@@ -61,6 +63,11 @@ def build_prompt(
     anti_examples: list of {"chain": [str, ...], "notes": str} dicts that the
     editor has judged as bad paths; included in the prompt as an AVOID block
     when the list is non-empty.
+
+    avoid_vehicles: corpus-wide over-used vehicles. Sonnet has creative licence
+    to SUBSTITUTE vehicles (step 1 below), so it sees the same soft diversity
+    nudge as the Haiku proposer — steering the final choice off the mode-collapse
+    head without hard-banning a genuinely-best fit.
     """
     # Build candidate-vehicle rows from Haiku output.
     rows = []
@@ -90,6 +97,9 @@ def build_prompt(
                 lines.append(f"    Why it failed: {notes}")
         anti_block = "\n" + "\n".join(lines) + "\n"
 
+    # Soft diversity nudge against the corpus-wide over-used vehicle head.
+    avoid_block = render_avoid_block(avoid_vehicles)
+
     return f"""You are doing a polished editorial rewrite of a metaphor-enrichment dataset.
 
 For the topic below, Haiku produced a list of 10 candidate vehicles with shared features as flat sets. Your job:
@@ -101,7 +111,7 @@ For the topic below, Haiku produced a list of 10 candidate vehicles with shared 
 5) Each step in the chain must be a JSON object with two keys:
    - "phrase": the full step label (a single word or very short noun phrase)
    - "head": the single-word lexical head of the phrase (e.g. phrase "burning rage" → head "rage"; phrase "fire" → head "fire")
-{anti_block}
+{anti_block}{avoid_block}
 Topic: {topic}
 Gloss: {gloss}
 
