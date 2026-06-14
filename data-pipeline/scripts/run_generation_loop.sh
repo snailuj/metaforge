@@ -44,6 +44,7 @@ MAX_TOPICS="${MAX_TOPICS:-7500}"            # hard deterministic budget cap
 MAX_COST_USD="${MAX_COST_USD:-2000}"        # soft spend guard
 HAIKU_JSONL="${HAIKU_JSONL:-}"              # set to reuse a stored Haiku dump (else live Haiku)
 AVOID_VEHICLES="${AVOID_VEHICLES:-}"        # set to a JSON list of over-used vehicles to soft-discourage
+TW_ABS_FLOOR="${TW_ABS_FLOOR:-}"           # override --tw-abs-floor (collapse line; lower for low-yield pools)
 MAX_ITERS="${MAX_ITERS:-400}"              # runaway guard (windows), not the real bound
 SLEEP_BUFFER="${SLEEP_BUFFER:-90}"          # seconds added past the stated reset
 
@@ -59,12 +60,14 @@ while [ "$iter" -lt "$MAX_ITERS" ]; do
   [ -n "$HAIKU_JSONL" ] && haiku_arg=(--haiku-jsonl "$HAIKU_JSONL")
   avoid_arg=()
   [ -n "$AVOID_VEHICLES" ] && avoid_arg=(--avoid-vehicles "$AVOID_VEHICLES")
+  tw_arg=()
+  [ -n "$TW_ABS_FLOOR" ] && tw_arg=(--tw-abs-floor "$TW_ABS_FLOOR")
 
   "$PY" "$GEN" \
     --topics "$TOPICS" --output "$OUTPUT" --db "$DB" \
     --round "$ROUND" --batch-size "$BATCH_SIZE" --judge-sample "$JUDGE_SAMPLE" \
     --max-topics "$MAX_TOPICS" --max-cost-usd "$MAX_COST_USD" \
-    --summary-out "$SUMMARY" "${haiku_arg[@]}" "${avoid_arg[@]}"
+    --summary-out "$SUMMARY" "${haiku_arg[@]}" "${avoid_arg[@]}" "${tw_arg[@]}"
   rc=$?
 
   if [ ! -s "$SUMMARY" ]; then
