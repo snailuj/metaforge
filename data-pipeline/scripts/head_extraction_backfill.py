@@ -62,6 +62,60 @@ def backfill_chain_record(
     return {**record, "chain": new_chain}
 
 
+def resnap_chain_file(
+    in_path: str, out_path: str, snap: Callable[[str], Optional[str]]
+) -> dict:
+    """Stream a chain.v1 JSONL file through backfill_chain_record (no LLM).
+
+    Reads line-by-line (bounded memory), re-derives intermediate heads + re-snaps
+    synsets, and writes one record per output line. Blank lines are skipped and
+    malformed JSON lines are counted and dropped (logged to stderr) rather than
+    aborting the run — keeps the pass idempotent and recoverable on a partial
+    corpus. Returns {n_records, n_heads_changed, n_malformed}.
+    """
+    n_records = 0
+    n_heads_changed = 0
+    n_malformed = 0
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(in_path, encoding="utf-8") as fin, out.open("w", encoding="utf-8") as fout:
+        for line in fin:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError as exc:
+                n_malformed += 1
+                print(f"[warn] skipping malformed line: {exc}", file=sys.stderr)
+                continue
+            before = [s.get("head") for s in rec.get("chain", [])]
+            new_rec = backfill_chain_record(rec, snap)
+            after = [s.get("head") for s in new_rec.get("chain", [])]
+            n_heads_changed += sum(1 for b, a in zip(before, after) if b != a)
+            n_records += 1
+            fout.write(json.dumps(new_rec, ensure_ascii=False) + "\n")
+    print(
+        f"resnap {in_path} -> {out_path}: {n_records} records, "
+        f"{n_heads_changed} heads changed, {n_malformed} malformed",
+        file=sys.stderr,
+    )
+    return {
+        "n_records": n_records,
+        "n_heads_changed": n_heads_changed,
+        "n_malformed": n_malformed,
+    }
+
+
+def make_db_snap(conn: sqlite3.Connection) -> Callable[[str], Optional[str]]:
+    """Snap callable closing over a DB connection — the live pipeline's resolver.
+
+    Mirrors run_chain_spike's intermediate-step snap: head -> primary synset_id
+    (None on miss). Used by the --resnap-file entrypoint.
+    """
+    return lambda head: lookup_primary_synset(conn, head)
+
+
 HEAD_PROMPT_INSTRUCTIONS = (
     "For each phrase below, return the single-word concept that the phrase "
     "most centres on — typically a noun. Prefer a head likely to be re-used "
@@ -92,7 +146,30 @@ def main() -> int:
     )
     parser.add_argument("--source", default=SOURCE)
     parser.add_argument("--dest", default=str(DEST))
+    parser.add_argument(
+        "--resnap-file",
+        metavar="CHAIN_JSONL",
+        help="Deterministic (no-LLM) head re-derivation over an existing chain.v1 "
+        "JSONL round file. Re-derives intermediate heads from phrases and re-snaps "
+        "synsets via the DB; writes to --dest. Idempotent.",
+    )
     args = parser.parse_args()
+
+    # No-LLM backfill mode: re-derive heads on an existing chain.v1 file.
+    if args.resnap_file:
+        conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+        try:
+            stats = resnap_chain_file(
+                args.resnap_file, args.dest, make_db_snap(conn)
+            )
+        finally:
+            conn.close()
+        print(
+            f"resnap done: {stats['n_records']} records, "
+            f"{stats['n_heads_changed']} heads changed -> {args.dest}",
+            file=sys.stderr,
+        )
+        return 0
 
     raw = [json.loads(l) for l in open(args.source) if l.strip()]
     print(f"Loaded {len(raw)} topic-records from {args.source}", file=sys.stderr)
