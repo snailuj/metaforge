@@ -21,6 +21,10 @@ sys.path.insert(0, str(REPO_ROOT / "data-pipeline" / "grading_sidecar"))
 from metaphor_graph import lookup_primary_synset  # noqa: E402
 from claude_client import prompt_json  # noqa: E402
 from models import compute_chain_signature  # noqa: E402
+from head_extractor import extract_head  # noqa: E402
+
+# Typed for clarity: a snap callable maps a head string -> synset_id or None.
+from typing import Callable, Optional  # noqa: E402
 
 SOURCE = "/tmp/stagea_spike/sonnet_chains.jsonl"
 DEST = REPO_ROOT / "data-pipeline" / "grading" / "sonnet_chains_provisional_r1.jsonl"
@@ -30,6 +34,32 @@ HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
 def normalise(s: str) -> str:
     return unicodedata.normalize("NFC", s.strip())
+
+
+def backfill_chain_record(
+    record: dict, snap: Callable[[str], Optional[str]]
+) -> dict:
+    """Re-derive INTERMEDIATE heads on a chain.v1 record from their phrases (no LLM).
+
+    For each intermediate step (chain[1:-1]): head := extract_head(phrase); the
+    synset_id is re-snapped via the injected ``snap`` callable from the new head.
+    The topic/vehicle endpoints (chain[0] / chain[-1]) are canonical and left
+    byte-for-byte untouched, as is chain_signature (phrase-based, so head
+    re-derivation never moves it). Pure: the input record is not mutated; a new
+    dict is returned. Idempotent — re-running on the output is a fixpoint.
+    """
+    chain = record.get("chain", [])
+    new_chain = []
+    for idx, step in enumerate(chain):
+        # Endpoints are canonical (head==phrase==topic/vehicle). Never touch them.
+        if idx == 0 or idx == len(chain) - 1:
+            new_chain.append(dict(step))
+            continue
+        phrase = step.get("phrase", "")
+        head = extract_head(phrase)
+        synset_id = snap(head) if head else None
+        new_chain.append({"phrase": phrase, "head": head, "synset_id": synset_id})
+    return {**record, "chain": new_chain}
 
 
 HEAD_PROMPT_INSTRUCTIONS = (
