@@ -88,6 +88,22 @@ def test_verb_particle_phrase_has_no_noun_head():
     assert extract_head("turning back") == "turning"
 
 
+# --- coordination: head is the first conjunct -----------------------------
+
+def test_coordination_keeps_first_conjunct():
+    # "X and Y" dvandva — the conventional head is the first conjunct, not the last.
+    assert extract_head("move and countermove") == "move"
+    assert extract_head("ebb and flow") == "ebb"
+    assert extract_head("warp and weft") == "warp"
+
+
+# --- trailing gerund the POS tagger fumbles -------------------------------
+
+def test_trailing_gerund_beats_mis_tagged_premodifier():
+    # nltk mis-tags "bottomless" as NN; the real head is the trailing gerund.
+    assert extract_head("bottomless falling") == "falling"
+
+
 # --- robustness ----------------------------------------------------------
 
 def test_empty_and_whitespace():

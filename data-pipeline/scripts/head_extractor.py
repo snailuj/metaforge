@@ -64,12 +64,21 @@ def _is_wn_noun(word: str) -> bool:
         return False
 
 
-def _is_head_candidate(idx: int, low: list[str], tags: list[tuple[str, str]]) -> bool:
-    """A token is head-eligible if it reads as a noun and is not closed-class."""
+def _is_head_candidate(
+    idx: int, low: list[str], tags: list[tuple[str, str]], n: int
+) -> bool:
+    """A token is head-eligible if it reads as a noun and is not closed-class.
+
+    A TRAILING gerund (last token, VBG, no following object) is also eligible:
+    it is the nominal head of a gerund compound ("organic patterning"), even when
+    WordNet lacks the noun sense or the tagger mis-labels the premodifier.
+    """
     tag = tags[idx][1]
     if tag in _NON_HEAD_TAGS:
         return False
-    return tag in _NOUN_TAGS or _is_wn_noun(low[idx])
+    if tag in _NOUN_TAGS or _is_wn_noun(low[idx]):
+        return True
+    return idx == n - 1 and tag == "VBG"
 
 
 def _governs_postmodifier(idx: int, tags: list[tuple[str, str]]) -> bool:
@@ -98,29 +107,31 @@ def extract_head(phrase: str) -> str:
     tags = pos_tag(raw)
     n = len(raw)
 
-    # 1. Find the right edge of the head NP (exclusive) — the first postmodifier.
+    # 1. Find the right edge of the head NP (exclusive) — the first postmodifier
+    #    or coordinator. A coordinator ("X and Y") closes the head on the first
+    #    conjunct, the conventional head of a dvandva ("ebb and flow" -> ebb).
     seen_noun = False
     boundary = n
     for i in range(n):
         tag = tags[i][1]
         if seen_noun:
-            if tag in _PREP_TAGS or tag in _REL_TAGS:
+            if tag in _PREP_TAGS or tag in _REL_TAGS or tag == "CC":
                 boundary = i
                 break
             if tag in _VERB_TAGS and _governs_postmodifier(i, tags):
                 boundary = i
                 break
-        if _is_head_candidate(i, low, tags):
+        if _is_head_candidate(i, low, tags, n):
             seen_noun = True
 
     # 2. Rightmost head-eligible token within the head region.
     for i in reversed(range(boundary)):
-        if _is_head_candidate(i, low, tags):
+        if _is_head_candidate(i, low, tags, n):
             return low[i]
 
     # 3. Leading-participle phrase (no noun before the PP) — search the whole span.
     for i in reversed(range(n)):
-        if _is_head_candidate(i, low, tags):
+        if _is_head_candidate(i, low, tags, n):
             return low[i]
 
     # 4. No noun anywhere (pure verb + particle) — keep the leading verb.
