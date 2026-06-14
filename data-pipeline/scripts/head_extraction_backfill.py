@@ -21,7 +21,7 @@ sys.path.insert(0, str(REPO_ROOT / "data-pipeline" / "grading_sidecar"))
 from metaphor_graph import lookup_primary_synset  # noqa: E402
 from claude_client import prompt_json  # noqa: E402
 from models import compute_chain_signature  # noqa: E402
-from head_extractor import extract_head  # noqa: E402
+from head_extractor import extract_head, is_confident_improvement  # noqa: E402
 
 # Typed for clarity: a snap callable maps a head string -> synset_id or None.
 from typing import Callable, Optional  # noqa: E402
@@ -37,12 +37,18 @@ def normalise(s: str) -> str:
 
 
 def backfill_chain_record(
-    record: dict, snap: Callable[[str], Optional[str]]
+    record: dict, snap: Callable[[str], Optional[str]], *, confident: bool = True
 ) -> dict:
     """Re-derive INTERMEDIATE heads on a chain.v1 record from their phrases (no LLM).
 
-    For each intermediate step (chain[1:-1]): head := extract_head(phrase); the
+    For each intermediate step (chain[1:-1]): re-derive head := extract_head(phrase).
+    When ``confident`` (the default), the re-derived head REPLACES the emitted one
+    only if is_confident_improvement holds — the premodifier-over-noun and
+    compound-restore classes, near-zero regression on the prompt-hardened corpus;
+    otherwise the emitted head + its synset are kept. Set ``confident=False`` for an
+    unconditional rewrite (every intermediate head re-derived). On replacement the
     synset_id is re-snapped via the injected ``snap`` callable from the new head.
+
     The topic/vehicle endpoints (chain[0] / chain[-1]) are canonical and left
     byte-for-byte untouched, as is chain_signature (phrase-based, so head
     re-derivation never moves it). Pure: the input record is not mutated; a new
@@ -56,22 +62,33 @@ def backfill_chain_record(
             new_chain.append(dict(step))
             continue
         phrase = step.get("phrase", "")
-        head = extract_head(phrase)
-        synset_id = snap(head) if head else None
-        new_chain.append({"phrase": phrase, "head": head, "synset_id": synset_id})
+        emitted = (step.get("head") or "").lower()
+        derived = extract_head(phrase)
+        if confident and not is_confident_improvement(phrase, emitted, derived):
+            # Keep the emitted head + its existing synset.
+            new_chain.append(dict(step))
+            continue
+        synset_id = snap(derived) if derived else None
+        new_chain.append({"phrase": phrase, "head": derived, "synset_id": synset_id})
     return {**record, "chain": new_chain}
 
 
 def resnap_chain_file(
-    in_path: str, out_path: str, snap: Callable[[str], Optional[str]]
+    in_path: str,
+    out_path: str,
+    snap: Callable[[str], Optional[str]],
+    *,
+    confident: bool = True,
 ) -> dict:
     """Stream a chain.v1 JSONL file through backfill_chain_record (no LLM).
 
     Reads line-by-line (bounded memory), re-derives intermediate heads + re-snaps
-    synsets, and writes one record per output line. Blank lines are skipped and
-    malformed JSON lines are counted and dropped (logged to stderr) rather than
-    aborting the run — keeps the pass idempotent and recoverable on a partial
-    corpus. Returns {n_records, n_heads_changed, n_malformed}.
+    synsets, and writes one record per output line. ``confident`` (default True)
+    applies the high-confidence-only replacement policy; set False for an
+    unconditional rewrite. Blank lines are skipped and malformed JSON lines are
+    counted and dropped (logged to stderr) rather than aborting the run — keeps
+    the pass idempotent and recoverable on a partial corpus. Returns
+    {n_records, n_heads_changed, n_malformed}.
     """
     n_records = 0
     n_heads_changed = 0
@@ -90,7 +107,7 @@ def resnap_chain_file(
                 print(f"[warn] skipping malformed line: {exc}", file=sys.stderr)
                 continue
             before = [s.get("head") for s in rec.get("chain", [])]
-            new_rec = backfill_chain_record(rec, snap)
+            new_rec = backfill_chain_record(rec, snap, confident=confident)
             after = [s.get("head") for s in new_rec.get("chain", [])]
             n_heads_changed += sum(1 for b, a in zip(before, after) if b != a)
             n_records += 1
@@ -153,6 +170,12 @@ def main() -> int:
         "JSONL round file. Re-derives intermediate heads from phrases and re-snaps "
         "synsets via the DB; writes to --dest. Idempotent.",
     )
+    parser.add_argument(
+        "--unconditional",
+        action="store_true",
+        help="With --resnap-file: rewrite EVERY intermediate head, not just the "
+        "high-confidence premodifier/compound classes (default is confident-only).",
+    )
     args = parser.parse_args()
 
     # No-LLM backfill mode: re-derive heads on an existing chain.v1 file.
@@ -160,7 +183,10 @@ def main() -> int:
         conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
         try:
             stats = resnap_chain_file(
-                args.resnap_file, args.dest, make_db_snap(conn)
+                args.resnap_file,
+                args.dest,
+                make_db_snap(conn),
+                confident=not args.unconditional,
             )
         finally:
             conn.close()

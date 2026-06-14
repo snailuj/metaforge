@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from head_extraction_backfill import backfill_chain_record
+from head_extraction_backfill import backfill_chain_record, is_confident_improvement
 
 
 def _fake_snap(head: str):
@@ -40,20 +40,21 @@ _BASE = {
 
 
 def test_corrects_bad_intermediate_head_and_resnaps():
-    out = backfill_chain_record(_BASE, _fake_snap)
+    # confident=False = unconditional rewrite: every intermediate head re-derived.
+    out = backfill_chain_record(_BASE, _fake_snap, confident=False)
     # the premodifier defect is repaired and the synset re-snapped to the new head
     assert out["chain"][1]["head"] == "strike"
     assert out["chain"][1]["synset_id"] == "syn:strike"
 
 
 def test_leaves_correct_intermediate_head_untouched():
-    out = backfill_chain_record(_BASE, _fake_snap)
+    out = backfill_chain_record(_BASE, _fake_snap, confident=False)
     assert out["chain"][2]["head"] == "accumulation"
     assert out["chain"][2]["synset_id"] == "syn:accumulation"
 
 
 def test_endpoints_are_never_modified():
-    out = backfill_chain_record(_BASE, _fake_snap)
+    out = backfill_chain_record(_BASE, _fake_snap, confident=False)
     assert out["chain"][0] == {"phrase": "ambush", "head": "ambush", "synset_id": "100"}
     assert out["chain"][-1] == {"phrase": "avalanche", "head": "avalanche", "synset_id": "200"}
 
@@ -61,22 +62,64 @@ def test_endpoints_are_never_modified():
 def test_does_not_mutate_input():
     import copy
     original = copy.deepcopy(_BASE)
-    backfill_chain_record(_BASE, _fake_snap)
+    backfill_chain_record(_BASE, _fake_snap, confident=False)
     assert _BASE == original
 
 
 def test_idempotent():
-    once = backfill_chain_record(_BASE, _fake_snap)
-    twice = backfill_chain_record(once, _fake_snap)
+    once = backfill_chain_record(_BASE, _fake_snap, confident=False)
+    twice = backfill_chain_record(once, _fake_snap, confident=False)
     assert once == twice
 
 
 def test_signature_and_metadata_preserved():
-    out = backfill_chain_record(_BASE, _fake_snap)
+    out = backfill_chain_record(_BASE, _fake_snap, confident=False)
     assert out["chain_signature"] == _BASE["chain_signature"]
     assert out["topic_synset_id"] == "100"
     assert out["vehicle_synset_id"] == "200"
     assert out["generated_at"] == _BASE["generated_at"]
+
+
+# --- confident-only replacement policy -----------------------------------
+
+def test_confident_improvement_fires_on_premodifier_over_noun():
+    # adjective premodifier emitted instead of the trailing noun head
+    assert is_confident_improvement("boundary line", "boundary", "line") is True
+    assert is_confident_improvement("filigree work", "filigree", "work") is True
+
+
+def test_confident_improvement_fires_on_compound_restore():
+    # model stripped a hyphen prefix; restore the full compound
+    assert is_confident_improvement("self-reflection", "reflection", "self-reflection") is True
+    assert is_confident_improvement("heat-fusion", "fusion", "heat-fusion") is True
+
+
+def test_confident_improvement_suppresses_ambiguous_subject_gerund():
+    # "death spreading" — subject + predicate gerund; keep the emitted noun.
+    assert is_confident_improvement("death spreading", "death", "spreading") is False
+    # "X of Y" head-shift is not high-confidence either.
+    assert is_confident_improvement("loss of bearings", "orientation", "loss") is False
+    # particle/adverb grabs must never be confident.
+    assert is_confident_improvement("traces beneath", "traces", "beneath") is False
+
+
+def test_confident_mode_only_changes_high_confidence_steps():
+    rec = {
+        **_BASE,
+        "chain": [
+            {"phrase": "ambush", "head": "ambush", "synset_id": "100"},
+            {"phrase": "boundary line", "head": "boundary", "synset_id": "syn:boundary"},
+            {"phrase": "death spreading", "head": "death", "synset_id": "syn:death"},
+            {"phrase": "avalanche", "head": "avalanche", "synset_id": "200"},
+        ],
+    }
+    out = backfill_chain_record(rec, _fake_snap, confident=True)
+    # premodifier defect fixed
+    assert out["chain"][1]["head"] == "line"
+    assert out["chain"][1]["synset_id"] == "syn:line"
+    # ambiguous subject+gerund left untouched (emitted head + its synset preserved)
+    assert out["chain"][2]["head"] == "death"
+    assert out["chain"][2]["synset_id"] == "syn:death"
 
 
 def test_unresolved_synset_becomes_none():
@@ -88,6 +131,6 @@ def test_unresolved_synset_becomes_none():
             {"phrase": "avalanche", "head": "avalanche", "synset_id": "200"},
         ],
     }
-    out = backfill_chain_record(rec, _fake_snap)
+    out = backfill_chain_record(rec, _fake_snap, confident=False)
     assert out["chain"][1]["head"] == "nowhere"
     assert out["chain"][1]["synset_id"] is None

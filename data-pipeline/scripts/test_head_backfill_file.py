@@ -50,7 +50,7 @@ def test_resnaps_file_and_reports_changes(tmp_path):
     dst = tmp_path / "out.jsonl"
     _write_jsonl(src, [rec])
 
-    stats = resnap_chain_file(str(src), str(dst), _snap)
+    stats = resnap_chain_file(str(src), str(dst), _snap, confident=False)
 
     out = [json.loads(l) for l in dst.open() if l.strip()]
     assert len(out) == 1

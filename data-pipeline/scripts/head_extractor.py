@@ -136,3 +136,56 @@ def extract_head(phrase: str) -> str:
 
     # 4. No noun anywhere (pure verb + particle) — keep the leading verb.
     return low[0]
+
+
+# Tags that, sitting BETWEEN the emitted head and the extracted head, mean the
+# span is a clause / coordination / PP rather than one flat noun phrase — so a
+# head shift across them is not high-confidence.
+_NON_FLAT_TAGS = frozenset({"IN", "TO", "CC", "VBG", "VBN", "VBD", "VBP", "VBZ", "VB"})
+
+
+def is_confident_improvement(phrase: str, emitted: str, extracted: str) -> bool:
+    """True only when replacing `emitted` with `extracted` is HIGH-confidence.
+
+    Measured against the operator's already-prompt-hardened corpus, an
+    unconditional rewrite trades ~35 corrections for ~16 regressions: the emitted
+    heads are mostly good, and the POS tagger is unreliable on 2-3 word fragments,
+    so the ambiguous "subject + trailing gerund" / "X of Y" / resultative cases
+    flip the wrong way. The backfill therefore replaces a head only in the two
+    classes that are near-zero-regression:
+
+      A. COMPOUND-RESTORE — `extracted` is a hyphenated compound and `emitted` is
+         one of its parts (the model stripped a prefix: "self-reflection" emitted
+         as "reflection").
+      B. PREMODIFIER-OVER-NOUN — within a single flat NP, the emitted head is an
+         ADJECTIVE or past-participle premodifier sitting before the noun head it
+         modifies ("filigree work" -> work), with no verb/preposition/coordinator
+         between them and nothing but optional trailing prepositions after.
+
+    Everything else keeps the emitted head. Pure; no side effects.
+    """
+    emitted = (emitted or "").lower()
+    extracted = (extracted or "").lower()
+    if not emitted or not extracted or emitted == extracted:
+        return False
+
+    # Class A: compound-restore.
+    if "-" in extracted and emitted in extracted.split("-"):
+        return True
+
+    # Class B: adjective / past-participle premodifier over its noun head.
+    raw = phrase.split()
+    low = [t.lower() for t in raw]
+    if emitted not in low or extracted not in low:
+        return False
+    ie, ix = low.index(emitted), low.index(extracted)
+    if ie >= ix:
+        return False
+    tags = pos_tag(raw)
+    premod = tags[ie][1] in ("JJ", "VBN")
+    head_noun = tags[ix][1] in _NOUN_TAGS
+    flat = not any(tags[k][1] in _NON_FLAT_TAGS for k in range(ie + 1, ix))
+    trailing_ok = ix == len(raw) - 1 or all(
+        tags[k][1] in ("IN", "TO") for k in range(ix + 1, len(raw))
+    )
+    return premod and head_noun and flat and trailing_ok
