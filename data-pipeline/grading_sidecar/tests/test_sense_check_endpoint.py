@@ -50,6 +50,13 @@ def test_sample_returns_enriched_items(sc_client, tmp_path):
     assert it["context"]["chains"][0]["chain_signature"] == "a"
 
 
+def test_sample_returns_empty_when_no_precompute_files(sc_client, tmp_path):
+    """Degradation contract: all precompute files absent → 200 with count=0, items=[]."""
+    # tmp_path has no files written — all loaders degrade to empty collections.
+    body = sc_client.get("/api/grading/sense-check/sample?n_flagged=5&n_random=5&seed=1").json()
+    assert body == {"count": 0, "items": []}
+
+
 def test_post_label_lands_in_separate_file_not_judgements(sc_client, tmp_path):
     payload = {"role": "topic", "word": "apprehension", "snapped_synset_id": "1760",
                "verdict": "wrong", "intended_synset_id": "72797", "chain_signature": "a"}

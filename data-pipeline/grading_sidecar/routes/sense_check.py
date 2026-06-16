@@ -40,6 +40,8 @@ def get_sense_check_sample(n_flagged: int = Query(default=40, ge=0, le=200),
     glosses = load_snapped_glosses(
         read_jsonl_skip_malformed, paths_mod.GRADING_DIR / paths_mod.CHAIN_GLOSSES_NAME)
     items = build_sample_items(endpoints, candidates, glosses, chains)
+    log.debug("sense_check sample: %d items (flags=%d chains=%d labels=%d)",
+              len(items), len(flags), len(chains), len(labels))
     return {"count": len(items), "items": items}
 
 

@@ -213,3 +213,11 @@ class SenseLabel(BaseModel):
     intended_synset_id: Optional[str] = None
     # One representative chain the endpoint appeared in (traceability, not a key).
     chain_signature: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _intended_required_for_corrective_verdicts(self) -> "SenseLabel":
+        if self.verdict in ("wrong", "rare_ok") and not self.intended_synset_id:
+            raise ValueError(
+                "intended_synset_id must be set when verdict is 'wrong' or 'rare_ok'"
+            )
+        return self

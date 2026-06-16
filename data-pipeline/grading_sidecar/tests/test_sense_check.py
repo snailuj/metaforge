@@ -76,6 +76,56 @@ def test_build_items_attaches_gloss_candidates_and_all_context_chains():
     assert it["chain_signature"] in sigs
 
 
+def test_load_sense_candidates_returns_lemma_to_senses_map(tmp_path):
+    """load_sense_candidates returns {lemma: senses} for a valid JSONL."""
+    from grading_sidecar.persistence import read_jsonl_skip_malformed
+    from grading_sidecar.sense_check import load_sense_candidates
+    import json
+    p = tmp_path / "candidates.jsonl"
+    p.write_text(
+        json.dumps({"lemma": "drought", "senses": [
+            {"synset_id": "104281", "pos": "n", "gloss": "a dry spell", "tagcount": 3}
+        ]}) + "\n" +
+        json.dumps({"lemma": "river", "senses": [
+            {"synset_id": "9", "pos": "n", "gloss": "a natural stream", "tagcount": 7}
+        ]}) + "\n"
+    )
+    result = load_sense_candidates(read_jsonl_skip_malformed, p)
+    assert list(result["drought"]) == [
+        {"synset_id": "104281", "pos": "n", "gloss": "a dry spell", "tagcount": 3}
+    ]
+    assert result["river"][0]["synset_id"] == "9"
+
+
+def test_load_sense_candidates_missing_path_returns_empty(tmp_path):
+    from grading_sidecar.persistence import read_jsonl_skip_malformed
+    from grading_sidecar.sense_check import load_sense_candidates
+    result = load_sense_candidates(read_jsonl_skip_malformed, tmp_path / "nonexistent.jsonl")
+    assert result == {}
+
+
+def test_load_snapped_glosses_returns_synset_to_pos_and_definition(tmp_path):
+    """load_snapped_glosses returns {synset_id: {pos, definition}} for a valid JSONL."""
+    from grading_sidecar.persistence import read_jsonl_skip_malformed
+    from grading_sidecar.sense_check import load_snapped_glosses
+    import json
+    p = tmp_path / "glosses.jsonl"
+    p.write_text(
+        json.dumps({"synset_id": "104281", "pos": "n", "definition": "a dry spell"}) + "\n" +
+        json.dumps({"synset_id": "9", "pos": "n", "definition": "a natural stream"}) + "\n"
+    )
+    result = load_snapped_glosses(read_jsonl_skip_malformed, p)
+    assert result["104281"] == {"pos": "n", "definition": "a dry spell"}
+    assert result["9"] == {"pos": "n", "definition": "a natural stream"}
+
+
+def test_load_snapped_glosses_missing_path_returns_empty(tmp_path):
+    from grading_sidecar.persistence import read_jsonl_skip_malformed
+    from grading_sidecar.sense_check import load_snapped_glosses
+    result = load_snapped_glosses(read_jsonl_skip_malformed, tmp_path / "nonexistent.jsonl")
+    assert result == {}
+
+
 def test_build_items_degrades_when_candidates_absent():
     from grading_sidecar.sense_check import build_sample_items
     chains = [_chain("a", "longing", "72598", "drought", "104281")]

@@ -209,6 +209,18 @@ def test_normalise_phrase_strips_and_lowers_and_nfc():
     assert normalise_phrase(f"  {decomposed}  ") == "café"
 
 
+def test_sense_label_requires_intended_for_wrong_and_rare():
+    import pytest
+    from pydantic import ValidationError
+    from grading_sidecar.models import SenseLabel
+    for v in ("wrong", "rare_ok"):
+        with pytest.raises(ValidationError):
+            SenseLabel(role="topic", word="x", snapped_synset_id="1", verdict=v)
+    # right / unsure with no intended is fine.
+    for v in ("right", "unsure"):
+        SenseLabel(role="topic", word="x", snapped_synset_id="1", verdict=v)
+
+
 def test_sense_label_defaults_and_optional_intended():
     from grading_sidecar.models import SenseLabel
     # Minimal valid label: schema_version + ts default; intended/chain_signature optional.
