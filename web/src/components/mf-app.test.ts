@@ -1607,4 +1607,13 @@ describe('mf-app blind re-grade view', () => {
     await el.updateComplete
     expect(localStorage.getItem('mf-grade-view')).toBe('regrade')
   })
+
+  it('mounts mf-grade-sensecheck with the client when the sense-check view is selected', async () => {
+    // el is an mf-app already in grade mode (see the regrade-mount test for setup).
+    (el as any).gradeView = 'sensecheck';
+    await el.updateComplete;
+    const shell = el.shadowRoot!.querySelector('[data-testid="grade-sensecheck"]') as any;
+    expect(shell).toBeTruthy();
+    expect(shell.client).toBe((el as any).gradingClient);
+  });
 })
