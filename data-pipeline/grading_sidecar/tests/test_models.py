@@ -208,6 +208,22 @@ def test_normalise_phrase_strips_and_lowers_and_nfc():
     decomposed = "Café"  # may include combining acute depending on source encoding
     assert normalise_phrase(f"  {decomposed}  ") == "café"
 
+
+def test_sense_label_defaults_and_optional_intended():
+    from grading_sidecar.models import SenseLabel
+    # Minimal valid label: schema_version + ts default; intended/chain_signature optional.
+    lbl = SenseLabel(role="topic", word="apprehension",
+                     snapped_synset_id="1760", verdict="wrong",
+                     intended_synset_id="72797")
+    assert lbl.schema_version == "sense_label.v1"
+    assert lbl.ts  # server-injected default
+    assert lbl.intended_synset_id == "72797"
+
+    ok = SenseLabel(role="vehicle", word="river",
+                    snapped_synset_id="9", verdict="right")
+    assert ok.intended_synset_id is None
+    assert ok.chain_signature is None
+
 def test_design_note_post_rejects_empty():
     with pytest.raises(ValueError):
         DesignNotePost(content="")
