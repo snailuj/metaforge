@@ -95,6 +95,30 @@ describe('mf-grade-sensecheck', () => {
         expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
     });
 
+    it('ignores a rapid double-click (no double POST / double advance)', async () => {
+        await start();
+        const btn = el.shadowRoot!.querySelector('[data-testid="verdict-right"]') as HTMLElement;
+        btn.click(); btn.click();              // two synchronous clicks, no await between
+        await el.updateComplete; await tick(); await el.updateComplete;
+        expect(postSenseLabel).toHaveBeenCalledOnce();
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
+    });
+
+    it('Rare-but-better reveals candidates; picking one posts rare_ok with intended_synset_id', async () => {
+        await start();
+        // No candidate list until a Wrong/Rare verdict.
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-candidates"]')).toBeNull();
+        await click('[data-testid="verdict-rare"]');
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-candidates"]')).toBeTruthy();
+        // No POST yet — we still need the intended sense.
+        expect(postSenseLabel).not.toHaveBeenCalled();
+        await click('[data-testid="cand-72797"]');
+        const posted = postSenseLabel.mock.calls[0][0];
+        expect(posted.verdict).toBe('rare_ok');
+        expect(posted.intended_synset_id).toBe('72797');
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
+    });
+
     it('context expander reveals the endpoint\'s chains on demand', async () => {
         getSenseCheckSample.mockResolvedValue({
             count: 1, items: [{

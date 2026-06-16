@@ -64,6 +64,9 @@ export class MfGradeSensecheck extends LitElement {
     @state() private showContext = false;
     @state() private error: string | null = null;
 
+    // Not @state — must not trigger a render; the guard is only for re-entrancy.
+    private _posting = false;
+
     private get current(): SenseCheckItem | null {
         return this.sample[this.index] ?? null;
     }
@@ -106,7 +109,9 @@ export class MfGradeSensecheck extends LitElement {
 
     private async _post(verdict: SenseVerdict, intended: string | null): Promise<void> {
         const it = this.current;
-        if (!it) return;
+        // Guard is set synchronously before the first await, so two rapid clicks post only once.
+        if (!it || this._posting) return;
+        this._posting = true;
         const label: SenseLabel = {
             schema_version: 'sense_label.v1',
             role: it.role,
@@ -126,6 +131,8 @@ export class MfGradeSensecheck extends LitElement {
         } catch (err) {
             // Keep the item so the operator can retry — no lost label.
             this.error = err instanceof Error ? err.message : 'failed to record sense label';
+        } finally {
+            this._posting = false;
         }
     }
 
