@@ -94,4 +94,28 @@ describe('mf-grade-sensecheck', () => {
         expect(posted.intended_synset_id).toBe('72797');
         expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
     });
+
+    it('context expander reveals the endpoint\'s chains on demand', async () => {
+        getSenseCheckSample.mockResolvedValue({
+            count: 1, items: [{
+                ...item(),
+                context: { chains: [
+                    { topic: 'apprehension', vehicle: 'avalanche', chain_signature: 'a',
+                      chain: [{ phrase: 'apprehension', head: 'apprehension', synset_id: '1760' },
+                              { phrase: 'avalanche', head: 'avalanche', synset_id: '9' }] },
+                    { topic: 'apprehension', vehicle: 'trapdoor', chain_signature: 'b',
+                      chain: [{ phrase: 'apprehension', head: 'apprehension', synset_id: '1760' },
+                              { phrase: 'trapdoor', head: 'trapdoor', synset_id: '8' }] },
+                ] },
+            }],
+        });
+        await start();
+        // Collapsed by default.
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-context"]')).toBeNull();
+        expect(el.shadowRoot!.querySelector('[data-testid="ctx-toggle"]')!.textContent).toContain('2 chains');
+        await click('[data-testid="ctx-toggle"]');
+        const ctx = el.shadowRoot!.querySelector('[data-testid="sensecheck-context"]')!.textContent!;
+        expect(ctx).toContain('avalanche');   // both chains shown
+        expect(ctx).toContain('trapdoor');
+    });
 });
