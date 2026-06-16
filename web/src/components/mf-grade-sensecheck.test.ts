@@ -79,4 +79,19 @@ describe('mf-grade-sensecheck', () => {
         expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('1 / 2');
         expect((el.shadowRoot!.textContent || '').toLowerCase()).toContain('error');
     });
+
+    it('Wrong reveals candidates; picking one posts that intended_synset_id', async () => {
+        await start();
+        // No candidate list until a Wrong/Rare verdict.
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-candidates"]')).toBeNull();
+        await click('[data-testid="verdict-wrong"]');
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-candidates"]')).toBeTruthy();
+        // No POST yet — we still need the intended sense.
+        expect(postSenseLabel).not.toHaveBeenCalled();
+        await click('[data-testid="cand-72797"]');
+        const posted = postSenseLabel.mock.calls[0][0];
+        expect(posted.verdict).toBe('wrong');
+        expect(posted.intended_synset_id).toBe('72797');
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
+    });
 });
