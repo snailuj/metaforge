@@ -669,8 +669,9 @@ def test_emits_all_senses_with_tagcount_ordered(tmp_path):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /home/agent/projects/metaforge/data-pipeline && .venv/bin/python -m pytest scripts/test_build_sense_candidates.py -v`
+Run: `cd /home/agent/projects/metaforge/data-pipeline/scripts && ../.venv/bin/python -m pytest test_build_sense_candidates.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'build_sense_candidates'`
+(Scripts tests run from `scripts/` so the script is importable — matches the sibling `test_export_chain_glosses.py`.)
 
 - [ ] **Step 3: Create the generator (mirrors export_chain_glosses.py)**
 
@@ -772,7 +773,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /home/agent/projects/metaforge/data-pipeline && .venv/bin/python -m pytest scripts/test_build_sense_candidates.py -v`
+Run: `cd /home/agent/projects/metaforge/data-pipeline/scripts && ../.venv/bin/python -m pytest test_build_sense_candidates.py -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
