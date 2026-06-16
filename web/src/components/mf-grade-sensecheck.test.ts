@@ -1,0 +1,82 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import './mf-grade-sensecheck';
+import { MfGradeSensecheck } from './mf-grade-sensecheck';
+import type { SenseCheckItem } from '../types/grading';
+
+const tick = () => new Promise(r => setTimeout(r, 0));
+
+function item(word = 'apprehension', role: 'topic' | 'vehicle' = 'topic'): SenseCheckItem {
+    return {
+        role, word, snapped_synset_id: '1760', stratum: 'flagged',
+        snapped_gloss: 'the act of arresting a criminal', pos: 'n',
+        candidates: [
+            { synset_id: '1760', pos: 'n', gloss: 'the act of arresting a criminal', tagcount: 2 },
+            { synset_id: '72797', pos: 'n', gloss: 'fearful expectation', tagcount: null },
+        ],
+        context: { chains: [
+            { topic: 'apprehension', vehicle: 'avalanche', chain_signature: 'a',
+              chain: [{ phrase: 'apprehension', head: 'apprehension', synset_id: '1760' },
+                      { phrase: 'avalanche', head: 'avalanche', synset_id: '9' }] },
+        ] },
+        chain_signature: 'a',
+    };
+}
+
+describe('mf-grade-sensecheck', () => {
+    let el: MfGradeSensecheck;
+    let getSenseCheckSample: ReturnType<typeof vi.fn>;
+    let postSenseLabel: ReturnType<typeof vi.fn>;
+
+    beforeEach(async () => {
+        getSenseCheckSample = vi.fn().mockResolvedValue({ count: 2, items: [item(), item('river', 'vehicle')] });
+        postSenseLabel = vi.fn().mockResolvedValue({});
+        el = document.createElement('mf-grade-sensecheck') as MfGradeSensecheck;
+        el.client = { getSenseCheckSample, postSenseLabel } as any;
+        document.body.appendChild(el);
+        await el.updateComplete;
+    });
+    afterEach(() => el.remove());
+
+    const start = async () => {
+        (el.shadowRoot!.querySelector('[data-testid="sensecheck-start"]') as HTMLElement).click();
+        await el.updateComplete; await tick(); await el.updateComplete;
+    };
+    const click = async (sel: string) => {
+        (el.shadowRoot!.querySelector(sel) as HTMLElement).click();
+        await el.updateComplete; await tick(); await el.updateComplete;
+    };
+
+    it('shows only a start button before a batch is drawn', () => {
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-start"]')).toBeTruthy();
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-item"]')).toBeNull();
+    });
+
+    it('draws a sample and renders the first item word/role/gloss', async () => {
+        await start();
+        expect(getSenseCheckSample).toHaveBeenCalledOnce();
+        const txt = el.shadowRoot!.querySelector('[data-testid="sensecheck-item"]')!.textContent!;
+        expect(txt).toContain('apprehension');
+        expect(txt).toContain('topic');
+        expect(txt).toContain('the act of arresting a criminal');
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('1 / 2');
+    });
+
+    it('posts a "right" verdict (no intended) and advances', async () => {
+        await start();
+        await click('[data-testid="verdict-right"]');
+        expect(postSenseLabel).toHaveBeenCalledOnce();
+        const posted = postSenseLabel.mock.calls[0][0];
+        expect(posted.verdict).toBe('right');
+        expect(posted.intended_synset_id).toBeNull();
+        expect(posted.snapped_synset_id).toBe('1760');
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
+    });
+
+    it('does not advance when a POST fails (no lost label)', async () => {
+        await start();
+        postSenseLabel.mockRejectedValue(new Error('postSenseLabel: 500'));
+        await click('[data-testid="verdict-right"]');
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('1 / 2');
+        expect((el.shadowRoot!.textContent || '').toLowerCase()).toContain('error');
+    });
+});
