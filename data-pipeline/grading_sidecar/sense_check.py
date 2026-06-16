@@ -73,3 +73,55 @@ def sample_sense_check(flags: list[dict], chains: list[dict], labels: list[dict]
 
     rng = random.Random(seed)
     return _take(flagged_pool, n_flagged, rng) + _take(random_pool, n_random, rng)
+
+
+def context_for(role: str, word: str, synset_id: str, chains: list[dict]) -> list[dict]:
+    """Every chain the endpoint appears in (pairing + steps), for the context panel.
+
+    Matched on role's synset_id AND word, so the same synset under a different
+    surface word isn't conflated."""
+    sfield = "topic_synset_id" if role == "topic" else "vehicle_synset_id"
+    wfield = "topic" if role == "topic" else "vehicle"
+    out: list[dict] = []
+    for c in chains:
+        if str(c.get(sfield)) == str(synset_id) and c.get(wfield) == word:
+            out.append({"topic": c.get("topic"), "vehicle": c.get("vehicle"),
+                        "chain": c.get("chain", []),
+                        "chain_signature": c.get("chain_signature")})
+    return out
+
+
+def build_sample_items(endpoints: list[dict], candidates: dict[str, list[dict]],
+                       glosses: dict[str, dict], chains: list[dict]) -> list[dict]:
+    """Enrich sampled endpoints with snapped gloss/POS, candidate senses, context.
+
+    `glosses` = synset_id -> {pos, definition} (the chain_glosses precompute, reused
+    for the SNAPPED gloss). `candidates` = lemma -> [senses] (the new precompute, the
+    picker list). Both degrade gracefully to None / [] when absent."""
+    items: list[dict] = []
+    for e in endpoints:
+        sid, word, role = e["snapped_synset_id"], e["word"], e["role"]
+        g = glosses.get(sid, {})
+        ctx = context_for(role, word, sid, chains)
+        items.append({
+            "role": role, "word": word, "snapped_synset_id": sid,
+            "stratum": e.get("stratum", "random"),
+            "snapped_gloss": g.get("definition"), "pos": g.get("pos"),
+            "candidates": candidates.get(word, []),
+            "context": {"chains": ctx},
+            "chain_signature": ctx[0]["chain_signature"] if ctx else None,
+        })
+    return items
+
+
+def load_sense_candidates(read_jsonl, candidates_path) -> dict[str, list[dict]]:
+    """lemma -> [senses] from the precompute (DB-free). Missing file -> {}."""
+    rows, _ = read_jsonl(candidates_path)
+    return {r["lemma"]: r.get("senses", []) for r in rows if r.get("lemma")}
+
+
+def load_snapped_glosses(read_jsonl, glosses_path) -> dict[str, dict]:
+    """synset_id -> {pos, definition} from chain_glosses. Missing file -> {}."""
+    rows, _ = read_jsonl(glosses_path)
+    return {r["synset_id"]: {"pos": r.get("pos"), "definition": r.get("definition")}
+            for r in rows if r.get("synset_id")}

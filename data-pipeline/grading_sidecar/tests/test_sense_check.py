@@ -52,3 +52,35 @@ def test_sample_stratifies_flagged_and_random_excludes_labelled_and_is_seed_stab
     # Determinism: same seed → identical draw.
     again = sample_sense_check(flags, chains, labels, n_flagged=5, n_random=3, seed=7)
     assert [e["snapped_synset_id"] for e in out] == [e["snapped_synset_id"] for e in again]
+
+
+def test_build_items_attaches_gloss_candidates_and_all_context_chains():
+    from grading_sidecar.sense_check import build_sample_items
+    chains = [_chain("a", "longing", "72598", "drought", "104281"),
+              _chain("b", "longing", "72598", "river", "9")]
+    endpoints = [{"role": "topic", "word": "longing",
+                  "snapped_synset_id": "72598", "stratum": "random"}]
+    candidates = {"longing": [
+        {"synset_id": "72598", "pos": "n", "gloss": "prolonged desire", "tagcount": 5},
+        {"synset_id": "999", "pos": "n", "gloss": "a yearning", "tagcount": None},
+    ]}
+    glosses = {"72598": {"pos": "n", "definition": "prolonged desire"}}
+    items = build_sample_items(endpoints, candidates, glosses, chains)
+    it = items[0]
+    assert it["snapped_gloss"] == "prolonged desire" and it["pos"] == "n"
+    assert len(it["candidates"]) == 2
+    # Context = ALL chains the endpoint appears in (the operator's addition).
+    sigs = {c["chain_signature"] for c in it["context"]["chains"]}
+    assert sigs == {"a", "b"}
+    # Representative chain_signature for the label is one of them.
+    assert it["chain_signature"] in sigs
+
+
+def test_build_items_degrades_when_candidates_absent():
+    from grading_sidecar.sense_check import build_sample_items
+    chains = [_chain("a", "longing", "72598", "drought", "104281")]
+    endpoints = [{"role": "vehicle", "word": "drought",
+                  "snapped_synset_id": "104281", "stratum": "flagged"}]
+    items = build_sample_items(endpoints, {}, {}, chains)  # no candidates, no glosses
+    assert items[0]["candidates"] == []
+    assert items[0]["snapped_gloss"] is None
