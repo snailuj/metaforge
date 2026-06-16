@@ -33,6 +33,7 @@ import './mf-topic-picker'
 import './mf-grade-panel'
 import './mf-grade-walk'
 import './mf-grade-regrade'
+import './mf-grade-sensecheck'
 import './mf-signal-report'
 import './mf-design-notes'
 import './mf-mobile-notes-overlay'
@@ -405,7 +406,7 @@ export class MfApp extends LitElement {
   // through the server-ordered acquisition list (GET /api/grading/walk) one chain
   // at a time. walkGradedSigs is a SESSION set — a chain graded this session drops
   // out of the visible walk (so the next ungraded one slides in) without a refetch.
-  @state() private gradeView: 'topic' | 'walk' | 'regrade' = 'topic'
+  @state() private gradeView: 'topic' | 'walk' | 'regrade' | 'sensecheck' = 'topic'
   @state() private walkEntries: WalkEntry[] = []
   @state() private walkPos = 0
   @state() private walkSkipGraded = true
@@ -587,7 +588,7 @@ export class MfApp extends LitElement {
   private async initGradeMode(): Promise<void> {
     this.loadPendingQueue()
     const storedView = localStorage.getItem('mf-grade-view')
-    if (storedView === 'walk' || storedView === 'topic' || storedView === 'regrade') this.gradeView = storedView
+    if (storedView === 'walk' || storedView === 'topic' || storedView === 'regrade' || storedView === 'sensecheck') this.gradeView = storedView
     try {
       const [topicsRes, notesRes, glossesRes] = await Promise.all([
         this.gradingClient.getTopics(),
@@ -630,7 +631,7 @@ export class MfApp extends LitElement {
 
   /** Switch grade view (topic ↔ walk). Persisted so a reload returns the operator
    *  to where they were; entering the walk (re)fetches the acquisition order. */
-  private setGradeView(view: 'topic' | 'walk' | 'regrade'): void {
+  private setGradeView(view: 'topic' | 'walk' | 'regrade' | 'sensecheck'): void {
     this.gradeView = view
     localStorage.setItem('mf-grade-view', view)
     // Start each view clean; the walk repopulates selectedChain from its own list.
@@ -797,7 +798,7 @@ export class MfApp extends LitElement {
 
   /** Topic ↔ Walk view toggle + on-demand signal report, shown in every grade view's top row. */
   private renderGradeViewToggle() {
-    const opt = (view: 'topic' | 'walk' | 'regrade', label: string) => html`
+    const opt = (view: 'topic' | 'walk' | 'regrade' | 'sensecheck', label: string) => html`
       <button
         data-testid="grade-view-${view}"
         aria-pressed=${this.gradeView === view}
@@ -809,6 +810,7 @@ export class MfApp extends LitElement {
         ${opt('topic', 'By topic')}
         ${opt('walk', 'Walk')}
         ${opt('regrade', 'Blind re-grade')}
+        ${opt('sensecheck', 'Sense-check')}
       </div>
       <mf-signal-report .client=${this.gradingClient}></mf-signal-report>
     `
@@ -1237,6 +1239,24 @@ export class MfApp extends LitElement {
     `
   }
 
+  /** Sense-check view — its own toggle row + the self-contained sense-check shell
+   *  (owns sample/cursor/POSTs to the separate sense-labels file). */
+  private renderGradeSenseCheck() {
+    return html`
+      <div class="grade-layout" data-testid="grade-sensecheck-layout">
+        <div class="grade-top">
+          ${this.renderGradeViewToggle()}
+        </div>
+        <div class="grade-walk-scroll">
+          <mf-grade-sensecheck
+            data-testid="grade-sensecheck"
+            .client=${this.gradingClient}
+          ></mf-grade-sensecheck>
+        </div>
+      </div>
+    `
+  }
+
   render() {
     return html`
       ${this.errorMessage
@@ -1259,7 +1279,9 @@ export class MfApp extends LitElement {
             ? this.renderGradeWalk()
             : this.gradeView === 'regrade'
               ? this.renderGradeRegrade()
-              : (this.viewportWidth >= 900 ? this.renderGradeModeDesktop() : this.renderGradeModeMobile()))
+              : this.gradeView === 'sensecheck'
+                ? this.renderGradeSenseCheck()
+                : (this.viewportWidth >= 900 ? this.renderGradeModeDesktop() : this.renderGradeModeMobile()))
         : this.renderBrowseMode()}
 
       <mf-toast></mf-toast>

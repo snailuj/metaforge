@@ -31,3 +31,12 @@ CHAIN_GEOMETRY_NAME = "chain_geometry_provisional.jsonl"
 # synsets, served by /glosses so the grader can disambiguate a topic's sense.
 # Generated offline from the lexicon's synsets table (the sidecar has no DB).
 CHAIN_GLOSSES_NAME = "chain_glosses_provisional.jsonl"
+
+# Sense-check inputs/outputs. The subagent's wrong/rare flags (READ), the offline
+# candidate-senses precompute (READ, lemma -> [senses]; DB-free sidecar), and the
+# operator's sense labels. SENSE_LABELS_PATH is a SEPARATE file from the gold
+# judgements on purpose: a sense label is not a liveness/linkage verdict and must
+# never be resolved as one. Auto-committed like the rest of GRADING_DIR.
+SENSE_FLAGS_NAME = "sense_flags_provisional.jsonl"
+SENSE_CANDIDATES_NAME = "sense_candidates_provisional.jsonl"
+SENSE_LABELS_PATH = GRADING_DIR / "sense_labels_provisional.jsonl"

@@ -1,4 +1,4 @@
-import type { ChainRecord, GlossMap, JudgementRecord, RegradeAgreement, SignalReport, TopicSummary, WalkResponse } from '../types/grading';
+import type { ChainRecord, GlossMap, JudgementRecord, RegradeAgreement, SenseCheckSample, SenseLabel, SignalReport, TopicSummary, WalkResponse } from '../types/grading';
 
 const BASE = '/api/grading';
 const RETRY_DELAYS_MS = [1000, 3000, 9000];
@@ -96,6 +96,19 @@ export class GradingClient {
         const r = await fetch(`${BASE}/regrade/sample?${q}`);
         if (!r.ok) throw new Error(`getRegradeSample: ${r.status}`);
         return r.json();
+    }
+
+    /** Draw a stratified sense-check sample (endpoints + candidates + context). */
+    async getSenseCheckSample(opts: { nFlagged: number; nRandom: number; seed: number }): Promise<SenseCheckSample> {
+        const q = `n_flagged=${opts.nFlagged}&n_random=${opts.nRandom}&seed=${opts.seed}`;
+        const r = await fetch(`${BASE}/sense-check/sample?${q}`);
+        if (!r.ok) throw new Error(`getSenseCheckSample: ${r.status}`);
+        return r.json();
+    }
+
+    /** Sense label → the SEPARATE sense-labels file (never the gold judgements). */
+    async postSenseLabel(l: SenseLabel): Promise<SenseLabel> {
+        return this._postWithRetry(`${BASE}/sense-check`, l, 'postSenseLabel');
     }
 
     /** Intra-rater self-agreement of gold vs blind re-grades (per-axis κ + agreement). */

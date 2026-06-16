@@ -164,6 +164,52 @@ export interface NormalisedJudgement {
     tags: Tag[];
 }
 
+// --- Sense-check (anchors snap-correctness to human gold) ---
+export type SenseVerdict = 'right' | 'wrong' | 'rare_ok' | 'unsure';
+
+export interface SenseCandidate {
+    synset_id: string;
+    pos: string | null;
+    gloss: string | null;
+    tagcount: number | null;
+}
+
+export interface SenseContextChain {
+    topic: string;
+    vehicle: string;
+    chain: ChainStep[];
+    chain_signature: string;
+}
+
+export interface SenseCheckItem {
+    role: 'topic' | 'vehicle';
+    word: string;
+    snapped_synset_id: string;
+    stratum: string;
+    snapped_gloss: string | null;
+    pos: string | null;
+    candidates: SenseCandidate[];
+    context: { chains: SenseContextChain[] };
+    chain_signature: string | null;
+}
+
+export interface SenseCheckSample {
+    count: number;
+    items: SenseCheckItem[];
+}
+
+// Posted on each verdict. ts is server-injected (omit on construction).
+export interface SenseLabel {
+    schema_version: 'sense_label.v1';
+    ts?: string;
+    role: 'topic' | 'vehicle';
+    word: string;
+    snapped_synset_id: string;
+    verdict: SenseVerdict;
+    intended_synset_id: string | null;
+    chain_signature: string | null;
+}
+
 // v1 `label` → (linkage, metaphor). None where the flat label carried no signal on that
 // axis: bad_path only asserted a broken route (metaphor unknown); irrelevant means the
 // pairing is unconnected (linkage moot). Mirrors _V1_LABEL_MAP in the Python sidecar.
