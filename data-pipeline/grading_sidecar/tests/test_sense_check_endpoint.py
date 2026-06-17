@@ -66,3 +66,15 @@ def test_post_label_lands_in_separate_file_not_judgements(sc_client, tmp_path):
     assert not (tmp_path / "judgements_provisional.jsonl").exists()
     saved = json.loads((tmp_path / "sense_labels_provisional.jsonl").read_text().strip())
     assert saved["verdict"] == "wrong" and saved["schema_version"] == "sense_label.v1"
+
+
+def test_sense_check_context_includes_stock_chain(sc_client, tmp_path):
+    # A flagged endpoint whose only chain lives in the stock cohort must still get context.
+    (tmp_path / "stock").mkdir()
+    _write(tmp_path / "stock" / "chain-topics_stock.jsonl",
+           _chain("c" * 64, "longing", "72598", "drought", "104281"))
+    _write(tmp_path / paths_mod.SENSE_FLAGS_NAME,
+           {"role": "vehicle", "word": "drought", "synset_id": "104281", "verdict": "WRONG_SENSE"})
+    body = sc_client.get("/api/grading/sense-check/sample?n_flagged=5&n_random=0&seed=1").json()
+    it = next(i for i in body["items"] if i["word"] == "drought")
+    assert it["context"]["chains"][0]["chain_signature"] == "c" * 64   # stock context resolved

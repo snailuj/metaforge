@@ -31,7 +31,7 @@ def get_sense_check_sample(n_flagged: int = Query(default=40, ge=0, le=200),
                            seed: int = Query(default=1)) -> dict:
     """Draw a stratified sense-check sample and enrich it for the UI."""
     flags, _ = read_jsonl_skip_malformed(paths_mod.GRADING_DIR / paths_mod.SENSE_FLAGS_NAME)
-    chains = load_chains()
+    chains = load_chains(paths_mod.SENSECHECK_COHORTS)
     labels, _ = read_jsonl_skip_malformed(paths_mod.SENSE_LABELS_PATH)
     endpoints = sample_sense_check(flags, chains, labels,
                                    n_flagged=n_flagged, n_random=n_random, seed=seed)
