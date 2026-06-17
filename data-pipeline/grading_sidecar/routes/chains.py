@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from ..auth import verify_secret
+from ..chain_store import cohort_files
 from ..persistence import read_jsonl_skip_malformed
 from .. import paths as paths_mod
 
@@ -19,7 +20,7 @@ router = APIRouter(dependencies=[Depends(verify_secret)])
 def get_chains(topic: Optional[str] = Query(default=None)) -> dict:
     records: list[dict] = []
     skipped = 0
-    for p in sorted(paths_mod.GRADING_DIR.glob(paths_mod.CHAINS_GLOB)):
+    for p in cohort_files(paths_mod.GRADING_COHORTS):
         recs, s = read_jsonl_skip_malformed(p)
         records.extend(recs)
         skipped += s
