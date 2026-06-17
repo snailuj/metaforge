@@ -107,6 +107,15 @@ export class MfGradeSensecheck extends LitElement {
         void this._post(this.pendingVerdict, c.synset_id);
     }
 
+    private _skip(): void {
+        // Advance without recording a verdict; the item may resurface in a later sample.
+        if (this._posting) return;
+        this.index += 1;
+        this.pendingVerdict = null;
+        this.showContext = false;
+        if (this.index >= this.sample.length) this.phase = 'done';
+    }
+
     private async _post(verdict: SenseVerdict, intended: string | null): Promise<void> {
         const it = this.current;
         // Guard is set synchronously before the first await, so two rapid clicks post only once.
@@ -175,6 +184,7 @@ export class MfGradeSensecheck extends LitElement {
                     <button class="verdict wrong ${this.pendingVerdict === 'wrong' ? 'pending' : ''}" data-testid="verdict-wrong" @click=${() => this._onVerdict('wrong')}>Wrong</button>
                     <button class="verdict rare ${this.pendingVerdict === 'rare_ok' ? 'pending' : ''}" data-testid="verdict-rare" @click=${() => this._onVerdict('rare_ok')}>Rare-but-better</button>
                     <button class="verdict" data-testid="verdict-unsure" @click=${() => this._onVerdict('unsure')}>Unsure</button>
+                    <button class="verdict" data-testid="verdict-skip" @click=${() => this._skip()}>Skip</button>
                 </div>
                 ${this.pendingVerdict ? this._renderCandidates(it) : ''}
                 ${this._renderContext(it)}

@@ -119,6 +119,15 @@ describe('mf-grade-sensecheck', () => {
         expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
     });
 
+    it('Skip advances without POSTing a label', async () => {
+        await start();
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('1 / 2');
+        (el.shadowRoot!.querySelector('[data-testid="verdict-skip"]') as HTMLElement).click();
+        await el.updateComplete; await tick(); await el.updateComplete;
+        expect(postSenseLabel).not.toHaveBeenCalled();                 // no label recorded
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
+    });
+
     it('context expander reveals the endpoint\'s chains on demand', async () => {
         getSenseCheckSample.mockResolvedValue({
             count: 1, items: [{
