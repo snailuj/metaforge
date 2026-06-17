@@ -20,7 +20,10 @@ log = logging.getLogger(__name__)
 
 _HERE = Path(__file__).resolve()
 DEFAULT_DB = str(_HERE.parents[1] / "output" / "lexicon_v2.db")
-DEFAULT_CHAINS = sorted(glob.glob(str(_HERE.parents[1] / "grading" / "*chains*.jsonl")))
+DEFAULT_CHAINS = sorted(
+    glob.glob(str(_HERE.parents[1] / "grading" / "**" / "chain-topics_*.jsonl"), recursive=True)
+    + glob.glob(str(_HERE.parents[1] / "grading" / "*chains*.jsonl"))
+)
 DEFAULT_OUTPUT = str(_HERE.parents[1] / "grading" / "sense_candidates_provisional.jsonl")
 
 # All senses of a lemma + the SemCor tagcount (NULL where untagged), most-frequent
