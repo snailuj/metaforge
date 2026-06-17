@@ -1,6 +1,6 @@
 """GET /api/grading/chains
 
-Unions all round files matching CHAINS_GLOB, applies optional ?topic= filter,
+Unions all chain files in the GRADING_COHORTS cohorts, applies optional ?topic= filter,
 and returns records with a count of skipped malformed lines.
 
 Requires X-Grading-Secret header (bypassed in dev via GRADING_DEV=1 — see auth.py).

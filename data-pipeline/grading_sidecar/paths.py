@@ -13,7 +13,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 GRADING_DIR = Path(os.environ.get("GRADING_DATA_DIR", str(REPO_ROOT / "data-pipeline" / "grading")))
 # Git root the autocommit targets: the data worktree in deploy, the main repo in dev.
 GRADING_DATA_GIT_ROOT = os.environ.get("GRADING_DATA_GIT_ROOT", str(REPO_ROOT))
-CHAINS_GLOB = "sonnet_chains_provisional_r*.jsonl"
 JUDGEMENTS_PATH = GRADING_DIR / "judgements_provisional.jsonl"
 # Blind re-grade verdicts — a SEPARATE file from the gold judgements on purpose.
 # The gold resolver is latest-wins per chain_signature, so a blind regrade written

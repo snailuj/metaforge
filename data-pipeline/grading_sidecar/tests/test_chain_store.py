@@ -62,11 +62,6 @@ def test_load_chains_empty_when_no_files(grading_dir):
     assert load_chains() == []
 
 
-def _chain(sig, topic="t", vehicle="v"):
-    return {"chain_signature": sig, "topic": topic, "vehicle": vehicle,
-            "topic_synset_id": "1", "vehicle_synset_id": "2", "chain": []}
-
-
 def test_load_chains_cohort_selection_excludes_stock_for_grading(tmp_path, monkeypatch):
     import json
     from grading_sidecar import paths as paths_mod

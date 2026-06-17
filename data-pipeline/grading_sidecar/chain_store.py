@@ -11,6 +11,8 @@ paths.CHAIN_COHORTS. Each reader passes the cohort list it needs:
 """
 from __future__ import annotations
 import logging
+from collections.abc import Iterator
+from pathlib import Path
 
 from .persistence import read_jsonl_skip_malformed
 from . import paths as paths_mod
@@ -23,7 +25,7 @@ log = logging.getLogger(__name__)
 _REQUIRED_CHAIN_KEYS = ("chain_signature", "topic", "vehicle")
 
 
-def cohort_files(cohorts: list[str]):
+def cohort_files(cohorts: list[str]) -> Iterator[Path]:
     """Yield the chain files for `cohorts`, in cohort-then-filename order.
 
     The fall-through composition: each reader picks which cohorts it sees by passing
