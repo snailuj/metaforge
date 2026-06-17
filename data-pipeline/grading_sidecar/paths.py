@@ -4,10 +4,15 @@ Resolved relative to the repo root at import time so tests can monkey-patch
 GRADING_DIR for isolation.
 """
 from __future__ import annotations
+import os
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-GRADING_DIR = REPO_ROOT / "data-pipeline" / "grading"
+# Data location is env-overridable so the deploy can point it at a SEPARATE data
+# worktree (code/data separation). Default = in-repo, so dev + every test is unchanged.
+GRADING_DIR = Path(os.environ.get("GRADING_DATA_DIR", str(REPO_ROOT / "data-pipeline" / "grading")))
+# Git root the autocommit targets: the data worktree in deploy, the main repo in dev.
+GRADING_DATA_GIT_ROOT = os.environ.get("GRADING_DATA_GIT_ROOT", str(REPO_ROOT))
 CHAINS_GLOB = "sonnet_chains_provisional_r*.jsonl"
 JUDGEMENTS_PATH = GRADING_DIR / "judgements_provisional.jsonl"
 # Blind re-grade verdicts — a SEPARATE file from the gold judgements on purpose.
@@ -40,3 +45,21 @@ CHAIN_GLOSSES_NAME = "chain_glosses_provisional.jsonl"
 SENSE_FLAGS_NAME = "sense_flags_provisional.jsonl"
 SENSE_CANDIDATES_NAME = "sense_candidates_provisional.jsonl"
 SENSE_LABELS_PATH = GRADING_DIR / "sense_labels_provisional.jsonl"
+
+# --- Chain cohorts (source-by-location) ---
+# Grading views (walk/topic/stats/chains/regrade) read GRADING_COHORTS. The
+# sense-check context reads SENSECHECK_COHORTS (adds `stock`). `stock` lives under a
+# stock/ subdir the top-level grading globs DON'T match, so it never surfaces in
+# grading views. Globs are relative to GRADING_DIR. spike/curated match the new
+# chain-topics_* names AND the legacy sonnet_chains_provisional_* names (transitional —
+# drop the legacy entries once the data rename in Task 8 has propagated everywhere).
+CHAIN_COHORTS: dict[str, list[str]] = {
+    "spike":   ["chain-topics_spike*.jsonl",
+                "sonnet_chains_provisional_r1*.jsonl",
+                "sonnet_chains_provisional_r2.jsonl"],
+    "curated": ["chain-topics_curated*.jsonl",
+                "sonnet_chains_provisional_r2_handpicked*.jsonl"],
+    "stock":   ["stock/chain-topics_stock*.jsonl"],
+}
+GRADING_COHORTS = ["spike", "curated"]
+SENSECHECK_COHORTS = ["spike", "curated", "stock"]
