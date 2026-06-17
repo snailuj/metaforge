@@ -20,11 +20,19 @@ from .autocommit import autocommit_loop
 from . import paths as paths_mod
 from .routes import healthz, judgements, chains, topics, stats, calibration, design_notes, walk, signal_report, glosses, regrade, sense_check
 
+def autocommit_target() -> tuple[str, str]:
+    """(git_root, subdir) the autocommit writes to. In deploy these resolve to the
+    SEPARATE data worktree via GRADING_DATA_GIT_ROOT; in dev they default to the
+    main repo, preserving today's behaviour."""
+    return paths_mod.GRADING_DATA_GIT_ROOT, "data-pipeline/grading/"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start the 15-min auto-commit background task; cancel cleanly on shutdown."""
+    git_root, subdir = autocommit_target()
     task = asyncio.create_task(
-        autocommit_loop(str(paths_mod.REPO_ROOT), "data-pipeline/grading/")
+        autocommit_loop(git_root, subdir)
     )
     try:
         yield
