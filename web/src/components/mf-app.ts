@@ -48,7 +48,10 @@ export class MfApp extends LitElement {
     :host {
       display: block;
       width: 100vw;
-      height: 100vh;
+      /* dvh tracks the visual viewport (shrinks when mobile browser toolbar appears),
+         so the app never extends behind the toolbar. Falls back to 100vh on older
+         browsers where dvh is unsupported — acceptable static degradation. */
+      height: 100dvh;
       position: relative;
       overflow: hidden;
       background: var(--colour-bg-primary, #1a1a2e);
