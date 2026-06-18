@@ -164,6 +164,7 @@ export class MfGradeSensecheck extends LitElement {
         if (this.phase === 'labelling') return this._renderItem();
         return html`
             <div class="done" data-testid="sensecheck-done">Batch complete — your sense labels are saved.</div>
+            <button class="primary" data-testid="sensecheck-back" @click=${this._back}>Back</button>
             <button class="primary" data-testid="sensecheck-start" @click=${this._start}>Label another batch</button>`;
     }
 

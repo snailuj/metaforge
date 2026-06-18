@@ -185,6 +185,28 @@ describe('mf-grade-sensecheck', () => {
     // Task 3: topic POS/gloss in context panel
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Fix 1: Back button in done phase
+    // -----------------------------------------------------------------------
+
+    it('done phase has a Back button that returns to the last item without an extra POST', async () => {
+        // Label through both items to reach done phase.
+        await start();
+        await click('[data-testid="verdict-right"]');  // item 1 → posts, advances to item 2
+        await click('[data-testid="verdict-right"]');  // item 2 → posts, advances to done
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-done"]')).toBeTruthy();
+        const postCountBeforeBack = postSenseLabel.mock.calls.length;
+        // Back button must exist in done phase.
+        const backBtn = el.shadowRoot!.querySelector('[data-testid="sensecheck-back"]') as HTMLElement | null;
+        expect(backBtn).not.toBeNull();
+        await click('[data-testid="sensecheck-back"]');
+        // Must return to labelling phase at the last item (N / N).
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-done"]')).toBeNull();
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
+        // No extra POST must have been triggered by Back.
+        expect(postSenseLabel.mock.calls.length).toBe(postCountBeforeBack);
+    });
+
     it('context panel shows topic POS when expanded on a chain that has it', async () => {
         getSenseCheckSample.mockResolvedValue({
             count: 1, items: [{

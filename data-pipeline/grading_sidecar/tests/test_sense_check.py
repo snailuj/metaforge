@@ -176,6 +176,25 @@ def test_random_stratum_excludes_curated_topics_and_keeps_spike_topics_and_vehic
     assert ("topic", "harbour") not in random_ep
 
 
+def test_random_stratum_excludes_stock_topics_and_keeps_stock_vehicles():
+    """Stock topics (hand-curated synset_ids) are excluded from the random stratum;
+    stock vehicles are kept because their senses ARE auto-snapped."""
+    from grading_sidecar.sense_check import sample_sense_check
+    chains_by_cohort = [
+        # stock cohort: topic=autumn, vehicle=harvest
+        {"topic": "autumn", "topic_synset_id": "3001", "vehicle": "harvest",
+         "vehicle_synset_id": "4001", "chain_signature": "sig-stock", "_cohort": "stock",
+         "chain": [{"phrase": "autumn", "head": "autumn", "synset_id": "3001"},
+                   {"phrase": "harvest", "head": "harvest", "synset_id": "4001"}]},
+    ]
+    out = sample_sense_check([], chains_by_cohort, [], n_flagged=10, n_random=20, seed=1)
+    random_ep = {(e["role"], e["word"]) for e in out if e["stratum"] == "random"}
+    # Vehicle from stock cohort must be in the random pool (auto-snapped, worth checking).
+    assert ("vehicle", "harvest") in random_ep
+    # Topic from stock cohort must NOT be in the random pool (hand-curated, no snap value).
+    assert ("topic", "autumn") not in random_ep
+
+
 def test_flagged_stratum_still_includes_flagged_curated_topic():
     """Flagged stratum is cohort-agnostic — a flagged curated topic must still surface."""
     from grading_sidecar.sense_check import sample_sense_check
