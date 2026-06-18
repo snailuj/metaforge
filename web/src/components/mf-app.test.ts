@@ -1616,4 +1616,18 @@ describe('mf-app blind re-grade view', () => {
     expect(shell).toBeTruthy();
     expect(shell.client).toBe((el as any).gradingClient);
   });
+
+  // Regression: context-panel clipping on mobile — the scroll container must have
+  // overflow-y:auto and a safe-area-aware padding-bottom so the last row clears
+  // the mobile browser toolbar. happy-dom doesn't evaluate max()/env(), so we
+  // assert the CSS *declaration* text is present in the component's stylesheet.
+  it('grade-walk-scroll CSS declares overflow-y:auto and a safe-area-aware padding-bottom', () => {
+    // MfApp.styles is a single CSSResult from Lit's css`` tag — access .cssText.
+    const raw = (MfApp as any).styles;
+    const styleText: string = Array.isArray(raw)
+      ? raw.map((s: any) => s.cssText ?? String(s)).join('\n')
+      : (raw?.cssText ?? String(raw ?? ''));
+    expect(styleText).toMatch(/\.grade-walk-scroll[^}]*overflow-y\s*:\s*auto/s);
+    expect(styleText).toMatch(/\.grade-walk-scroll[^}]*padding-bottom\s*:\s*max\s*\(/s);
+  });
 })

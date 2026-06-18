@@ -349,6 +349,10 @@ export class MfApp extends LitElement {
       flex: 1;
       overflow-y: auto;
       padding: var(--space-md, 1rem);
+      /* Safe-area-aware bottom padding so the last row clears the mobile browser
+         toolbar. env(safe-area-inset-bottom) covers the notch; the extra 1rem
+         ensures breathing room even without notch support. */
+      padding-bottom: max(2rem, env(safe-area-inset-bottom, 1rem));
     }
 
     .grade-mobile-notes-btn {

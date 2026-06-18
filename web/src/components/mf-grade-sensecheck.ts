@@ -92,8 +92,9 @@ export class MfGradeSensecheck extends LitElement {
         }
     }
 
-    // right / unsure POST immediately (no intended sense). wrong / rare_ok reveal the
-    // candidate picker; the chosen candidate's synset_id rides as intended_synset_id.
+    // right / unsure / split POST immediately (no intended sense).
+    // wrong / rare_ok reveal the candidate picker; the chosen candidate's
+    // synset_id rides as intended_synset_id.
     private _onVerdict(verdict: SenseVerdict): void {
         if (verdict === 'wrong' || verdict === 'rare_ok') {
             this.pendingVerdict = verdict;
@@ -198,6 +199,7 @@ export class MfGradeSensecheck extends LitElement {
                     <button class="verdict wrong ${this.pendingVerdict === 'wrong' ? 'pending' : ''}" data-testid="verdict-wrong" @click=${() => this._onVerdict('wrong')}>Wrong</button>
                     <button class="verdict rare ${this.pendingVerdict === 'rare_ok' ? 'pending' : ''}" data-testid="verdict-rare" @click=${() => this._onVerdict('rare_ok')}>Rare-but-better</button>
                     <button class="verdict" data-testid="verdict-unsure" @click=${() => this._onVerdict('unsure')}>Unsure</button>
+                    <button class="verdict" data-testid="verdict-split" @click=${() => this._onVerdict('split')}>Split</button>
                     <button class="verdict" data-testid="verdict-skip" @click=${() => this._skip()}>Skip</button>
                 </div>
                 ${this.pendingVerdict ? this._renderCandidates(it) : ''}

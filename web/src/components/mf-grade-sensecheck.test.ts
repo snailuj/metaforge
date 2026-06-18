@@ -207,6 +207,29 @@ describe('mf-grade-sensecheck', () => {
         expect(postSenseLabel.mock.calls.length).toBe(postCountBeforeBack);
     });
 
+    // -----------------------------------------------------------------------
+    // Task 1/2: 'split' verdict button — immediate POST, no candidate picker
+    // -----------------------------------------------------------------------
+
+    it('Split button posts verdict=split with intended_synset_id=null and advances', async () => {
+        await start();
+        const btn = el.shadowRoot!.querySelector('[data-testid="verdict-split"]') as HTMLElement | null;
+        expect(btn).not.toBeNull();
+        await click('[data-testid="verdict-split"]');
+        expect(postSenseLabel).toHaveBeenCalledOnce();
+        const posted = postSenseLabel.mock.calls[0][0];
+        expect(posted.verdict).toBe('split');
+        expect(posted.intended_synset_id).toBeNull();
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
+    });
+
+    it('Split does NOT open the candidate picker', async () => {
+        await start();
+        await click('[data-testid="verdict-split"]');
+        // Candidate list must never appear on a split verdict.
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-candidates"]')).toBeNull();
+    });
+
     it('context panel shows topic POS when expanded on a chain that has it', async () => {
         getSenseCheckSample.mockResolvedValue({
             count: 1, items: [{
