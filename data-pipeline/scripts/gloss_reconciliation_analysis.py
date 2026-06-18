@@ -22,8 +22,11 @@ poly-aptness (snap is one of several apt senses) — disambiguated via
 
 from __future__ import annotations
 
+import argparse
+import json
 import math
 from collections import Counter
+from pathlib import Path
 from typing import Iterable, Optional
 
 # snap_outcome classes: is the CURRENT snap apt for the operator?
@@ -332,3 +335,179 @@ def resnapper_baseline(labels: Iterable[dict],
                   "dominant_recovery": wrong_dom / wrong_n if wrong_n else 0.0},
         "dominant_pick_for": dominant_pick_for,
     }
+
+
+# --- loaders ----------------------------------------------------------------
+
+def load_jsonl(path) -> list[dict]:
+    """Load a JSONL file into a list of dicts, skipping blank lines."""
+    rows = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
+
+
+def candidates_by_lemma(rows: Iterable[dict]) -> dict[str, list[dict]]:
+    """Index the sense-candidate precompute rows by lemma."""
+    return {r["lemma"]: r["senses"] for r in rows}
+
+
+# --- report assembly --------------------------------------------------------
+
+def build_report(labels: list[dict], flags: list[dict],
+                 candidates: dict[str, list[dict]]) -> dict:
+    """Assemble the full analysis from raw label/flag/candidate inputs.
+
+    Labels are deduped to the latest per endpoint for every metric except drift,
+    which intentionally consumes the raw chronological stream.
+    """
+    deduped = dedupe_latest(labels)
+    idx = flag_index(flags)
+
+    flagged = [r for r in deduped if is_flagged(r, idx)]
+    unflagged = [r for r in deduped if not is_flagged(r, idx)]
+
+    cm = confusion(deduped, idx)
+    subagent = {**cm, **precision_recall_f1(cm)}
+
+    return {
+        "counts": {
+            "n_raw": len(labels),
+            "n_distinct": len(deduped),
+            "n_revisions": count_revisions(labels),
+        },
+        "verdict_distribution": dict(Counter(r["verdict"] for r in deduped)),
+        "strata": {
+            "n_flagged": len(flagged),
+            "n_unflagged": len(unflagged),
+            "flagged_verdicts": dict(Counter(r["verdict"] for r in flagged)),
+            "unflagged_verdicts": dict(Counter(r["verdict"] for r in unflagged)),
+            "unflagged_roles": dict(Counter(r["role"] for r in unflagged)),
+        },
+        "subagent": subagent,
+        "contamination": contamination_rate(deduped, idx),
+        "promiscuity": promiscuity(deduped, candidates),
+        "drift": drift(labels),
+        "resnapper": resnapper_baseline(deduped, candidates),
+    }
+
+
+def _pct(x: float) -> str:
+    return f"{x * 100:.1f}%"
+
+
+def render_markdown(report: dict) -> str:
+    """Render the report dict as an operator-facing markdown brief."""
+    c = report["counts"]
+    s = report["strata"]
+    sa = report["subagent"]
+    cont = report["contamination"]
+    pr = report["promiscuity"]
+    dr = report["drift"]
+    rs = report["resnapper"]
+
+    lines = [
+        "# Gloss-Reconciliation Analysis — subagent flags & snapper vs human sense-gold",
+        "",
+        "*Remediation Block 1. Every metric is computed against the operator's "
+        "sense-labels, never against the subagent (an unmeasured oracle, demoted "
+        "to a pre-sorter).*",
+        "",
+        "## Sample",
+        f"- Raw labels: **{c['n_raw']}** → distinct endpoints: **{c['n_distinct']}** "
+        f"({c['n_revisions']} verdict revisions = changed minds).",
+        f"- Verdict distribution (deduped): `{report['verdict_distribution']}`",
+        f"- Strata: **{s['n_flagged']}** subagent-flagged, **{s['n_unflagged']}** "
+        f"unflagged (random). Unflagged roles: `{s['unflagged_roles']}`.",
+        f"  - Flagged verdicts: `{s['flagged_verdicts']}`",
+        f"  - Unflagged verdicts: `{s['unflagged_verdicts']}`",
+        "",
+        "## Subagent reliability (can the 111-flag worklist drive Endpoint Cleanup?)",
+        f"- Positive = current snap is WRONG; predicted-positive = subagent flagged. "
+        f"Excluded (unsure / split-without-apt): **{sa['excluded']}**.",
+        f"- Confusion: TP {sa['tp']} · FP {sa['fp']} · FN {sa['fn']} · TN {sa['tn']}",
+        f"- **Precision {_pct(sa['precision'])}** · **Recall {_pct(sa['recall'])}** "
+        f"· F1 {_pct(sa['f1'])}",
+        "",
+        "## Silent noise — contamination the subagent MISSED",
+        f"- Among **{cont['n']}** unflagged determinate endpoints, **{cont['k']}** "
+        f"are WRONG → **{_pct(cont['rate'])}** "
+        f"(Wilson 95% CI [{_pct(cont['ci_lo'])}, {_pct(cont['ci_hi'])}]).",
+        "",
+        "## Sense promiscuity (single-sense classifier vs sense-SET model)",
+        f"- Split rate: **{pr['n_split']}/{pr['n_determinate']} = "
+        f"{_pct(pr['split_rate'])}** of determinate labels.",
+        f"- Poly-apt endpoints (≥2 apt senses): **{pr['poly_apt']}**; "
+        f"apt-cardinality distribution `{pr['apt_cardinality']}`, "
+        f"mean **{pr['mean_apt_cardinality']:.2f}** apt senses per split.",
+    ]
+    if "mean_apt_share" in pr:
+        lines.append(
+            f"- Mean share of a lemma's candidate senses marked apt: "
+            f"**{_pct(pr['mean_apt_share'])}** (n={pr['n_apt_share_scored']})."
+        )
+    lines += [
+        "",
+        "## Calibration drift (did ratings move toward Split?)",
+        f"- First half split rate {_pct(dr['first']['split_rate'])} "
+        f"(n={dr['first']['n']}) → second half {_pct(dr['second']['split_rate'])} "
+        f"(n={dr['second']['n']}); **Δ {dr['delta'] * 100:+.1f}pp**.",
+        "",
+        "## Re-snapper baseline (static dominant-SemCor-tagcount prior)",
+        f"- Scored **{rs['n_scored']}** labels ({rs['n_uncovered']} uncovered: "
+        f"target sense absent from the candidate set).",
+        f"- Current snap accuracy {_pct(rs['current_acc'])} → dominant-prior "
+        f"{_pct(rs['dominant_acc'])}.",
+        f"- Of the **{rs['wrong']['n']}** wrong snaps, a tagcount prior recovers an "
+        f"apt sense in **{rs['wrong']['dominant_hits']}** "
+        f"(**{_pct(rs['wrong']['dominant_recovery'])}**). The Gloss-Matched Snapper "
+        f"adds gloss/Lesk WSD on top, so this is a floor, not the ceiling.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+# --- CLI --------------------------------------------------------------------
+
+_REPO = Path(__file__).resolve().parents[2]
+_GRADING = _REPO / "data-pipeline" / "grading"
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--labels", type=Path,
+                    default=_GRADING / "sense_labels_provisional.jsonl",
+                    help="operator sense-labels JSONL (the human gold)")
+    ap.add_argument("--flags", type=Path,
+                    default=_GRADING / "sense_flags_provisional.jsonl",
+                    help="Gloss-Reconciliation subagent flags JSONL")
+    ap.add_argument("--candidates", type=Path,
+                    default=_GRADING / "sense_candidates_provisional.jsonl",
+                    help="per-lemma sense-candidate precompute JSONL")
+    ap.add_argument("--out-json", type=Path, default=None,
+                    help="write the report dict as JSON here")
+    ap.add_argument("--out-md", type=Path, default=None,
+                    help="write the markdown brief here")
+    args = ap.parse_args(argv)
+
+    labels = load_jsonl(args.labels)
+    flags = load_jsonl(args.flags)
+    candidates = (candidates_by_lemma(load_jsonl(args.candidates))
+                  if args.candidates and args.candidates.exists() else {})
+
+    report = build_report(labels, flags, candidates)
+    md = render_markdown(report)
+
+    if args.out_json:
+        args.out_json.write_text(json.dumps(report, indent=2, sort_keys=True))
+    if args.out_md:
+        args.out_md.write_text(md)
+    print(md)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

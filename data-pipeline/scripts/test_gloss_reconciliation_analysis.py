@@ -30,6 +30,10 @@ from gloss_reconciliation_analysis import (
     promiscuity,
     drift,
     resnapper_baseline,
+    load_jsonl,
+    candidates_by_lemma,
+    build_report,
+    render_markdown,
 )
 
 
@@ -320,3 +324,57 @@ def test_resnapper_baseline_skips_uncovered_targets():
     out = resnapper_baseline(labels, candidates)
     assert out["n_scored"] == 0
     assert out["n_uncovered"] == 1
+
+
+# --- load_jsonl / candidates_by_lemma ---------------------------------------
+
+def test_load_jsonl_skips_blank_lines(tmp_path):
+    p = tmp_path / "x.jsonl"
+    p.write_text('{"a": 1}\n\n{"a": 2}\n')
+    rows = load_jsonl(p)
+    assert rows == [{"a": 1}, {"a": 2}]
+
+
+def test_candidates_by_lemma_indexes_senses():
+    rows = [{"lemma": "glance", "senses": [{"synset_id": "1", "tagcount": 5}]}]
+    idx = candidates_by_lemma(rows)
+    assert idx["glance"][0]["synset_id"] == "1"
+
+
+# --- build_report (wiring) --------------------------------------------------
+
+def test_build_report_assembles_all_sections():
+    flags = [{"role": "v", "word": "a", "synset_id": "1", "verdict": "WRONG_SENSE"}]
+    labels = [
+        label("v", "a", "1", "wrong", "2026-06-18T10:00:00Z", intended="2"),  # flagged, TP
+        label("v", "b", "1", "right", "2026-06-18T10:01:00Z"),                # unflagged, clean
+        label("v", "c", "1", "split", "2026-06-18T10:02:00Z", apt=["1", "2"]),# unflagged, poly-apt
+        label("v", "a", "1", "wrong", "2026-06-18T10:03:00Z", intended="2"),  # dup of first
+    ]
+    candidates = {
+        "a": [{"synset_id": "1", "pos": "n", "gloss": "", "tagcount": 0},
+              {"synset_id": "2", "pos": "n", "gloss": "", "tagcount": 9}],
+        "c": [{"synset_id": "1", "pos": "n", "gloss": "", "tagcount": 1},
+              {"synset_id": "2", "pos": "v", "gloss": "", "tagcount": 1}],
+    }
+    rep = build_report(labels, flags, candidates)
+    assert rep["counts"]["n_raw"] == 4
+    assert rep["counts"]["n_distinct"] == 3
+    assert rep["verdict_distribution"]["wrong"] == 1
+    assert rep["strata"]["n_flagged"] == 1
+    assert rep["strata"]["n_unflagged"] == 2
+    assert "precision" in rep["subagent"]
+    assert "rate" in rep["contamination"]
+    assert "split_rate" in rep["promiscuity"]
+    assert "delta" in rep["drift"]
+    assert "dominant_acc" in rep["resnapper"]
+
+
+def test_render_markdown_contains_key_numbers():
+    flags = [{"role": "v", "word": "a", "synset_id": "1", "verdict": "WRONG_SENSE"}]
+    labels = [label("v", "a", "1", "wrong", "2026-06-18T10:00:00Z", intended="2")]
+    rep = build_report(labels, flags, {})
+    md = render_markdown(rep)
+    assert isinstance(md, str)
+    assert "Gloss-Reconciliation" in md
+    assert "Subagent reliability" in md
