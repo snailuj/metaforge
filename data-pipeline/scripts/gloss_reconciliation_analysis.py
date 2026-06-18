@@ -186,3 +186,149 @@ def precision_recall_f1(cm: dict) -> dict:
     f1 = (2 * precision * recall / (precision + recall)
           if (precision + recall) else 0.0)
     return {"precision": precision, "recall": recall, "f1": f1}
+
+
+def contamination_rate(labels: Iterable[dict], idx: set[tuple]) -> dict:
+    """Silent-noise rate: fraction of UNFLAGGED endpoints the operator judged WRONG.
+
+    The unflagged endpoints are the subagent's negatives — what it passed. The
+    sense-check random stratum draws from this population, so this estimates the
+    true contamination the subagent MISSED, with a Wilson CI (n is small).
+    """
+    k = n = 0
+    for label in labels:
+        if is_flagged(label, idx):
+            continue
+        outcome = snap_outcome(label)
+        if outcome == UNKNOWN:
+            continue
+        n += 1
+        if outcome == WRONG:
+            k += 1
+    rate = k / n if n else 0.0
+    lo, hi = wilson_ci(k, n)
+    return {"k": k, "n": n, "rate": rate, "ci_lo": lo, "ci_hi": hi}
+
+
+def promiscuity(labels: Iterable[dict],
+                candidates_by_lemma: Optional[dict[str, list[dict]]] = None) -> dict:
+    """Sense-promiscuity distribution: how often a node is apt across many senses.
+
+    Computed over determinate labels (verdict != unsure). Reports the split rate,
+    the apt-sense cardinality distribution, the count of poly-apt endpoints
+    (>= 2 apt senses), and — when candidate senses are supplied — the mean share
+    of a lemma's available senses the operator marked apt. A high split rate and
+    a high apt-share argue for a sense-SET snapper over a single-sense classifier.
+    """
+    determinate = [r for r in labels if r["verdict"] != "unsure"]
+    splits = [r for r in determinate if r["verdict"] == "split"]
+    apt_with_ids = [r for r in splits if _apt_ids(r)]
+
+    cardinality = Counter(len(_apt_ids(r)) for r in apt_with_ids)
+    cards = [len(_apt_ids(r)) for r in apt_with_ids]
+    mean_card = sum(cards) / len(cards) if cards else 0.0
+    poly_apt = sum(1 for c in cards if c >= 2)
+
+    out = {
+        "n_determinate": len(determinate),
+        "n_split": len(splits),
+        "split_rate": len(splits) / len(determinate) if determinate else 0.0,
+        "n_split_with_apt": len(apt_with_ids),
+        "apt_cardinality": dict(cardinality),
+        "mean_apt_cardinality": mean_card,
+        "poly_apt": poly_apt,
+    }
+
+    if candidates_by_lemma is not None:
+        shares = []
+        for r in apt_with_ids:
+            cands = candidates_by_lemma.get(r["word"])
+            if cands:
+                shares.append(len(_apt_ids(r)) / len(cands))
+        out["mean_apt_share"] = sum(shares) / len(shares) if shares else 0.0
+        out["n_apt_share_scored"] = len(shares)
+    return out
+
+
+def drift(labels: Iterable[dict]) -> dict:
+    """Calibration drift: split rate in the first vs second chronological half.
+
+    Operates on the raw label stream (each labelling action, sorted by ts) so it
+    captures behaviour over the session, not the deduped endpoint set. Tests the
+    operator's observation that his ratings drifted toward Split as he calibrated.
+    """
+    stream = [r for r in sorted(labels, key=lambda r: r["ts"])
+              if r["verdict"] != "unsure"]
+    mid = len(stream) // 2
+    halves = {"first": stream[:mid], "second": stream[mid:]}
+    result = {}
+    for name, rows in halves.items():
+        n = len(rows)
+        n_split = sum(1 for r in rows if r["verdict"] == "split")
+        result[name] = {"n": n, "n_split": n_split,
+                        "split_rate": n_split / n if n else 0.0}
+    result["delta"] = result["second"]["split_rate"] - result["first"]["split_rate"]
+    return result
+
+
+def _dominant_pick(candidates: list[dict]) -> Optional[str]:
+    """Argmax SemCor tagcount (NULL -> 0); ties break to the lowest numeric
+    synset_id, mirroring the current lowest-id snapper so an all-NULL lemma
+    yields the current behaviour (no spurious improvement is claimed)."""
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda c: (-(c.get("tagcount") or 0), int(c["synset_id"])),
+    )["synset_id"]
+
+
+def resnapper_baseline(labels: Iterable[dict],
+                       candidates_by_lemma: dict[str, list[dict]]) -> dict:
+    """Static dominant-sense (SemCor tagcount) baseline for the re-snapper.
+
+    For each label with a usable apt-target set whose target is covered by the
+    lemma's candidate senses, compares the CURRENT snap against a dominant-tagcount
+    pick. This is a lower-effort proxy for the Gloss-Matched Snapper (which adds
+    gloss-overlap / Lesk WSD over the retained phrase) — it bounds how much the
+    cheap SemCor prior alone recovers. Broken out for the WRONG subset, where the
+    current snap is wrong by construction, to answer "what fraction of the
+    operator's wrong snaps would a tagcount prior fix?".
+    """
+    n_scored = current_hits = dominant_hits = n_uncovered = 0
+    wrong_n = wrong_dom = 0
+    dominant_pick_for: dict[str, str] = {}
+    for label in labels:
+        target = apt_target_set(label)
+        if not target:
+            continue
+        cands = candidates_by_lemma.get(label["word"])
+        if not cands:
+            n_uncovered += 1
+            continue
+        cand_ids = {c["synset_id"] for c in cands}
+        # target must be reachable from the candidate set to be scorable
+        if not (target & cand_ids):
+            n_uncovered += 1
+            continue
+        n_scored += 1
+        pick = _dominant_pick(cands)
+        dominant_pick_for[f"{label['word']}::{label['snapped_synset_id']}"] = pick
+        current_hit = label["snapped_synset_id"] in target
+        dominant_hit = pick in target
+        current_hits += int(current_hit)
+        dominant_hits += int(dominant_hit)
+        if snap_outcome(label) == WRONG:
+            wrong_n += 1
+            wrong_dom += int(dominant_hit)
+    return {
+        "n_scored": n_scored,
+        "n_uncovered": n_uncovered,
+        "current_hits": current_hits,
+        "dominant_hits": dominant_hits,
+        "current_acc": current_hits / n_scored if n_scored else 0.0,
+        "dominant_acc": dominant_hits / n_scored if n_scored else 0.0,
+        "wrong": {"n": wrong_n, "dominant_hits": wrong_dom,
+                  "dominant_recovery": wrong_dom / wrong_n if wrong_n else 0.0},
+        "dominant_pick_for": dominant_pick_for,
+    }

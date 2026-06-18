@@ -26,6 +26,10 @@ from gloss_reconciliation_analysis import (
     wilson_ci,
     confusion,
     precision_recall_f1,
+    contamination_rate,
+    promiscuity,
+    drift,
+    resnapper_baseline,
 )
 
 
@@ -207,3 +211,112 @@ def test_precision_recall_f1_handles_zero_denominators():
     assert out["precision"] == 0.0
     assert out["recall"] == 0.0
     assert out["f1"] == 0.0
+
+
+# --- contamination_rate (silent noise among subagent negatives) --------------
+
+def test_contamination_rate_counts_wrong_among_unflagged():
+    flags = [{"role": "v", "word": "flagged", "synset_id": "1", "verdict": "WRONG_SENSE"}]
+    idx = flag_index(flags)
+    labels = [
+        # unflagged endpoints (subagent said "right" by omission):
+        label("v", "a", "1", "wrong", "t", intended="9"),   # silent miss
+        label("v", "b", "1", "right", "t"),                  # genuinely clean
+        label("v", "c", "1", "right", "t"),                  # genuinely clean
+        label("v", "d", "1", "unsure", "t"),                 # excluded (no determinate outcome)
+        # a flagged endpoint must NOT count toward the unflagged contamination rate:
+        label("v", "flagged", "1", "wrong", "t", intended="9"),
+    ]
+    out = contamination_rate(labels, idx)
+    assert out["k"] == 1       # one wrong among unflagged-determinate
+    assert out["n"] == 3       # a, b, c (d excluded, flagged excluded)
+    assert out["rate"] == pytest.approx(1 / 3)
+    assert 0.0 <= out["ci_lo"] <= out["rate"] <= out["ci_hi"] <= 1.0
+
+
+# --- promiscuity ------------------------------------------------------------
+
+def test_promiscuity_split_rate_and_cardinality():
+    labels = [
+        label("v", "a", "1", "split", "t", apt=["1", "2"]),       # poly-apt, card 2
+        label("v", "b", "1", "split", "t", apt=["1", "2", "3"]),  # poly-apt, card 3
+        label("v", "c", "1", "right", "t"),
+        label("v", "d", "1", "wrong", "t", intended="9"),
+        label("v", "e", "1", "unsure", "t"),                       # excluded from rate base
+    ]
+    out = promiscuity(labels)
+    # 2 splits out of 4 non-unsure labels
+    assert out["n_determinate"] == 4
+    assert out["n_split"] == 2
+    assert out["split_rate"] == pytest.approx(0.5)
+    assert out["poly_apt"] == 2          # both splits have >= 2 apt senses
+    assert out["apt_cardinality"] == {2: 1, 3: 1}
+    assert out["mean_apt_cardinality"] == pytest.approx(2.5)
+
+
+def test_promiscuity_apt_share_of_candidate_senses():
+    labels = [label("v", "glance", "1", "split", "t", apt=["1", "2", "3"])]
+    candidates = {"glance": [
+        {"synset_id": "1", "pos": "n", "gloss": "", "tagcount": 5},
+        {"synset_id": "2", "pos": "v", "gloss": "", "tagcount": 1},
+        {"synset_id": "3", "pos": "v", "gloss": "", "tagcount": None},
+        {"synset_id": "4", "pos": "n", "gloss": "", "tagcount": None},
+    ]}
+    out = promiscuity(labels, candidates)
+    # operator marked 3 of 4 candidate senses apt
+    assert out["mean_apt_share"] == pytest.approx(0.75)
+
+
+# --- drift (calibration over time) ------------------------------------------
+
+def test_drift_split_rate_rises_across_halves():
+    # chronological: first half mostly non-split, second half mostly split
+    labels = [
+        label("v", "a", "1", "wrong", "2026-06-18T10:00:00Z", intended="9"),
+        label("v", "b", "1", "wrong", "2026-06-18T10:01:00Z", intended="9"),
+        label("v", "c", "1", "split", "2026-06-18T10:02:00Z", apt=["1", "2"]),
+        label("v", "d", "1", "split", "2026-06-18T10:03:00Z", apt=["1", "2"]),
+    ]
+    out = drift(labels)
+    assert out["first"]["split_rate"] == pytest.approx(0.0)
+    assert out["second"]["split_rate"] == pytest.approx(1.0)
+    assert out["delta"] == pytest.approx(1.0)
+
+
+# --- resnapper_baseline (dominant-tagcount prior) ---------------------------
+
+def test_resnapper_baseline_dominant_prior_recovers_wrong_snap():
+    # current snapper snapped lemma "x" to synset "1" (a process-nominal); the
+    # operator's intended sense is "2", which also has the dominant SemCor count.
+    labels = [label("topic", "x", "1", "wrong", "t", intended="2")]
+    candidates = {"x": [
+        {"synset_id": "1", "pos": "n", "gloss": "", "tagcount": 0},
+        {"synset_id": "2", "pos": "n", "gloss": "", "tagcount": 9},
+    ]}
+    out = resnapper_baseline(labels, candidates)
+    assert out["n_scored"] == 1
+    assert out["current_hits"] == 0           # snapped "1" not in target {2}
+    assert out["dominant_hits"] == 1          # argmax tagcount -> "2" in target
+    assert out["wrong"]["n"] == 1
+    assert out["wrong"]["dominant_hits"] == 1
+
+
+def test_resnapper_baseline_tiebreak_lowest_id_when_no_tagcount():
+    # all tagcounts NULL -> dominant prior ties, breaks to lowest numeric id,
+    # mirroring the current lowest-id snapper (so no spurious improvement claimed)
+    labels = [label("topic", "y", "10", "right", "t")]
+    candidates = {"y": [
+        {"synset_id": "10", "pos": "n", "gloss": "", "tagcount": None},
+        {"synset_id": "20", "pos": "n", "gloss": "", "tagcount": None},
+    ]}
+    out = resnapper_baseline(labels, candidates)
+    assert out["dominant_pick_for"]["y::10"] == "10"  # lowest-id tie-break
+
+
+def test_resnapper_baseline_skips_uncovered_targets():
+    # operator's intended sense is not among the candidate list -> can't be scored
+    labels = [label("topic", "z", "1", "wrong", "t", intended="999")]
+    candidates = {"z": [{"synset_id": "1", "pos": "n", "gloss": "", "tagcount": 3}]}
+    out = resnapper_baseline(labels, candidates)
+    assert out["n_scored"] == 0
+    assert out["n_uncovered"] == 1
