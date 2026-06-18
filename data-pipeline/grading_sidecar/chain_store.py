@@ -35,20 +35,27 @@ def cohort_files(cohorts: list[str]) -> Iterator[Path]:
             yield from sorted(paths_mod.GRADING_DIR.glob(pattern))
 
 
-def load_chains(cohorts: list[str] | None = None) -> list[dict]:
+def load_chains(cohorts: list[str] | None = None, *, tag_cohort: bool = False) -> list[dict]:
     """Union the cohort files; drop records missing required keys; dedup by signature
-    (last file wins). Defaults to the grading-view cohorts (no stock)."""
+    (last file wins). Defaults to the grading-view cohorts (no stock).
+
+    When `tag_cohort=True`, each returned record carries a `_cohort` key (the name
+    of the cohort the file belonged to, e.g. "spike"/"curated"/"stock"). This is the
+    sense-check sampler's mechanism for cohort-aware random-pool filtering."""
     if cohorts is None:
         cohorts = paths_mod.GRADING_COHORTS
     by_sig: dict[str, dict] = {}
     dropped = 0
-    for p in cohort_files(cohorts):
-        recs, _ = read_jsonl_skip_malformed(p)
-        for r in recs:
-            if not all(r.get(k) for k in _REQUIRED_CHAIN_KEYS):
-                dropped += 1
-                continue
-            by_sig[r["chain_signature"]] = r
+    for cohort in cohorts:
+        for pattern in paths_mod.CHAIN_COHORTS.get(cohort, []):
+            for p in sorted(paths_mod.GRADING_DIR.glob(pattern)):
+                recs, _ = read_jsonl_skip_malformed(p)
+                for r in recs:
+                    if not all(r.get(k) for k in _REQUIRED_CHAIN_KEYS):
+                        dropped += 1
+                        continue
+                    record = {**r, "_cohort": cohort} if tag_cohort else r
+                    by_sig[r["chain_signature"]] = record
     if dropped:
         log.warning("load_chains: dropped %d chain record(s) missing required keys", dropped)
     return list(by_sig.values())

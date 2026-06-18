@@ -15,6 +15,7 @@ function item(word = 'apprehension', role: 'topic' | 'vehicle' = 'topic'): Sense
         ],
         context: { chains: [
             { topic: 'apprehension', vehicle: 'avalanche', chain_signature: 'a',
+              topic_pos: 'n', topic_gloss: 'fearful expectation or anticipation',
               chain: [{ phrase: 'apprehension', head: 'apprehension', synset_id: '1760' },
                       { phrase: 'avalanche', head: 'avalanche', synset_id: '9' }] },
         ] },
@@ -134,9 +135,11 @@ describe('mf-grade-sensecheck', () => {
                 ...item(),
                 context: { chains: [
                     { topic: 'apprehension', vehicle: 'avalanche', chain_signature: 'a',
+                      topic_pos: 'n', topic_gloss: 'fearful expectation or anticipation',
                       chain: [{ phrase: 'apprehension', head: 'apprehension', synset_id: '1760' },
                               { phrase: 'avalanche', head: 'avalanche', synset_id: '9' }] },
                     { topic: 'apprehension', vehicle: 'trapdoor', chain_signature: 'b',
+                      topic_pos: null, topic_gloss: null,
                       chain: [{ phrase: 'apprehension', head: 'apprehension', synset_id: '1760' },
                               { phrase: 'trapdoor', head: 'trapdoor', synset_id: '8' }] },
                 ] },
@@ -150,5 +153,77 @@ describe('mf-grade-sensecheck', () => {
         const ctx = el.shadowRoot!.querySelector('[data-testid="sensecheck-context"]')!.textContent!;
         expect(ctx).toContain('avalanche');   // both chains shown
         expect(ctx).toContain('trapdoor');
+    });
+
+    // -----------------------------------------------------------------------
+    // Task 3: Back button
+    // -----------------------------------------------------------------------
+
+    it('Back button is absent/disabled at item 1', async () => {
+        await start();
+        // At index 0 (first item) the Back button must not exist or be disabled.
+        const btn = el.shadowRoot!.querySelector('[data-testid="sensecheck-back"]') as HTMLButtonElement | null;
+        if (btn) {
+            expect(btn.disabled).toBe(true);
+        }
+        // Confirm we're at item 1.
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('1 / 2');
+    });
+
+    it('Back from item 2 returns to item 1 without POSTing', async () => {
+        await start();
+        // Advance to item 2 via Skip (no POST).
+        await click('[data-testid="verdict-skip"]');
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
+        // Now go back.
+        await click('[data-testid="sensecheck-back"]');
+        expect(postSenseLabel).not.toHaveBeenCalled();
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('1 / 2');
+    });
+
+    // -----------------------------------------------------------------------
+    // Task 3: topic POS/gloss in context panel
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Fix 1: Back button in done phase
+    // -----------------------------------------------------------------------
+
+    it('done phase has a Back button that returns to the last item without an extra POST', async () => {
+        // Label through both items to reach done phase.
+        await start();
+        await click('[data-testid="verdict-right"]');  // item 1 → posts, advances to item 2
+        await click('[data-testid="verdict-right"]');  // item 2 → posts, advances to done
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-done"]')).toBeTruthy();
+        const postCountBeforeBack = postSenseLabel.mock.calls.length;
+        // Back button must exist in done phase.
+        const backBtn = el.shadowRoot!.querySelector('[data-testid="sensecheck-back"]') as HTMLElement | null;
+        expect(backBtn).not.toBeNull();
+        await click('[data-testid="sensecheck-back"]');
+        // Must return to labelling phase at the last item (N / N).
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-done"]')).toBeNull();
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
+        // No extra POST must have been triggered by Back.
+        expect(postSenseLabel.mock.calls.length).toBe(postCountBeforeBack);
+    });
+
+    it('context panel shows topic POS when expanded on a chain that has it', async () => {
+        getSenseCheckSample.mockResolvedValue({
+            count: 1, items: [{
+                ...item('drought', 'vehicle'),
+                context: { chains: [
+                    { topic: 'longing', vehicle: 'drought', chain_signature: 'a',
+                      topic_pos: 'n', topic_gloss: 'prolonged unsatisfied desire',
+                      chain: [{ phrase: 'longing', head: 'longing', synset_id: '72598' },
+                              { phrase: 'drought', head: 'drought', synset_id: '104281' }] },
+                ] },
+            }],
+        });
+        await start();
+        await click('[data-testid="ctx-toggle"]');
+        const ctx = el.shadowRoot!.querySelector('[data-testid="sensecheck-context"]')!.textContent!;
+        // Topic POS and gloss should be rendered within the context block.
+        expect(ctx).toContain('n');                               // topic_pos
+        expect(ctx).toContain('prolonged unsatisfied desire');    // topic_gloss
     });
 });
