@@ -134,3 +134,58 @@ def test_build_items_degrades_when_candidates_absent():
     items = build_sample_items(endpoints, {}, {}, chains)  # no candidates, no glosses
     assert items[0]["candidates"] == []
     assert items[0]["snapped_gloss"] is None
+
+
+# ---------------------------------------------------------------------------
+# Task 1: cohort-aware random stratum
+# ---------------------------------------------------------------------------
+
+def _chain_with_cohort(sig, topic, tsid, vehicle, vsid, cohort):
+    """Chain dict including a cohort tag (as tagged by distinct_endpoints_by_cohort)."""
+    return {"topic": topic, "topic_synset_id": tsid, "vehicle": vehicle,
+            "vehicle_synset_id": vsid, "chain_signature": sig, "_cohort": cohort,
+            "chain": [{"phrase": topic, "head": topic, "synset_id": tsid},
+                      {"phrase": vehicle, "head": vehicle, "synset_id": vsid}]}
+
+
+def test_random_stratum_excludes_curated_topics_and_keeps_spike_topics_and_vehicles():
+    """Random pool keeps vehicles (any cohort) + spike topics; excludes curated/stock topics."""
+    from grading_sidecar.sense_check import sample_sense_check
+    # Arrange: two chains — one curated-topic vehicle, one spike-topic vehicle.
+    chains_by_cohort = [
+        # curated cohort: topic=harbour, vehicle=anchor
+        {"topic": "harbour", "topic_synset_id": "1001", "vehicle": "anchor",
+         "vehicle_synset_id": "2001", "chain_signature": "sig-curated", "_cohort": "curated",
+         "chain": [{"phrase": "harbour", "head": "harbour", "synset_id": "1001"},
+                   {"phrase": "anchor", "head": "anchor", "synset_id": "2001"}]},
+        # spike cohort: topic=longing, vehicle=drought
+        {"topic": "longing", "topic_synset_id": "1002", "vehicle": "drought",
+         "vehicle_synset_id": "2002", "chain_signature": "sig-spike", "_cohort": "spike",
+         "chain": [{"phrase": "longing", "head": "longing", "synset_id": "1002"},
+                   {"phrase": "drought", "head": "drought", "synset_id": "2002"}]},
+    ]
+    # No flags, no labels → everything comes from random pool.
+    out = sample_sense_check([], chains_by_cohort, [], n_flagged=10, n_random=20, seed=1)
+    random_ep = {(e["role"], e["word"]) for e in out if e["stratum"] == "random"}
+    # Vehicles from both cohorts must be in the random pool.
+    assert ("vehicle", "anchor") in random_ep
+    assert ("vehicle", "drought") in random_ep
+    # Spike topic must be in the random pool.
+    assert ("topic", "longing") in random_ep
+    # Curated topic must NOT be in the random pool.
+    assert ("topic", "harbour") not in random_ep
+
+
+def test_flagged_stratum_still_includes_flagged_curated_topic():
+    """Flagged stratum is cohort-agnostic — a flagged curated topic must still surface."""
+    from grading_sidecar.sense_check import sample_sense_check
+    chains_by_cohort = [
+        {"topic": "harbour", "topic_synset_id": "1001", "vehicle": "anchor",
+         "vehicle_synset_id": "2001", "chain_signature": "sig-curated", "_cohort": "curated",
+         "chain": [{"phrase": "harbour", "head": "harbour", "synset_id": "1001"},
+                   {"phrase": "anchor", "head": "anchor", "synset_id": "2001"}]},
+    ]
+    flags = [{"role": "topic", "word": "harbour", "synset_id": "1001"}]
+    out = sample_sense_check(flags, chains_by_cohort, [], n_flagged=10, n_random=0, seed=1)
+    flagged_ep = {(e["role"], e["word"]) for e in out if e["stratum"] == "flagged"}
+    assert ("topic", "harbour") in flagged_ep

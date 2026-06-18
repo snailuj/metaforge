@@ -15,10 +15,16 @@ def distinct_endpoints(chains: list[dict]) -> list[dict]:
     """Distinct (role, word, snapped_synset_id) endpoints across all chains.
 
     Topic and vehicle of every chain; deduped. Endpoints missing a word or synset
-    are skipped (a chain.v1 record always has both, but stay defensive)."""
+    are skipped (a chain.v1 record always has both, but stay defensive).
+
+    Each returned endpoint carries a `cohort` key when any chain for that endpoint
+    has a `_cohort` tag (injected by load_chains(tag_cohort=True)). The cohort of
+    the FIRST chain seen for an endpoint is used (stable under signature-based dedup).
+    Endpoints without a tag carry cohort=None."""
     seen: set[tuple] = set()
     out: list[dict] = []
     for c in chains:
+        cohort = c.get("_cohort")
         for role, word, sid in (
             ("topic", c.get("topic"), c.get("topic_synset_id")),
             ("vehicle", c.get("vehicle"), c.get("vehicle_synset_id")),
@@ -30,8 +36,14 @@ def distinct_endpoints(chains: list[dict]) -> list[dict]:
                 continue
             seen.add(key)
             out.append({"role": role, "word": word,
-                        "snapped_synset_id": str(sid), "stratum": "random"})
+                        "snapped_synset_id": str(sid), "stratum": "random",
+                        "cohort": cohort})
     return out
+
+
+# Cohorts whose TOPICS are hand-picked (synset_ids curated by the operator) and
+# therefore low-value to sense-check: auto-snap is not what determined the sense.
+_CURATED_TOPIC_COHORTS: frozenset[str] = frozenset({"curated", "stock"})
 
 
 def _take(pool: list[dict], k: int, rng: random.Random) -> list[dict]:
@@ -69,6 +81,9 @@ def sample_sense_check(flags: list[dict], chains: list[dict], labels: list[dict]
         e for e in distinct_endpoints(chains)
         if (e["role"], e["word"], e["snapped_synset_id"]) not in flagged_keys
         and (e["role"], e["word"], e["snapped_synset_id"]) not in labelled
+        # Cohort-aware: curated/stock TOPICS are hand-snapped — low sense-check value.
+        # Keep vehicles (any cohort) and topics from auto-snapped cohorts (spike).
+        and not (e["role"] == "topic" and e.get("cohort") in _CURATED_TOPIC_COHORTS)
     ]
 
     rng = random.Random(seed)
