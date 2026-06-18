@@ -16,6 +16,63 @@ from datetime import datetime, timezone
 from metaphor_graph import insert_bridge
 from metaphor_graph import snap_concept_string
 from metaphor_graph import insert_bridge_with_raw_path, BridgeSnapFailure
+from metaphor_graph import snap_by_gloss
+
+
+def _seed_lemma_senses(conn: sqlite3.Connection,
+                       rows: list[tuple[str, str, str, str]]) -> None:
+    """Seed synsets + lemmas for snap_by_gloss tests.
+
+    rows: (synset_id, pos, definition, lemma).
+    """
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS lemmas (
+            synset_id TEXT NOT NULL,
+            lemma     TEXT NOT NULL
+        );
+    """)
+    for sid, pos, defn, lemma in rows:
+        conn.execute("INSERT INTO synsets VALUES (?, ?, ?)", (sid, pos, defn))
+        conn.execute("INSERT INTO lemmas VALUES (?, ?)", (sid, lemma))
+
+
+class TestSnapByGloss:
+    def test_picks_the_gloss_matching_sense(self):
+        conn = _conn()
+        _seed_lemma_senses(conn, [
+            # the lowest-id sense is the WRONG one a no-prior snapper would pick
+            ("100", "n", "a sudden violent disturbance of the atmosphere", "tempest"),
+            ("200", "n", "a violent commotion or emotional upheaval", "tempest"),
+        ])
+        sid = snap_by_gloss(conn, "tempest",
+                            "a turbulent emotional state of inner upheaval")
+        assert sid == "200"  # gloss overlap (upheaval/violent) beats lowest-id
+
+    def test_returns_none_when_no_content_overlap(self):
+        conn = _conn()
+        _seed_lemma_senses(conn, [
+            ("100", "n", "a sudden violent disturbance of the atmosphere", "tempest"),
+        ])
+        # caller falls back to the default resolver when we can't gloss-match
+        assert snap_by_gloss(conn, "tempest", "a small songbird of the finch family") is None
+
+    def test_returns_none_for_empty_inputs(self):
+        conn = _conn()
+        assert snap_by_gloss(conn, "", "anything") is None
+        assert snap_by_gloss(conn, "tempest", "") is None
+
+    def test_returns_none_when_lemma_absent(self):
+        conn = _conn()
+        _seed_lemma_senses(conn, [("100", "n", "a unit of weight", "gram")])
+        assert snap_by_gloss(conn, "tempest", "a violent storm") is None
+
+    def test_tie_breaks_to_lowest_synset_id(self):
+        conn = _conn()
+        _seed_lemma_senses(conn, [
+            ("300", "n", "a violent storm", "squall"),
+            ("100", "n", "a violent storm", "squall"),  # identical gloss, lower id
+        ])
+        assert snap_by_gloss(conn, "squall", "a violent storm") == "100"
 
 
 def _seed_curated(conn: sqlite3.Connection, rows: list[tuple[int, str, str, str, int]]) -> None:

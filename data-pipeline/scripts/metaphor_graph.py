@@ -16,6 +16,7 @@ Public surface:
 from __future__ import annotations
 
 import hashlib
+import re
 import sqlite3
 import logging
 
@@ -491,6 +492,65 @@ def lookup_primary_synset(conn: sqlite3.Connection, lemma: str) -> str | None:
             return sid
 
     return None
+
+
+# Function words carry no sense signal — drop them before gloss overlap.
+_GLOSS_STOPWORDS = frozenset("""
+a an the of to or and in on for with that is as by be from at its it this which
+into such than any some something someone usually especially typically often
+""".split())
+
+
+def _gloss_tokens(text: str) -> set[str]:
+    """Lower-cased content tokens of a gloss: alnum runs, >=3 chars, no stopwords."""
+    return {
+        tok for tok in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(tok) >= 3 and tok not in _GLOSS_STOPWORDS
+    }
+
+
+def snap_by_gloss(conn: sqlite3.Connection, lemma: str,
+                  emitted_gloss: str) -> str | None:
+    """Snap a lemma to the synset whose definition best matches an emitted gloss.
+
+    The emit-the-sense path: the generating model records the one-line sense it
+    intends per node, so we snap by gloss-to-gloss content-word overlap (a Lesk
+    WSD) instead of the no-prior lowest-id heuristic in lookup_primary_synset
+    that produced the measured ~5-16% endpoint sense-contamination.
+
+    Returns the best-overlap synset_id, or None when the lemma is unknown, the
+    gloss is empty, or NO content word overlaps any candidate — in which case the
+    caller falls back to the default resolver (we never guess a sense with zero
+    evidence). Ties break to the lowest synset_id, matching the legacy resolver.
+    """
+    if not lemma or not emitted_gloss:
+        return None
+    want = _gloss_tokens(emitted_gloss)
+    if not want:
+        return None
+    try:
+        rows = conn.execute(
+            "SELECT l.synset_id, s.definition FROM lemmas l "
+            "JOIN synsets s ON s.synset_id = l.synset_id "
+            "WHERE LOWER(l.lemma) = ?",
+            (lemma.strip().lower(),),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        # Fixture DBs lacking lemmas/synsets fail-open to "no match".
+        if "no such table" not in str(exc).lower():
+            raise
+        return None
+    best_sid: str | None = None
+    best_score = 0
+    for sid, defn in rows:
+        score = len(want & _gloss_tokens(defn))
+        if score == 0:
+            continue
+        if score > best_score or (score == best_score
+                                  and (best_sid is None or sid < best_sid)):
+            best_score = score
+            best_sid = sid
+    return best_sid
 
 
 class BridgeSnapFailure(ValueError):
