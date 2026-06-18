@@ -190,3 +190,34 @@ def normalise_judgement(raw: dict) -> dict:
 
 class DesignNotePost(BaseModel):
     content: str = Field(min_length=1, max_length=10000)
+
+
+# Sense-check label — the operator's verdict on whether an endpoint's snapped
+# synset is the intended sense. Keyed on the endpoint (role, word,
+# snapped_synset_id), NOT a chain; chain_signature stores one representative chain
+# for traceability back to context. Written to SENSE_LABELS_PATH only.
+SenseLabelSchemaVersion = Literal["sense_label.v1"]
+SenseRole = Literal["topic", "vehicle"]
+SenseVerdict = Literal["right", "wrong", "rare_ok", "unsure"]
+
+
+class SenseLabel(BaseModel):
+    schema_version: SenseLabelSchemaVersion = "sense_label.v1"
+    # Server injects ts when the client omits it (mirrors JudgementRecord).
+    ts: str = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc).isoformat())
+    role: SenseRole
+    word: str
+    snapped_synset_id: str
+    verdict: SenseVerdict
+    # Set only for wrong / rare_ok (the sense the operator intended); else None.
+    intended_synset_id: Optional[str] = None
+    # One representative chain the endpoint appeared in (traceability, not a key).
+    chain_signature: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _intended_required_for_corrective_verdicts(self) -> "SenseLabel":
+        if self.verdict in ("wrong", "rare_ok") and not self.intended_synset_id:
+            raise ValueError(
+                "intended_synset_id must be set when verdict is 'wrong' or 'rare_ok'"
+            )
+        return self

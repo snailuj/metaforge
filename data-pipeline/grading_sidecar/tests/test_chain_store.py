@@ -60,3 +60,21 @@ def test_load_chains_drops_schema_drift(grading_dir):
 
 def test_load_chains_empty_when_no_files(grading_dir):
     assert load_chains() == []
+
+
+def test_load_chains_cohort_selection_excludes_stock_for_grading(tmp_path, monkeypatch):
+    import json
+    from grading_sidecar import paths as paths_mod
+    from grading_sidecar import chain_store
+    monkeypatch.setattr(paths_mod, "GRADING_DIR", tmp_path)
+    (tmp_path / "stock").mkdir()
+    (tmp_path / "chain-topics_curated.jsonl").write_text(json.dumps(_chain("c1")) + "\n")
+    (tmp_path / "sonnet_chains_provisional_r1.jsonl").write_text(json.dumps(_chain("s1")) + "\n")  # legacy spike
+    (tmp_path / "stock" / "chain-topics_stock.jsonl").write_text(json.dumps(_chain("k1")) + "\n")
+
+    grading = {c["chain_signature"] for c in chain_store.load_chains(paths_mod.GRADING_COHORTS)}
+    assert grading == {"c1", "s1"}                       # stock excluded from grading views
+    full = {c["chain_signature"] for c in chain_store.load_chains(paths_mod.SENSECHECK_COHORTS)}
+    assert full == {"c1", "s1", "k1"}                    # sense-check sees stock
+    # default (no args) == grading cohorts
+    assert {c["chain_signature"] for c in chain_store.load_chains()} == {"c1", "s1"}

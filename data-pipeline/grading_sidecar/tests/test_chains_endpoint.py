@@ -66,3 +66,21 @@ def test_get_chains_empty_when_no_files(chains_client):
     r = chains_client.get("/api/grading/chains")
     assert r.status_code == 200
     assert r.json() == {"count": 0, "skipped_malformed": 0, "records": []}
+
+
+def test_chains_endpoint_excludes_stock(client, tmp_path, monkeypatch):
+    import json
+    from grading_sidecar import paths as paths_mod
+    monkeypatch.setattr(paths_mod, "GRADING_DIR", tmp_path)
+    (tmp_path / "stock").mkdir()
+    rec = {"schema_version": "chain.v1", "topic": "t", "topic_synset_id": "1",
+           "vehicle": "v", "vehicle_synset_id": "2", "proposer": "p", "round": 1,
+           "chain_signature": "a" * 64, "generated_at": "2026-06-01T00:00:00+00:00",
+           "chain": [{"phrase": "t", "head": "t", "synset_id": "1"},
+                     {"phrase": "v", "head": "v", "synset_id": "2"}]}
+    (tmp_path / "chain-topics_curated.jsonl").write_text(json.dumps(rec) + "\n")
+    stock = {**rec, "chain_signature": "b" * 64}
+    (tmp_path / "stock" / "chain-topics_stock.jsonl").write_text(json.dumps(stock) + "\n")
+    body = client.get("/api/grading/chains").json()
+    sigs = {r["chain_signature"] for r in body["records"]}
+    assert "a" * 64 in sigs and "b" * 64 not in sigs   # stock not in the grading view

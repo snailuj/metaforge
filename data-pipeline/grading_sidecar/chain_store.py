@@ -1,11 +1,18 @@
-"""Shared loader for the generated metaphor chains (sonnet_chains_provisional_r*).
+"""Shared loader for the generated metaphor chains.
 
 Extracted from walk._load_chains — the walk, the /chains route, and the blind
 re-grade route all need the same "union the round files, keyed by signature"
 view. Centralised here so the dedup + schema-drift guard lives in one place.
+
+Chain files are grouped into cohorts (`spike`, `curated`, `stock`) defined in
+paths.CHAIN_COHORTS. Each reader passes the cohort list it needs:
+  - Grading views (walk/chains/topics/stats/regrade): GRADING_COHORTS
+  - Sense-check: SENSECHECK_COHORTS (adds `stock` for context)
 """
 from __future__ import annotations
 import logging
+from collections.abc import Iterator
+from pathlib import Path
 
 from .persistence import read_jsonl_skip_malformed
 from . import paths as paths_mod
@@ -18,13 +25,24 @@ log = logging.getLogger(__name__)
 _REQUIRED_CHAIN_KEYS = ("chain_signature", "topic", "vehicle")
 
 
-def load_chains() -> list[dict]:
-    """Union all round files; drop records missing required keys and dedup by
-    signature (last file wins), so one malformed or duplicated generator line can
-    neither 500 a consumer nor desync a signature join."""
+def cohort_files(cohorts: list[str]) -> Iterator[Path]:
+    """Yield the chain files for `cohorts`, in cohort-then-filename order.
+
+    The fall-through composition: each reader picks which cohorts it sees by passing
+    a cohort list. Patterns are resolved relative to paths.GRADING_DIR."""
+    for cohort in cohorts:
+        for pattern in paths_mod.CHAIN_COHORTS.get(cohort, []):
+            yield from sorted(paths_mod.GRADING_DIR.glob(pattern))
+
+
+def load_chains(cohorts: list[str] | None = None) -> list[dict]:
+    """Union the cohort files; drop records missing required keys; dedup by signature
+    (last file wins). Defaults to the grading-view cohorts (no stock)."""
+    if cohorts is None:
+        cohorts = paths_mod.GRADING_COHORTS
     by_sig: dict[str, dict] = {}
     dropped = 0
-    for p in sorted(paths_mod.GRADING_DIR.glob(paths_mod.CHAINS_GLOB)):
+    for p in cohort_files(cohorts):
         recs, _ = read_jsonl_skip_malformed(p)
         for r in recs:
             if not all(r.get(k) for k in _REQUIRED_CHAIN_KEYS):

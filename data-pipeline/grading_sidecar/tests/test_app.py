@@ -36,3 +36,12 @@ def test_host_header_allowlist_accepts_vite_dev_host(client):
     frontend can talk to a locally-running sidecar in dev."""
     r = client.get("/api/grading/healthz", headers={"Host": "localhost:5173"})
     assert r.status_code == 200
+
+
+def test_autocommit_target_uses_data_git_root(monkeypatch):
+    from grading_sidecar import app as app_mod
+    from grading_sidecar import paths as paths_mod
+    monkeypatch.setattr(paths_mod, "GRADING_DATA_GIT_ROOT", "/srv/grading-data")
+    root, subdir = app_mod.autocommit_target()
+    assert root == "/srv/grading-data"
+    assert subdir == "data-pipeline/grading/"

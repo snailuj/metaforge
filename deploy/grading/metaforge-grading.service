@@ -12,12 +12,18 @@ User=agent
 WorkingDirectory=/home/agent/projects/metaforge/.worktrees/next
 EnvironmentFile=/etc/default/metaforge-grading
 Environment=GRADING_DEV=
-# Pin the live tool to the .worktrees/next deploy worktree (branch grading-live),
-# isolated from main-checkout dev-branch churn. paths.py + the git autocommit derive
-# BOTH the code and the grading-data location from PYTHONPATH — this is the single
-# lever. NOTE: a PYTHONPATH in the EnvironmentFile OVERRIDES this inline value at
+# CODE runs from the .worktrees/next deploy worktree (branch grading-live), pinned by
+# PYTHONPATH. NOTE: a PYTHONPATH in the EnvironmentFile OVERRIDES this inline value at
 # runtime, so deploy.sh strips PYTHONPATH from /etc/default to leave this authoritative.
 Environment=PYTHONPATH=/home/agent/projects/metaforge/.worktrees/next/data-pipeline/
+# Code/data split (reconciliation round 1): grading DATA + the 15-min autocommit live in
+# a SEPARATE data worktree (.worktrees/grading-data, branch grading-data), so the code
+# worktree stops accumulating data and cutovers stay clean. paths.GRADING_DIR reads
+# GRADING_DATA_DIR; the autocommit targets GRADING_DATA_GIT_ROOT. ReadWritePaths below
+# (/home/agent/projects/metaforge) already covers the data worktree. (If /etc/default
+# ever sets these keys it would override — like PYTHONPATH; keep them out of that file.)
+Environment=GRADING_DATA_DIR=/home/agent/projects/metaforge/.worktrees/grading-data/data-pipeline/grading
+Environment=GRADING_DATA_GIT_ROOT=/home/agent/projects/metaforge/.worktrees/grading-data
 ExecStart=/home/agent/projects/metaforge/.worktrees/next/data-pipeline/.venv/bin/python -m grading_sidecar.main
 Restart=on-failure
 RestartSec=2

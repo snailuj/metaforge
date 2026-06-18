@@ -157,4 +157,22 @@ describe('GradingClient', () => {
         const client = new GradingClient();
         await expect(client.getRegradeAgreement()).rejects.toThrow('getRegradeAgreement: 500');
     });
+
+    it('getSenseCheckSample requests the stratified sample endpoint', async () => {
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ count: 0, items: [] }) });
+        const client = new GradingClient();
+        await client.getSenseCheckSample({ nFlagged: 40, nRandom: 40, seed: 3 });
+        expect(fetchMock).toHaveBeenCalledWith('/api/grading/sense-check/sample?n_flagged=40&n_random=40&seed=3');
+    });
+
+    it('postSenseLabel POSTs to the sense-check endpoint', async () => {
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+        const client = new GradingClient();
+        await client.postSenseLabel({
+            schema_version: 'sense_label.v1', role: 'topic', word: 'apprehension',
+            snapped_synset_id: '1760', verdict: 'wrong', intended_synset_id: '72797',
+            chain_signature: 'a',
+        });
+        expect(fetchMock).toHaveBeenCalledWith('/api/grading/sense-check', expect.objectContaining({ method: 'POST' }));
+    });
 });
