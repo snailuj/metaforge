@@ -38,6 +38,17 @@ def test_chain_step_nullable_synset():
     s = ChainStep(phrase="tail meeting mouth", head="tail", synset_id=None)
     assert s.synset_id is None
 
+def test_chain_step_retains_emitted_gloss():
+    # emit-the-sense: the model's intended one-line sense per node, recorded at
+    # generation time (a lemma can be re-snapped later; an intended sense cannot).
+    s = ChainStep(phrase="ferment", head="ferment", synset_id="42",
+                  gloss="the slow chemical breakdown of a substance by microbes")
+    assert s.gloss == "the slow chemical breakdown of a substance by microbes"
+
+def test_chain_step_gloss_defaults_none_for_backward_compat():
+    s = ChainStep(phrase="anger", head="anger", synset_id="12345")
+    assert s.gloss is None
+
 def test_chain_record_rejects_unknown_schema_version():
     with pytest.raises(ValueError):
         ChainRecord(**_valid_chain(schema_version="chain.v999"))

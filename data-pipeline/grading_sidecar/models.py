@@ -42,6 +42,11 @@ class ChainStep(BaseModel):
     phrase: str = Field(min_length=1)
     head: str = Field(min_length=1)
     synset_id: Optional[str] = None
+    # emit-the-sense: the one-line WordNet-style gloss the generating model
+    # intended for this node, captured at generation time so the snap-to-synset
+    # is gloss-matched (not lowest-id guesswork) and the intent survives re-snaps.
+    # Optional + default None keeps every pre-emit-the-sense record valid.
+    gloss: Optional[str] = None
 
 
 class ChainRecord(BaseModel):
