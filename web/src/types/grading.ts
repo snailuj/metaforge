@@ -165,7 +165,9 @@ export interface NormalisedJudgement {
 }
 
 // --- Sense-check (anchors snap-correctness to human gold) ---
-export type SenseVerdict = 'right' | 'wrong' | 'rare_ok' | 'unsure';
+// 'split' means the snapper conflated multiple distinct senses for this endpoint —
+// flag for per-sense splitting. Carries no intended_synset_id (like 'right'/'unsure').
+export type SenseVerdict = 'right' | 'wrong' | 'rare_ok' | 'unsure' | 'split';
 
 export interface SenseCandidate {
     synset_id: string;

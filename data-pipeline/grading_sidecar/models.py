@@ -198,7 +198,7 @@ class DesignNotePost(BaseModel):
 # for traceability back to context. Written to SENSE_LABELS_PATH only.
 SenseLabelSchemaVersion = Literal["sense_label.v1"]
 SenseRole = Literal["topic", "vehicle"]
-SenseVerdict = Literal["right", "wrong", "rare_ok", "unsure"]
+SenseVerdict = Literal["right", "wrong", "rare_ok", "unsure", "split"]
 
 
 class SenseLabel(BaseModel):

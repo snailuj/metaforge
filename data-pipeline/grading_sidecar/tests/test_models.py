@@ -305,3 +305,23 @@ def test_has_bad_head():
     assert has_bad_head({"tags": ["leap", "padding"]}) is False
     assert has_bad_head({"tags": []}) is False
     assert has_bad_head({}) is False
+
+
+# --- Task 1: 'split' sense verdict ---
+
+def test_sense_label_split_is_valid_with_no_intended():
+    """split carries no intended sense — should be accepted with intended_synset_id=None."""
+    from pydantic import ValidationError
+    from grading_sidecar.models import SenseLabel
+    # Must not raise — split is not in the corrective set (wrong/rare_ok).
+    lbl = SenseLabel(role="topic", word="bank", snapped_synset_id="999", verdict="split")
+    assert lbl.verdict == "split"
+    assert lbl.intended_synset_id is None
+
+def test_sense_label_split_with_intended_is_also_valid():
+    """split MAY carry an intended_synset_id even though it is not required."""
+    from grading_sidecar.models import SenseLabel
+    lbl = SenseLabel(role="vehicle", word="bank", snapped_synset_id="999",
+                     verdict="split", intended_synset_id="123")
+    assert lbl.verdict == "split"
+    assert lbl.intended_synset_id == "123"
