@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { GradingClient } from '../api/grading-client';
 import type { SenseCandidate, SenseCheckItem, SenseLabel, SenseVerdict } from '../types/grading';
@@ -87,6 +87,7 @@ export class MfGradeSensecheck extends LitElement {
             this.sample = res.items;
             this.index = 0;
             this.pendingVerdict = null;
+            this.selectedApt = [];
             this.showContext = false;
             this.phase = this.sample.length ? 'labelling' : 'done';
         } catch (e) {
@@ -245,7 +246,7 @@ export class MfGradeSensecheck extends LitElement {
                     const ticked = isSplit && this.selectedApt.includes(c.synset_id);
                     return html`
                     <button class="cand ${ticked ? 'selected' : ''}" data-testid="cand-${c.synset_id}"
-                            aria-pressed=${isSplit ? String(ticked) : 'false'}
+                            aria-pressed=${isSplit ? String(ticked) : nothing}
                             @click=${() => this._onCandidate(c)}>
                         ${c.pos ? html`<span class="cpos">${c.pos}</span>` : ''}${c.gloss}
                         ${c.tagcount != null ? html`<span class="ctag">tagcount ${c.tagcount}</span>` : ''}

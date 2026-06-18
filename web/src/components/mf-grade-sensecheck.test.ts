@@ -283,6 +283,39 @@ describe('mf-grade-sensecheck', () => {
         expect(posted.apt_synset_ids).toEqual([]);
     });
 
+    // -----------------------------------------------------------------------
+    // Fix 1 (review): selectedApt must not leak across batches
+    // -----------------------------------------------------------------------
+
+    it('selectedApt does not leak: _start() resets it before the next batch renders', async () => {
+        // Regression guard: _start() must clear selectedApt alongside pendingVerdict.
+        // Without the fix, a stale tick from a previous split survives into the new batch.
+        // The leak surface: _post() reads this.selectedApt directly, so any path that
+        // calls _post('split') without first calling _onVerdict('split') (which clears it)
+        // would carry the stale ids. _start() is one such re-entry point.
+        await start();
+
+        // Tap Split and tick one candidate — selectedApt = ['1760'].
+        await click('[data-testid="verdict-split"]');
+        await click('[data-testid="cand-1760"]');
+
+        // _start() is called (simulates "Label another batch" / "Try again" from done/error).
+        // This is the point where the fix must act: selectedApt must be [] after _start().
+        getSenseCheckSample.mockResolvedValue({ count: 1, items: [item()] });
+        (el as any)._start();
+        await el.updateComplete; await tick(); await el.updateComplete;
+
+        // Directly call _post('split') without going through _onVerdict('split')
+        // (which would legitimately reset selectedApt). This exposes the stale state.
+        (el as any)._post('split', null);
+        await el.updateComplete; await tick(); await el.updateComplete;
+
+        // apt_synset_ids must be [] — the stale '1760' from the pre-_start() tick must NOT appear.
+        const posted = postSenseLabel.mock.calls[0][0];
+        expect(posted.verdict).toBe('split');
+        expect(posted.apt_synset_ids).toEqual([]);
+    });
+
     it('context panel shows topic POS when expanded on a chain that has it', async () => {
         getSenseCheckSample.mockResolvedValue({
             count: 1, items: [{
