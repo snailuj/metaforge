@@ -90,19 +90,29 @@ def sample_sense_check(flags: list[dict], chains: list[dict], labels: list[dict]
     return _take(flagged_pool, n_flagged, rng) + _take(random_pool, n_random, rng)
 
 
-def context_for(role: str, word: str, synset_id: str, chains: list[dict]) -> list[dict]:
+def context_for(role: str, word: str, synset_id: str, chains: list[dict],
+                glosses: dict[str, dict] | None = None) -> list[dict]:
     """Every chain the endpoint appears in (pairing + steps), for the context panel.
 
     Matched on role's synset_id AND word, so the same synset under a different
-    surface word isn't conflated."""
+    surface word isn't conflated.
+
+    When `glosses` is provided, each context chain is enriched with the paired
+    TOPIC's POS and gloss (topic_pos, topic_gloss), resolved from chain[0].synset_id.
+    Absent entries degrade gracefully to None."""
     sfield = "topic_synset_id" if role == "topic" else "vehicle_synset_id"
     wfield = "topic" if role == "topic" else "vehicle"
     out: list[dict] = []
     for c in chains:
         if str(c.get(sfield)) == str(synset_id) and c.get(wfield) == word:
+            # Topic synset_id is always the first chain step.
+            topic_sid = str(c.get("topic_synset_id") or "")
+            topic_g = (glosses or {}).get(topic_sid, {}) if topic_sid else {}
             out.append({"topic": c.get("topic"), "vehicle": c.get("vehicle"),
                         "chain": c.get("chain", []),
-                        "chain_signature": c.get("chain_signature")})
+                        "chain_signature": c.get("chain_signature"),
+                        "topic_pos": topic_g.get("pos"),
+                        "topic_gloss": topic_g.get("definition")})
     return out
 
 
@@ -111,13 +121,14 @@ def build_sample_items(endpoints: list[dict], candidates: dict[str, list[dict]],
     """Enrich sampled endpoints with snapped gloss/POS, candidate senses, context.
 
     `glosses` = synset_id -> {pos, definition} (the chain_glosses precompute, reused
-    for the SNAPPED gloss). `candidates` = lemma -> [senses] (the new precompute, the
-    picker list). Both degrade gracefully to None / [] when absent."""
+    for the SNAPPED gloss and for the paired topic's POS/gloss in context chains).
+    `candidates` = lemma -> [senses] (the new precompute, the picker list). Both
+    degrade gracefully to None / [] when absent."""
     items: list[dict] = []
     for e in endpoints:
         sid, word, role = e["snapped_synset_id"], e["word"], e["role"]
         g = glosses.get(sid, {})
-        ctx = context_for(role, word, sid, chains)
+        ctx = context_for(role, word, sid, chains, glosses=glosses)
         items.append({
             "role": role, "word": word, "snapped_synset_id": sid,
             "stratum": e.get("stratum", "random"),

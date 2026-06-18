@@ -189,3 +189,40 @@ def test_flagged_stratum_still_includes_flagged_curated_topic():
     out = sample_sense_check(flags, chains_by_cohort, [], n_flagged=10, n_random=0, seed=1)
     flagged_ep = {(e["role"], e["word"]) for e in out if e["stratum"] == "flagged"}
     assert ("topic", "harbour") in flagged_ep
+
+
+# ---------------------------------------------------------------------------
+# Task 2: topic POS + gloss in each context chain
+# ---------------------------------------------------------------------------
+
+def test_context_chain_carries_topic_pos_and_gloss_for_vehicle_item():
+    """context_for returns chains with topic_pos + topic_gloss resolved from glosses map."""
+    from grading_sidecar.sense_check import build_sample_items
+    chains = [_chain("a", "longing", "72598", "drought", "104281")]
+    # Sense-checking a VEHICLE — context chains should show the paired topic's POS/gloss.
+    endpoints = [{"role": "vehicle", "word": "drought",
+                  "snapped_synset_id": "104281", "stratum": "random"}]
+    glosses = {
+        "104281": {"pos": "n", "definition": "a dry spell"},
+        "72598":  {"pos": "n", "definition": "prolonged desire"},
+    }
+    items = build_sample_items(endpoints, {}, glosses, chains)
+    ctx_chains = items[0]["context"]["chains"]
+    assert len(ctx_chains) == 1
+    chain = ctx_chains[0]
+    assert chain["topic_pos"] == "n"
+    assert chain["topic_gloss"] == "prolonged desire"
+
+
+def test_context_chain_topic_pos_and_gloss_are_none_when_absent():
+    """topic_pos and topic_gloss gracefully degrade to None when the gloss map lacks the topic."""
+    from grading_sidecar.sense_check import build_sample_items
+    chains = [_chain("a", "longing", "72598", "drought", "104281")]
+    endpoints = [{"role": "vehicle", "word": "drought",
+                  "snapped_synset_id": "104281", "stratum": "random"}]
+    # Glosses map has the vehicle's synset but NOT the topic's synset_id.
+    glosses = {"104281": {"pos": "n", "definition": "a dry spell"}}
+    items = build_sample_items(endpoints, {}, glosses, chains)
+    chain = items[0]["context"]["chains"][0]
+    assert chain["topic_pos"] is None
+    assert chain["topic_gloss"] is None
