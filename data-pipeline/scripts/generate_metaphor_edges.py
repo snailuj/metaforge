@@ -63,6 +63,7 @@ def chain_records_from_sonnet(
     round_num: int,
     generated_at: str,
     resolve_synset,
+    resolve_by_gloss=None,
 ) -> list[dict]:
     """Explode a Sonnet response into validated chain.v1 records.
 
@@ -73,7 +74,27 @@ def chain_records_from_sonnet(
     FINAL phrases (what a grader sees), so it matches across runs that produce
     the same walk. A vehicle whose lemma does not resolve to a synset is
     skipped (a chain.v1 record requires a vehicle_synset_id).
+
+    emit-the-sense: when `resolve_by_gloss(lemma, gloss) -> synset_id | None` is
+    supplied and the model emitted a per-step `gloss`, each node is snapped by
+    gloss-to-gloss match first, falling back to `resolve_synset` on no match.
+    Every step records its emitted gloss (topic from the curated `gloss` param,
+    vehicle/intermediates from the model) so the sense intent survives re-snaps.
+    With `resolve_by_gloss=None` (default) the snap is identical to before.
     """
+    def _snap(emitted_gloss, *fallback_lemmas):
+        """Gloss-match first (emit-the-sense), else the legacy resolver(s)."""
+        lemma = fallback_lemmas[0]
+        if resolve_by_gloss is not None and emitted_gloss:
+            sid = resolve_by_gloss(lemma, emitted_gloss)
+            if sid:
+                return sid
+        for fl in fallback_lemmas:
+            sid = resolve_synset(fl)
+            if sid:
+                return sid
+        return None
+
     out: list[dict] = []
     seen_sigs: set[str] = set()
     for v in sonnet_resp.get("vehicles", []) if isinstance(sonnet_resp, dict) else []:
@@ -83,7 +104,12 @@ def chain_records_from_sonnet(
         if not isinstance(vehicle, str) or not vehicle.strip():
             continue
         vehicle = vehicle.strip()
-        vehicle_synset_id = resolve_synset(vehicle)
+        raw_chain = v.get("chain", []) if isinstance(v.get("chain"), list) else []
+        # the vehicle's emitted sense is the model's final step gloss
+        vehicle_gloss = (raw_chain[-1].get("gloss")
+                         if raw_chain and isinstance(raw_chain[-1], dict) else None)
+        vehicle_gloss = vehicle_gloss if isinstance(vehicle_gloss, str) else None
+        vehicle_synset_id = _snap(vehicle_gloss, vehicle)
         if not vehicle_synset_id:
             log.info("skip vehicle %r for topic %r: no synset", vehicle, topic)
             continue
@@ -93,8 +119,8 @@ def chain_records_from_sonnet(
             log.info("skip self-metaphor %r for topic %r", vehicle, topic)
             continue
 
-        raw_chain = v.get("chain", []) if isinstance(v.get("chain"), list) else []
-        steps = [{"phrase": topic, "head": topic, "synset_id": topic_synset_id}]
+        steps = [{"phrase": topic, "head": topic,
+                  "synset_id": topic_synset_id, "gloss": gloss or None}]
         for s in raw_chain[1:-1]:  # intermediates only; endpoints are forced
             if not isinstance(s, dict):
                 continue
@@ -104,9 +130,12 @@ def chain_records_from_sonnet(
             phrase = phrase.strip()
             head = s.get("head")
             head = head.strip() if isinstance(head, str) and head.strip() else phrase
-            sid = resolve_synset(head) or resolve_synset(phrase)
-            steps.append({"phrase": phrase, "head": head, "synset_id": sid})
-        steps.append({"phrase": vehicle, "head": vehicle, "synset_id": vehicle_synset_id})
+            s_gloss = s.get("gloss") if isinstance(s.get("gloss"), str) else None
+            sid = _snap(s_gloss, head, phrase)
+            steps.append({"phrase": phrase, "head": head,
+                          "synset_id": sid, "gloss": s_gloss})
+        steps.append({"phrase": vehicle, "head": vehicle,
+                      "synset_id": vehicle_synset_id, "gloss": vehicle_gloss})
 
         phrases = [s["phrase"] for s in steps]
         signature = compute_chain_signature(proposer, phrases)
@@ -256,6 +285,7 @@ def run(
     haiku_fn,
     sonnet_fn,
     resolve_synset,
+    resolve_by_gloss=None,
     proposer: str = "sonnet_v1",
     round_num: int = 2,
     batch_size: int = 20,
@@ -331,7 +361,7 @@ def run(
                     recs = chain_records_from_sonnet(
                         topic=word, topic_synset_id=tsid, gloss=gloss, sonnet_resp=sresp,
                         proposer=proposer, round_num=round_num, generated_at=now_fn(),
-                        resolve_synset=resolve_synset,
+                        resolve_synset=resolve_synset, resolve_by_gloss=resolve_by_gloss,
                     )
                 else:
                     log.info("skip %s: no Haiku metaphors", word)
@@ -479,6 +509,14 @@ def make_resolver(conn):
     return lambda w: lookup_primary_synset(conn, w)
 
 
+def make_gloss_resolver(conn):
+    """emit-the-sense resolver: snap a lemma to the synset whose definition best
+    matches the model's emitted one-line gloss; None on no match (caller falls
+    back to make_resolver)."""
+    from metaphor_graph import snap_by_gloss
+    return lambda lemma, gloss: snap_by_gloss(conn, lemma, gloss)
+
+
 def make_judge_fn(model: str):
     return lambda rec: mlr.judge_chain(rec, model=model)
 
@@ -603,6 +641,7 @@ def main() -> int:
     conn = sqlite3.connect(args.db)
     try:
         resolve_synset = make_resolver(conn)
+        resolve_by_gloss = make_gloss_resolver(conn)  # emit-the-sense gloss-match snap
         avoid_vehicles = load_avoid_vehicles(args.avoid_vehicles)
         if avoid_vehicles:
             log.info("vehicle AVOID nudge ON: %d over-used vehicles", len(avoid_vehicles))
@@ -639,7 +678,8 @@ def main() -> int:
 
         summary = run(
             topics=topics, output_jsonl=args.output, haiku_fn=haiku_fn, sonnet_fn=sonnet_fn,
-            resolve_synset=resolve_synset, proposer=args.proposer, round_num=args.round_num,
+            resolve_synset=resolve_synset, resolve_by_gloss=resolve_by_gloss,
+            proposer=args.proposer, round_num=args.round_num,
             batch_size=args.batch_size, max_topics=args.max_topics, max_cost_usd=args.max_cost_usd,
             tripwire=tripwire, judge_fn=judge_fn, judge_sample=args.judge_sample, anti_examples=anti,
             avoid_vehicles=avoid_vehicles,

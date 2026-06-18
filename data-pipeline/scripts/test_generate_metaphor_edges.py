@@ -38,6 +38,22 @@ def _resolver(mapping):
     return lambda w: mapping.get(w)
 
 
+def _gloss_resolver(mapping):
+    """resolve_by_gloss double, keyed on (lemma, emitted_gloss) so a test proves
+    the emitted gloss is threaded through — not just the lemma."""
+    return lambda lemma, g: mapping.get((lemma, g))
+
+
+def _sonnet_resp_with_glosses(vehicle="volcano", mid="pressure"):
+    return {"topic": "ignored", "vehicles": [
+        {"vehicle": vehicle, "chain": [
+            {"phrase": "anger", "head": "anger", "gloss": "GT"},
+            {"phrase": mid, "head": mid, "gloss": "GP"},
+            {"phrase": vehicle, "head": vehicle, "gloss": "GV"},
+        ]},
+    ]}
+
+
 # --- chain_records_from_sonnet (the canonicalising transform) --------------
 def test_transform_produces_valid_chainrecord():
     recs = mge.chain_records_from_sonnet(
@@ -62,8 +78,44 @@ def test_transform_forces_canonical_endpoints():
         resolve_synset=_resolver({"anger": "1", "volcano": "2", "pressure": "3"}),
     )
     r = recs[0]
-    assert r["chain"][0] == {"phrase": "anger", "head": "anger", "synset_id": "1"}
-    assert r["chain"][-1] == {"phrase": "volcano", "head": "volcano", "synset_id": "2"}
+    # endpoints now carry a uniform gloss key: topic from the curated gloss param,
+    # vehicle from its emitted gloss (None here — _sonnet_resp emits no glosses).
+    assert r["chain"][0] == {"phrase": "anger", "head": "anger", "synset_id": "1", "gloss": "g"}
+    assert r["chain"][-1] == {"phrase": "volcano", "head": "volcano", "synset_id": "2", "gloss": None}
+
+
+def test_transform_uses_emitted_gloss_to_snap():
+    # emit-the-sense: the gloss-aware resolver wins over the legacy resolver, and
+    # the emitted gloss is recorded on each step.
+    recs = mge.chain_records_from_sonnet(
+        topic="anger", topic_synset_id="1", gloss="a strong feeling of displeasure",
+        sonnet_resp=_sonnet_resp_with_glosses(), proposer="sonnet_v1", round_num=2,
+        generated_at="2026-06-04T00:00:00+00:00",
+        resolve_synset=_resolver({"anger": "1", "volcano": "2", "pressure": "3"}),
+        resolve_by_gloss=_gloss_resolver({("volcano", "GV"): "2g", ("pressure", "GP"): "3g"}),
+    )
+    r = recs[0]
+    assert r["vehicle_synset_id"] == "2g"                 # gloss-match beat resolver "2"
+    assert r["chain"][-1]["gloss"] == "GV"
+    assert r["chain"][1]["synset_id"] == "3g" and r["chain"][1]["gloss"] == "GP"
+    assert r["chain"][0]["gloss"] == "a strong feeling of displeasure"
+    ChainRecord(**r)
+
+
+def test_transform_falls_back_to_resolver_when_gloss_unmatched():
+    # resolve_by_gloss returns None (no gloss match) -> legacy resolver is used,
+    # but the emitted gloss is still recorded.
+    recs = mge.chain_records_from_sonnet(
+        topic="anger", topic_synset_id="1", gloss="g",
+        sonnet_resp=_sonnet_resp_with_glosses(), proposer="sonnet_v1", round_num=2,
+        generated_at="2026-06-04T00:00:00+00:00",
+        resolve_synset=_resolver({"anger": "1", "volcano": "2", "pressure": "3"}),
+        resolve_by_gloss=_gloss_resolver({}),  # never matches
+    )
+    r = recs[0]
+    assert r["vehicle_synset_id"] == "2"                  # fell back to resolver
+    assert r["chain"][-1]["gloss"] == "GV"                # gloss still recorded
+    assert r["chain"][1]["synset_id"] == "3"
 
 
 def test_transform_signature_matches_final_phrases():
@@ -173,6 +225,28 @@ def test_run_writes_valid_chainrecords(tmp_path):
     for l in lines:
         ChainRecord(**l)  # all grading-ingestible
     assert {l["topic_synset_id"] for l in lines} == {"1", "2"}
+
+
+def test_run_threads_resolve_by_gloss(tmp_path):
+    # emit-the-sense end-to-end: run() passes resolve_by_gloss through, so a
+    # gloss-emitting Sonnet response snaps the vehicle by gloss-match.
+    out = tmp_path / "chains.jsonl"
+
+    def sonnet(prompt):
+        return _sonnet_resp_with_glosses()
+
+    res = mge.run(
+        topics=[{"word": "anger", "topic_synset_id": "1", "gloss": "g1"}],
+        output_jsonl=str(out), haiku_fn=_haiku, sonnet_fn=sonnet,
+        resolve_synset=_resolve_all,                       # would snap volcano -> "9"
+        resolve_by_gloss=_gloss_resolver({("volcano", "GV"): "9g", ("pressure", "GP"): "7g"}),
+        proposer="sonnet_v1", round_num=2, batch_size=20,
+        now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert res["chains_written"] == 1
+    rec = json.loads(out.read_text().splitlines()[0])
+    assert rec["vehicle_synset_id"] == "9g"               # gloss-match, not "9"
+    assert rec["chain"][-1]["gloss"] == "GV"
 
 
 def test_run_threads_avoid_vehicles_into_sonnet_prompt(tmp_path):
