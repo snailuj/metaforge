@@ -208,26 +208,79 @@ describe('mf-grade-sensecheck', () => {
     });
 
     // -----------------------------------------------------------------------
-    // Task 1/2: 'split' verdict button — immediate POST, no candidate picker
+    // Task 2 (ux4): 'split' verdict — multi-select picker + Confirm
     // -----------------------------------------------------------------------
 
-    it('Split button posts verdict=split with intended_synset_id=null and advances', async () => {
+    it('Split reveals the candidate list WITHOUT posting', async () => {
         await start();
-        const btn = el.shadowRoot!.querySelector('[data-testid="verdict-split"]') as HTMLElement | null;
-        expect(btn).not.toBeNull();
         await click('[data-testid="verdict-split"]');
+        // Candidate list must appear.
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-candidates"]')).toBeTruthy();
+        // No POST should have happened.
+        expect(postSenseLabel).not.toHaveBeenCalled();
+    });
+
+    it('Split reveals Confirm button; clicking two candidates then Confirm posts split with both apt_synset_ids', async () => {
+        await start();
+        await click('[data-testid="verdict-split"]');
+        // Confirm button should be visible.
+        expect(el.shadowRoot!.querySelector('[data-testid="confirm-split"]')).toBeTruthy();
+        // Tick two candidates.
+        await click('[data-testid="cand-1760"]');
+        await click('[data-testid="cand-72797"]');
+        // Still no POST — waiting for Confirm.
+        expect(postSenseLabel).not.toHaveBeenCalled();
+        await click('[data-testid="confirm-split"]');
         expect(postSenseLabel).toHaveBeenCalledOnce();
         const posted = postSenseLabel.mock.calls[0][0];
         expect(posted.verdict).toBe('split');
         expect(posted.intended_synset_id).toBeNull();
+        // Both synset_ids must appear in apt_synset_ids (order-insensitive).
+        expect(posted.apt_synset_ids).toHaveLength(2);
+        expect(posted.apt_synset_ids).toContain('1760');
+        expect(posted.apt_synset_ids).toContain('72797');
+        // Must advance.
         expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
     });
 
-    it('Split does NOT open the candidate picker', async () => {
+    it('Clicking a candidate again un-ticks it (removed from the payload)', async () => {
         await start();
         await click('[data-testid="verdict-split"]');
-        // Candidate list must never appear on a split verdict.
-        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-candidates"]')).toBeNull();
+        // Tick then un-tick candidate 1760.
+        await click('[data-testid="cand-1760"]');
+        await click('[data-testid="cand-1760"]');
+        // Tick candidate 72797.
+        await click('[data-testid="cand-72797"]');
+        await click('[data-testid="confirm-split"]');
+        const posted = postSenseLabel.mock.calls[0][0];
+        expect(posted.apt_synset_ids).toHaveLength(1);
+        expect(posted.apt_synset_ids).toContain('72797');
+        expect(posted.apt_synset_ids).not.toContain('1760');
+    });
+
+    it('Wrong still single-selects and posts on the first candidate tap (unchanged)', async () => {
+        await start();
+        await click('[data-testid="verdict-wrong"]');
+        // No Confirm button for wrong.
+        expect(el.shadowRoot!.querySelector('[data-testid="confirm-split"]')).toBeNull();
+        // Candidate tap posts immediately.
+        await click('[data-testid="cand-72797"]');
+        expect(postSenseLabel).toHaveBeenCalledOnce();
+        const posted = postSenseLabel.mock.calls[0][0];
+        expect(posted.verdict).toBe('wrong');
+        expect(posted.intended_synset_id).toBe('72797');
+        // apt_synset_ids must be [] on wrong.
+        expect(posted.apt_synset_ids).toEqual([]);
+    });
+
+    it('Confirm with nothing ticked posts apt_synset_ids: []', async () => {
+        await start();
+        await click('[data-testid="verdict-split"]');
+        // Do not tick any candidates — just confirm.
+        await click('[data-testid="confirm-split"]');
+        const posted = postSenseLabel.mock.calls[0][0];
+        expect(posted.verdict).toBe('split');
+        expect(posted.apt_synset_ids).toEqual([]);
     });
 
     it('context panel shows topic POS when expanded on a chain that has it', async () => {
