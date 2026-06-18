@@ -325,3 +325,36 @@ def test_sense_label_split_with_intended_is_also_valid():
                      verdict="split", intended_synset_id="123")
     assert lbl.verdict == "split"
     assert lbl.intended_synset_id == "123"
+
+
+# --- Task 1 (ux4): apt_synset_ids field for 'split' multi-select ---
+
+def test_sense_label_split_with_apt_synset_ids():
+    """split can record multiple apt senses in apt_synset_ids."""
+    from grading_sidecar.models import SenseLabel
+    lbl = SenseLabel(role="topic", word="glance", snapped_synset_id="100",
+                     verdict="split", apt_synset_ids=["1", "2"])
+    assert lbl.apt_synset_ids == ["1", "2"]
+    assert lbl.intended_synset_id is None
+
+def test_sense_label_split_apt_synset_ids_defaults_to_empty():
+    """Omitting apt_synset_ids defaults to [] — backward-compatible."""
+    from grading_sidecar.models import SenseLabel
+    lbl = SenseLabel(role="topic", word="glance", snapped_synset_id="100",
+                     verdict="split")
+    assert lbl.apt_synset_ids == []
+
+def test_sense_label_split_empty_apt_synset_ids_is_valid():
+    """split with apt_synset_ids=[] is valid (flag-only, enumerate later)."""
+    from grading_sidecar.models import SenseLabel
+    lbl = SenseLabel(role="vehicle", word="whisper", snapped_synset_id="200",
+                     verdict="split", apt_synset_ids=[])
+    assert lbl.verdict == "split"
+    assert lbl.apt_synset_ids == []
+
+def test_sense_label_non_split_verdicts_have_empty_apt_synset_ids_default():
+    """Non-split verdicts are unaffected — apt_synset_ids defaults to []."""
+    from grading_sidecar.models import SenseLabel
+    for v in ("right", "unsure"):
+        lbl = SenseLabel(role="topic", word="river", snapped_synset_id="1", verdict=v)
+        assert lbl.apt_synset_ids == [], f"expected [] for verdict={v}"

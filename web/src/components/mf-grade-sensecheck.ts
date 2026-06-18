@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { GradingClient } from '../api/grading-client';
 import type { SenseCandidate, SenseCheckItem, SenseLabel, SenseVerdict } from '../types/grading';
@@ -45,6 +45,7 @@ export class MfGradeSensecheck extends LitElement {
         button.cand { text-align: left; padding: 0.4rem 0.6rem; cursor: pointer;
             background: #181b22; color: #d6dae2; border: 1px solid #2a3140; border-radius: 4px; font-size: 0.84rem; }
         button.cand:hover { border-color: #6db86d; }
+        button.cand.selected { border-color: #6db86d; background: #1c2a1c; }
         button.cand .cpos { color: #9ec4ff; margin-right: 0.4rem; }
         button.cand .ctag { color: #8a93a2; margin-left: 0.4rem; font-size: 0.78rem; }
         .ctx-toggle { margin-top: 0.6rem; background: none; border: none; color: #9ec4ff;
@@ -61,6 +62,8 @@ export class MfGradeSensecheck extends LitElement {
     @state() private sample: SenseCheckItem[] = [];
     @state() private index = 0;
     @state() private pendingVerdict: SenseVerdict | null = null;
+    // Accumulates toggled synset_ids while pendingVerdict === 'split'.
+    @state() private selectedApt: string[] = [];
     @state() private showContext = false;
     @state() private error: string | null = null;
 
@@ -84,6 +87,7 @@ export class MfGradeSensecheck extends LitElement {
             this.sample = res.items;
             this.index = 0;
             this.pendingVerdict = null;
+            this.selectedApt = [];
             this.showContext = false;
             this.phase = this.sample.length ? 'labelling' : 'done';
         } catch (e) {
@@ -92,20 +96,40 @@ export class MfGradeSensecheck extends LitElement {
         }
     }
 
-    // right / unsure / split POST immediately (no intended sense).
-    // wrong / rare_ok reveal the candidate picker; the chosen candidate's
-    // synset_id rides as intended_synset_id.
+    // right / unsure POST immediately (no intended sense).
+    // wrong / rare_ok reveal the candidate picker in single-select mode; the
+    // chosen candidate's synset_id rides as intended_synset_id.
+    // split reveals the candidate picker in multi-select mode; the operator
+    // ticks any number of candidates then clicks Confirm to POST.
     private _onVerdict(verdict: SenseVerdict): void {
         if (verdict === 'wrong' || verdict === 'rare_ok') {
             this.pendingVerdict = verdict;
             return;
         }
+        if (verdict === 'split') {
+            this.pendingVerdict = 'split';
+            this.selectedApt = [];
+            return;
+        }
         void this._post(verdict, null);
     }
 
+    // Toggle a candidate in selectedApt (split mode) or POST immediately (wrong/rare_ok).
     private _onCandidate(c: SenseCandidate): void {
         if (!this.pendingVerdict) return;
+        if (this.pendingVerdict === 'split') {
+            // Toggle: add if absent, remove if present.
+            const idx = this.selectedApt.indexOf(c.synset_id);
+            this.selectedApt = idx === -1
+                ? [...this.selectedApt, c.synset_id]
+                : this.selectedApt.filter(id => id !== c.synset_id);
+            return;
+        }
         void this._post(this.pendingVerdict, c.synset_id);
+    }
+
+    private _onConfirmSplit(): void {
+        void this._post('split', null);
     }
 
     private _skip(): void {
@@ -113,6 +137,7 @@ export class MfGradeSensecheck extends LitElement {
         if (this._posting) return;
         this.index += 1;
         this.pendingVerdict = null;
+        this.selectedApt = [];
         this.showContext = false;
         if (this.index >= this.sample.length) this.phase = 'done';
     }
@@ -123,6 +148,7 @@ export class MfGradeSensecheck extends LitElement {
         if (this.index === 0 || this._posting) return;
         this.index -= 1;
         this.pendingVerdict = null;
+        this.selectedApt = [];
         this.showContext = false;
         this.phase = 'labelling';
     }
@@ -139,6 +165,8 @@ export class MfGradeSensecheck extends LitElement {
             snapped_synset_id: it.snapped_synset_id,
             verdict,
             intended_synset_id: intended,
+            // Carries the ticked senses for split; empty for all other verdicts.
+            apt_synset_ids: verdict === 'split' ? [...this.selectedApt] : [],
             chain_signature: it.chain_signature,
         };
         try {
@@ -146,6 +174,7 @@ export class MfGradeSensecheck extends LitElement {
             this.error = null;
             this.index += 1;
             this.pendingVerdict = null;
+            this.selectedApt = [];
             this.showContext = false;
             if (this.index >= this.sample.length) this.phase = 'done';
         } catch (err) {
@@ -209,14 +238,24 @@ export class MfGradeSensecheck extends LitElement {
 
     private _renderCandidates(it: SenseCheckItem) {
         if (!it.candidates.length) return html`<div class="err">no candidate senses available — pick "Unsure" or fix the precompute</div>`;
+        const isSplit = this.pendingVerdict === 'split';
         return html`
             <div class="candidates" data-testid="sensecheck-candidates">
-                <span class="role">intended sense?</span>
-                ${it.candidates.map(c => html`
-                    <button class="cand" data-testid="cand-${c.synset_id}" @click=${() => this._onCandidate(c)}>
+                <span class="role">${isSplit ? 'which senses are apt? (tick all that apply)' : 'intended sense?'}</span>
+                ${it.candidates.map(c => {
+                    const ticked = isSplit && this.selectedApt.includes(c.synset_id);
+                    return html`
+                    <button class="cand ${ticked ? 'selected' : ''}" data-testid="cand-${c.synset_id}"
+                            aria-pressed=${isSplit ? String(ticked) : nothing}
+                            @click=${() => this._onCandidate(c)}>
                         ${c.pos ? html`<span class="cpos">${c.pos}</span>` : ''}${c.gloss}
                         ${c.tagcount != null ? html`<span class="ctag">tagcount ${c.tagcount}</span>` : ''}
-                    </button>`)}
+                        ${ticked ? html`<span class="ctag">✓</span>` : ''}
+                    </button>`;})}
+                ${isSplit ? html`
+                    <button class="primary" data-testid="confirm-split" @click=${this._onConfirmSplit}>
+                        Confirm split
+                    </button>` : ''}
             </div>`;
     }
 

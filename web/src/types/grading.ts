@@ -211,6 +211,9 @@ export interface SenseLabel {
     snapped_synset_id: string;
     verdict: SenseVerdict;
     intended_synset_id: string | null;
+    // Multi-select apt senses for 'split' verdict: the synset_ids the operator ticked.
+    // Empty array for all other verdicts.
+    apt_synset_ids: string[];
     chain_signature: string | null;
 }
 
