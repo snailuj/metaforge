@@ -19,6 +19,18 @@ def test_prompt_requests_phrase_and_head():
     assert '"head"' in p
 
 
+def test_prompt_requests_emitted_gloss_per_step():
+    # emit-the-sense: every step must carry the model's intended one-line sense,
+    # so the downstream snap is gloss-matched rather than lowest-id guesswork.
+    p = build_prompt(
+        topic="anger", gloss="strong emotion",
+        haiku_metaphors=[{"vehicle": "fire", "shared_features": [{"concept": "heat"}]}],
+    )
+    assert '"gloss"' in p                 # third step key requested
+    assert p.count('"gloss"') >= 2        # in the key spec AND the JSON shape
+    assert "sense" in p.lower()           # explains it's the intended sense
+
+
 def test_prompt_includes_anti_examples_when_provided():
     p = build_prompt(
         topic="anger", gloss="g",

@@ -108,9 +108,10 @@ For the topic below, Haiku produced a list of 10 candidate vehicles with shared 
 2) For EACH vehicle, return an ORDERED CHAIN of concept steps from topic to vehicle — a recognisable conceptual walk, NOT a flat set.
 3) Use as many steps as the traversal naturally needs. Prefer SMALLER LEAPS over fewer steps. Every step must add new conceptual ground — no near-synonyms, no padding. CRUCIALLY, each adjacent pair must stand on its own: a reader shown ONLY those two concepts, blind to every other step in the chain, must still find the leap apt. Do not let a step lean on context accumulated earlier in the chain to justify it — each hop must read as apt in isolation, so the same hop stays valid when a different path reuses it. (Every step is still load-bearing — removing it should skip necessary ground — but no step may DEPEND on the specific steps before it for its own aptness.)
 4) Return exactly 10 vehicles.
-5) Each step in the chain must be a JSON object with two keys:
+5) Each step in the chain must be a JSON object with three keys:
    - "phrase": the full step label (a single word or very short noun phrase)
    - "head": the single-word lexical head of the phrase (e.g. phrase "burning rage" → head "rage"; phrase "fire" → head "fire")
+   - "gloss": a one-line dictionary-style definition of the SPECIFIC SENSE of the head you intend here (e.g. head "tempest" → "a violent emotional upheaval", NOT "a windstorm" if that is not your meaning). This pins the intended word-sense so it snaps to the correct lexical entry rather than a same-spelling homonym.
 {anti_block}{avoid_block}
 Topic: {topic}
 Gloss: {gloss}
@@ -125,9 +126,9 @@ Respond with STRICT JSON of this shape, and nothing else:
     {{
       "vehicle": "<single-word lemma>",
       "chain": [
-        {{"phrase": "{topic}", "head": "{topic}"}},
-        {{"phrase": "<step>", "head": "<head>"}},
-        {{"phrase": "<vehicle>", "head": "<vehicle>"}}
+        {{"phrase": "{topic}", "head": "{topic}", "gloss": "<intended sense of {topic}>"}},
+        {{"phrase": "<step>", "head": "<head>", "gloss": "<intended sense of head>"}},
+        {{"phrase": "<vehicle>", "head": "<vehicle>", "gloss": "<intended sense of vehicle>"}}
       ]
     }},
     ...
