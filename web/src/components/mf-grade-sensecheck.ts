@@ -116,6 +116,16 @@ export class MfGradeSensecheck extends LitElement {
         if (this.index >= this.sample.length) this.phase = 'done';
     }
 
+    private _back(): void {
+        // Return to the previous item without recording a verdict. Re-grading a
+        // returned-to item simply POSTs a fresh label — latest-wins server-side.
+        if (this.index === 0 || this._posting) return;
+        this.index -= 1;
+        this.pendingVerdict = null;
+        this.showContext = false;
+        this.phase = 'labelling';
+    }
+
     private async _post(verdict: SenseVerdict, intended: string | null): Promise<void> {
         const it = this.current;
         // Guard is set synchronously before the first await, so two rapid clicks post only once.
@@ -173,6 +183,9 @@ export class MfGradeSensecheck extends LitElement {
             <div class="bar" role="toolbar" aria-label="Sense-check">
                 <span class="badge">sense-check</span>
                 <span class="pos" data-testid="sensecheck-progress" aria-live="polite">${this.index + 1} / ${this.sample.length}</span>
+                <button class="primary" data-testid="sensecheck-back"
+                        ?disabled=${this.index === 0}
+                        @click=${this._back}>Back</button>
             </div>
             ${this.error ? html`<div class="err" data-testid="sensecheck-error">error: ${this.error}</div>` : ''}
             <div class="item" data-testid="sensecheck-item">
@@ -214,6 +227,10 @@ export class MfGradeSensecheck extends LitElement {
                 <div class="ctx" data-testid="sensecheck-context">
                     ${it.context.chains.map(c => html`
                         <div class="ctx-chain">
+                            ${c.topic_pos || c.topic_gloss ? html`
+                                <span class="role">${c.topic_pos ?? ''}</span>
+                                ${c.topic_gloss ? html`<span class="gloss">${c.topic_gloss}</span>` : ''}
+                            ` : ''}
                             ${c.chain.map((s, i) => html`${s.head}${i < c.chain.length - 1 ? html`<span class="ctx-arrow">→</span>` : ''}`)}
                         </div>`)}
                 </div>` : ''}`;

@@ -179,6 +179,8 @@ export interface SenseContextChain {
     vehicle: string;
     chain: ChainStep[];
     chain_signature: string;
+    topic_pos: string | null;
+    topic_gloss: string | null;
 }
 
 export interface SenseCheckItem {
