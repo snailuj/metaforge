@@ -211,6 +211,9 @@ class SenseLabel(BaseModel):
     verdict: SenseVerdict
     # Set only for wrong / rare_ok (the sense the operator intended); else None.
     intended_synset_id: Optional[str] = None
+    # Multi-select apt senses for 'split' verdict: the synset_ids the operator ticked.
+    # Empty list is valid (flag-only, enumerate later). Unused for other verdicts.
+    apt_synset_ids: list[str] = Field(default_factory=list)
     # One representative chain the endpoint appeared in (traceability, not a key).
     chain_signature: Optional[str] = None
 
