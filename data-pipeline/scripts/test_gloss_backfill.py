@@ -128,3 +128,19 @@ def test_backfill_guards_against_self_metaphor_collapse():
 def test_backfill_rejects_gloss_count_mismatch():
     with pytest.raises(ValueError):
         backfill_chain_record(_record(), ["only-one"], _snap({}))
+
+
+# --- index_chains_by_signature (validation loader) --------------------------
+
+def test_index_chains_by_signature_first_seen_wins(tmp_path):
+    from validate_gloss_backfill import index_chains_by_signature
+    p = tmp_path / "c.jsonl"
+    p.write_text(
+        '{"chain_signature":"sig1","chain":[{"phrase":"a"}]}\n'
+        '\n'
+        '{"chain_signature":"sig1","chain":[{"phrase":"DUP"}]}\n'
+        '{"chain_signature":"sig2","chain":[{"phrase":"b"}]}\n'
+    )
+    idx = index_chains_by_signature([str(p), str(tmp_path / "missing.jsonl")])
+    assert set(idx) == {"sig1", "sig2"}
+    assert idx["sig1"]["chain"][0]["phrase"] == "a"  # first seen, not DUP
