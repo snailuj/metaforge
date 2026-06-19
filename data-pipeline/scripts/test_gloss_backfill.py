@@ -16,6 +16,8 @@ from gloss_backfill import (
     build_gloss_prompt,
     parse_gloss_response,
     backfill_chain_record,
+    build_topic_gloss_prompt,
+    parse_topic_gloss_response,
 )
 
 
@@ -132,6 +134,40 @@ def test_backfill_rejects_gloss_count_mismatch():
 
 # --- index_chains_by_signature (validation loader) --------------------------
 
+# --- per-topic batched prompt / parse (corpus rollout) ----------------------
+
+_CHAINS = [
+    ["tension", "pressure", "tempest"],
+    ["tension", "strain", "quake", "rupture"],
+]
+
+
+def test_topic_prompt_shows_every_chain_and_node():
+    p = build_topic_gloss_prompt("tension", "emotional strain", _CHAINS)
+    for node in ["pressure", "tempest", "strain", "quake", "rupture"]:
+        assert node in p
+    assert "emotional strain" in p
+    assert "JSON" in p and "chains" in p.lower()
+
+
+def test_parse_topic_response_shapes_match_chains():
+    resp = {"chains": [["g-pressure", "g-tempest"],
+                       ["g-strain", "g-quake", "g-rupture"]]}
+    out = parse_topic_gloss_response(resp, _CHAINS)
+    assert out == [["g-pressure", "g-tempest"], ["g-strain", "g-quake", "g-rupture"]]
+
+
+def test_parse_topic_response_rejects_wrong_chain_count():
+    with pytest.raises(ValueError):
+        parse_topic_gloss_response({"chains": [["only-one-chain", "x"]]}, _CHAINS)
+
+
+def test_parse_topic_response_rejects_wrong_node_count():
+    bad = {"chains": [["g-pressure"], ["g-strain", "g-quake", "g-rupture"]]}  # chain 0 short
+    with pytest.raises(ValueError):
+        parse_topic_gloss_response(bad, _CHAINS)
+
+
 def test_index_chains_by_signature_first_seen_wins(tmp_path):
     from validate_gloss_backfill import index_chains_by_signature
     p = tmp_path / "c.jsonl"
@@ -144,3 +180,11 @@ def test_index_chains_by_signature_first_seen_wins(tmp_path):
     idx = index_chains_by_signature([str(p), str(tmp_path / "missing.jsonl")])
     assert set(idx) == {"sig1", "sig2"}
     assert idx["sig1"]["chain"][0]["phrase"] == "a"  # first seen, not DUP
+
+
+def test_done_topic_synset_ids_reads_output(tmp_path):
+    from gloss_backfill import done_topic_synset_ids
+    p = tmp_path / "out.jsonl"
+    p.write_text('{"topic_synset_id":"1"}\n{"topic_synset_id":"2"}\n{"topic_synset_id":"1"}\n')
+    assert done_topic_synset_ids(str(p)) == {"1", "2"}
+    assert done_topic_synset_ids(str(tmp_path / "nope.jsonl")) == set()
