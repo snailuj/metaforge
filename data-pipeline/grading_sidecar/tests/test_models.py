@@ -220,16 +220,13 @@ def test_normalise_phrase_strips_and_lowers_and_nfc():
     assert normalise_phrase(f"  {decomposed}  ") == "café"
 
 
-def test_sense_label_requires_intended_only_for_wrong():
-    # 'wrong' is the only corrective verdict that names a different intended sense.
+def test_sense_label_requires_intended_for_wrong_and_rare():
     import pytest
     from pydantic import ValidationError
     from grading_sidecar.models import SenseLabel
-    with pytest.raises(ValidationError):
-        SenseLabel(role="topic", word="x", snapped_synset_id="1", verdict="wrong")
-    # rare_ok ACCEPTS the snapped (rare) sense — no intended needed; auto-submittable.
-    rare = SenseLabel(role="topic", word="cadence", snapped_synset_id="1", verdict="rare_ok")
-    assert rare.intended_synset_id is None
+    for v in ("wrong", "rare_ok"):
+        with pytest.raises(ValidationError):
+            SenseLabel(role="topic", word="x", snapped_synset_id="1", verdict=v)
     # right / unsure with no intended is fine.
     for v in ("right", "unsure"):
         SenseLabel(role="topic", word="x", snapped_synset_id="1", verdict=v)

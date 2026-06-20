@@ -96,16 +96,13 @@ export class MfGradeSensecheck extends LitElement {
         }
     }
 
-    // right / unsure / rare_ok POST immediately with no intended sense:
-    //   right   = the snapped sense is correct;
-    //   rare_ok = the snapped sense is rare but ACCEPTED as apt (no alternative);
-    //   unsure  = no determinate call.
-    // wrong reveals the candidate picker in single-select mode; the chosen
-    // candidate's synset_id rides as the corrective intended_synset_id.
+    // right / unsure POST immediately (no intended sense).
+    // wrong / rare_ok reveal the candidate picker in single-select mode; the
+    // chosen candidate's synset_id rides as intended_synset_id.
     // split reveals the candidate picker in multi-select mode; the operator
     // ticks any number of candidates then clicks Confirm to POST.
     private _onVerdict(verdict: SenseVerdict): void {
-        if (verdict === 'wrong') {
+        if (verdict === 'wrong' || verdict === 'rare_ok') {
             this.pendingVerdict = verdict;
             return;
         }
@@ -117,7 +114,7 @@ export class MfGradeSensecheck extends LitElement {
         void this._post(verdict, null);
     }
 
-    // Toggle a candidate in selectedApt (split mode) or POST immediately (wrong).
+    // Toggle a candidate in selectedApt (split mode) or POST immediately (wrong/rare_ok).
     private _onCandidate(c: SenseCandidate): void {
         if (!this.pendingVerdict) return;
         if (this.pendingVerdict === 'split') {
