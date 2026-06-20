@@ -18,6 +18,7 @@ from gloss_backfill import (
     backfill_chain_record,
     build_topic_gloss_prompt,
     parse_topic_gloss_response,
+    resnap_chain_record,
 )
 
 
@@ -180,6 +181,68 @@ def test_index_chains_by_signature_first_seen_wins(tmp_path):
     idx = index_chains_by_signature([str(p), str(tmp_path / "missing.jsonl")])
     assert set(idx) == {"sig1", "sig2"}
     assert idx["sig1"]["chain"][0]["phrase"] == "a"  # first seen, not DUP
+
+
+def _glossed_record(**over):
+    """A record that already carries glosses (output of the backfill pass)."""
+    base = {
+        "schema_version": "chain.v1",
+        "topic": "tension", "topic_synset_id": "1",
+        "vehicle": "tempest", "vehicle_synset_id": "100",
+        "proposer": "sonnet_v1", "round": 3,
+        "chain": [
+            {"phrase": "tension", "head": "tension", "synset_id": "1", "gloss": "emotional strain"},
+            {"phrase": "pressure", "head": "pressure", "synset_id": "5", "gloss": "build-up of force"},
+            {"phrase": "tempest", "head": "tempest", "synset_id": "100", "gloss": "violent upheaval"},
+        ],
+        "chain_signature": "a" * 64,
+        "generated_at": "2026-06-19T00:00:00Z",
+    }
+    base.update(over)
+    return base
+
+
+def test_resnap_uses_embedding_snap_on_glossed_nodes():
+    rec = _glossed_record()
+    snap = lambda head, gloss: {("pressure", "build-up of force"): "5e",
+                                ("tempest", "violent upheaval"): "100e"}.get((head, gloss))
+    out = resnap_chain_record(rec, snap)
+    assert out["chain"][0]["synset_id"] == "1"        # topic untouched
+    assert out["chain"][1]["synset_id"] == "5e"       # re-snapped
+    assert out["chain"][-1]["synset_id"] == "100e"
+    assert out["vehicle_synset_id"] == "100e"
+    assert out["chain_signature"] == rec["chain_signature"]   # preserved
+    assert out["chain"][1]["gloss"] == "build-up of force"    # gloss kept
+
+
+def test_resnap_keeps_existing_sid_when_embed_returns_none():
+    rec = _glossed_record()
+    out = resnap_chain_record(rec, lambda head, gloss: None)  # never matches
+    assert out["chain"][1]["synset_id"] == "5"
+    assert out["chain"][-1]["synset_id"] == "100"
+
+
+def test_resnap_skips_nodes_without_a_gloss():
+    rec = _glossed_record()
+    rec["chain"][1] = {"phrase": "pressure", "head": "pressure", "synset_id": "5"}  # no gloss
+    called = []
+    def snap(head, gloss):
+        called.append(head); return "X"
+    out = resnap_chain_record(rec, snap)
+    assert out["chain"][1]["synset_id"] == "5"   # untouched (no gloss to snap on)
+    assert "pressure" not in called
+
+
+def test_resnap_guards_self_metaphor():
+    rec = _glossed_record()
+    out = resnap_chain_record(rec, lambda head, gloss: "1" if head == "tempest" else None)
+    assert out["chain"][-1]["synset_id"] == "100"   # reverted (would collapse to topic)
+
+
+def test_resnap_does_not_mutate_input():
+    rec = _glossed_record()
+    resnap_chain_record(rec, lambda head, gloss: "ZZ")
+    assert rec["chain"][1]["synset_id"] == "5"
 
 
 def test_done_topic_synset_ids_reads_output(tmp_path):

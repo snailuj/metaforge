@@ -173,6 +173,30 @@ def backfill_chain_record(record: dict, glosses: list[str],
     return out
 
 
+def resnap_chain_record(record: dict,
+                        snap_fn: Callable[[str, str], Optional[str]]) -> dict:
+    """Re-snap an already-glossed record's non-topic nodes via snap_fn(head,
+    gloss), keeping the captured glosses. $0 pass (no model call): used to swap
+    the token-overlap snap for an embedding snap once glosses exist. Topic node
+    stays canonical; a vehicle re-snap that collapses onto the topic synset is
+    reverted; chain_signature (phrase-based) is unchanged.
+    """
+    chain = record["chain"]
+    nodes = [dict(s) for s in chain]
+    topic_sid = nodes[0].get("synset_id")
+    for node in nodes[1:]:
+        gloss = node.get("gloss")
+        if not gloss:
+            continue  # nothing to snap on
+        node["synset_id"] = snap_fn(node["head"], gloss) or node.get("synset_id")
+    if nodes[-1].get("synset_id") == topic_sid:
+        nodes[-1]["synset_id"] = chain[-1].get("synset_id")
+    out = dict(record)
+    out["chain"] = nodes
+    out["vehicle_synset_id"] = nodes[-1].get("synset_id")
+    return out
+
+
 # --- driver -----------------------------------------------------------------
 
 def done_topic_synset_ids(output_path: str) -> set[str]:
