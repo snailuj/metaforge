@@ -214,7 +214,8 @@ class SenseLabel(BaseModel):
     word: str
     snapped_synset_id: str
     verdict: SenseVerdict
-    # Set only for wrong / rare_ok (the sense the operator intended); else None.
+    # Set only for 'wrong' (the different sense the operator intended); else None.
+    # 'rare_ok' ACCEPTS the snapped rare sense as apt, so it names no intended.
     intended_synset_id: Optional[str] = None
     # Multi-select apt senses for 'split' verdict: the synset_ids the operator ticked.
     # Empty list is valid (flag-only, enumerate later). Unused for other verdicts.
@@ -223,9 +224,11 @@ class SenseLabel(BaseModel):
     chain_signature: Optional[str] = None
 
     @model_validator(mode="after")
-    def _intended_required_for_corrective_verdicts(self) -> "SenseLabel":
-        if self.verdict in ("wrong", "rare_ok") and not self.intended_synset_id:
+    def _intended_required_for_wrong(self) -> "SenseLabel":
+        # Only 'wrong' corrects the snap to a DIFFERENT sense, so only it needs an
+        # intended. 'rare_ok' accepts the (rare) snapped sense and auto-submits.
+        if self.verdict == "wrong" and not self.intended_synset_id:
             raise ValueError(
-                "intended_synset_id must be set when verdict is 'wrong' or 'rare_ok'"
+                "intended_synset_id must be set when verdict is 'wrong'"
             )
         return self

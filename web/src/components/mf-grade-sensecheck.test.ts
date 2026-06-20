@@ -105,18 +105,15 @@ describe('mf-grade-sensecheck', () => {
         expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
     });
 
-    it('Rare-but-better reveals candidates; picking one posts rare_ok with intended_synset_id', async () => {
+    it('Rare-but-better ACCEPTS the snapped rare sense: auto-submits and advances (no picker)', async () => {
         await start();
-        // No candidate list until a Wrong/Rare verdict.
-        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-candidates"]')).toBeNull();
         await click('[data-testid="verdict-rare"]');
-        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-candidates"]')).toBeTruthy();
-        // No POST yet — we still need the intended sense.
-        expect(postSenseLabel).not.toHaveBeenCalled();
-        await click('[data-testid="cand-72797"]');
+        // It accepts the snapped sense — no candidate picker, posts immediately like Right.
+        expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-candidates"]')).toBeNull();
+        expect(postSenseLabel).toHaveBeenCalledOnce();
         const posted = postSenseLabel.mock.calls[0][0];
         expect(posted.verdict).toBe('rare_ok');
-        expect(posted.intended_synset_id).toBe('72797');
+        expect(posted.intended_synset_id).toBeNull();
         expect(el.shadowRoot!.querySelector('[data-testid="sensecheck-progress"]')!.textContent).toContain('2 / 2');
     });
 
