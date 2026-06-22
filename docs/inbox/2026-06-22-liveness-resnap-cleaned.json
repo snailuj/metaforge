@@ -1,0 +1,70 @@
+{
+  "axis_key": "y_live",
+  "kappa": 0.3346851327569057,
+  "kappa_band": [
+    0.27817059285244483,
+    0.3990786460408179
+  ],
+  "accuracy": 0.6719858156028369,
+  "majority_baseline": 0.5656028368794326,
+  "confusion": [
+    [
+      156,
+      89
+    ],
+    [
+      96,
+      223
+    ]
+  ],
+  "n_items": 565,
+  "n_scored": 564,
+  "n_abstain": 1,
+  "n_folds_skipped": 40,
+  "n_topics": 30,
+  "per_repeat": [
+    {
+      "repeat": 0,
+      "kappa": 0.2700488419725855,
+      "n_scored": 113,
+      "n_abstain": 0
+    },
+    {
+      "repeat": 1,
+      "kappa": 0.40687132177509144,
+      "n_scored": 113,
+      "n_abstain": 0
+    },
+    {
+      "repeat": 2,
+      "kappa": 0.36790794310372377,
+      "n_scored": 113,
+      "n_abstain": 0
+    },
+    {
+      "repeat": 3,
+      "kappa": 0.31862900666455085,
+      "n_scored": 113,
+      "n_abstain": 0
+    },
+    {
+      "repeat": 4,
+      "kappa": 0.31065759637188206,
+      "n_scored": 112,
+      "n_abstain": 1
+    }
+  ],
+  "complete": true,
+  "halted": null,
+  "elapsed_s": 2280.4,
+  "items_per_s": 0.247,
+  "config": {
+    "k_shot": 6,
+    "n_repeats": 5,
+    "seed": 0
+  },
+  "axis": "liveness",
+  "judge": "stage2",
+  "model": "sonnet",
+  "git_commit": "8f350c21"
+}
