@@ -5,7 +5,6 @@ import type { LookupResult } from '@/types/api'
 // ForceGraph3D is a curried factory: ForceGraph3D(opts)(container) → instance with chainable methods.
 const chainable = new Proxy({}, { get: () => () => chainable })
 vi.mock('3d-force-graph', () => ({ default: () => () => chainable }))
-vi.mock('three-spritetext', () => ({ default: vi.fn() }))
 
 // Mock the API client module
 vi.mock('@/api/client', () => ({
@@ -635,4 +634,1000 @@ describe('MfApp', () => {
       expect(lookupWord).not.toHaveBeenCalled()
     })
   })
+})
+
+describe('mf-app grading mode', () => {
+  let el: MfApp
+
+  beforeEach(async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200 } as Response)
+    localStorage.clear()
+    window.location.hash = ''
+    el = new MfApp()
+    document.body.appendChild(el)
+    await el.updateComplete
+    // let probe resolve
+    await new Promise(r => setTimeout(r, 50))
+    await el.updateComplete
+  })
+
+  afterEach(() => {
+    document.body.removeChild(el)
+    vi.restoreAllMocks()
+    window.location.hash = ''
+    localStorage.clear()
+  })
+
+  it('shows toggle when probe returns 200', async () => {
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-toggle"]')).toBeTruthy()
+  })
+
+  it('hides toggle when probe returns 404', async () => {
+    document.body.removeChild(el)
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: false, status: 404 } as Response)
+    el = new MfApp()
+    document.body.appendChild(el)
+    await el.updateComplete
+    await new Promise(r => setTimeout(r, 50))
+    await el.updateComplete
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-toggle"]')).toBeFalsy()
+  })
+
+  it('forces mode to browse on handleAuthExpired', async () => {
+    ;(el as any).mode = 'grade'
+    await el.updateComplete
+    ;(el as any).handleAuthExpired()
+    await el.updateComplete
+    expect((el as any).mode).toBe('browse')
+    expect((el as any).errorMessage).toContain('Auth expired')
+  })
+
+  it('persists mode to localStorage on toggle click', async () => {
+    const btn = el.shadowRoot!.querySelector('[data-testid="grade-toggle"]') as HTMLButtonElement
+    expect(btn).toBeTruthy()
+    btn.click()
+    await el.updateComplete
+    expect(localStorage.getItem('mf-mode')).toBeTruthy()
+  })
+})
+
+describe('mf-app grade-mode integration', () => {
+  let el: MfApp
+
+  // Minimal stub for a grading fetch that returns the right shapes per endpoint
+  function makeFetchStub() {
+    return vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = input.toString()
+      if (url.includes('/healthz')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response
+      }
+      if (url.includes('/topics')) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ topics: [{ topic: 'fire', topic_synset_id: 's1' }] }),
+        } as Response
+      }
+      if (url.includes('/chains')) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({
+            count: 1,
+            records: [{
+              schema_version: 'chain.v1',
+              topic: 'fire', topic_synset_id: 's1',
+              vehicle: 'blaze', vehicle_synset_id: 'v1',
+              proposer: 'test', round: 1,
+              chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }, { phrase: 'blaze', head: 'blaze', synset_id: 'v1' }],
+              chain_signature: 'sig1',
+              generated_at: '2026-01-01T00:00:00Z',
+            }],
+          }),
+        } as Response
+      }
+      if (url.includes('/judgements') && (input as Request).method === 'POST') {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ schema_version: 'judgement.v1', ts: '2026-01-01T00:00:00Z' }),
+        } as Response
+      }
+      if (url.includes('/judgements')) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({ count: 0, records: [] }),
+        } as Response
+      }
+      if (url.includes('/design-notes') && (input as Request).method === 'POST') {
+        return { ok: true, status: 200, json: async () => ({ ts: '2026-01-01T00:00:00Z' }) } as Response
+      }
+      if (url.includes('/design-notes')) {
+        return { ok: true, status: 200, json: async () => ({ content: 'existing note' }) } as Response
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response
+    })
+  }
+
+  beforeEach(async () => {
+    makeFetchStub()
+    localStorage.clear()
+    window.location.hash = ''
+    el = new MfApp()
+    document.body.appendChild(el)
+    await el.updateComplete
+    // let probe resolve
+    await new Promise(r => setTimeout(r, 50))
+    await el.updateComplete
+  })
+
+  afterEach(() => {
+    document.body.removeChild(el)
+    vi.restoreAllMocks()
+    window.location.hash = ''
+    localStorage.clear()
+  })
+
+  it('renders mobile flat-text layout when viewportWidth < 900', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 600
+    await el.updateComplete
+    const mobileLayout = el.shadowRoot!.querySelector('[data-testid="grade-layout-mobile"]')
+    expect(mobileLayout).not.toBeNull()
+    const desktopLayout = el.shadowRoot!.querySelector('[data-testid="grade-layout"]')
+    expect(desktopLayout).toBeNull()
+  })
+
+  it('renders desktop layout when viewportWidth >= 900', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 1200
+    await el.updateComplete
+    const desktopLayout = el.shadowRoot!.querySelector('[data-testid="grade-layout"]')
+    expect(desktopLayout).not.toBeNull()
+    const mobileLayout = el.shadowRoot!.querySelector('[data-testid="grade-layout-mobile"]')
+    expect(mobileLayout).toBeNull()
+  })
+
+  it('mobile chain-card label shows snapped heads, not prose phrases (bad_head visibility)', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 600
+    ;(el as any).pathFilter = 'both'
+    ;(el as any).gradeChains = [{
+      schema_version: 'chain.v1',
+      topic: 'anchor', vehicle: 'habit',
+      topic_synset_id: '', vehicle_synset_id: '',
+      chain_signature: 'c'.repeat(64),
+      chain: [
+        { phrase: 'anchor', head: 'anchor', synset_id: '' },
+        { phrase: 'resists change', head: 'resistance', synset_id: '' },
+        { phrase: 'habit', head: 'habit', synset_id: '' },
+      ],
+      proposer: 'sonnet_v1', round: 1, generated_at: 'x',
+    }]
+    await el.updateComplete
+    const card = el.shadowRoot!.querySelector('[data-testid="chain-card"]')!
+    const text = card.textContent || ''
+    expect(text).toContain('resistance')        // the snapped head
+    expect(text).not.toContain('resists change') // not the prose phrase
+  })
+
+  it('topic-selected event fetches chains and judgements then populates gradeChains', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 600
+    await el.updateComplete
+
+    const picker = el.shadowRoot!.querySelector('mf-topic-picker')
+    picker!.dispatchEvent(new CustomEvent('topic-selected', {
+      detail: { topic: 'fire', topic_synset_id: 's1' },
+      bubbles: true,
+      composed: true,
+    }))
+
+    await new Promise(r => setTimeout(r, 50))
+    await el.updateComplete
+
+    const cards = el.shadowRoot!.querySelectorAll('[data-testid="chain-card"]')
+    expect(cards.length).toBeGreaterThan(0)
+    expect(cards[0].textContent).toContain('fire')
+  })
+
+  it('verdict-submit POSTs to judgements and clears selectedChain', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 600
+    // Simulate a chain being loaded and selected
+    ;(el as any).gradeChains = [{
+      schema_version: 'chain.v1',
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', round: 1,
+      chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }, { phrase: 'blaze', head: 'blaze', synset_id: 'v1' }],
+      chain_signature: 'sig1',
+      generated_at: '2026-01-01T00:00:00Z',
+    }]
+    ;(el as any).selectedChain = (el as any).gradeChains[0]
+    await el.updateComplete
+
+    const postSpy = vi.spyOn((el as any).gradingClient, 'postJudgement')
+
+    const gradePanel = el.shadowRoot!.querySelector('mf-grade-panel')
+    expect(gradePanel).not.toBeNull()
+    gradePanel!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { linkage: 'good', metaphor: 'live', tiers: ['strong', 'surprising'], confidence: 'high', notes: '' },
+      bubbles: true,
+      composed: true,
+    }))
+
+    await new Promise(r => setTimeout(r, 50))
+    await el.updateComplete
+
+    // The posted judgement is a v2 record built from the two-axis detail
+    expect(postSpy).toHaveBeenCalledTimes(1)
+    const posted = postSpy.mock.calls[0][0] as any
+    expect(posted).toMatchObject({
+      schema_version: 'judgement.v2',
+      judged_by: 'julian',
+      chain_signature: 'sig1',
+      linkage: 'good',
+      metaphor: 'live',
+      confidence: 'high',
+    })
+    // tiers from the detail ride onto the posted v2 record verbatim
+    expect(posted.tiers).toEqual(['strong', 'surprising'])
+    expect(posted).not.toHaveProperty('label')
+    expect(posted).not.toHaveProperty('tier')
+
+    // After submit, selectedChain should be cleared
+    expect((el as any).selectedChain).toBeNull()
+  })
+
+  it('desktop grade layout passes .mode, .gradeChains, .judgements, .viewportWidth to force-graph', async () => {
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 1200
+    ;(el as any).gradeChains = [{
+      schema_version: 'chain.v1',
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', round: 1,
+      chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }, { phrase: 'blaze', head: 'blaze', synset_id: 'v1' }],
+      chain_signature: 'sig1',
+      generated_at: '2026-01-01T00:00:00Z',
+    }]
+    ;(el as any).gradeJudgements = [{
+      schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', chain_signature: 'sig1',
+      label: 'live', confidence: 'high', notes: '', supersedes_ts: null,
+    }]
+    await el.updateComplete
+
+    const desktopLayout = el.shadowRoot!.querySelector('[data-testid="grade-layout"]')
+    expect(desktopLayout).not.toBeNull()
+
+    const fg = el.shadowRoot!.querySelector('.grade-graph-pane mf-force-graph') as any
+    expect(fg).not.toBeNull()
+    expect(fg.mode).toBe('grade')
+    expect(fg.gradeChains).toHaveLength(1)
+    expect(fg.judgements).toHaveLength(1)
+    expect(fg.viewportWidth).toBe(1200)
+  })
+
+  describe('tri-state path filter (C2 v2)', () => {
+    it('renders an always-visible 3-way path filter in desktop grade view, defaulting to Both', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      const control = el.shadowRoot!.querySelector('[data-testid="path-filter"]')
+      expect(control).not.toBeNull()
+      const both = el.shadowRoot!.querySelector('[data-testid="path-filter-both"]') as HTMLButtonElement
+      const ungraded = el.shadowRoot!.querySelector('[data-testid="path-filter-ungraded"]') as HTMLButtonElement
+      const graded = el.shadowRoot!.querySelector('[data-testid="path-filter-graded"]') as HTMLButtonElement
+      expect(both).not.toBeNull()
+      expect(ungraded).not.toBeNull()
+      expect(graded).not.toBeNull()
+      expect((el as any).pathFilter).toBe('both')
+      expect(both.getAttribute('aria-pressed')).toBe('true')
+    })
+
+    it('passes pathFilter="both" to force-graph by default', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      const fg = el.shadowRoot!.querySelector('.grade-graph-pane mf-force-graph') as any
+      expect(fg.pathFilter).toBe('both')
+    })
+
+    it('clicking Ungraded sets pathFilter and threads it to force-graph', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      const ungraded = el.shadowRoot!.querySelector('[data-testid="path-filter-ungraded"]') as HTMLButtonElement
+      ungraded.click()
+      await el.updateComplete
+
+      expect((el as any).pathFilter).toBe('ungraded')
+      const fg = el.shadowRoot!.querySelector('.grade-graph-pane mf-force-graph') as any
+      expect(fg.pathFilter).toBe('ungraded')
+    })
+
+    it('clicking Graded sets pathFilter="graded"', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      const graded = el.shadowRoot!.querySelector('[data-testid="path-filter-graded"]') as HTMLButtonElement
+      graded.click()
+      await el.updateComplete
+
+      expect((el as any).pathFilter).toBe('graded')
+      const graded2 = el.shadowRoot!.querySelector('[data-testid="path-filter-graded"]') as HTMLButtonElement
+      expect(graded2.getAttribute('aria-pressed')).toBe('true')
+    })
+
+    it('renders the 3-way path filter in mobile grade view too', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 600
+      await el.updateComplete
+
+      const control = el.shadowRoot!.querySelector('[data-testid="path-filter"]')
+      expect(control).not.toBeNull()
+    })
+  })
+
+  describe('collapsible notes overlay (C1)', () => {
+    it('hides mf-design-notes by default but shows the toggle on desktop grade view', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      // The collapse toggle is always visible
+      const toggle = el.shadowRoot!.querySelector('[data-testid="notes-overlay-toggle"]')
+      expect(toggle).not.toBeNull()
+
+      // Collapsed by default — mf-design-notes is not rendered
+      expect(el.shadowRoot!.querySelector('mf-design-notes')).toBeNull()
+    })
+
+    it('reveals mf-design-notes (with history threaded through) when the toggle is clicked', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).notesHistory = 'existing note'
+      await el.updateComplete
+
+      const toggle = el.shadowRoot!.querySelector('[data-testid="notes-overlay-toggle"]') as HTMLButtonElement
+      toggle.click()
+      await el.updateComplete
+
+      const notes = el.shadowRoot!.querySelector('mf-design-notes')
+      expect(notes).not.toBeNull()
+      expect((notes as any).history).toBe('existing note')
+    })
+
+    it('collapses again when the toggle is clicked a second time', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      const toggle = el.shadowRoot!.querySelector('[data-testid="notes-overlay-toggle"]') as HTMLButtonElement
+      toggle.click()
+      await el.updateComplete
+      expect(el.shadowRoot!.querySelector('mf-design-notes')).not.toBeNull()
+
+      toggle.click()
+      await el.updateComplete
+      expect(el.shadowRoot!.querySelector('mf-design-notes')).toBeNull()
+    })
+
+    it('no longer renders the bottom notes-row in the desktop flow', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      await el.updateComplete
+
+      expect(el.shadowRoot!.querySelector('.grade-notes-row')).toBeNull()
+    })
+  })
+
+  describe('pending-judgements queue (I2)', () => {
+    const CHAIN = {
+      schema_version: 'chain.v1' as const,
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', round: 1,
+      chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }, { phrase: 'blaze', head: 'blaze', synset_id: 'v1' }],
+      chain_signature: 'sig1',
+      generated_at: '2026-01-01T00:00:00Z',
+    }
+
+    it('failed POST after retries pushes judgement to localStorage and sets banner', async () => {
+      // Simulate exhausted retries — all POST calls fail with 500
+      vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+        const url = input.toString()
+        if (url.includes('/healthz')) {
+          return { ok: true, status: 200, json: async () => ({}) } as Response
+        }
+        if (url.includes('/judgements')) {
+          return { ok: false, status: 500, json: async () => ({}) } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({}) } as Response
+      })
+
+      ;(el as any).mode = 'grade'
+      ;(el as any).selectedChain = CHAIN
+      await el.updateComplete
+
+      // Directly call the handler to bypass retry delays
+      // We monkeypatch the client's postJudgement to throw immediately
+      const clientSpy = vi.spyOn((el as any).gradingClient, 'postJudgement').mockRejectedValue(
+        new Error('postJudgement: 500')
+      )
+
+      await (el as any).handleVerdictSubmit(
+        new CustomEvent('verdict-submit', {
+          detail: { linkage: 'good', metaphor: 'live', tiers: [], confidence: 'high', notes: '' },
+          bubbles: true,
+          composed: true,
+        })
+      )
+      await el.updateComplete
+
+      // Queue should have 1 entry
+      expect((el as any).pendingQueue).toHaveLength(1)
+      // localStorage should be written with a v2 record (two axes, no flat label)
+      const stored = JSON.parse(localStorage.getItem('pending_judgements') ?? '[]')
+      expect(stored).toHaveLength(1)
+      expect(stored[0].chain_signature).toBe('sig1')
+      expect(stored[0].schema_version).toBe('judgement.v2')
+      expect(stored[0].linkage).toBe('good')
+      expect(stored[0].metaphor).toBe('live')
+      expect(stored[0]).not.toHaveProperty('label')
+      // Banner should mention pending
+      expect((el as any).errorMessage).toContain('pending')
+      // selectedChain cleared so grading can continue
+      expect((el as any).selectedChain).toBeNull()
+
+      clientSpy.mockRestore()
+    })
+
+    it('successful POST flushes the pending queue', async () => {
+      // Pre-populate the queue with one pending entry
+      const pendingJudgement = {
+        schema_version: 'judgement.v2' as const,
+        judged_by: 'julian', round: 1,
+        topic: 'fire', topic_synset_id: 's1',
+        vehicle: 'smoke', vehicle_synset_id: 'v2',
+        proposer: 'test', chain_signature: 'sig_pending',
+        linkage: 'good' as const, metaphor: 'dead' as const, tiers: [],
+        confidence: 'high' as const, notes: '', supersedes_ts: null,
+      }
+      ;(el as any).pendingQueue = [pendingJudgement]
+      ;(el as any).savePendingQueue()
+
+      ;(el as any).mode = 'grade'
+      ;(el as any).selectedChain = CHAIN
+      await el.updateComplete
+
+      // POST succeeds for both the current judgement and the pending one
+      const clientSpy = vi.spyOn((el as any).gradingClient, 'postJudgement').mockResolvedValue({
+        schema_version: 'judgement.v2', ts: '2026-01-01T00:00:00Z',
+      } as any)
+      const getJudgementsSpy = vi.spyOn((el as any).gradingClient, 'getJudgements').mockResolvedValue({ count: 0, records: [] })
+
+      await (el as any).handleVerdictSubmit(
+        new CustomEvent('verdict-submit', {
+          detail: { linkage: 'good', metaphor: 'live', tiers: [], confidence: 'high', notes: '' },
+          bubbles: true,
+          composed: true,
+        })
+      )
+      await el.updateComplete
+
+      // Queue should now be empty
+      expect((el as any).pendingQueue).toHaveLength(0)
+      const stored = JSON.parse(localStorage.getItem('pending_judgements') ?? '[]')
+      expect(stored).toHaveLength(0)
+
+      clientSpy.mockRestore()
+      getJudgementsSpy.mockRestore()
+    })
+
+    it('initGradeMode loads pending queue from localStorage', async () => {
+      const existing = [{ schema_version: 'judgement.v1', chain_signature: 'queued1' }]
+      localStorage.setItem('pending_judgements', JSON.stringify(existing))
+
+      // Trigger initGradeMode by calling it directly
+      ;(el as any).pendingQueue = []
+      await (el as any).initGradeMode()
+
+      expect((el as any).pendingQueue).toHaveLength(1)
+      expect((el as any).pendingQueue[0].chain_signature).toBe('queued1')
+    })
+  })
+
+  it('401 from postJudgement forces browse mode and sets errorMessage', async () => {
+    // Override the fetch mock so any call to /judgements returns 401
+    // (GradingClient.postJudgement calls fetch(url, {method:'POST'}) — the 4xx branch
+    // throws immediately without retry, which propagates to handleVerdictSubmit)
+    vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = input.toString()
+      if (url.includes('/judgements')) {
+        return { ok: false, status: 401, json: async () => ({}) } as Response
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response
+    })
+
+    ;(el as any).mode = 'grade'
+    ;(el as any).selectedChain = {
+      schema_version: 'chain.v1',
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', round: 1,
+      chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }],
+      chain_signature: 'sig1',
+      generated_at: '2026-01-01T00:00:00Z',
+    }
+    await el.updateComplete
+
+    // Directly call the handler — this avoids depending on DOM event routing
+    await (el as any).handleVerdictSubmit(
+      new CustomEvent('verdict-submit', {
+        detail: { linkage: 'good', metaphor: 'live', tiers: [], confidence: 'high', notes: '' },
+        bubbles: true,
+        composed: true,
+      })
+    )
+    await el.updateComplete
+
+    expect((el as any).mode).toBe('browse')
+    expect((el as any).errorMessage).toContain('Auth expired')
+  })
+
+  describe('prior notes in re-grade banner (C3)', () => {
+    const chain = {
+      schema_version: 'chain.v1' as const,
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', round: 1,
+      chain: [{ phrase: 'fire', head: 'fire', synset_id: 's1' }, { phrase: 'blaze', head: 'blaze', synset_id: 'v1' }],
+      chain_signature: 'sig1',
+      generated_at: '2026-01-01T00:00:00Z',
+    }
+
+    // v2 judgement factory — the two axes + multi-select tiers replace the flat label.
+    const judgement = (overrides: Record<string, unknown>) => ({
+      schema_version: 'judgement.v2', judged_by: 'julian', round: 1,
+      topic: 'fire', topic_synset_id: 's1',
+      vehicle: 'blaze', vehicle_synset_id: 'v1',
+      proposer: 'test', chain_signature: 'sig1',
+      linkage: 'good', metaphor: 'dead', tiers: [],
+      confidence: 'high', notes: '', supersedes_ts: null,
+      ...overrides,
+    })
+
+    it('threads the latest judgement axes, tiers and notes into the priorVerdict prop', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeChains = [chain]
+      ;(el as any).gradeJudgements = [
+        judgement({ linkage: 'bad', metaphor: 'live', notes: 'first pass — padding', ts: '2026-05-30T00:00:00Z' }),
+        judgement({ linkage: 'good', metaphor: 'live', tiers: ['strong', 'surprising'], notes: 'merge: too literal', ts: '2026-05-31T00:00:00Z' }),
+      ]
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+
+      const panel = el.shadowRoot!.querySelector('mf-grade-panel') as any
+      expect(panel).not.toBeNull()
+      expect(panel.priorVerdict).not.toBeNull()
+      expect(panel.priorVerdict).toMatchObject({
+        linkage: 'good', metaphor: 'live', notes: 'merge: too literal',
+      })
+      expect(panel.priorVerdict.tiers).toEqual(['strong', 'surprising'])
+      expect(panel.priorVerdict.ts).toBe('2026-05-31T00:00:00Z')
+      expect(panel.priorVerdict).not.toHaveProperty('label')
+    })
+
+    it('maps a stored v1 label into the v2 priorVerdict shape via normaliseJudgement', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeChains = [chain]
+      // A legacy v1 record carrying `label` (no axes) — read-compat path.
+      ;(el as any).gradeJudgements = [{
+        schema_version: 'judgement.v1', judged_by: 'julian', round: 1,
+        topic: 'fire', topic_synset_id: 's1', vehicle: 'blaze', vehicle_synset_id: 'v1',
+        proposer: 'test', chain_signature: 'sig1',
+        label: 'dead', confidence: 'high', notes: 'old pass', ts: '2026-05-31T00:00:00Z', supersedes_ts: null,
+      }]
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+
+      const panel = el.shadowRoot!.querySelector('mf-grade-panel') as any
+      expect(panel.priorVerdict).toMatchObject({
+        linkage: 'good', metaphor: 'dead', notes: 'old pass',
+      })
+      expect(panel.priorVerdict.tiers).toEqual([])
+    })
+
+    it('threads confidence and tags into the priorVerdict prop', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeChains = [chain]
+      ;(el as any).gradeJudgements = [
+        judgement({ confidence: 'med', tags: ['leap', 'bad_head'], ts: '2026-05-31T00:00:00Z' }),
+      ]
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+      const panel = el.shadowRoot!.querySelector('mf-grade-panel') as any
+      expect(panel.priorVerdict.confidence).toBe('med')
+      expect(panel.priorVerdict.tags).toEqual(['leap', 'bad_head'])
+    })
+
+    it('a re-grade sets supersedes_ts to the prior verdict ts', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).gradeChains = [chain]
+      ;(el as any).gradeJudgements = [judgement({ ts: '2026-05-30T00:00:00Z' })]
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+      const postSpy = vi.spyOn((el as any).gradingClient, 'postJudgement').mockResolvedValue({} as any)
+      vi.spyOn((el as any).gradingClient, 'getJudgements').mockResolvedValue({ count: 0, records: [] })
+      await (el as any).handleVerdictSubmit(new CustomEvent('verdict-submit', {
+        detail: { linkage: 'good', metaphor: 'dead', tiers: [], tags: [], confidence: 'high', notes: '' },
+      }))
+      expect(postSpy.mock.calls[0][0].supersedes_ts).toBe('2026-05-30T00:00:00Z')
+      postSpy.mockRestore()
+    })
+
+    it('a first grade (no prior) sets supersedes_ts null', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).gradeChains = [chain]
+      ;(el as any).gradeJudgements = []
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+      const postSpy = vi.spyOn((el as any).gradingClient, 'postJudgement').mockResolvedValue({} as any)
+      vi.spyOn((el as any).gradingClient, 'getJudgements').mockResolvedValue({ count: 0, records: [] })
+      await (el as any).handleVerdictSubmit(new CustomEvent('verdict-submit', {
+        detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      }))
+      expect(postSpy.mock.calls[0][0].supersedes_ts).toBeNull()
+      postSpy.mockRestore()
+    })
+
+    it('threads empty notes when the latest judgement has none', async () => {
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeChains = [chain]
+      ;(el as any).gradeJudgements = [judgement({ linkage: 'good', metaphor: 'live', notes: '', ts: '2026-05-31T00:00:00Z' })]
+      ;(el as any).selectedChain = chain
+      await el.updateComplete
+
+      const panel = el.shadowRoot!.querySelector('mf-grade-panel') as any
+      expect(panel.priorVerdict.notes).toBe('')
+    })
+  })
+})
+
+describe('mf-app walk view', () => {
+  let el: MfApp
+
+  function walkEntry(topic: string, sig: string, dwellIndex: number, dwellN: number) {
+    return {
+      chain_signature: sig, topic, vehicle: 'v', dwell_index: dwellIndex, dwell_n: dwellN,
+      record: {
+        schema_version: 'chain.v1',
+        topic, topic_synset_id: 's1', vehicle: 'v', vehicle_synset_id: 'v1',
+        proposer: 't', round: 2,
+        chain: [{ phrase: topic, head: topic, synset_id: 's1' }, { phrase: 'v', head: 'v', synset_id: 'v1' }],
+        chain_signature: sig, generated_at: '2026-01-01T00:00:00Z',
+      },
+    }
+  }
+
+  function makeWalkFetchStub(
+    entries: ReturnType<typeof walkEntry>[],
+    opts: { judgements?: any[]; walkFails?: boolean } = {},
+  ) {
+    const judgements = opts.judgements ?? []
+    return vi.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = input.toString()
+      const method = (input as Request).method
+      if (url.includes('/healthz')) return { ok: true, status: 200, json: async () => ({}) } as Response
+      if (url.includes('/topics')) return { ok: true, status: 200, json: async () => ({ topics: [{ topic: 'anger', topic_synset_id: 's1' }] }) } as Response
+      if (url.includes('/walk')) {
+        if (opts.walkFails) return { ok: false, status: 500, json: async () => ({}) } as Response
+        return { ok: true, status: 200, json: async () => ({ count: entries.length, entries }) } as Response
+      }
+      if (url.includes('/judgements') && method === 'POST') return { ok: true, status: 200, json: async () => ({ schema_version: 'judgement.v2', ts: '2026-01-01T00:00:00Z' }) } as Response
+      if (url.includes('/judgements')) return { ok: true, status: 200, json: async () => ({ count: judgements.length, records: judgements }) } as Response
+      if (url.includes('/design-notes')) return { ok: true, status: 200, json: async () => ({ content: '' }) } as Response
+      return { ok: false, status: 404, json: async () => ({}) } as Response
+    })
+  }
+
+  async function mountGradeDesktop(
+    entries: ReturnType<typeof walkEntry>[],
+    opts: { judgements?: any[]; walkFails?: boolean } = {},
+  ): Promise<MfApp> {
+    makeWalkFetchStub(entries, opts)
+    localStorage.clear()
+    window.location.hash = ''
+    const app = new MfApp()
+    document.body.appendChild(app)
+    await app.updateComplete
+    await new Promise(r => setTimeout(r, 50))
+    ;(app as any).mode = 'grade'
+    ;(app as any).viewportWidth = 1200
+    await app.updateComplete
+    return app
+  }
+
+  async function enterWalk(app: MfApp): Promise<void> {
+    const btn = app.shadowRoot!.querySelector('[data-testid="grade-view-walk"]') as HTMLButtonElement
+    btn.click()
+    await new Promise(r => setTimeout(r, 0))
+    await app.updateComplete
+  }
+
+  afterEach(() => {
+    if (el && el.parentNode) document.body.removeChild(el)
+    vi.restoreAllMocks()
+    window.location.hash = ''
+    localStorage.clear()
+  })
+
+  it('a grade-view toggle is offered in topic view', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)])
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-view-walk"]')).not.toBeNull()
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-view-topic"]')).not.toBeNull()
+  })
+
+  it('entering walk fetches the walk and renders the shell on the first chain', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-walk-layout"]')).not.toBeNull()
+    const walk = el.shadowRoot!.querySelector('mf-grade-walk') as any
+    expect(walk.chain.chain_signature).toBe('s1')
+    expect(walk.total).toBe(2)
+  })
+
+  it('persists the grade view to localStorage', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)])
+    await enterWalk(el)
+    expect(localStorage.getItem('mf-grade-view')).toBe('walk')
+  })
+
+  it('shows the force-graph context on desktop but not on mobile', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)])
+    await enterWalk(el)
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-walk-layout"] mf-force-graph')).not.toBeNull()
+    ;(el as any).viewportWidth = 500
+    await el.updateComplete
+    expect(el.shadowRoot!.querySelector('mf-force-graph')).toBeNull()
+    expect(el.shadowRoot!.querySelector('mf-grade-walk')).not.toBeNull()
+  })
+
+  it('mobile walk uses a scroll container, not the clipped desktop grade-main', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)])
+    await enterWalk(el)
+    ;(el as any).viewportWidth = 500
+    await el.updateComplete
+    const layout = el.shadowRoot!.querySelector('[data-testid="grade-walk-layout"]')!
+    // .grade-main is the desktop graph row (flex:1; overflow:hidden) — must NOT wrap the
+    // mobile shell, or the panel clips with no scroll. Mobile uses a scrollable region.
+    expect(layout.querySelector('.grade-main')).toBeNull()
+    expect(layout.querySelector('.grade-walk-scroll')).not.toBeNull()
+    expect(layout.querySelector('.grade-walk-scroll mf-grade-walk')).not.toBeNull()
+  })
+
+  it('walk-next advances to the next chain', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-next', { bubbles: true, composed: true }))
+    await el.updateComplete
+    const walk = el.shadowRoot!.querySelector('mf-grade-walk') as any
+    expect(walk.chain.chain_signature).toBe('s2')
+    expect((el as any).selectedChain.chain_signature).toBe('s2')
+  })
+
+  it('submitting a verdict advances past the graded chain (which stays reviewable)', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      bubbles: true, composed: true,
+    }))
+    await new Promise(r => setTimeout(r, 0))
+    await el.updateComplete
+    const walk = el.shadowRoot!.querySelector('mf-grade-walk') as any
+    expect(walk.chain.chain_signature).toBe('s2')         // advanced to the next ungraded
+    expect(walk.total).toBe(2)                            // s1 stays addressable (Prev can review it)
+    expect([...(el as any).walkGradedSigs]).toContain('s1')
+  })
+
+  it('Prev returns to the chain just graded (for review)', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      bubbles: true, composed: true,
+    }))
+    await new Promise(r => setTimeout(r, 0))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s2')
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-prev', { bubbles: true, composed: true }))
+    await el.updateComplete
+    const walk = el.shadowRoot!.querySelector('mf-grade-walk') as any
+    expect(walk.chain.chain_signature).toBe('s1')         // back to the chain we just graded
+    expect(walk.graded).toBe(true)
+  })
+
+  it('shows an empty state when the walk has no ungraded chains', async () => {
+    el = await mountGradeDesktop([])
+    await enterWalk(el)
+    expect(el.shadowRoot!.querySelector('[data-testid="walk-empty"]')).not.toBeNull()
+  })
+
+  it('walk-prev steps back to the previous chain', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-next', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s2')
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-prev', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s1')
+    expect((el as any).walkPos).toBe(0)
+  })
+
+  it('surfaces an error and no shell when the walk fails to load', async () => {
+    el = await mountGradeDesktop([], { walkFails: true })
+    await enterWalk(el)
+    expect((el as any).errorMessage).toBe('Failed to load walk')
+    expect(el.shadowRoot!.querySelector('mf-grade-walk')).toBeNull()
+  })
+
+  it('Next skips graded chains by default; skip-off steps through them', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 3), walkEntry('anger', 's2', 1, 3), walkEntry('anger', 's3', 2, 3)])
+    await enterWalk(el)
+    // grade s1 -> auto-advance over it to s2
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      bubbles: true, composed: true,
+    }))
+    await new Promise(r => setTimeout(r, 0))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s2')
+    // Prev back to the graded s1, then Next (skip ON) jumps over s1 to s2
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-prev', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s1')
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-next', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s2')
+    // skip OFF: from s1, Next steps to the literal next (s1 -> s2 still, but now graded ones are not skipped)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-prev', { bubbles: true, composed: true }))
+    await el.updateComplete // back to s1
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-skip-toggle', { bubbles: true, composed: true }))
+    await el.updateComplete
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('walk-next', { bubbles: true, composed: true }))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).chain.chain_signature).toBe('s2')
+  })
+
+  it('decrements the ungraded-remaining count as chains are graded', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 2), walkEntry('anger', 's2', 1, 2)])
+    await enterWalk(el)
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).ungradedLeft).toBe(2)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      bubbles: true, composed: true,
+    }))
+    await new Promise(r => setTimeout(r, 0))
+    await el.updateComplete
+    expect((el.shadowRoot!.querySelector('mf-grade-walk') as any).ungradedLeft).toBe(1)
+  })
+
+  it('disables Next when no ungraded chains remain ahead', async () => {
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)])
+    await enterWalk(el)
+    el.shadowRoot!.querySelector('mf-grade-walk')!.dispatchEvent(new CustomEvent('verdict-submit', {
+      detail: { linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '' },
+      bubbles: true, composed: true,
+    }))
+    await new Promise(r => setTimeout(r, 0))
+    await el.updateComplete
+    const walk = el.shadowRoot!.querySelector('mf-grade-walk') as any
+    expect(walk.canNext).toBe(false)   // s1 graded, nothing ahead — but it stays reviewable
+    expect(walk.graded).toBe(true)
+  })
+
+  it('prefills the prior verdict in walk mode from the GLOBAL judgement set', async () => {
+    // skip OFF so a session/prior-graded chain stays visible; its prior verdict must echo.
+    const prior = {
+      schema_version: 'judgement.v2', ts: '2026-05-31T00:00:00Z', judged_by: 'julian', round: 2,
+      topic: 'anger', topic_synset_id: 's1', vehicle: 'v', vehicle_synset_id: 'v1', proposer: 't',
+      chain_signature: 's1', linkage: 'good', metaphor: 'live', tiers: [], tags: [], confidence: 'high', notes: '',
+    }
+    el = await mountGradeDesktop([walkEntry('anger', 's1', 0, 1)], { judgements: [prior] })
+    await enterWalk(el)
+    const panel = el.shadowRoot!.querySelector('mf-grade-walk')!.shadowRoot!.querySelector('mf-grade-panel') as any
+    expect(panel.priorVerdict).not.toBeNull()
+    expect(panel.priorVerdict.metaphor).toBe('live')
+  })
+
+  it('does not render triage priors (liveness/flags) even if an entry carries them', async () => {
+    // defensive: the server strips priors, but a stray field must never reach the DOM.
+    const leaky = { ...walkEntry('anger', 's1', 0, 1), liveness: 9, bad_head: true, leap: true, weak_linkage: true }
+    el = await mountGradeDesktop([leaky as any])
+    await enterWalk(el)
+    const text = el.shadowRoot!.querySelector('[data-testid="grade-walk-layout"]')!.textContent ?? ''
+    expect(text).not.toMatch(/bad_head|weak_linkage|liveness/)
+  })
+})
+
+describe('mf-app blind re-grade view', () => {
+  let el: MfApp
+
+  beforeEach(async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200 } as Response)
+    localStorage.clear()
+    window.location.hash = ''
+    el = new MfApp()
+    document.body.appendChild(el)
+    await el.updateComplete
+    await new Promise(r => setTimeout(r, 50))
+    ;(el as any).mode = 'grade'
+    ;(el as any).viewportWidth = 1200
+    await el.updateComplete
+  })
+
+  afterEach(() => {
+    document.body.removeChild(el)
+    vi.restoreAllMocks()
+    localStorage.clear()
+  })
+
+  it('offers a Blind re-grade view toggle', () => {
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-view-regrade"]')).toBeTruthy()
+  })
+
+  it('switches to the self-contained re-grade shell, wired with the grading client', async () => {
+    ;(el.shadowRoot!.querySelector('[data-testid="grade-view-regrade"]') as HTMLButtonElement).click()
+    await el.updateComplete
+
+    expect((el as any).gradeView).toBe('regrade')
+    const shell = el.shadowRoot!.querySelector('mf-grade-regrade') as any
+    expect(shell).toBeTruthy()
+    expect(shell.client).toBe((el as any).gradingClient)
+    expect(shell.glosses).toBe((el as any).gradeGlosses)
+    // The topic grading layout (graph + panel) is not mounted in this view.
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-layout"]')).toBeNull()
+    expect(el.shadowRoot!.querySelector('[data-testid="grade-regrade-layout"]')).toBeTruthy()
+  })
+
+  it('persists the re-grade view selection across reload', async () => {
+    ;(el.shadowRoot!.querySelector('[data-testid="grade-view-regrade"]') as HTMLButtonElement).click()
+    await el.updateComplete
+    expect(localStorage.getItem('mf-grade-view')).toBe('regrade')
+  })
+
+  it('mounts mf-grade-sensecheck with the client when the sense-check view is selected', async () => {
+    // el is an mf-app already in grade mode (see the regrade-mount test for setup).
+    (el as any).gradeView = 'sensecheck';
+    await el.updateComplete;
+    const shell = el.shadowRoot!.querySelector('[data-testid="grade-sensecheck"]') as any;
+    expect(shell).toBeTruthy();
+    expect(shell.client).toBe((el as any).gradingClient);
+  });
+
+  // Regression: context-panel clipping on mobile — the scroll container must have
+  // overflow-y:auto and a safe-area-aware padding-bottom so the last row clears
+  // the mobile browser toolbar. happy-dom doesn't evaluate max()/env(), so we
+  // assert the CSS *declaration* text is present in the component's stylesheet.
+  it('grade-walk-scroll CSS declares overflow-y:auto and a safe-area-aware padding-bottom', () => {
+    // MfApp.styles is a single CSSResult from Lit's css`` tag — access .cssText.
+    const raw = (MfApp as any).styles;
+    const styleText: string = Array.isArray(raw)
+      ? raw.map((s: any) => s.cssText ?? String(s)).join('\n')
+      : (raw?.cssText ?? String(raw ?? ''));
+    expect(styleText).toMatch(/\.grade-walk-scroll[^}]*overflow-y\s*:\s*auto/s);
+    expect(styleText).toMatch(/\.grade-walk-scroll[^}]*padding-bottom\s*:\s*max\s*\(/s);
+  });
 })

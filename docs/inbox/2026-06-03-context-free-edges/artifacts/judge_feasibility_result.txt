@@ -1,0 +1,12 @@
+matched 21 graded chains with paths (of 21 human verdicts); human dist: live=15 dead=6
+  judged anxiety->swarm (human=live): haiku=live, sonnet=live, opus=live
+  judged anxiety->whirlpool (human=live): haiku=dead, sonnet=live, opus=live
+  judged anxiety->pendulum (human=live): haiku=live, sonnet=live, opus=live
+  judged anxiety->quicksand (human=live): haiku=live, sonnet=live, opus=live
+  judged anxiety->debt (human=live): haiku=live, sonnet=live, opus=live
+  judged anchor->home (human=live): haiku=live, sonnet=dead, opus=dead
+  judged anchor->tendon (human=live): haiku=live, sonnet=live, opus=dead
+  judged anchor->plummet (human=live): haiku=dead, sonnet=dead, opus=dead
+  judged anchor->bedrock (human=live): haiku=dead, sonnet=dead, opus=dead
+  judged anchor->handhold (human=dead): haiku=dead, sonnet=dead, opus=dead
+  judged anchor->stone (human=dead): haiku=dead, sonnet=dead, opus=dead

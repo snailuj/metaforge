@@ -8,7 +8,9 @@ declare module '3d-force-graph' {
     nodeRelSize(size: number): ForceGraph3DInstance
     nodeThreeObject(fn: (node: unknown) => object): ForceGraph3DInstance
     nodeThreeObjectExtend(extend: boolean): ForceGraph3DInstance
+    linkColor(): (link: unknown) => string
     linkColor(fn: ((link: unknown) => string) | string): ForceGraph3DInstance
+    linkWidth(): (link: unknown) => number
     linkWidth(fn: ((link: unknown) => number) | number): ForceGraph3DInstance
     linkOpacity(opacity: number): ForceGraph3DInstance
     nodeVisibility(fn: (node: unknown) => boolean): ForceGraph3DInstance
@@ -16,6 +18,10 @@ declare module '3d-force-graph' {
     onNodeClick(fn: (node: unknown, event: MouseEvent) => void): ForceGraph3DInstance
     onNodeRightClick(fn: (node: unknown, event: MouseEvent) => void): ForceGraph3DInstance
     onNodeHover(fn: (node: unknown | null) => void): ForceGraph3DInstance
+    onLinkHover(fn: (link: unknown | null) => void): ForceGraph3DInstance
+    onLinkClick(fn: (link: unknown, event: MouseEvent) => void): ForceGraph3DInstance
+    d3Force(name: string): { strength?(s: number): void; distance?(d: number): void } | undefined
+    zoomToFit(ms?: number, px?: number): ForceGraph3DInstance
     graphData(data?: { nodes: unknown[]; links: unknown[] }): ForceGraph3DInstance
     d3AlphaDecay(decay: number): ForceGraph3DInstance
     d3VelocityDecay(decay: number): ForceGraph3DInstance
@@ -34,7 +40,7 @@ declare module '3d-force-graph' {
   }
 
   function ForceGraph3D(
-    options?: { controlType?: string },
+    options?: { controlType?: string; extraRenderers?: unknown[] },
   ): (container: HTMLElement) => ForceGraph3DInstance
 
   export default ForceGraph3D

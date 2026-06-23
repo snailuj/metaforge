@@ -13,7 +13,13 @@
 CREATE TABLE synsets (
     synset_id TEXT PRIMARY KEY,
     pos TEXT NOT NULL CHECK (pos IN ('n', 'v', 'a', 'r', 's')),
-    definition TEXT NOT NULL
+    definition TEXT NOT NULL,
+    -- WordNet lexicographer-file domain (references domains.domainid, populated
+    -- by import_oewn). A coarse 45-class semantic-type label — a type/grouping
+    -- signal for M05/Bridge/thesaurus, NOT a cascade aptness feature (domain
+    -- mismatch is a background condition of forge output, not a live/dead
+    -- discriminator). See docs/inbox/2026-06-05-sqlunet-data-strategy-review.md.
+    domainid INTEGER
 );
 
 CREATE TABLE lemmas (
@@ -58,6 +64,77 @@ CREATE INDEX idx_frequencies_lemma ON frequencies(lemma);
 CREATE INDEX idx_frequencies_zipf ON frequencies(zipf);
 CREATE INDEX idx_frequencies_rarity ON frequencies(rarity);
 CREATE INDEX idx_frequencies_familiarity ON frequencies(familiarity);
+
+-- ============================================================
+-- SQLUNET sense keys, SemCor frequency, domains, BNC, provenance
+-- (added 2026-06-05 — see docs/inbox/2026-06-05-sqlunet-data-strategy-review.md)
+-- ============================================================
+
+-- WordNet lexicographer-file domains: 45 coarse semantic-type classes
+-- (noun.artifact, noun.feeling, verb.motion, ...). The target of
+-- synsets.domainid. A type/grouping signal for M05/Bridge/thesaurus — NOT a
+-- cascade aptness feature (see the review's domains evaluation: domain
+-- mismatch is a background condition, not a live/dead discriminator).
+CREATE TABLE domains (
+    domainid   INTEGER PRIMARY KEY,
+    domain     TEXT NOT NULL,
+    domainname TEXT NOT NULL,
+    posid      TEXT NOT NULL CHECK (posid IN ('n', 'v', 'a', 'r', 's'))
+);
+
+-- Sense-level attributes for every WordNet sense. Two payloads dropped by the
+-- original import:
+--   sensekey  the stable cross-resource sense id (joins SyntagNet/VerbNet/etc.)
+--   tagcount  SemCor empirical usage count — the dominant-sense prior that
+--             unblocks topic disambiguation. NULL where SemCor never tagged the
+--             sense (~81% of senses); LLM disambiguation remains the fallback.
+-- Grain mirrors the lemmas table (one row per word-sense); keyed on sensekey
+-- (verified unique + non-null across all 185k senses).
+CREATE TABLE sense_attributes (
+    sensekey  TEXT PRIMARY KEY,
+    lemma     TEXT NOT NULL,
+    synset_id TEXT NOT NULL,
+    sensenum  INTEGER,
+    tagcount  INTEGER,
+    FOREIGN KEY (synset_id) REFERENCES synsets(synset_id)
+);
+
+CREATE INDEX idx_sense_attributes_lemma ON sense_attributes(lemma);
+CREATE INDEX idx_sense_attributes_synset ON sense_attributes(synset_id);
+-- Dominant-sense lookup: highest-tagcount synset for a lemma.
+CREATE INDEX idx_sense_attributes_lemma_tagcount ON sense_attributes(lemma, tagcount);
+
+-- BNC POS-resolved word frequency (British National Corpus, 100M words).
+-- Supplies the POS-dominance topic filter (drop noun-lemma topics that are
+-- really verb-dominant, e.g. take/get/say). Word+POS granular — complements
+-- the word-level `frequencies` table (no POS split) and SemCor tagcount.
+CREATE TABLE bnc_frequencies (
+    lemma TEXT NOT NULL,
+    pos   TEXT NOT NULL CHECK (pos IN ('n', 'v', 'a', 'r', 's')),
+    freq  INTEGER NOT NULL,
+    PRIMARY KEY (lemma, pos)
+);
+
+CREATE INDEX idx_bnc_frequencies_lemma ON bnc_frequencies(lemma);
+
+-- Seed-data provenance: every upstream dataset (name / version / WordNet
+-- version / licence reference) + the build metadata. Licence-audit anchor;
+-- closes the documented provenance gap (Pipeline Architectural Review).
+CREATE TABLE seed_sources (
+    idsource  INTEGER PRIMARY KEY,
+    name      TEXT NOT NULL,
+    version   TEXT,
+    wnversion TEXT,
+    url       TEXT,
+    provider  TEXT,
+    reference TEXT
+);
+
+CREATE TABLE seed_meta (
+    created TEXT,
+    dbsize  INTEGER,
+    build   TEXT
+);
 
 -- ============================================================
 -- VerbNet (classes, roles, examples, members)
@@ -315,3 +392,130 @@ CREATE TABLE IF NOT EXISTS synset_concreteness (
     source TEXT NOT NULL,
     FOREIGN KEY (synset_id) REFERENCES synsets(synset_id)
 );
+
+-- ============================================================
+-- Metaphor graph (2026-05-28)
+-- ============================================================
+-- Bridge-centric layer: a proposal is (topic, vehicle, path) where the
+-- path is an ordered list of intermediate synsets. Cascade and LLM
+-- proposers share one pool. Judgments attach per (bridge, judge).
+-- Spec: docs/superpowers/specs/2026-05-28-metaphor-graph-schema-design.md
+
+CREATE TABLE IF NOT EXISTS metaphor_bridges (
+    bridge_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_synset_id    TEXT NOT NULL REFERENCES synsets(synset_id),
+    vehicle_synset_id  TEXT NOT NULL REFERENCES synsets(synset_id),
+    proposer           TEXT NOT NULL,
+    proposed_at        TEXT NOT NULL,
+    path_hash          TEXT NOT NULL CHECK (length(path_hash) = 64
+                                            AND NOT path_hash GLOB '*[^0-9a-f]*'),
+    rationale          TEXT,
+    cosine_distance    REAL,
+    ortony_score       REAL,
+    cascade_score      REAL,
+    signed_delta       REAL,
+    CHECK (topic_synset_id != vehicle_synset_id),
+    CHECK (length(proposer) > 0),
+    CHECK (length(proposed_at) > 0),
+    UNIQUE (topic_synset_id, vehicle_synset_id, proposer, path_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridges_topic
+    ON metaphor_bridges(topic_synset_id);
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridges_vehicle
+    ON metaphor_bridges(vehicle_synset_id);
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridges_proposer
+    ON metaphor_bridges(proposer);
+
+CREATE TABLE IF NOT EXISTS metaphor_bridge_steps (
+    bridge_id          INTEGER NOT NULL REFERENCES metaphor_bridges(bridge_id) ON DELETE CASCADE,
+    step_index         INTEGER NOT NULL,
+    via_synset_id      TEXT NOT NULL REFERENCES synsets(synset_id),
+    PRIMARY KEY (bridge_id, step_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridge_steps_via
+    ON metaphor_bridge_steps(via_synset_id);
+
+CREATE TABLE IF NOT EXISTS metaphor_judgments (
+    judgment_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    bridge_id          INTEGER NOT NULL REFERENCES metaphor_bridges(bridge_id) ON DELETE CASCADE,
+    label              TEXT NOT NULL CHECK (label IN
+                         ('live','dead_synonym','dead_lakoff','irrelevant','edge_case')),
+    judged_by          TEXT NOT NULL,
+    judged_at          TEXT NOT NULL,
+    confidence         REAL,
+    notes              TEXT,
+    CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
+    CHECK (length(judged_by) > 0),
+    CHECK (length(judged_at) > 0),
+    UNIQUE (bridge_id, judged_by)
+);
+
+CREATE INDEX IF NOT EXISTS idx_metaphor_judgments_label
+    ON metaphor_judgments(label);
+CREATE INDEX IF NOT EXISTS idx_metaphor_judgments_judged_by
+    ON metaphor_judgments(judged_by);
+
+-- Unified graph view: existing relation tables + judged-live metaphor links
+DROP VIEW IF EXISTS graph_edges;
+
+-- Row-multiplicity note: this view does NOT deduplicate. UNION arms can emit
+-- multiple rows for the same logical edge:
+--   has_property:  one row per curated property-cluster shared (1:1 in practice
+--                  given the snap pipeline's idempotency, but not enforced here)
+--   metonym_of:    one row per (synset_id, metonym_syntagm_id); distinct
+--                  syntagms can link the same (src, dst) synset pair
+--   antonym_of:    property_antonyms stores both (a,b) and (b,a) — bidirectional
+--                  fan-out is preserved here, NOT collapsed
+--   metaphor_link: one row per (bridge_id, judge); with multiple judges (e.g.
+--                  julian + llm_judge_v1) the same live bridge emits N rows
+-- Consumers wanting unique (src, dst[, bridge_id]) edges must apply DISTINCT
+-- or aggregate. This preserves raw signal at the view layer; aggregation
+-- belongs in the consumer.
+CREATE VIEW graph_edges AS
+SELECT
+    spc.synset_id     AS src_synset_id,
+    pvc.synset_id     AS dst_synset_id,
+    'has_property'    AS relation,
+    spc.salience_sum  AS weight,
+    NULL              AS bridge_id
+FROM synset_properties_curated spc
+JOIN property_vocab_curated pvc ON pvc.vocab_id = spc.vocab_id
+UNION ALL
+-- metonym_of: directional, src=sm.synset_id, dst=the OTHER endpoint of the
+-- syntagm. WHERE clause drops (a) rows whose sm.synset_id doesn't match
+-- either endpoint (phantom-edge fix, round 1) and (b) self-syntagms where
+-- synset1id == synset2id (self-loop fix, round 2). Upstream
+-- synset_metonyms direction convention is "synset_id IS a metonym of the
+-- other endpoint" — see import_syntagnet.py for the import semantics.
+SELECT
+    sm.synset_id                                                            AS src_synset_id,
+    CASE WHEN s.synset1id = sm.synset_id THEN s.synset2id ELSE s.synset1id END AS dst_synset_id,
+    'metonym_of'                                                            AS relation,
+    NULL                                                                    AS weight,
+    NULL                                                                    AS bridge_id
+FROM synset_metonyms sm
+JOIN syntagms s ON s.syntagm_id = sm.metonym_syntagm_id
+WHERE sm.synset_id IN (s.synset1id, s.synset2id)
+  AND s.synset1id != s.synset2id
+UNION ALL
+SELECT
+    pa.synset_id   AS src_synset_id,
+    pb.synset_id   AS dst_synset_id,
+    'antonym_of'   AS relation,
+    NULL           AS weight,
+    NULL           AS bridge_id
+FROM property_antonyms pant
+JOIN property_vocab_curated pa ON pa.vocab_id = pant.vocab_id_a
+JOIN property_vocab_curated pb ON pb.vocab_id = pant.vocab_id_b
+UNION ALL
+SELECT
+    mb.topic_synset_id   AS src_synset_id,
+    mb.vehicle_synset_id AS dst_synset_id,
+    'metaphor_link'      AS relation,
+    mj.confidence        AS weight,
+    mb.bridge_id         AS bridge_id
+FROM metaphor_bridges mb
+JOIN metaphor_judgments mj ON mj.bridge_id = mb.bridge_id
+WHERE mj.label = 'live';

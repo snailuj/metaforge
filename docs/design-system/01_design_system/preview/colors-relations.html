@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body { width:700px; background:var(--colour-bg-primary); color:var(--colour-text-primary);
+    font-family:var(--font-body); padding:22px 26px; }
+  .row { display:flex; gap:14px; align-items:stretch; }
+  .swatch { flex:1; border-radius:var(--hud-radius); border:1px solid rgba(232,224,212,0.08);
+    padding:12px 14px; display:flex; flex-direction:column; justify-content:flex-end; min-height:84px; }
+  .swatch .hex { font-family:var(--font-mono); font-size:11px; opacity:0.85; }
+  .swatch .nm { font-size:13px; margin-top:3px; }
+  .label { font-family:var(--font-body); font-size:11px; text-transform:uppercase;
+    letter-spacing:0.08em; color:var(--colour-text-muted); margin-bottom:13px; }
+  
+</style></head><body>
+<div class="label">Relation / node colours</div>
+<div class="row" style="flex-wrap:wrap;gap:10px">
+  <div style="flex:0 0 calc(25% - 8px);border-radius:4px;border:1px solid rgba(232,224,212,.08);padding:10px 12px;min-height:62px;display:flex;flex-direction:column;justify-content:flex-end"><span style="width:14px;height:14px;border-radius:50%;background:#d4af37;margin-bottom:7px"></span><span style="font-size:12px;color:#d4af37">central</span><span style="font-family:var(--font-mono);font-size:10px;opacity:.7">#d4af37</span></div><div style="flex:0 0 calc(25% - 8px);border-radius:4px;border:1px solid rgba(232,224,212,.08);padding:10px 12px;min-height:62px;display:flex;flex-direction:column;justify-content:flex-end"><span style="width:14px;height:14px;border-radius:50%;background:#c4956a;margin-bottom:7px"></span><span style="font-size:12px;color:#c4956a">synonym</span><span style="font-family:var(--font-mono);font-size:10px;opacity:.7">#c4956a</span></div><div style="flex:0 0 calc(25% - 8px);border-radius:4px;border:1px solid rgba(232,224,212,.08);padding:10px 12px;min-height:62px;display:flex;flex-direction:column;justify-content:flex-end"><span style="width:14px;height:14px;border-radius:50%;background:#8b6f47;margin-bottom:7px"></span><span style="font-size:12px;color:#8b6f47">hypernym</span><span style="font-family:var(--font-mono);font-size:10px;opacity:.7">#8b6f47</span></div><div style="flex:0 0 calc(25% - 8px);border-radius:4px;border:1px solid rgba(232,224,212,.08);padding:10px 12px;min-height:62px;display:flex;flex-direction:column;justify-content:flex-end"><span style="width:14px;height:14px;border-radius:50%;background:#6a8b6f;margin-bottom:7px"></span><span style="font-size:12px;color:#6a8b6f">hyponym</span><span style="font-family:var(--font-mono);font-size:10px;opacity:.7">#6a8b6f</span></div><div style="flex:0 0 calc(25% - 8px);border-radius:4px;border:1px solid rgba(232,224,212,.08);padding:10px 12px;min-height:62px;display:flex;flex-direction:column;justify-content:flex-end"><span style="width:14px;height:14px;border-radius:50%;background:#7a6a8b;margin-bottom:7px"></span><span style="font-size:12px;color:#7a6a8b">similar</span><span style="font-family:var(--font-mono);font-size:10px;opacity:.7">#7a6a8b</span></div><div style="flex:0 0 calc(25% - 8px);border-radius:4px;border:1px solid rgba(232,224,212,.08);padding:10px 12px;min-height:62px;display:flex;flex-direction:column;justify-content:flex-end"><span style="width:14px;height:14px;border-radius:50%;background:#8ba4b8;margin-bottom:7px"></span><span style="font-size:12px;color:#8ba4b8">collocation</span><span style="font-family:var(--font-mono);font-size:10px;opacity:.7">#8ba4b8</span></div><div style="flex:0 0 calc(25% - 8px);border-radius:4px;border:1px solid rgba(232,224,212,.08);padding:10px 12px;min-height:62px;display:flex;flex-direction:column;justify-content:flex-end"><span style="width:14px;height:14px;border-radius:50%;background:#b88b8b;margin-bottom:7px"></span><span style="font-size:12px;color:#b88b8b">antonym</span><span style="font-family:var(--font-mono);font-size:10px;opacity:.7">#b88b8b</span></div>
+</div></body></html>

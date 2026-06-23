@@ -1,9 +1,12 @@
-# Captures Inbox
+# Captures Inbox — RETIRED
 
-_Loose ideas and observations captured during work. Triage periodically: promote, defer, or discard._
+**This file is retired.** Captures now live in a single funnel in `docs/roadmap/PIPELINE.md` under **`## Inbox (untriaged captures)`**. Capture there; triage promotes down through Backlog → Queued → Next. See the Conventions section of PIPELINE.md for the full flow. (Decommissioned 2026-05-29 — the capture/backlog system was consolidated to one source of truth.)
 
-_Migrated from `.gsd/CAPTURES.md` on 2026-05-03 during GSD decommission._
+Do not add new captures here. Pointer kept to avoid breaking references; the archived entry below is preserved for provenance.
 
+---
+
+## Archived (resolved, pre-retirement)
 
 ### CAP-b55cb5d1
 **Text:** adding CI is probably something we should do sooner than later
@@ -15,3 +18,5 @@ _Migrated from `.gsd/CAPTURES.md` on 2026-05-03 during GSD decommission._
 **Resolved:** 2026-05-02T07:11:39.000Z
 **Milestone:** M002-kitkng
 **Executed:** 2026-05-02T07:12:23.806Z
+
+_(The live CAP-snap-recon capture was promoted verbatim to PIPELINE.md → Backlog on 2026-05-29.)_

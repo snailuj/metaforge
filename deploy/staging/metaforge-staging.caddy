@@ -1,4 +1,36 @@
 metaforge-next.julianit.me {
+    # Healthz — public, no auth (frontend probe).
+    handle /api/grading/healthz {
+        reverse_proxy 127.0.0.1:53775
+    }
+
+    # Grading API — basic-auth + body cap + secret injection.
+    # __JULIAN_BCRYPT_HASH__ and __GRADING_SECRET__ are sed-substituted by the
+    # deploy step (caddy.service has no EnvironmentFile, so Caddy's {$VAR}
+    # substitution is unavailable — we render the values into this root-owned
+    # snippet directly, the same mechanism as __WORKTREE__).
+    # NOTE: per-IP rate_limit deferred — requires the caddy-ratelimit plugin,
+    # which would mean rebuilding the shared Caddy binary serving all sites.
+    # basic-auth already blocks crawlers; revisit if bcrypt-CPU-DoS becomes real.
+    # Access logging uses Caddy's global logger (no per-handle `log` block — it
+    # isn't an ordered HTTP handler inside `handle`). Global logging does not
+    # record request headers by default, so the basic-auth + X-Grading-Secret
+    # values stay out of the logs.
+    handle /api/grading/* {
+        basic_auth {
+            julian __JULIAN_BCRYPT_HASH__
+        }
+
+        request_body {
+            max_size 1MB
+        }
+
+        reverse_proxy 127.0.0.1:53775 {
+            header_up X-Grading-Secret __GRADING_SECRET__
+        }
+    }
+
+    # Thesaurus / Forge / Strings / Health — existing Go API.
     handle /thesaurus/* {
         reverse_proxy 127.0.0.1:8081
     }
@@ -11,6 +43,8 @@ metaforge-next.julianit.me {
     handle /health {
         reverse_proxy 127.0.0.1:8081
     }
+
+    # Default — SPA catch-all with immutable asset cache.
     handle {
         root * __WORKTREE__/web/dist
         try_files {path} /index.html

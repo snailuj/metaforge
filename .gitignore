@@ -84,3 +84,11 @@ vendor/
 *.log
 .cache/
 tmp/
+
+# Playwright e2e scratch + reports
+.playwright-mcp/
+web/test-results/
+web/playwright-report/
+
+# Generation runner resume sidecar (spent-and-empty topic_synset_ids)
+*.attempted

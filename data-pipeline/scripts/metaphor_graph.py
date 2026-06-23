@@ -1,0 +1,793 @@
+"""Metaphor graph schema, path hashing, snap, insert, judgment, view helpers.
+
+Implements the bridge-centric metaphor graph layer specified in
+docs/superpowers/specs/2026-05-28-metaphor-graph-schema-design.md.
+
+Public surface:
+    compute_path_hash(step_synset_ids)             -> str         # idempotency hash
+    apply_schema(conn)                             -> None        # tables + indexes only
+    apply_graph_view(conn)                         -> None        # graph_edges VIEW
+    snap_concept_string(conn, text)                -> str | None  # exact + morphological
+    insert_bridge(conn, ..., path=)                -> int         # pre-snapped path
+    insert_bridge_with_raw_path(conn, ..., raw_path=) -> int      # snaps then inserts
+    record_judgment(conn, ...)                     -> int         # returns judgment_id
+    BridgeSnapFailure                              -> Exception   # raised by raw-path inserter
+"""
+from __future__ import annotations
+
+import hashlib
+import re
+import sqlite3
+import logging
+
+log = logging.getLogger(__name__)
+
+
+def _require_transactional(conn: sqlite3.Connection) -> None:
+    """Reject connections opened in autocommit mode.
+
+    Under autocommit each INSERT commits immediately, so `with conn:` becomes
+    a no-op and a mid-transaction failure leaves partial state. The bridge
+    writers depend on transactional rollback for their all-or-nothing
+    semantics.
+
+    Checks both the legacy `isolation_level=None` autocommit (pre-3.12) and
+    the new py3.12+ `autocommit=True` attribute. Either flag indicates the
+    connection won't honour `with conn:` rollback.
+
+    Also asserts PRAGMA foreign_keys is ON so FK integrity declared in the
+    schema is actually enforced at write time. FK enforcement is per-
+    connection in SQLite and can silently flip back off after apply_schema.
+    """
+    if conn.isolation_level is None:
+        raise RuntimeError(
+            "metaphor_graph writers require a transactional connection "
+            "(isolation_level != None); got autocommit"
+        )
+    # py3.12+ added a separate `autocommit` attribute that bypasses
+    # isolation_level. getattr keeps this safe on older Pythons.
+    if getattr(conn, "autocommit", False) is True:
+        raise RuntimeError(
+            "metaphor_graph writers require a transactional connection "
+            "(autocommit=False); got autocommit=True (py3.12+ attribute)"
+        )
+    fk_on = conn.execute("PRAGMA foreign_keys").fetchone()
+    if not fk_on or fk_on[0] != 1:
+        raise RuntimeError(
+            "metaphor_graph writers require PRAGMA foreign_keys = ON; "
+            "either call apply_schema(conn) first or run it manually"
+        )
+
+
+import nltk
+from nltk.stem import WordNetLemmatizer
+
+# NLTK lemmatiser is thread-safe and cheap to instantiate but we cache the
+# instance to avoid repeated attribute lookups in tight loops.
+_LEMMATISER: WordNetLemmatizer | None = None
+
+
+def _get_lemmatiser() -> WordNetLemmatizer:
+    global _LEMMATISER
+    if _LEMMATISER is None:
+        try:
+            nltk.data.find("corpora/wordnet")
+        except LookupError:
+            log.info("snap_concept_string: WordNet corpus missing — downloading")
+            try:
+                ok = nltk.download("wordnet", quiet=True)
+            except Exception as e:
+                log.error("snap_concept_string: WordNet download raised: %s", e)
+                raise
+            if not ok:
+                # nltk.download returns False on network/permissions failure rather
+                # than raising — treat that as a fatal error rather than letting
+                # WordNetLemmatizer construction silently succeed against a missing
+                # corpus and then crash much later inside lemmatize().
+                msg = "snap_concept_string: nltk.download('wordnet') returned False"
+                log.error(msg)
+                raise RuntimeError(msg)
+        _LEMMATISER = WordNetLemmatizer()
+    return _LEMMATISER
+
+
+METAPHOR_GRAPH_DDL = """
+CREATE TABLE IF NOT EXISTS metaphor_bridges (
+    bridge_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_synset_id    TEXT NOT NULL REFERENCES synsets(synset_id),
+    vehicle_synset_id  TEXT NOT NULL REFERENCES synsets(synset_id),
+    proposer           TEXT NOT NULL,
+    proposed_at        TEXT NOT NULL,
+    path_hash          TEXT NOT NULL CHECK (length(path_hash) = 64
+                                            AND NOT path_hash GLOB '*[^0-9a-f]*'),
+    rationale          TEXT,
+    cosine_distance    REAL,
+    ortony_score       REAL,
+    cascade_score      REAL,
+    signed_delta       REAL,
+    CHECK (topic_synset_id != vehicle_synset_id),
+    CHECK (length(proposer) > 0),
+    CHECK (length(proposed_at) > 0),
+    UNIQUE (topic_synset_id, vehicle_synset_id, proposer, path_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridges_topic
+    ON metaphor_bridges(topic_synset_id);
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridges_vehicle
+    ON metaphor_bridges(vehicle_synset_id);
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridges_proposer
+    ON metaphor_bridges(proposer);
+
+CREATE TABLE IF NOT EXISTS metaphor_bridge_steps (
+    bridge_id          INTEGER NOT NULL REFERENCES metaphor_bridges(bridge_id) ON DELETE CASCADE,
+    step_index         INTEGER NOT NULL,
+    via_synset_id      TEXT NOT NULL REFERENCES synsets(synset_id),
+    PRIMARY KEY (bridge_id, step_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_metaphor_bridge_steps_via
+    ON metaphor_bridge_steps(via_synset_id);
+
+CREATE TABLE IF NOT EXISTS metaphor_judgments (
+    judgment_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    bridge_id          INTEGER NOT NULL REFERENCES metaphor_bridges(bridge_id) ON DELETE CASCADE,
+    label              TEXT NOT NULL CHECK (label IN
+                         ('live','dead_synonym','dead_lakoff','irrelevant','edge_case')),
+    judged_by          TEXT NOT NULL,
+    judged_at          TEXT NOT NULL,
+    confidence         REAL,
+    notes              TEXT,
+    CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
+    CHECK (length(judged_by) > 0),
+    CHECK (length(judged_at) > 0),
+    UNIQUE (bridge_id, judged_by)
+);
+
+CREATE INDEX IF NOT EXISTS idx_metaphor_judgments_label
+    ON metaphor_judgments(label);
+CREATE INDEX IF NOT EXISTS idx_metaphor_judgments_judged_by
+    ON metaphor_judgments(judged_by);
+"""
+
+
+def apply_schema(conn: sqlite3.Connection) -> None:
+    """Apply metaphor-graph tables + indexes. Idempotent.
+
+    Enables PRAGMA foreign_keys=ON and VERIFIES the write took effect —
+    SQLite silently no-ops the PRAGMA when issued inside an open
+    transaction, so a caller mid-write would otherwise get FK off without
+    any signal. We read the pragma back and raise if it isn't 1.
+
+    The graph_edges VIEW is added by a separate function (apply_graph_view)
+    because the view depends on tables that may or may not exist in test
+    fixtures (synset_metonyms, property_antonyms, etc.). Production DBs
+    have all sources; tests opt in.
+    """
+    conn.execute("PRAGMA foreign_keys = ON")
+    fk_after = conn.execute("PRAGMA foreign_keys").fetchone()
+    if not fk_after or fk_after[0] != 1:
+        raise RuntimeError(
+            "apply_schema: PRAGMA foreign_keys = ON had no effect — "
+            "the connection likely has an open transaction; commit "
+            "before calling apply_schema"
+        )
+    conn.executescript(METAPHOR_GRAPH_DDL)
+    conn.commit()
+    log.info("apply_schema: metaphor-graph tables + indexes applied (FK enforcement on)")
+
+
+def compute_path_hash(step_synset_ids: list[str]) -> str:
+    """Order-preserving sha256 over the bridge's intermediate node IDs.
+
+    Used as the idempotency key alongside (topic, vehicle, proposer): re-running
+    a proposer with the same bridge does not create a duplicate row.
+
+    Raises ValueError if the path is empty — every bridge must have at least
+    one intermediate, per the spec.
+    """
+    if not step_synset_ids:
+        raise ValueError("path_hash: empty path — every bridge needs >=1 intermediate")
+    joined = "|".join(step_synset_ids)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+def insert_bridge(
+    conn: sqlite3.Connection,
+    *,
+    topic_synset_id: str,
+    vehicle_synset_id: str,
+    proposer: str,
+    proposed_at: str,
+    path: list[str],
+    rationale: str | None = None,
+    cosine_distance: float | None = None,
+    ortony_score: float | None = None,
+    cascade_score: float | None = None,
+    signed_delta: float | None = None,
+) -> int:
+    """Insert a metaphor bridge with its ordered intermediate steps. Idempotent.
+
+    `path` must be a non-empty list of pre-snapped synset_ids — the
+    intermediate nodes between topic and vehicle. Endpoints are NOT in the
+    path.
+
+    Returns the bridge_id (existing if a duplicate of (topic, vehicle,
+    proposer, path_hash) is already stored; newly created otherwise).
+
+    The whole operation runs inside a single transaction — if any step
+    insert fails the bridge row is rolled back too.
+    """
+    path_hash = compute_path_hash(path)
+    _require_transactional(conn)
+
+    # Check for existing row first (idempotency). This is a read; do it before
+    # opening the write transaction so we don't churn on common no-ops.
+    existing = conn.execute(
+        "SELECT bridge_id FROM metaphor_bridges "
+        "WHERE topic_synset_id = ? AND vehicle_synset_id = ? "
+        "AND proposer = ? AND path_hash = ?",
+        (topic_synset_id, vehicle_synset_id, proposer, path_hash),
+    ).fetchone()
+    if existing is not None:
+        log.debug(
+            "insert_bridge idempotent skip: bridge_id=%d topic=%s vehicle=%s proposer=%s",
+            existing[0], topic_synset_id, vehicle_synset_id, proposer,
+        )
+        return existing[0]
+
+    with conn:  # atomic: commit on success, rollback on exception
+        cur = conn.execute(
+            "INSERT INTO metaphor_bridges "
+            "(topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash, "
+            " rationale, cosine_distance, ortony_score, cascade_score, signed_delta) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                topic_synset_id, vehicle_synset_id, proposer, proposed_at, path_hash,
+                rationale, cosine_distance, ortony_score, cascade_score, signed_delta,
+            ),
+        )
+        bridge_id = cur.lastrowid
+        conn.executemany(
+            "INSERT INTO metaphor_bridge_steps (bridge_id, step_index, via_synset_id) "
+            "VALUES (?, ?, ?)",
+            [(bridge_id, i, via) for i, via in enumerate(path)],
+        )
+    log.debug(
+        "insert_bridge: bridge_id=%d topic=%s vehicle=%s proposer=%s path_hops=%d",
+        bridge_id, topic_synset_id, vehicle_synset_id, proposer, len(path),
+    )
+    return bridge_id
+
+
+def _morphological_variants(text: str) -> list[str]:
+    """Generate morphological variant candidates for the single-string snapper.
+
+    Includes:
+        - NLTK lemmas per POS (a, v, n, r), order matches snap_properties.py
+        - Suffix-stripped forms: -ing, -ed, -ly, plus the +e variant for -ing/-ed
+
+    Closely mirrors snap_properties.py:172-186 with one deliberate
+    addition: the -ly branch is unique to this helper. snap_properties.py
+    does not strip -ly; we do so here because LLM-emitted concept strings
+    frequently surface adverbs that would otherwise miss the curated
+    vocab (e.g. "quickly" -> "quick"). The asymmetry is intentional —
+    do NOT remove the -ly branch to "achieve parity" without first
+    promoting it into snap_properties.py.
+
+    Returns a list of unique candidates that differ from the input. The
+    list ordering is load-bearing: snap_concept_string iterates in this
+    order and returns on the first SQL hit, so callers depending on
+    determinism rely on this order being stable.
+    """
+    variants: list[str] = []
+    seen: set[str] = set()
+
+    def _add(v: str) -> None:
+        if v and v != text and v not in seen:
+            seen.add(v)
+            variants.append(v)
+
+    lemmatiser = _get_lemmatiser()
+    for pos in ("a", "v", "n", "r"):
+        _add(lemmatiser.lemmatize(text, pos=pos))
+
+    if text.endswith("ing") and len(text) > 5:
+        _add(text[:-3])             # "flickering" -> "flicker"
+        _add(text[:-3] + "e")       # "absorbing" -> "absorbe" (likely no hit, harmless)
+    if text.endswith("ed") and len(text) > 4:
+        _add(text[:-2])             # "abridged" -> "abridg"
+        _add(text[:-1])             # "abridged" -> "abridge"
+        _add(text[:-2] + "e")
+    if text.endswith("ly") and len(text) > 4:
+        _add(text[:-2])             # "quickly" -> "quick"
+
+    return variants
+
+
+def snap_concept_string(conn: sqlite3.Connection, text: str) -> str | None:
+    """Map a raw LLM-emitted concept string to a curated synset_id.
+
+    Mirrors the first two stages of the snap_properties.py cascade:
+        1. Exact match on property_vocab_curated.lemma (case-insensitive).
+        2. Suffix-stripping variants and NLTK per-POS lemmatisation, then exact.
+
+    Returns the synset_id of the matched curated vocab entry, or None if no
+    match. Embedding-based fallback is deliberately NOT implemented here —
+    callers that need it can call the batch snapper directly. This single-
+    string helper is for proposer pipelines where exact+morphological
+    coverage suffices.
+    """
+    if not text or not text.strip():
+        return None
+
+    # Precondition: curated vocab must be built. If the table is missing the
+    # function would otherwise raise an unactionable OperationalError mid-query.
+    tbl = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='property_vocab_curated'"
+    ).fetchone()
+    if tbl is None:
+        msg = "snap_concept_string: property_vocab_curated missing — run build_vocab.py first"
+        log.error(msg)
+        raise RuntimeError(msg)
+
+    normalised = text.strip().lower()
+
+    # Stage 1: exact
+    # TODO(perf): LOWER(lemma) bypasses idx_vocab_lemma. Acceptable at single-proposer
+    # call frequency; revisit with an expression index if bridge proposal scales up.
+    row = conn.execute(
+        "SELECT synset_id FROM property_vocab_curated WHERE LOWER(lemma) = ? "
+        "ORDER BY vocab_id ASC LIMIT 1",
+        (normalised,),
+    ).fetchone()
+    if row is not None:
+        return row[0]
+
+    # Stage 2: morphological — NLTK per-POS lemmatisation + suffix-stripping,
+    # mirroring snap_properties.py:172-186 so coverage matches the batch snapper.
+    for candidate in _morphological_variants(normalised):
+        row = conn.execute(
+            "SELECT synset_id FROM property_vocab_curated WHERE LOWER(lemma) = ? "
+            "ORDER BY vocab_id ASC LIMIT 1",
+            (candidate,),
+        ).fetchone()
+        if row is not None:
+            return row[0]
+
+    log.info("snap_concept_string miss: text=%r normalised=%r", text, normalised)
+    return None
+
+
+def _lemma_variants(word: str) -> list[str]:
+    """Return distinct lemmatised variants of `word`, base-form first.
+
+    Order: noun-lemma, verb-lemma, then heuristic '-ing'/'-s' strips
+    for cases the WordNet lemmatiser misses (e.g. 'smelting' → 'smelt'
+    is not in WordNet's exception list). The caller iterates this in
+    order and stops at the first match — so noun reading is preferred,
+    then verb, then suffix heuristics. Lower-cased; the input surface
+    form is excluded so callers never re-try the direct match.
+
+    Distinct from `_morphological_variants` (used by snap_concept_string for
+    property concepts): this one is noun-first and entity-oriented, for
+    resolving metaphor topic/vehicle endpoints. Do not merge the two.
+    """
+    try:
+        lemmatiser = _get_lemmatiser()
+    except RuntimeError:
+        # No WordNet corpus — degrade gracefully (direct hits still resolve).
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    # POS order — noun first because metaphor vehicles are
+    # overwhelmingly nominal in the cohort. 'a'/'r' add little value
+    # and risk false positives on rare adjective stems.
+    for pos in ("n", "v"):
+        v = lemmatiser.lemmatize(word, pos=pos)
+        if v != word and v not in seen:
+            seen.add(v)
+            out.append(v)
+    # Heuristic suffix strips for WordNet gaps. Conservative bounds
+    # (len > 5 for -ing, len > 4 for -s) avoid generating short noise
+    # stems like 'in' from 'sing'.
+    if word.endswith("ing") and len(word) > 5:
+        for cand in (word[:-3], word[:-3] + "e"):
+            if cand not in seen:
+                seen.add(cand)
+                out.append(cand)
+    if word.endswith("s") and not word.endswith("ss") and len(word) > 4:
+        cand = word[:-1]
+        if cand not in seen:
+            seen.add(cand)
+            out.append(cand)
+    return out
+
+
+def lookup_primary_synset(conn: sqlite3.Connection, lemma: str) -> str | None:
+    """Resolve a lemma to its primary synset_id.
+
+    Prefers the curated vocabulary entry (least-polysemous lemma per synset).
+    Within curated/lemmas, prefers NOUN synsets when any exist for the
+    surface form — metaphor topics and vehicles are overwhelmingly nominal
+    (LakoffM01/Phase2 cohort), so picking the verb sense (e.g. 'anger' →
+    "make angry"; 'storm' → "take by force"; 'tide' → "rise or move")
+    yields property profiles built around action frames rather than the
+    intended entity-domain. Falls back to any-POS if no noun synset exists
+    so cases like a verb-only vehicle still resolve.
+    Falls back to the first synset in the lemmas table when curated vocab
+    has no entry. When neither match the surface form, falls back to
+    lemmatised variants (noun-lemma, then verb-lemma, then '-ing'/'-s'
+    heuristic strips) — recovers ~9% of cohort vehicles that arrive as
+    plurals or gerunds (FU-2 from the metaphor-enrichment spike).
+    Returns None if no variant resolves.
+
+    Canonical home is metaphor_graph (relocated 2026-05-29, Stage A hardening);
+    evaluate_aptness re-imports it. This is the ENDPOINT resolver (topics +
+    vehicles). Property/path concepts use snap_concept_string instead.
+    """
+    if not lemma:
+        return None
+    needle = lemma.strip().lower()
+
+    def _direct(form: str) -> str | None:
+        # Curated noun-preferred. Some legacy fixture DBs lack the `pos`
+        # column on property_vocab_curated; fail-open to the any-POS
+        # query in that case (matches the lemmas-table fail-open below).
+        try:
+            row = conn.execute(
+                "SELECT synset_id FROM property_vocab_curated "
+                "WHERE LOWER(lemma) = ? AND pos = 'n' "
+                "ORDER BY polysemy ASC LIMIT 1",
+                (form,),
+            ).fetchone()
+            if row:
+                return row[0]
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "no such column" not in msg and "no such table" not in msg:
+                raise
+        # Curated any-POS fallback (original behaviour).
+        row = conn.execute(
+            "SELECT synset_id FROM property_vocab_curated "
+            "WHERE LOWER(lemma) = ? "
+            "ORDER BY polysemy ASC LIMIT 1",
+            (form,),
+        ).fetchone()
+        if row:
+            return row[0]
+        # Lemmas table noun-preferred — requires JOIN with synsets which
+        # may be absent on fixture DBs that pre-date this schema column.
+        # Fail-open to the original any-POS query on missing-table so
+        # legacy fixtures keep passing without mirroring production schema.
+        try:
+            row = conn.execute(
+                "SELECT l.synset_id FROM lemmas l "
+                "JOIN synsets s ON l.synset_id = s.synset_id "
+                "WHERE LOWER(l.lemma) = ? AND s.pos = 'n' "
+                "ORDER BY l.synset_id LIMIT 1",
+                (form,),
+            ).fetchone()
+            if row:
+                return row[0]
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc).lower():
+                raise
+        row = conn.execute(
+            "SELECT synset_id FROM lemmas "
+            "WHERE LOWER(lemma) = ? "
+            "ORDER BY synset_id LIMIT 1",
+            (form,),
+        ).fetchone()
+        return row[0] if row else None
+
+    sid = _direct(needle)
+    if sid is not None:
+        return sid
+
+    # Lemmatised fallback — only triggered when the surface form is
+    # OOV in BOTH curated vocab and the lemmas table.
+    for variant in _lemma_variants(needle):
+        sid = _direct(variant)
+        if sid is not None:
+            return sid
+
+    return None
+
+
+# Function words carry no sense signal — drop them before gloss overlap.
+_GLOSS_STOPWORDS = frozenset("""
+a an the of to or and in on for with that is as by be from at its it this which
+into such than any some something someone usually especially typically often
+""".split())
+
+
+def _gloss_tokens(text: str) -> set[str]:
+    """Lower-cased content tokens of a gloss: alnum runs, >=3 chars, no stopwords."""
+    return {
+        tok for tok in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(tok) >= 3 and tok not in _GLOSS_STOPWORDS
+    }
+
+
+def embed_text(text: str, vectors) -> "object | None":
+    """Mean FastText vector of a gloss's content tokens, or None if none embed.
+
+    `vectors` is any container supporting `word in vectors` and `vectors[word]`
+    (utils.FastTextVectors). Stopwords and OOV tokens are dropped; an empty
+    result returns None so callers fall back rather than snap on no evidence.
+    """
+    import numpy as np
+    vecs = [vectors[t] for t in _gloss_tokens(text) if t in vectors]
+    if not vecs:
+        return None
+    return np.mean(np.stack(vecs), axis=0)
+
+
+def snap_by_gloss_embed(conn: sqlite3.Connection, lemma: str,
+                        emitted_gloss: str, vectors) -> str | None:
+    """Snap a lemma to the synset whose definition is most COSINE-SIMILAR to an
+    emitted gloss (FastText mean-vector embedding).
+
+    The semantic upgrade of snap_by_gloss: catches good glosses that token
+    overlap fumbles to a near-neighbour synset (e.g. a generic "place of
+    worship" gloss landing on the Judaism-specific sense). Returns None when the
+    lemma is unknown, the gloss has no embeddable content, or no candidate
+    definition embeds — caller then falls back to token-overlap / legacy resolver.
+    Ties break to the lowest synset_id.
+    """
+    import numpy as np
+    if not lemma or not emitted_gloss:
+        return None
+    qv = embed_text(emitted_gloss, vectors)
+    if qv is None:
+        return None
+    qn = float(np.linalg.norm(qv))
+    if qn == 0.0:
+        return None
+    try:
+        rows = conn.execute(
+            "SELECT l.synset_id, s.definition FROM lemmas l "
+            "JOIN synsets s ON s.synset_id = l.synset_id "
+            "WHERE LOWER(l.lemma) = ?",
+            (lemma.strip().lower(),),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc).lower():
+            raise
+        return None
+    best_sid: str | None = None
+    best_score = -1.0
+    for sid, defn in rows:
+        dv = embed_text(defn, vectors)
+        if dv is None:
+            continue
+        dn = float(np.linalg.norm(dv))
+        if dn == 0.0:
+            continue
+        score = float(np.dot(qv, dv) / (qn * dn))
+        if score > best_score or (score == best_score
+                                  and (best_sid is None or sid < best_sid)):
+            best_score = score
+            best_sid = sid
+    return best_sid
+
+
+def snap_by_gloss(conn: sqlite3.Connection, lemma: str,
+                  emitted_gloss: str) -> str | None:
+    """Snap a lemma to the synset whose definition best matches an emitted gloss.
+
+    The emit-the-sense path: the generating model records the one-line sense it
+    intends per node, so we snap by gloss-to-gloss content-word overlap (a Lesk
+    WSD) instead of the no-prior lowest-id heuristic in lookup_primary_synset
+    that produced the measured ~5-16% endpoint sense-contamination.
+
+    Returns the best-overlap synset_id, or None when the lemma is unknown, the
+    gloss is empty, or NO content word overlaps any candidate — in which case the
+    caller falls back to the default resolver (we never guess a sense with zero
+    evidence). Ties break to the lowest synset_id, matching the legacy resolver.
+    """
+    if not lemma or not emitted_gloss:
+        return None
+    want = _gloss_tokens(emitted_gloss)
+    if not want:
+        return None
+    try:
+        rows = conn.execute(
+            "SELECT l.synset_id, s.definition FROM lemmas l "
+            "JOIN synsets s ON s.synset_id = l.synset_id "
+            "WHERE LOWER(l.lemma) = ?",
+            (lemma.strip().lower(),),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        # Fixture DBs lacking lemmas/synsets fail-open to "no match".
+        if "no such table" not in str(exc).lower():
+            raise
+        return None
+    best_sid: str | None = None
+    best_score = 0
+    for sid, defn in rows:
+        score = len(want & _gloss_tokens(defn))
+        if score == 0:
+            continue
+        if score > best_score or (score == best_score
+                                  and (best_sid is None or sid < best_sid)):
+            best_score = score
+            best_sid = sid
+    return best_sid
+
+
+class BridgeSnapFailure(ValueError):
+    """Raised when one or more raw concept strings on a proposed bridge fail
+    to snap to a curated synset. The bridge is not inserted."""
+
+
+def insert_bridge_with_raw_path(
+    conn: sqlite3.Connection,
+    *,
+    topic_synset_id: str,
+    vehicle_synset_id: str,
+    proposer: str,
+    proposed_at: str,
+    raw_path: list[str],
+    rationale: str | None = None,
+    cosine_distance: float | None = None,
+    ortony_score: float | None = None,
+    cascade_score: float | None = None,
+    signed_delta: float | None = None,
+) -> int:
+    """Snap each raw concept string in raw_path to a curated synset, then
+    insert the bridge via insert_bridge().
+
+    All-or-nothing: if ANY string fails to snap, BridgeSnapFailure is raised
+    and no row is inserted. Snap is done before the write transaction so the
+    failure does not leave a partial bridge.
+    """
+    snapped: list[str] = []
+    failures: list[str] = []
+    for raw in raw_path:
+        s = snap_concept_string(conn, raw)
+        if s is None:
+            failures.append(raw)
+        else:
+            snapped.append(s)
+    if failures:
+        log.warning(
+            "insert_bridge_with_raw_path: snap failure topic=%s vehicle=%s "
+            "proposer=%s failures=%r",
+            topic_synset_id, vehicle_synset_id, proposer, failures,
+        )
+        raise BridgeSnapFailure(
+            f"could not snap concept string(s) to curated vocab: {failures!r}"
+        )
+    return insert_bridge(
+        conn,
+        topic_synset_id=topic_synset_id,
+        vehicle_synset_id=vehicle_synset_id,
+        proposer=proposer,
+        proposed_at=proposed_at,
+        path=snapped,
+        rationale=rationale,
+        cosine_distance=cosine_distance,
+        ortony_score=ortony_score,
+        cascade_score=cascade_score,
+        signed_delta=signed_delta,
+    )
+
+
+def record_judgment(
+    conn: sqlite3.Connection,
+    *,
+    bridge_id: int,
+    label: str,
+    judged_by: str,
+    judged_at: str,
+    confidence: float | None = None,
+    notes: str | None = None,
+) -> int:
+    """Insert a judgment on a bridge by a named judge.
+
+    Raises sqlite3.IntegrityError if (bridge_id, judged_by) already has a
+    judgment — by spec, one verdict per judge per bridge. If a judge wants
+    to change their mind, that's an UPDATE on the existing row, not a new
+    insert (caller responsibility — this helper is insert-only).
+
+    Returns the new judgment_id.
+    """
+    _require_transactional(conn)
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO metaphor_judgments "
+            "(bridge_id, label, judged_by, judged_at, confidence, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (bridge_id, label, judged_by, judged_at, confidence, notes),
+        )
+    log.debug(
+        "record_judgment: judgment_id=%d bridge_id=%d label=%s judged_by=%s",
+        cur.lastrowid, bridge_id, label, judged_by,
+    )
+    return cur.lastrowid
+
+
+GRAPH_EDGES_VIEW_DDL = """
+DROP VIEW IF EXISTS graph_edges;
+
+-- Row-multiplicity note: this view does NOT deduplicate. UNION arms can emit
+-- multiple rows for the same logical edge:
+--   has_property:  one row per curated property-cluster shared (1:1 in practice
+--                  given the snap pipeline's idempotency, but not enforced here)
+--   metonym_of:    one row per (synset_id, metonym_syntagm_id); distinct
+--                  syntagms can link the same (src, dst) synset pair
+--   antonym_of:    property_antonyms stores both (a,b) and (b,a) — bidirectional
+--                  fan-out is preserved here, NOT collapsed
+--   metaphor_link: one row per (bridge_id, judge); with multiple judges (e.g.
+--                  julian + llm_judge_v1) the same live bridge emits N rows
+-- Consumers wanting unique (src, dst[, bridge_id]) edges must apply DISTINCT
+-- or aggregate. This preserves raw signal at the view layer; aggregation
+-- belongs in the consumer.
+CREATE VIEW graph_edges AS
+SELECT
+    spc.synset_id     AS src_synset_id,
+    pvc.synset_id     AS dst_synset_id,
+    'has_property'    AS relation,
+    spc.salience_sum  AS weight,
+    NULL              AS bridge_id
+FROM synset_properties_curated spc
+JOIN property_vocab_curated pvc ON pvc.vocab_id = spc.vocab_id
+
+UNION ALL
+
+-- metonym_of: directional, src=sm.synset_id, dst=the OTHER endpoint of the
+-- syntagm. WHERE clause drops (a) rows whose sm.synset_id doesn't match
+-- either endpoint (phantom-edge fix, round 1) and (b) self-syntagms where
+-- synset1id == synset2id (self-loop fix, round 2). Upstream
+-- synset_metonyms direction convention is "synset_id IS a metonym of the
+-- other endpoint" — see import_syntagnet.py for the import semantics.
+SELECT
+    sm.synset_id                                                            AS src_synset_id,
+    CASE WHEN s.synset1id = sm.synset_id THEN s.synset2id ELSE s.synset1id END AS dst_synset_id,
+    'metonym_of'                                                            AS relation,
+    NULL                                                                    AS weight,
+    NULL                                                                    AS bridge_id
+FROM synset_metonyms sm
+JOIN syntagms s ON s.syntagm_id = sm.metonym_syntagm_id
+WHERE sm.synset_id IN (s.synset1id, s.synset2id)
+  AND s.synset1id != s.synset2id
+
+UNION ALL
+
+SELECT
+    pa.synset_id   AS src_synset_id,
+    pb.synset_id   AS dst_synset_id,
+    'antonym_of'   AS relation,
+    NULL           AS weight,
+    NULL           AS bridge_id
+FROM property_antonyms pant
+JOIN property_vocab_curated pa ON pa.vocab_id = pant.vocab_id_a
+JOIN property_vocab_curated pb ON pb.vocab_id = pant.vocab_id_b
+
+UNION ALL
+
+SELECT
+    mb.topic_synset_id   AS src_synset_id,
+    mb.vehicle_synset_id AS dst_synset_id,
+    'metaphor_link'      AS relation,
+    mj.confidence        AS weight,
+    mb.bridge_id         AS bridge_id
+FROM metaphor_bridges mb
+JOIN metaphor_judgments mj ON mj.bridge_id = mb.bridge_id
+WHERE mj.label = 'live';
+"""
+
+
+def apply_graph_view(conn: sqlite3.Connection) -> None:
+    """Create (or replace) the graph_edges VIEW. Depends on:
+      - synset_properties_curated, property_vocab_curated  (has_property)
+      - synset_metonyms, syntagms                          (metonym_of)
+      - property_antonyms, property_vocab_curated          (antonym_of)
+      - metaphor_bridges, metaphor_judgments               (metaphor_link)
+
+    Idempotent: DROPs and re-creates the view each call.
+    """
+    conn.executescript(GRAPH_EDGES_VIEW_DDL)
+    conn.commit()
+    log.info("apply_graph_view: graph_edges view (re)created")

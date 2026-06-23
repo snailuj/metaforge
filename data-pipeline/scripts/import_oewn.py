@@ -7,14 +7,16 @@ from utils import SQLUNET_DB, LEXICON_V2
 def import_synsets(src: sqlite3.Connection, dst: sqlite3.Connection):
     """Import synsets table."""
     print("Importing synsets...")
+    # domainid carries the WordNet lexicographer-file domain (45-class type
+    # label) the original import dropped — see the SQLUNET data-strategy review.
     cursor = src.execute("""
-        SELECT synsetid, posid, definition
+        SELECT synsetid, posid, domainid, definition
         FROM synsets
     """)
 
-    rows = [(str(row[0]), row[1], row[2]) for row in cursor]
+    rows = [(str(row[0]), row[1], row[2], row[3]) for row in cursor]
     dst.executemany(
-        "INSERT OR IGNORE INTO synsets (synset_id, pos, definition) VALUES (?, ?, ?)",
+        "INSERT OR IGNORE INTO synsets (synset_id, pos, domainid, definition) VALUES (?, ?, ?, ?)",
         rows
     )
     print(f"  Imported {len(rows)} synsets")

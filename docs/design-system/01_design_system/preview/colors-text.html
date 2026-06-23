@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body { width:700px; background:var(--colour-bg-primary); color:var(--colour-text-primary);
+    font-family:var(--font-body); padding:22px 26px; }
+  .row { display:flex; gap:14px; align-items:stretch; }
+  .swatch { flex:1; border-radius:var(--hud-radius); border:1px solid rgba(232,224,212,0.08);
+    padding:12px 14px; display:flex; flex-direction:column; justify-content:flex-end; min-height:84px; }
+  .swatch .hex { font-family:var(--font-mono); font-size:11px; opacity:0.85; }
+  .swatch .nm { font-size:13px; margin-top:3px; }
+  .label { font-family:var(--font-body); font-size:11px; text-transform:uppercase;
+    letter-spacing:0.08em; color:var(--colour-text-muted); margin-bottom:13px; }
+  
+</style></head><body>
+<div class="label">Text on #1a1a2e</div>
+<div class="row" style="flex-direction:column;gap:9px">
+  <div style="font-size:21px;color:#e8e0d4">Warm off-white &mdash; primary body text <span style="font-family:var(--font-mono);font-size:12px;opacity:.6">#e8e0d4</span></div>
+  <div style="font-size:18px;color:#a89f94;font-style:italic">Taupe &mdash; secondary &amp; italic usage <span style="font-family:var(--font-mono);font-size:12px;opacity:.6">#a89f94</span></div>
+  <div style="font-size:15px;color:#6b6560;text-transform:uppercase;letter-spacing:.06em">Muted slate &mdash; labels &amp; hints &nbsp;<span style="font-family:var(--font-mono);font-size:11px">#6b6560</span></div>
+</div></body></html>

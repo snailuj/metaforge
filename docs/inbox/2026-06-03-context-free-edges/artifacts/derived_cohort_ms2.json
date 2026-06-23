@@ -1,0 +1,923 @@
+{
+  "params": {
+    "db": "data-pipeline/output/lexicon_v2.db",
+    "topics_json": "docs/inbox/2026-06-03-context-free-edges/artifacts/cohort_topics.json",
+    "topic_sids": [],
+    "df_cap": 200,
+    "min_shared": 2,
+    "mode": "idf_sal",
+    "k": 10,
+    "fanout_scan": false,
+    "output": "docs/inbox/2026-06-03-context-free-edges/artifacts/derived_cohort_ms2.json"
+  },
+  "n_synsets": 81000,
+  "topics": [
+    {
+      "topic": "anger",
+      "topic_synset_id": "30227",
+      "topic_lemma": "anger",
+      "n_topic_clusters_surviving": 2,
+      "candidates": []
+    },
+    {
+      "topic": "time",
+      "topic_synset_id": "445",
+      "topic_lemma": "time",
+      "n_topic_clusters_surviving": 0,
+      "candidates": []
+    },
+    {
+      "topic": "ideas",
+      "topic_synset_id": "64981",
+      "topic_lemma": "idea",
+      "n_topic_clusters_surviving": 7,
+      "candidates": [
+        {
+          "vehicle_synset_id": "28185",
+          "vehicle_lemma": "conceptualise",
+          "score": 16.0882,
+          "n_shared": 3,
+          "topic_concr": 2.5,
+          "vehicle_concr": 3.24
+        },
+        {
+          "vehicle_synset_id": "28190",
+          "vehicle_lemma": "design",
+          "score": 11.6891,
+          "n_shared": 2,
+          "topic_concr": 2.5,
+          "vehicle_concr": 3.27
+        },
+        {
+          "vehicle_synset_id": "28217",
+          "vehicle_lemma": "visualize",
+          "score": 11.47,
+          "n_shared": 2,
+          "topic_concr": 2.5,
+          "vehicle_concr": 2.45
+        },
+        {
+          "vehicle_synset_id": "181",
+          "vehicle_lemma": "conceptual",
+          "score": 11.4539,
+          "n_shared": 2,
+          "topic_concr": 2.5,
+          "vehicle_concr": 1.26
+        },
+        {
+          "vehicle_synset_id": "44286",
+          "vehicle_lemma": "idealistic",
+          "score": 11.2821,
+          "n_shared": 2,
+          "topic_concr": 2.5,
+          "vehicle_concr": 1.37
+        },
+        {
+          "vehicle_synset_id": "18841",
+          "vehicle_lemma": "?",
+          "score": 11.1475,
+          "n_shared": 2,
+          "topic_concr": 2.5,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "63517",
+          "vehicle_lemma": "?",
+          "score": 11.1051,
+          "n_shared": 2,
+          "topic_concr": 2.5,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "45658",
+          "vehicle_lemma": "?",
+          "score": 10.9542,
+          "n_shared": 2,
+          "topic_concr": 2.5,
+          "vehicle_concr": 1.6901
+        },
+        {
+          "vehicle_synset_id": "99786",
+          "vehicle_lemma": "adolescence",
+          "score": 10.8948,
+          "n_shared": 2,
+          "topic_concr": 2.5,
+          "vehicle_concr": 2.81
+        },
+        {
+          "vehicle_synset_id": "64701",
+          "vehicle_lemma": "?",
+          "score": 10.8154,
+          "n_shared": 2,
+          "topic_concr": 2.5,
+          "vehicle_concr": null
+        }
+      ]
+    },
+    {
+      "topic": "life",
+      "topic_synset_id": "92",
+      "topic_lemma": "life",
+      "n_topic_clusters_surviving": 2,
+      "candidates": [
+        {
+          "vehicle_synset_id": "87318",
+          "vehicle_lemma": "life",
+          "score": 11.796,
+          "n_shared": 2,
+          "topic_concr": 2.69,
+          "vehicle_concr": 2.69
+        }
+      ]
+    },
+    {
+      "topic": "argument",
+      "topic_synset_id": "67993",
+      "topic_lemma": "argument",
+      "n_topic_clusters_surviving": 4,
+      "candidates": [
+        {
+          "vehicle_synset_id": "16252",
+          "vehicle_lemma": "?",
+          "score": 15.7981,
+          "n_shared": 2,
+          "topic_concr": 2.96,
+          "vehicle_concr": 2.34
+        },
+        {
+          "vehicle_synset_id": "14364",
+          "vehicle_lemma": "call",
+          "score": 13.454,
+          "n_shared": 2,
+          "topic_concr": 2.96,
+          "vehicle_concr": 4.0
+        },
+        {
+          "vehicle_synset_id": "18614",
+          "vehicle_lemma": "?",
+          "score": 12.7915,
+          "n_shared": 2,
+          "topic_concr": 2.96,
+          "vehicle_concr": 2.36
+        },
+        {
+          "vehicle_synset_id": "71047",
+          "vehicle_lemma": "declaration",
+          "score": 12.4337,
+          "n_shared": 2,
+          "topic_concr": 2.96,
+          "vehicle_concr": 2.52
+        },
+        {
+          "vehicle_synset_id": "14236",
+          "vehicle_lemma": "hold",
+          "score": 12.3909,
+          "n_shared": 2,
+          "topic_concr": 2.96,
+          "vehicle_concr": 3.68
+        },
+        {
+          "vehicle_synset_id": "67062",
+          "vehicle_lemma": "confession",
+          "score": 12.383,
+          "n_shared": 2,
+          "topic_concr": 2.96,
+          "vehicle_concr": 2.4
+        },
+        {
+          "vehicle_synset_id": "19219",
+          "vehicle_lemma": "?",
+          "score": 12.0652,
+          "n_shared": 2,
+          "topic_concr": 2.96,
+          "vehicle_concr": 2.36
+        },
+        {
+          "vehicle_synset_id": "19942",
+          "vehicle_lemma": "express",
+          "score": 12.0133,
+          "n_shared": 2,
+          "topic_concr": 2.96,
+          "vehicle_concr": 3.52
+        },
+        {
+          "vehicle_synset_id": "61025",
+          "vehicle_lemma": "voice",
+          "score": 11.983,
+          "n_shared": 2,
+          "topic_concr": 2.96,
+          "vehicle_concr": 4.13
+        }
+      ]
+    },
+    {
+      "topic": "heart",
+      "topic_synset_id": "51552",
+      "topic_lemma": "heart",
+      "n_topic_clusters_surviving": 3,
+      "candidates": [
+        {
+          "vehicle_synset_id": "68833",
+          "vehicle_lemma": "pound sign",
+          "score": 10.1514,
+          "n_shared": 2,
+          "topic_concr": 4.52,
+          "vehicle_concr": 4.61
+        }
+      ]
+    },
+    {
+      "topic": "light",
+      "topic_synset_id": "64121",
+      "topic_lemma": "light",
+      "n_topic_clusters_surviving": 1,
+      "candidates": []
+    },
+    {
+      "topic": "road",
+      "topic_synset_id": "3672",
+      "topic_lemma": "road",
+      "n_topic_clusters_surviving": 3,
+      "candidates": [
+        {
+          "vehicle_synset_id": "57685",
+          "vehicle_lemma": "?",
+          "score": 9.4885,
+          "n_shared": 2,
+          "topic_concr": 4.75,
+          "vehicle_concr": null
+        }
+      ]
+    },
+    {
+      "topic": "anchor",
+      "topic_synset_id": "23626",
+      "topic_lemma": "anchor",
+      "n_topic_clusters_surviving": 0,
+      "candidates": []
+    },
+    {
+      "topic": "mirror",
+      "topic_synset_id": "53081",
+      "topic_lemma": "mirror",
+      "n_topic_clusters_surviving": 4,
+      "candidates": [
+        {
+          "vehicle_synset_id": "84758",
+          "vehicle_lemma": "?",
+          "score": 10.1133,
+          "n_shared": 2,
+          "topic_concr": 4.97,
+          "vehicle_concr": 4.11
+        },
+        {
+          "vehicle_synset_id": "42653",
+          "vehicle_lemma": "?",
+          "score": 9.753,
+          "n_shared": 2,
+          "topic_concr": 4.97,
+          "vehicle_concr": 2.77
+        },
+        {
+          "vehicle_synset_id": "14321",
+          "vehicle_lemma": "rethink",
+          "score": 8.9956,
+          "n_shared": 2,
+          "topic_concr": 4.97,
+          "vehicle_concr": 2.17
+        }
+      ]
+    },
+    {
+      "topic": "deadline",
+      "topic_synset_id": "103919",
+      "topic_lemma": "deadline",
+      "n_topic_clusters_surviving": 3,
+      "candidates": [
+        {
+          "vehicle_synset_id": "11192",
+          "vehicle_lemma": "?",
+          "score": 11.0038,
+          "n_shared": 2,
+          "topic_concr": 2.66,
+          "vehicle_concr": 1.64
+        },
+        {
+          "vehicle_synset_id": "44176",
+          "vehicle_lemma": "bulk large",
+          "score": 10.9023,
+          "n_shared": 2,
+          "topic_concr": 2.66,
+          "vehicle_concr": 4.5
+        },
+        {
+          "vehicle_synset_id": "30718",
+          "vehicle_lemma": "intimidate",
+          "score": 10.8073,
+          "n_shared": 2,
+          "topic_concr": 2.66,
+          "vehicle_concr": 1.75
+        },
+        {
+          "vehicle_synset_id": "71166",
+          "vehicle_lemma": "threat",
+          "score": 10.7676,
+          "n_shared": 2,
+          "topic_concr": 2.66,
+          "vehicle_concr": 2.52
+        },
+        {
+          "vehicle_synset_id": "43357",
+          "vehicle_lemma": "imperil",
+          "score": 10.7299,
+          "n_shared": 2,
+          "topic_concr": 2.66,
+          "vehicle_concr": 2.63
+        },
+        {
+          "vehicle_synset_id": "100397",
+          "vehicle_lemma": "threat",
+          "score": 10.5952,
+          "n_shared": 2,
+          "topic_concr": 2.66,
+          "vehicle_concr": 2.52
+        },
+        {
+          "vehicle_synset_id": "81329",
+          "vehicle_lemma": "?",
+          "score": 10.5952,
+          "n_shared": 2,
+          "topic_concr": 2.66,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "3775",
+          "vehicle_lemma": "ominous",
+          "score": 10.4176,
+          "n_shared": 2,
+          "topic_concr": 2.66,
+          "vehicle_concr": 3.21
+        },
+        {
+          "vehicle_synset_id": "8895",
+          "vehicle_lemma": "?",
+          "score": 10.369,
+          "n_shared": 2,
+          "topic_concr": 2.66,
+          "vehicle_concr": 2.04
+        },
+        {
+          "vehicle_synset_id": "71501",
+          "vehicle_lemma": "?",
+          "score": 10.2788,
+          "n_shared": 2,
+          "topic_concr": 2.66,
+          "vehicle_concr": null
+        }
+      ]
+    },
+    {
+      "topic": "recursion",
+      "topic_synset_id": "64328",
+      "topic_lemma": "recursion",
+      "n_topic_clusters_surviving": 3,
+      "candidates": [
+        {
+          "vehicle_synset_id": "67635",
+          "vehicle_lemma": "?",
+          "score": 11.7626,
+          "n_shared": 2,
+          "topic_concr": 2.7081,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "1851",
+          "vehicle_lemma": "?",
+          "score": 11.5796,
+          "n_shared": 2,
+          "topic_concr": 2.7081,
+          "vehicle_concr": 2.26
+        },
+        {
+          "vehicle_synset_id": "96973",
+          "vehicle_lemma": "?",
+          "score": 10.881,
+          "n_shared": 2,
+          "topic_concr": 2.7081,
+          "vehicle_concr": 3.7189
+        },
+        {
+          "vehicle_synset_id": "12891",
+          "vehicle_lemma": "endless",
+          "score": 10.675,
+          "n_shared": 2,
+          "topic_concr": 2.7081,
+          "vehicle_concr": 1.82
+        },
+        {
+          "vehicle_synset_id": "96770",
+          "vehicle_lemma": "?",
+          "score": 10.2266,
+          "n_shared": 2,
+          "topic_concr": 2.7081,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "64717",
+          "vehicle_lemma": "?",
+          "score": 10.182,
+          "n_shared": 2,
+          "topic_concr": 2.7081,
+          "vehicle_concr": 3.1415
+        },
+        {
+          "vehicle_synset_id": "106486",
+          "vehicle_lemma": "?",
+          "score": 10.1174,
+          "n_shared": 2,
+          "topic_concr": 2.7081,
+          "vehicle_concr": 3.2846
+        },
+        {
+          "vehicle_synset_id": "96020",
+          "vehicle_lemma": "?",
+          "score": 9.9669,
+          "n_shared": 2,
+          "topic_concr": 2.7081,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "106487",
+          "vehicle_lemma": "?",
+          "score": 9.9566,
+          "n_shared": 2,
+          "topic_concr": 2.7081,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "96021",
+          "vehicle_lemma": "?",
+          "score": 9.8883,
+          "n_shared": 2,
+          "topic_concr": 2.7081,
+          "vehicle_concr": null
+        }
+      ]
+    },
+    {
+      "topic": "ambush",
+      "topic_synset_id": "22876",
+      "topic_lemma": "lying in wait",
+      "n_topic_clusters_surviving": 2,
+      "candidates": []
+    },
+    {
+      "topic": "threshold",
+      "topic_synset_id": "104402",
+      "topic_lemma": "threshold",
+      "n_topic_clusters_surviving": 3,
+      "candidates": [
+        {
+          "vehicle_synset_id": "23579",
+          "vehicle_lemma": "curb",
+          "score": 9.9857,
+          "n_shared": 2,
+          "topic_concr": 3.48,
+          "vehicle_concr": 4.68
+        }
+      ]
+    },
+    {
+      "topic": "gridlock",
+      "topic_synset_id": "76552",
+      "topic_lemma": "gridlock",
+      "n_topic_clusters_surviving": 4,
+      "candidates": [
+        {
+          "vehicle_synset_id": "63580",
+          "vehicle_lemma": "irresolution",
+          "score": 13.0909,
+          "n_shared": 2,
+          "topic_concr": 3.19,
+          "vehicle_concr": 1.82
+        },
+        {
+          "vehicle_synset_id": "27494",
+          "vehicle_lemma": "?",
+          "score": 12.8915,
+          "n_shared": 2,
+          "topic_concr": 3.19,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "5898",
+          "vehicle_lemma": "?",
+          "score": 12.6856,
+          "n_shared": 2,
+          "topic_concr": 3.19,
+          "vehicle_concr": 3.21
+        },
+        {
+          "vehicle_synset_id": "28037",
+          "vehicle_lemma": "?",
+          "score": 12.2191,
+          "n_shared": 2,
+          "topic_concr": 3.19,
+          "vehicle_concr": 2.8869
+        },
+        {
+          "vehicle_synset_id": "75586",
+          "vehicle_lemma": "baffled",
+          "score": 12.2059,
+          "n_shared": 2,
+          "topic_concr": 3.19,
+          "vehicle_concr": 2.16
+        },
+        {
+          "vehicle_synset_id": "20172",
+          "vehicle_lemma": "die",
+          "score": 12.0626,
+          "n_shared": 2,
+          "topic_concr": 3.19,
+          "vehicle_concr": 3.07
+        },
+        {
+          "vehicle_synset_id": "63305",
+          "vehicle_lemma": "?",
+          "score": 11.9011,
+          "n_shared": 2,
+          "topic_concr": 3.19,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "77722",
+          "vehicle_lemma": "?",
+          "score": 11.8631,
+          "n_shared": 2,
+          "topic_concr": 3.19,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "5986",
+          "vehicle_lemma": "deadening",
+          "score": 11.837,
+          "n_shared": 2,
+          "topic_concr": 3.19,
+          "vehicle_concr": 3.36
+        },
+        {
+          "vehicle_synset_id": "6759",
+          "vehicle_lemma": "unable",
+          "score": 11.7889,
+          "n_shared": 2,
+          "topic_concr": 3.19,
+          "vehicle_concr": 1.77
+        }
+      ]
+    },
+    {
+      "topic": "anxiety",
+      "topic_synset_id": "72810",
+      "topic_lemma": "anxiety",
+      "n_topic_clusters_surviving": 6,
+      "candidates": [
+        {
+          "vehicle_synset_id": "71555",
+          "vehicle_lemma": "worst",
+          "score": 13.2958,
+          "n_shared": 2,
+          "topic_concr": 2.21,
+          "vehicle_concr": 1.54
+        },
+        {
+          "vehicle_synset_id": "99509",
+          "vehicle_lemma": "anxiousness",
+          "score": 11.9128,
+          "n_shared": 2,
+          "topic_concr": 2.21,
+          "vehicle_concr": 2.21
+        },
+        {
+          "vehicle_synset_id": "99541",
+          "vehicle_lemma": "?",
+          "score": 11.7218,
+          "n_shared": 2,
+          "topic_concr": 2.21,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "72792",
+          "vehicle_lemma": "affright",
+          "score": 11.571,
+          "n_shared": 2,
+          "topic_concr": 2.21,
+          "vehicle_concr": 3.04
+        },
+        {
+          "vehicle_synset_id": "72741",
+          "vehicle_lemma": "?",
+          "score": 11.571,
+          "n_shared": 2,
+          "topic_concr": 2.21,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "97900",
+          "vehicle_lemma": "?",
+          "score": 11.571,
+          "n_shared": 2,
+          "topic_concr": 2.21,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "30147",
+          "vehicle_lemma": "overawe",
+          "score": 9.4283,
+          "n_shared": 2,
+          "topic_concr": 2.21,
+          "vehicle_concr": 4.96
+        }
+      ]
+    },
+    {
+      "topic": "hope",
+      "topic_synset_id": "59187",
+      "topic_lemma": "hope",
+      "n_topic_clusters_surviving": 4,
+      "candidates": [
+        {
+          "vehicle_synset_id": "41589",
+          "vehicle_lemma": "?",
+          "score": 12.766,
+          "n_shared": 2,
+          "topic_concr": 1.25,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "7225",
+          "vehicle_lemma": "?",
+          "score": 12.6903,
+          "n_shared": 2,
+          "topic_concr": 1.25,
+          "vehicle_concr": 1.81
+        },
+        {
+          "vehicle_synset_id": "20777",
+          "vehicle_lemma": "unselfish",
+          "score": 12.5106,
+          "n_shared": 2,
+          "topic_concr": 1.25,
+          "vehicle_concr": 1.5
+        },
+        {
+          "vehicle_synset_id": "85434",
+          "vehicle_lemma": "saint",
+          "score": 10.9736,
+          "n_shared": 2,
+          "topic_concr": 1.25,
+          "vehicle_concr": 3.45
+        },
+        {
+          "vehicle_synset_id": "59147",
+          "vehicle_lemma": "?",
+          "score": 10.9408,
+          "n_shared": 2,
+          "topic_concr": 1.25,
+          "vehicle_concr": 1.63
+        },
+        {
+          "vehicle_synset_id": "79840",
+          "vehicle_lemma": "?",
+          "score": 10.9309,
+          "n_shared": 2,
+          "topic_concr": 1.25,
+          "vehicle_concr": 3.6949
+        },
+        {
+          "vehicle_synset_id": "79839",
+          "vehicle_lemma": "?",
+          "score": 10.9309,
+          "n_shared": 2,
+          "topic_concr": 1.25,
+          "vehicle_concr": 2.93
+        },
+        {
+          "vehicle_synset_id": "79922",
+          "vehicle_lemma": "?",
+          "score": 10.9309,
+          "n_shared": 2,
+          "topic_concr": 1.25,
+          "vehicle_concr": null
+        },
+        {
+          "vehicle_synset_id": "83261",
+          "vehicle_lemma": "heroine",
+          "score": 10.8335,
+          "n_shared": 2,
+          "topic_concr": 1.25,
+          "vehicle_concr": 4.21
+        },
+        {
+          "vehicle_synset_id": "105105",
+          "vehicle_lemma": "?",
+          "score": 10.8335,
+          "n_shared": 2,
+          "topic_concr": 1.25,
+          "vehicle_concr": null
+        }
+      ]
+    },
+    {
+      "topic": "grief",
+      "topic_synset_id": "64254",
+      "topic_lemma": "grief",
+      "n_topic_clusters_surviving": 2,
+      "candidates": [
+        {
+          "vehicle_synset_id": "30476",
+          "vehicle_lemma": "lament",
+          "score": 10.5398,
+          "n_shared": 2,
+          "topic_concr": 2.7,
+          "vehicle_concr": 1.75
+        },
+        {
+          "vehicle_synset_id": "71508",
+          "vehicle_lemma": "loss",
+          "score": 10.5204,
+          "n_shared": 2,
+          "topic_concr": 2.7,
+          "vehicle_concr": 2.19
+        },
+        {
+          "vehicle_synset_id": "29680",
+          "vehicle_lemma": "?",
+          "score": 10.5204,
+          "n_shared": 2,
+          "topic_concr": 2.7,
+          "vehicle_concr": 2.32
+        },
+        {
+          "vehicle_synset_id": "97418",
+          "vehicle_lemma": "sorrowfulness",
+          "score": 10.3951,
+          "n_shared": 2,
+          "topic_concr": 2.7,
+          "vehicle_concr": 2.36
+        },
+        {
+          "vehicle_synset_id": "21375",
+          "vehicle_lemma": "regretful",
+          "score": 10.2355,
+          "n_shared": 2,
+          "topic_concr": 2.7,
+          "vehicle_concr": 2.07
+        },
+        {
+          "vehicle_synset_id": "24508",
+          "vehicle_lemma": "sad",
+          "score": 10.2355,
+          "n_shared": 2,
+          "topic_concr": 2.7,
+          "vehicle_concr": 3.07
+        },
+        {
+          "vehicle_synset_id": "30398",
+          "vehicle_lemma": "repent",
+          "score": 10.0714,
+          "n_shared": 2,
+          "topic_concr": 2.7,
+          "vehicle_concr": 2.19
+        },
+        {
+          "vehicle_synset_id": "99670",
+          "vehicle_lemma": "vapors",
+          "score": 9.9218,
+          "n_shared": 2,
+          "topic_concr": 2.7,
+          "vehicle_concr": 2.31
+        },
+        {
+          "vehicle_synset_id": "30518",
+          "vehicle_lemma": "miss",
+          "score": 9.8727,
+          "n_shared": 2,
+          "topic_concr": 2.7,
+          "vehicle_concr": 2.54
+        },
+        {
+          "vehicle_synset_id": "29255",
+          "vehicle_lemma": "?",
+          "score": 9.7528,
+          "n_shared": 2,
+          "topic_concr": 2.7,
+          "vehicle_concr": 1.63
+        }
+      ]
+    },
+    {
+      "topic": "courage",
+      "topic_synset_id": "59234",
+      "topic_lemma": "courage",
+      "n_topic_clusters_surviving": 2,
+      "candidates": [
+        {
+          "vehicle_synset_id": "75589",
+          "vehicle_lemma": "brave",
+          "score": 10.1409,
+          "n_shared": 2,
+          "topic_concr": 1.96,
+          "vehicle_concr": 2.26
+        }
+      ]
+    },
+    {
+      "topic": "doubt",
+      "topic_synset_id": "14297",
+      "topic_lemma": "doubt",
+      "n_topic_clusters_surviving": 4,
+      "candidates": [
+        {
+          "vehicle_synset_id": "7437",
+          "vehicle_lemma": "incertain",
+          "score": 19.5028,
+          "n_shared": 3,
+          "topic_concr": 1.79,
+          "vehicle_concr": 2.0
+        },
+        {
+          "vehicle_synset_id": "10809",
+          "vehicle_lemma": "?",
+          "score": 18.2829,
+          "n_shared": 3,
+          "topic_concr": 1.79,
+          "vehicle_concr": 1.96
+        },
+        {
+          "vehicle_synset_id": "14875",
+          "vehicle_lemma": "undependable",
+          "score": 13.4919,
+          "n_shared": 2,
+          "topic_concr": 1.79,
+          "vehicle_concr": 2.2
+        },
+        {
+          "vehicle_synset_id": "44106",
+          "vehicle_lemma": "?",
+          "score": 13.2683,
+          "n_shared": 2,
+          "topic_concr": 1.79,
+          "vehicle_concr": 2.56
+        },
+        {
+          "vehicle_synset_id": "58830",
+          "vehicle_lemma": "unstableness",
+          "score": 13.1912,
+          "n_shared": 2,
+          "topic_concr": 1.79,
+          "vehicle_concr": 2.0
+        },
+        {
+          "vehicle_synset_id": "3690",
+          "vehicle_lemma": "?",
+          "score": 13.1201,
+          "n_shared": 2,
+          "topic_concr": 1.79,
+          "vehicle_concr": 2.81
+        },
+        {
+          "vehicle_synset_id": "59282",
+          "vehicle_lemma": "volatility",
+          "score": 13.0002,
+          "n_shared": 2,
+          "topic_concr": 1.79,
+          "vehicle_concr": 2.19
+        },
+        {
+          "vehicle_synset_id": "19759",
+          "vehicle_lemma": "?",
+          "score": 12.8899,
+          "n_shared": 2,
+          "topic_concr": 1.79,
+          "vehicle_concr": 2.56
+        },
+        {
+          "vehicle_synset_id": "37460",
+          "vehicle_lemma": "unstable",
+          "score": 12.8723,
+          "n_shared": 2,
+          "topic_concr": 1.79,
+          "vehicle_concr": 2.52
+        },
+        {
+          "vehicle_synset_id": "37620",
+          "vehicle_lemma": "unsteady",
+          "score": 12.8723,
+          "n_shared": 2,
+          "topic_concr": 1.79,
+          "vehicle_concr": 2.75
+        }
+      ]
+    }
+  ]
+}

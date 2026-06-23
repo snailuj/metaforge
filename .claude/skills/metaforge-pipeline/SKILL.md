@@ -41,10 +41,11 @@ If there's no Active item, the question to put in front of the user is: *"Promot
 - Move to **Active** when work starts. Flesh out the detail doc; create per-slice sub-docs as needed.
 - Move to **Done** with a one-line summary and merge date when shipped.
 - **Backlog** items have no slot yet — promote to Queued when a milestone slot opens up.
+- **Inbox (untriaged captures)** is the zero-friction raw-capture lane at the bottom of PIPELINE.md (single funnel; the old `docs/inbox/captures.md` is retired). Triage promotes items **verbatim** into Backlog/Queued, or to `docs/decisions/log.md`, or discards. Internal work stays in this funnel; GitHub issues are for externally-facing items only.
 
 ## Cross-references
 
 - Programme overview, milestone context, and per-slice detail docs all live under `docs/roadmap/`.
 - Decisions log: `docs/decisions/log.md`.
-- Idea inbox: `docs/inbox/captures.md`.
+- Idea inbox: the `## Inbox (untriaged captures)` section *inside* `docs/roadmap/PIPELINE.md` (single funnel — the old `docs/inbox/captures.md` is retired).
 - Code-review-loop ref branches (e.g. `review/m01-and-snap-memopt`) are cross-listed in PIPELINE's Backlog when they need attention.

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+ *{box-sizing:border-box;margin:0;padding:0}
+ body{width:700px;display:flex;font-family:var(--font-body)}
+ .col{flex:1;padding:20px 22px;min-height:300px}
+ .panel{background:var(--colour-bg-hud);border:1px solid var(--hairline);border-radius:var(--hud-radius);
+   backdrop-filter:var(--hud-blur);padding:14px;margin-top:12px}
+ .name{font-family:var(--font-body);font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--colour-text-muted)}
+ h3{font-family:var(--font-heading);font-weight:700;font-size:22px;color:var(--colour-accent-gold)}
+ .rb{font-size:9px;padding:1px 7px;border-radius:8px;text-transform:uppercase;letter-spacing:.04em;vertical-align:middle;margin-left:6px;
+   color:var(--colour-rarity-unusual);background:color-mix(in srgb, var(--colour-rarity-unusual) 20%, transparent)}
+ .def{font-size:13px;line-height:1.45;color:var(--colour-text-primary);margin:6px 0 9px}
+ .sl{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--colour-text-muted);margin-bottom:3px}
+ .chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:9px}
+ .c{font-size:13px;padding:1px 5px;border-radius:3px}
+ .dot{display:inline-flex;gap:5px;margin-top:8px}
+ .dot span{width:13px;height:13px;border-radius:50%}
+</style></head>
+<body>
+ <div class="col" data-theme="dark" style="background:var(--colour-bg-primary)">
+   <div class="name">Theme · Dark Academic</div>
+   <div class="panel">
+     <h3>hungriness<span class="rb">unusual</span></h3>
+     <div class="def">strong desire for something (not food or drink)</div>
+     <div class="sl">Synonyms</div>
+     <div class="chips"><span class="c" style="color:var(--colour-node-synonym)">hunger</span><span class="c" style="color:var(--colour-node-synonym)">thirst</span></div>
+     <div class="sl">Narrower</div>
+     <div class="chips"><span class="c" style="color:var(--colour-node-hyponym)">hankering</span><span class="c" style="color:var(--colour-node-similar)">yearning</span></div>
+     <div class="dot"><span style="background:var(--colour-rarity-common)"></span><span style="background:var(--colour-rarity-unusual)"></span><span style="background:var(--colour-rarity-rare)"></span></div>
+   </div>
+ </div>
+ <div class="col" data-theme="parchment" style="background:var(--colour-bg-primary)">
+   <div class="name">Theme · Parchment</div>
+   <div class="panel">
+     <h3>hungriness<span class="rb">unusual</span></h3>
+     <div class="def">strong desire for something (not food or drink)</div>
+     <div class="sl">Synonyms</div>
+     <div class="chips"><span class="c" style="color:var(--colour-node-synonym)">hunger</span><span class="c" style="color:var(--colour-node-synonym)">thirst</span></div>
+     <div class="sl">Narrower</div>
+     <div class="chips"><span class="c" style="color:var(--colour-node-hyponym)">hankering</span><span class="c" style="color:var(--colour-node-similar)">yearning</span></div>
+     <div class="dot"><span style="background:var(--colour-rarity-common)"></span><span style="background:var(--colour-rarity-unusual)"></span><span style="background:var(--colour-rarity-rare)"></span></div>
+   </div>
+ </div>
+</body></html>

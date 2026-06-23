@@ -1,0 +1,13 @@
+
+=== APT (n=1097 resolved pairs) — fraction sharing >=1 feature ===
+  curated cluster, df-cap 200: 2.10%
+  curated cluster, NO cap        : 31.54%
+  raw property_id exact          : 31.36%
+  raw property TEXT token        : 31.36%
+  Haiku-claimed shared feature present in BOTH synsets' props: 18/5846 = 0.31% of claimed features
+
+=== INAPT (n=593 resolved pairs) — fraction sharing >=1 feature ===
+  curated cluster, df-cap 200: 7.42%
+  curated cluster, NO cap        : 45.87%
+  raw property_id exact          : 46.88%
+  raw property TEXT token        : 46.88%

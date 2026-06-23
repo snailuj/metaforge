@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>mf-force-graph e2e fixture — browse mode (raycaster diagnostic)</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #1a1a2e; }
+      /* Fixed host size so the canvas + raycaster have real, deterministic
+         dimensions. The raycaster offset diagnostic depends on a stable mapping
+         from pointer client coords to NDC, so the host must not be inline-sized. */
+      #host { position: absolute; inset: 0; }
+      mf-force-graph { display: block; width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <script type="module">
+      import '/src/components/mf-force-graph.ts'
+
+      // Browse-mode graph data (GraphNode/GraphLink shape). A central node plus a
+      // few relations gives the force sim a real constellation that settles to
+      // distinct, off-origin screen positions — so a single node can be picked,
+      // projected, and hit-tested without neighbours overlapping the hit band.
+      const nodes = [
+        { id: 'sea',     word: 'sea',     relationType: 'central', val: 12, order: 0, rarity: 'common' },
+        { id: 'ocean',   word: 'ocean',   relationType: 'synonym', val: 8,  order: 1, rarity: 'common' },
+        { id: 'wave',    word: 'wave',    relationType: 'hyponym', val: 6,  order: 1, rarity: 'unusual' },
+        { id: 'tide',    word: 'tide',    relationType: 'hyponym', val: 6,  order: 1, rarity: 'unusual' },
+        { id: 'current', word: 'current', relationType: 'similar', val: 5,  order: 1, rarity: 'rare' },
+        { id: 'shore',   word: 'shore',   relationType: 'similar', val: 5,  order: 1, rarity: 'unusual' },
+      ]
+      const links = [
+        { source: 'sea', target: 'ocean',   relationType: 'synonym', order: 1 },
+        { source: 'sea', target: 'wave',    relationType: 'hyponym', order: 1 },
+        { source: 'sea', target: 'tide',    relationType: 'hyponym', order: 1 },
+        { source: 'sea', target: 'current', relationType: 'similar', order: 1 },
+        { source: 'sea', target: 'shore',   relationType: 'similar', order: 1 },
+      ]
+
+      const el = document.createElement('mf-force-graph')
+      el.mode = 'browse'
+      el.graphData = { nodes, links }
+      document.getElementById('host').appendChild(el)
+
+      // Diagnostic-only: enlarge the raycast hit-spheres so the registered hover
+      // spans a multi-pixel vertical band. A point-sized target only registers at
+      // dy=0, which can't reveal whether the band CENTRE is offset from the
+      // projected point. The band centre is the measurement of interest; making
+      // the sphere bigger does not move its centre, so it cannot manufacture an
+      // offset — it only makes one (if present) measurable at 2px granularity.
+      el.updateComplete.then(() => {
+        const g = el.__test_graph
+        if (g) g.nodeRelSize(8)
+      })
+
+      // Settle the force sim, then flag ready WITHOUT pausing animation. The
+      // raycaster only runs inside the render loop's per-frame hover check, so
+      // for the diagnostic the loop must stay live while we sweep the pointer.
+      // We freeze positions by waiting for the engine to cool (onEngineStop) and
+      // by nudging the cooldown short, then record the resting node positions.
+      async function ready() {
+        await el.updateComplete
+        const g = el.__test_graph
+        if (!g) { window.mfReadyError = 'no graph instance'; return }
+
+        // Short cooldown so positions settle quickly + deterministically, then
+        // the engine stops moving nodes while the render loop keeps ticking.
+        let engineStopped = false
+        g.cooldownTime(2500)
+        g.onEngineStop(() => { engineStopped = true })
+
+        const start = performance.now()
+        while (performance.now() - start < 8000) {
+          const data = g.graphData && g.graphData()
+          const ns = data && data.nodes
+          const spread = ns && ns.length > 0 &&
+            ns.some((n) => Math.hypot(n.x ?? 0, n.y ?? 0, n.z ?? 0) > 1)
+          if (engineStopped && spread) break
+          await new Promise((r) => setTimeout(r, 50))
+        }
+
+        // Render one CSS2D frame so labels exist + carry transforms, but DO NOT
+        // pauseAnimation — the loop must keep raycasting during the sweep.
+        el.__test_pauseAndRenderFrame?.()
+        g.resumeAnimation()
+
+        window.mfGraphEl = el
+        window.mfReady = true
+      }
+      ready()
+    </script>
+  </body>
+</html>

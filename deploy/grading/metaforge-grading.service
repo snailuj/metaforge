@@ -1,0 +1,41 @@
+[Unit]
+Description=Metaforge Grading Sidecar
+After=network.target
+
+# Runs as `agent` — the repo owner. A dedicated user can't read the agent-owned
+# venv/code nor write the agent-owned grading JSONL + run the git autocommit, so
+# the dedicated-user isolation breaks both code-read and autocommit. agent owns
+# the whole tree; this is the working choice for a single-user box.
+[Service]
+Type=simple
+User=agent
+WorkingDirectory=/home/agent/projects/metaforge/.worktrees/next
+EnvironmentFile=/etc/default/metaforge-grading
+Environment=GRADING_DEV=
+# CODE runs from the .worktrees/next deploy worktree (branch grading-live), pinned by
+# PYTHONPATH. NOTE: a PYTHONPATH in the EnvironmentFile OVERRIDES this inline value at
+# runtime, so deploy.sh strips PYTHONPATH from /etc/default to leave this authoritative.
+Environment=PYTHONPATH=/home/agent/projects/metaforge/.worktrees/next/data-pipeline/
+# Code/data split (reconciliation round 1): grading DATA + the 15-min autocommit live in
+# a SEPARATE data worktree (.worktrees/grading-data, branch grading-data), so the code
+# worktree stops accumulating data and cutovers stay clean. paths.GRADING_DIR reads
+# GRADING_DATA_DIR; the autocommit targets GRADING_DATA_GIT_ROOT. ReadWritePaths below
+# (/home/agent/projects/metaforge) already covers the data worktree. (If /etc/default
+# ever sets these keys it would override — like PYTHONPATH; keep them out of that file.)
+Environment=GRADING_DATA_DIR=/home/agent/projects/metaforge/.worktrees/grading-data/data-pipeline/grading
+Environment=GRADING_DATA_GIT_ROOT=/home/agent/projects/metaforge/.worktrees/grading-data
+ExecStart=/home/agent/projects/metaforge/.worktrees/next/data-pipeline/.venv/bin/python -m grading_sidecar.main
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+# Do NOT use ProtectHome=read-only — known gotcha that broke metaforge-api (see deploy-servers memory)
+# Whole repo is RW: covers grading JSONL writes AND the git autocommit (which
+# pokes .git/index, refs, lock files — narrower ReadWritePaths breaks it under
+# ProtectSystem=strict).
+ReadWritePaths=/home/agent/projects/metaforge
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body { width:700px; background:var(--colour-bg-primary); color:var(--colour-text-primary);
+    font-family:var(--font-body); padding:22px 26px; }
+  .row { display:flex; gap:14px; align-items:stretch; }
+  .swatch { flex:1; border-radius:var(--hud-radius); border:1px solid rgba(232,224,212,0.08);
+    padding:12px 14px; display:flex; flex-direction:column; justify-content:flex-end; min-height:84px; }
+  .swatch .hex { font-family:var(--font-mono); font-size:11px; opacity:0.85; }
+  .swatch .nm { font-size:13px; margin-top:3px; }
+  .label { font-family:var(--font-body); font-size:11px; text-transform:uppercase;
+    letter-spacing:0.08em; color:var(--colour-text-muted); margin-bottom:13px; }
+  
+</style></head><body>
+<div class="label">Rarity tiers &mdash; graph nodes, filters, badges</div>
+<div class="row">
+  <div class="swatch" style="background:rgba(139,184,154,0.16);border-color:rgba(139,184,154,0.4)"><span class="nm" style="color:#8bb89a">common</span><span class="hex" style="color:#8bb89a">#8bb89a sage</span></div>
+  <div class="swatch" style="background:rgba(196,149,106,0.16);border-color:rgba(196,149,106,0.4)"><span class="nm" style="color:#c4956a">unusual</span><span class="hex" style="color:#c4956a">#c4956a copper</span></div>
+  <div class="swatch" style="background:rgba(168,139,196,0.16);border-color:rgba(168,139,196,0.4)"><span class="nm" style="color:#a88bc4">rare</span><span class="hex" style="color:#a88bc4">#a88bc4 lilac</span></div>
+</div></body></html>

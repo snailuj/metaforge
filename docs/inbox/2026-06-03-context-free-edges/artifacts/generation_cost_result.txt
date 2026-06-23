@@ -1,0 +1,11 @@
+# measuring 5 topics + doubt (repeats) — REAL prompts
+
+## Haiku vehicle-proposal (build_apt_prompt)
+     anger: $0.0949275, wall=46.9s, out=5612tok, cache_create=53486, cache_read=0
+      life: $0.04662404999999999, wall=40.6s, out=4370tok, cache_create=16883, cache_read=36603
+      hope: $0.0537653, wall=57.3s, out=5799tok, cache_create=16880, cache_read=36603
+     grief: $0.05340405, wall=63.0s, out=5726tok, cache_create=16883, cache_read=36603
+   courage: $0.06128905, wall=57.9s, out=7303tok, cache_create=16883, cache_read=36603
+
+## Sonnet chain generation (run_chain_spike.build_prompt)
+     anger: $0.34462275, wall=198.0s, out=12811tok, cache_create=40653, cache_read=0

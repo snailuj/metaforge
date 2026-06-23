@@ -1,0 +1,995 @@
+{
+ "n": 198,
+ "topics": [
+  {
+   "word": "deadline",
+   "topic_synset_id": "103919",
+   "gloss": "a point in time by which something must be completed"
+  },
+  {
+   "word": "recursion",
+   "topic_synset_id": "64328",
+   "gloss": "a process that refers to or repeats itself"
+  },
+  {
+   "word": "ambush",
+   "topic_synset_id": "22876",
+   "gloss": "a surprise attack from a concealed position"
+  },
+  {
+   "word": "gridlock",
+   "topic_synset_id": "76552",
+   "gloss": "a traffic standstill in which vehicles cannot move"
+  },
+  {
+   "word": "courage",
+   "topic_synset_id": "59234",
+   "gloss": "the ability to face fear, pain, or risk"
+  },
+  {
+   "word": "refutation",
+   "topic_synset_id": "3255",
+   "gloss": "the act of determining that something is false"
+  },
+  {
+   "word": "hypothetical",
+   "topic_synset_id": "64517",
+   "gloss": "a hypothetical possibility, circumstance, statement, proposal, situation, etc."
+  },
+  {
+   "word": "voodoo",
+   "topic_synset_id": "76400",
+   "gloss": "(Haiti) followers of a religion that involves witchcraft and animistic deities"
+  },
+  {
+   "word": "neighborliness",
+   "topic_synset_id": "58254",
+   "gloss": "a disposition to be friendly and helpful to neighbors"
+  },
+  {
+   "word": "posterity",
+   "topic_synset_id": "77481",
+   "gloss": "all future generations"
+  },
+  {
+   "word": "declaration",
+   "topic_synset_id": "68467",
+   "gloss": "(law) unsworn statement that can be admitted in evidence in a legal transaction"
+  },
+  {
+   "word": "introvert",
+   "topic_synset_id": "83504",
+   "gloss": "(psychology) a person who tends to shrink from social contacts and to become preoccupied"
+  },
+  {
+   "word": "childhood",
+   "topic_synset_id": "103739",
+   "gloss": "the time of person's life when they are a child"
+  },
+  {
+   "word": "fussiness",
+   "topic_synset_id": "72971",
+   "gloss": "an irritable petulant feeling"
+  },
+  {
+   "word": "commitment",
+   "topic_synset_id": "68187",
+   "gloss": "a message that makes a pledge"
+  },
+  {
+   "word": "inessential",
+   "topic_synset_id": "79272",
+   "gloss": "anything that is not essential"
+  },
+  {
+   "word": "advocacy",
+   "topic_synset_id": "22341",
+   "gloss": "active support of an idea or cause etc."
+  },
+  {
+   "word": "acrophobia",
+   "topic_synset_id": "99552",
+   "gloss": "a morbid fear of great heights"
+  },
+  {
+   "word": "insensitiveness",
+   "topic_synset_id": "59166",
+   "gloss": "the inability to respond to affective changes in your interpersonal environment"
+  },
+  {
+   "word": "care",
+   "topic_synset_id": "72704",
+   "gloss": "a cause for feeling concern"
+  },
+  {
+   "word": "irritability",
+   "topic_synset_id": "72971",
+   "gloss": "an irritable petulant feeling"
+  },
+  {
+   "word": "guilt",
+   "topic_synset_id": "97426",
+   "gloss": "the state of having committed an offense"
+  },
+  {
+   "word": "prophecy",
+   "topic_synset_id": "68533",
+   "gloss": "a prediction uttered under divine inspiration"
+  },
+  {
+   "word": "repulsion",
+   "topic_synset_id": "72697",
+   "gloss": "intense aversion"
+  },
+  {
+   "word": "way",
+   "topic_synset_id": "6870",
+   "gloss": "a journey or passage"
+  },
+  {
+   "word": "continuance",
+   "topic_synset_id": "103663",
+   "gloss": "the period of time during which something continues"
+  },
+  {
+   "word": "antifeminist",
+   "topic_synset_id": "81705",
+   "gloss": "someone who does not believe in the social or economic or political equality of"
+  },
+  {
+   "word": "gerund",
+   "topic_synset_id": "66411",
+   "gloss": "a noun formed from a verb (such as the ‘-ing’ form of an English"
+  },
+  {
+   "word": "disgust",
+   "topic_synset_id": "72693",
+   "gloss": "strong feelings of dislike"
+  },
+  {
+   "word": "poorness",
+   "topic_synset_id": "100134",
+   "gloss": "the state of having little or no money and few or no material possessions"
+  },
+  {
+   "word": "consistency",
+   "topic_synset_id": "99755",
+   "gloss": "logical coherence and accordance with the facts"
+  },
+  {
+   "word": "gradual",
+   "topic_synset_id": "70157",
+   "gloss": "(Roman Catholic Church) an antiphon (usually from the Book of Psalms) immediately after the"
+  },
+  {
+   "word": "openness",
+   "topic_synset_id": "60432",
+   "gloss": "without obstructions to passage or view"
+  },
+  {
+   "word": "resolution",
+   "topic_synset_id": "3819",
+   "gloss": "a decision to do something or to behave in a certain manner"
+  },
+  {
+   "word": "comparative",
+   "topic_synset_id": "66434",
+   "gloss": "the comparative form of an adjective or adverb"
+  },
+  {
+   "word": "reference",
+   "topic_synset_id": "71341",
+   "gloss": "an indicator that orients you generally"
+  },
+  {
+   "word": "impression",
+   "topic_synset_id": "51883",
+   "gloss": "(dentistry) an imprint of the teeth and gums in wax or plaster"
+  },
+  {
+   "word": "fun",
+   "topic_synset_id": "9550",
+   "gloss": "activities that are enjoyable or amusing"
+  },
+  {
+   "word": "ineffectiveness",
+   "topic_synset_id": "61051",
+   "gloss": "lacking the power to be effective"
+  },
+  {
+   "word": "idiom",
+   "topic_synset_id": "70395",
+   "gloss": "a manner of speaking that is natural to native speakers of a language"
+  },
+  {
+   "word": "stupidity",
+   "topic_synset_id": "63306",
+   "gloss": "a poor ability to understand or to profit from experience"
+  },
+  {
+   "word": "bygone",
+   "topic_synset_id": "103631",
+   "gloss": "past events to be put aside"
+  },
+  {
+   "word": "insubordination",
+   "topic_synset_id": "21804",
+   "gloss": "an insubordinate act"
+  },
+  {
+   "word": "gravitas",
+   "topic_synset_id": "59515",
+   "gloss": "formality in bearing and appearance"
+  },
+  {
+   "word": "occupancy",
+   "topic_synset_id": "19808",
+   "gloss": "an act of being a tenant or occupant"
+  },
+  {
+   "word": "appearance",
+   "topic_synset_id": "58340",
+   "gloss": "outward or visible aspect of a person or thing"
+  },
+  {
+   "word": "substituting",
+   "topic_synset_id": "13309",
+   "gloss": "working as a substitute for someone who is ill or on leave of absence"
+  },
+  {
+   "word": "ancients",
+   "topic_synset_id": "75583",
+   "gloss": "people who lived in times long past (especially during the historical period before the"
+  },
+  {
+   "word": "suggestion",
+   "topic_synset_id": "63941",
+   "gloss": "the sequential mental process in which one thought leads to another by association"
+  },
+  {
+   "word": "tyranny",
+   "topic_synset_id": "99881",
+   "gloss": "dominance through threat of punishment and violence"
+  },
+  {
+   "word": "success",
+   "topic_synset_id": "100040",
+   "gloss": "a state of prosperity or fame"
+  },
+  {
+   "word": "limitation",
+   "topic_synset_id": "60828",
+   "gloss": "the quality of being limited or restricted"
+  },
+  {
+   "word": "dazzle",
+   "topic_synset_id": "59727",
+   "gloss": "brightness enough to blind partially and temporarily"
+  },
+  {
+   "word": "optics",
+   "topic_synset_id": "65413",
+   "gloss": "the branch of physics that studies the physical properties of light"
+  },
+  {
+   "word": "ally",
+   "topic_synset_id": "77179",
+   "gloss": "a friendly nation"
+  },
+  {
+   "word": "covenant",
+   "topic_synset_id": "68641",
+   "gloss": "a signed written agreement between two or more parties (nations) to perform some action"
+  },
+  {
+   "word": "sending",
+   "topic_synset_id": "2476",
+   "gloss": "the act of causing something to go (especially messages)"
+  },
+  {
+   "word": "lecturing",
+   "topic_synset_id": "17341",
+   "gloss": "teaching by giving a discourse on some subject (typically to a class)"
+  },
+  {
+   "word": "fortification",
+   "topic_synset_id": "50821",
+   "gloss": "defensive structure consisting of walls or mounds built around a stronghold to strengthen it"
+  },
+  {
+   "word": "faction",
+   "topic_synset_id": "76897",
+   "gloss": "a dissenting clique"
+  },
+  {
+   "word": "devil",
+   "topic_synset_id": "70642",
+   "gloss": "a word used in exclamations of confusion"
+  },
+  {
+   "word": "producer",
+   "topic_synset_id": "83967",
+   "gloss": "someone who manufactures something"
+  },
+  {
+   "word": "importation",
+   "topic_synset_id": "20745",
+   "gloss": "the commercial activity of buying and bringing in goods from a foreign country"
+  },
+  {
+   "word": "tuition",
+   "topic_synset_id": "17281",
+   "gloss": "teaching pupils individually (usually by a tutor hired privately)"
+  },
+  {
+   "word": "kashmiri",
+   "topic_synset_id": "80260",
+   "gloss": "a member of the people of Kashmir"
+  },
+  {
+   "word": "therapy",
+   "topic_synset_id": "13872",
+   "gloss": "(medicine) the act of caring for someone (as by medication or remedial training etc.)"
+  },
+  {
+   "word": "silence",
+   "topic_synset_id": "58235",
+   "gloss": "a refusal to speak when expected"
+  },
+  {
+   "word": "adornment",
+   "topic_synset_id": "43035",
+   "gloss": "a decoration of color or interest that is added to relieve plainness"
+  },
+  {
+   "word": "rap",
+   "topic_synset_id": "68365",
+   "gloss": "a reproach for some lapse or misdeed"
+  },
+  {
+   "word": "showstopper",
+   "topic_synset_id": "58420",
+   "gloss": "something that is strikingly attractive or has great popular appeal"
+  },
+  {
+   "word": "edition",
+   "topic_synset_id": "67666",
+   "gloss": "the form in which a text (especially a printed book) is published"
+  },
+  {
+   "word": "fever",
+   "topic_synset_id": "72740",
+   "gloss": "a state of nervous excitement"
+  },
+  {
+   "word": "counterfeit",
+   "topic_synset_id": "51871",
+   "gloss": "a copy that is represented as the original"
+  },
+  {
+   "word": "election",
+   "topic_synset_id": "3858",
+   "gloss": "a vote to select the winner of a position or political office"
+  },
+  {
+   "word": "airs",
+   "topic_synset_id": "58887",
+   "gloss": "affected manners intended to impress others"
+  },
+  {
+   "word": "slaughter",
+   "topic_synset_id": "4833",
+   "gloss": "the killing of animals (as for food)"
+  },
+  {
+   "word": "splendor",
+   "topic_synset_id": "59737",
+   "gloss": "a quality that outshines the usual"
+  },
+  {
+   "word": "reassembly",
+   "topic_synset_id": "5914",
+   "gloss": "assembling again"
+  },
+  {
+   "word": "cutoff",
+   "topic_synset_id": "55612",
+   "gloss": "a route shorter than the usual one"
+  },
+  {
+   "word": "duplication",
+   "topic_synset_id": "19257",
+   "gloss": "the act of copying or making a duplicate (or duplicates) of something"
+  },
+  {
+   "word": "retailing",
+   "topic_synset_id": "20809",
+   "gloss": "the activities involved in selling commodities directly to consumers"
+  },
+  {
+   "word": "works",
+   "topic_synset_id": "12554",
+   "gloss": "performance of moral or religious acts"
+  },
+  {
+   "word": "speller",
+   "topic_synset_id": "66923",
+   "gloss": "an introductory textbook to teach spelling"
+  },
+  {
+   "word": "crybaby",
+   "topic_synset_id": "86828",
+   "gloss": "a person given to excessive complaints and crying and whining"
+  },
+  {
+   "word": "spook",
+   "topic_synset_id": "82071",
+   "gloss": "someone unpleasantly strange or eccentric"
+  },
+  {
+   "word": "breeder",
+   "topic_synset_id": "81458",
+   "gloss": "a person who breeds animals"
+  },
+  {
+   "word": "publicity",
+   "topic_synset_id": "58576",
+   "gloss": "the quality of being open to public view"
+  },
+  {
+   "word": "disorganisation",
+   "topic_synset_id": "100174",
+   "gloss": "a condition in which an orderly system has been disrupted"
+  },
+  {
+   "word": "oath",
+   "topic_synset_id": "71170",
+   "gloss": "a solemn promise, usually invoking a divine witness, regarding your future acts or behavior"
+  },
+  {
+   "word": "demolishing",
+   "topic_synset_id": "4698",
+   "gloss": "complete destruction of a building"
+  },
+  {
+   "word": "equation",
+   "topic_synset_id": "68109",
+   "gloss": "a mathematical statement that two expressions are equal"
+  },
+  {
+   "word": "inbreeding",
+   "topic_synset_id": "16709",
+   "gloss": "the act of mating closely related individuals"
+  },
+  {
+   "word": "calibration",
+   "topic_synset_id": "18941",
+   "gloss": "the act of checking or adjusting (by comparison with a standard) the accuracy of"
+  },
+  {
+   "word": "rigour",
+   "topic_synset_id": "58177",
+   "gloss": "excessive sternness"
+  },
+  {
+   "word": "coloniser",
+   "topic_synset_id": "81849",
+   "gloss": "someone who helps to found a colony"
+  },
+  {
+   "word": "baritone",
+   "topic_synset_id": "69165",
+   "gloss": "the second lowest adult male singing voice"
+  },
+  {
+   "word": "uniting",
+   "topic_synset_id": "8432",
+   "gloss": "the act of making or becoming a single unit"
+  },
+  {
+   "word": "investment",
+   "topic_synset_id": "25769",
+   "gloss": "outer layer or covering of an organ or part or organism"
+  },
+  {
+   "word": "waterloo",
+   "topic_synset_id": "72543",
+   "gloss": "a final crushing defeat"
+  },
+  {
+   "word": "exorcism",
+   "topic_synset_id": "64959",
+   "gloss": "freeing from evil spirits"
+  },
+  {
+   "word": "softness",
+   "topic_synset_id": "58318",
+   "gloss": "the trait of being effeminate (derogatory of a man)"
+  },
+  {
+   "word": "putter",
+   "topic_synset_id": "85121",
+   "gloss": "a golfer who is putting"
+  },
+  {
+   "word": "evening",
+   "topic_synset_id": "103862",
+   "gloss": "the early part of night (from dinner until bedtime) spent in a special way"
+  },
+  {
+   "word": "monochrome",
+   "topic_synset_id": "53139",
+   "gloss": "painting done in a range of tones of a single color"
+  },
+  {
+   "word": "programing",
+   "topic_synset_id": "17906",
+   "gloss": "creating a sequence of instructions to enable the computer to do something"
+  },
+  {
+   "word": "silver",
+   "topic_synset_id": "50666",
+   "gloss": "silverware eating utensils"
+  },
+  {
+   "word": "outset",
+   "topic_synset_id": "104385",
+   "gloss": "the time at which something is supposed to begin"
+  },
+  {
+   "word": "canoe",
+   "topic_synset_id": "46919",
+   "gloss": "small and light boat"
+  },
+  {
+   "word": "plane",
+   "topic_synset_id": "54162",
+   "gloss": "a power tool for smoothing or shaping wood"
+  },
+  {
+   "word": "nipple",
+   "topic_synset_id": "53389",
+   "gloss": "a flexible cap on a baby's feeding bottle or pacifier"
+  },
+  {
+   "word": "kingdom",
+   "topic_synset_id": "100247",
+   "gloss": "a domain in which something is dominant"
+  },
+  {
+   "word": "coke",
+   "topic_synset_id": "48355",
+   "gloss": "street names for cocaine"
+  },
+  {
+   "word": "pageant",
+   "topic_synset_id": "72392",
+   "gloss": "a rich and spectacular ceremony"
+  },
+  {
+   "word": "head",
+   "topic_synset_id": "99128",
+   "gloss": "the tip of an abscess (where the pus accumulates)"
+  },
+  {
+   "word": "newsperson",
+   "topic_synset_id": "85282",
+   "gloss": "a person who investigates and reports or edits news stories"
+  },
+  {
+   "word": "ton",
+   "topic_synset_id": "95930",
+   "gloss": "a United States unit of weight equivalent to 2000 pounds"
+  },
+  {
+   "word": "articulation",
+   "topic_synset_id": "70388",
+   "gloss": "expressing in coherent verbal form"
+  },
+  {
+   "word": "fibula",
+   "topic_synset_id": "63031",
+   "gloss": "the outer and thinner of the two bones of the human leg between the"
+  },
+  {
+   "word": "ampersand",
+   "topic_synset_id": "69031",
+   "gloss": "a punctuation mark (‘&’) used to represent conjunction (and)"
+  },
+  {
+   "word": "page",
+   "topic_synset_id": "84576",
+   "gloss": "a boy who is employed to run errands"
+  },
+  {
+   "word": "killer",
+   "topic_synset_id": "83609",
+   "gloss": "someone who causes the death of a person or animal"
+  },
+  {
+   "word": "scrum",
+   "topic_synset_id": "5254",
+   "gloss": "(rugby) the method of beginning play in which the forwards of each team crouch"
+  },
+  {
+   "word": "spur",
+   "topic_synset_id": "46177",
+   "gloss": "a railway line connected to a trunk line"
+  },
+  {
+   "word": "dime",
+   "topic_synset_id": "94053",
+   "gloss": "a United States coin worth one tenth of a dollar"
+  },
+  {
+   "word": "bratwurst",
+   "topic_synset_id": "73823",
+   "gloss": "a small pork sausage"
+  },
+  {
+   "word": "noblewoman",
+   "topic_synset_id": "83662",
+   "gloss": "a woman of the peerage in Britain"
+  },
+  {
+   "word": "roach",
+   "topic_synset_id": "61325",
+   "gloss": "a roll of hair brushed back from the forehead"
+  },
+  {
+   "word": "moon",
+   "topic_synset_id": "79369",
+   "gloss": "any natural satellite of a planet"
+  },
+  {
+   "word": "marble",
+   "topic_synset_id": "52810",
+   "gloss": "a sculpture carved from marble"
+  },
+  {
+   "word": "valley",
+   "topic_synset_id": "79688",
+   "gloss": "a long depression in the surface of the land that usually contains a river"
+  },
+  {
+   "word": "guitar",
+   "topic_synset_id": "51315",
+   "gloss": "a stringed instrument usually having six strings"
+  },
+  {
+   "word": "publication",
+   "topic_synset_id": "20616",
+   "gloss": "the act of issuing printed materials"
+  },
+  {
+   "word": "energiser",
+   "topic_synset_id": "82520",
+   "gloss": "someone who imparts energy and vitality and spirit to other people"
+  },
+  {
+   "word": "olympics",
+   "topic_synset_id": "72416",
+   "gloss": "the modern revival of the ancient games held once every 4 years in a"
+  },
+  {
+   "word": "plate",
+   "topic_synset_id": "79464",
+   "gloss": "a rigid layer of the Earth's crust that is believed to drift slowly"
+  },
+  {
+   "word": "band",
+   "topic_synset_id": "66132",
+   "gloss": "a range of frequencies between two limits"
+  },
+  {
+   "word": "washroom",
+   "topic_synset_id": "57698",
+   "gloss": "a lavatory (particularly a lavatory in a public place)"
+  },
+  {
+   "word": "pregnancy",
+   "topic_synset_id": "97716",
+   "gloss": "the state of being pregnant"
+  },
+  {
+   "word": "spareribs",
+   "topic_synset_id": "75036",
+   "gloss": "baked or roasted with a spicy sauce"
+  },
+  {
+   "word": "blast",
+   "topic_synset_id": "71507",
+   "gloss": "a highly pleasurable or exciting experience"
+  },
+  {
+   "word": "september",
+   "topic_synset_id": "104104",
+   "gloss": "the month following August and preceding October"
+  },
+  {
+   "word": "gazette",
+   "topic_synset_id": "66169",
+   "gloss": "a newspaper or official journal"
+  },
+  {
+   "word": "detective",
+   "topic_synset_id": "82265",
+   "gloss": "a police officer who investigates crimes"
+  },
+  {
+   "word": "environs",
+   "topic_synset_id": "78213",
+   "gloss": "an outer adjacent area of any place"
+  },
+  {
+   "word": "hostess",
+   "topic_synset_id": "86056",
+   "gloss": "a woman steward on an airplane"
+  },
+  {
+   "word": "engineer",
+   "topic_synset_id": "79986",
+   "gloss": "a person who uses scientific knowledge to solve practical problems"
+  },
+  {
+   "word": "sheikh",
+   "topic_synset_id": "85670",
+   "gloss": "the leader of an Arab village or family"
+  },
+  {
+   "word": "art",
+   "topic_synset_id": "63267",
+   "gloss": "a superior skill that you can learn by study and practice and observation"
+  },
+  {
+   "word": "fracking",
+   "topic_synset_id": "105332",
+   "gloss": "a well-stimulation technique in which rock is fractured by a pressurized liquid"
+  },
+  {
+   "word": "chino",
+   "topic_synset_id": "47762",
+   "gloss": "a coarse twilled cotton fabric frequently used for uniforms"
+  },
+  {
+   "word": "marshal",
+   "topic_synset_id": "83990",
+   "gloss": "(in some countries) a military officer of highest rank"
+  },
+  {
+   "word": "mustang",
+   "topic_synset_id": "38680",
+   "gloss": "small hardy range horse of the western plains descended from horses brought by the"
+  },
+  {
+   "word": "stutterer",
+   "topic_synset_id": "86011",
+   "gloss": "someone who speaks with involuntary pauses and repetitions"
+  },
+  {
+   "word": "key",
+   "topic_synset_id": "52167",
+   "gloss": "a lever (as in a keyboard) that actuates a mechanism when depressed"
+  },
+  {
+   "word": "methane",
+   "topic_synset_id": "102667",
+   "gloss": "a colorless odorless gas used as a fuel"
+  },
+  {
+   "word": "closure",
+   "topic_synset_id": "20161",
+   "gloss": "the act of blocking"
+  },
+  {
+   "word": "dietician",
+   "topic_synset_id": "82286",
+   "gloss": "a specialist in the study of diet and nutrition"
+  },
+  {
+   "word": "chevron",
+   "topic_synset_id": "47712",
+   "gloss": "an inverted V-shaped charge"
+  },
+  {
+   "word": "anger",
+   "topic_synset_id": "72770",
+   "gloss": "a strong feeling of displeasure or hostility"
+  },
+  {
+   "word": "time",
+   "topic_synset_id": "445",
+   "gloss": "an indefinite period of past, present, and future as a continuum"
+  },
+  {
+   "word": "life",
+   "topic_synset_id": "103707",
+   "gloss": "the existence of a living being from birth to death"
+  },
+  {
+   "word": "argument",
+   "topic_synset_id": "70725",
+   "gloss": "an exchange of opposing views or reasons"
+  },
+  {
+   "word": "heart",
+   "topic_synset_id": "62011",
+   "gloss": "the hollow muscular organ that pumps blood through the body"
+  },
+  {
+   "word": "light",
+   "topic_synset_id": "87322",
+   "gloss": "electromagnetic radiation perceived by the eye"
+  },
+  {
+   "word": "road",
+   "topic_synset_id": "54977",
+   "gloss": "a paved way for vehicles connecting places"
+  },
+  {
+   "word": "anchor",
+   "topic_synset_id": "43519",
+   "gloss": "a heavy device dropped to hold a vessel in place"
+  },
+  {
+   "word": "mirror",
+   "topic_synset_id": "53081",
+   "gloss": "a polished surface that reflects an image"
+  },
+  {
+   "word": "threshold",
+   "topic_synset_id": "49891",
+   "gloss": "a doorway, or a point at which a change occurs"
+  },
+  {
+   "word": "anxiety",
+   "topic_synset_id": "72810",
+   "gloss": "a feeling of worry and unease about uncertain outcomes"
+  },
+  {
+   "word": "hope",
+   "topic_synset_id": "72900",
+   "gloss": "an expectation of a desired outcome"
+  },
+  {
+   "word": "grief",
+   "topic_synset_id": "72870",
+   "gloss": "deep sorrow caused by loss or bereavement"
+  },
+  {
+   "word": "doubt",
+   "topic_synset_id": "58744",
+   "gloss": "uncertainty about the truth of something"
+  },
+  {
+   "word": "extinction",
+   "topic_synset_id": "4972",
+   "gloss": "the act of extinguishing"
+  },
+  {
+   "word": "inclination",
+   "topic_synset_id": "59680",
+   "gloss": "a characteristic likelihood of or natural disposition toward a certain condition or character or"
+  },
+  {
+   "word": "par",
+   "topic_synset_id": "95117",
+   "gloss": "(golf) the standard number of strokes set for each hole on a golf course,"
+  },
+  {
+   "word": "diffusion",
+   "topic_synset_id": "94465",
+   "gloss": "(physics) the process in which there is movement of a substance from an area"
+  },
+  {
+   "word": "reducing",
+   "topic_synset_id": "94870",
+   "gloss": "loss of excess weight (as by dieting)"
+  },
+  {
+   "word": "goodwill",
+   "topic_synset_id": "93736",
+   "gloss": "(accounting) an intangible asset valued according to the advantage or reputation a business has"
+  },
+  {
+   "word": "confidence",
+   "topic_synset_id": "63573",
+   "gloss": "freedom from doubt"
+  },
+  {
+   "word": "incitement",
+   "topic_synset_id": "71275",
+   "gloss": "the act of exhorting"
+  },
+  {
+   "word": "lawlessness",
+   "topic_synset_id": "59008",
+   "gloss": "illegality as a consequence of unlawful acts"
+  },
+  {
+   "word": "humbleness",
+   "topic_synset_id": "59404",
+   "gloss": "a disposition to be humble"
+  },
+  {
+   "word": "cohesion",
+   "topic_synset_id": "94388",
+   "gloss": "(botany) the process in some plants of parts growing together that are usually separate"
+  },
+  {
+   "word": "clause",
+   "topic_synset_id": "66389",
+   "gloss": "(grammar) an expression including a subject and predicate functioning as a part of a"
+  },
+  {
+   "word": "government",
+   "topic_synset_id": "20956",
+   "gloss": "the act of governing"
+  },
+  {
+   "word": "living",
+   "topic_synset_id": "64134",
+   "gloss": "the experience of being alive"
+  },
+  {
+   "word": "antique",
+   "topic_synset_id": "43768",
+   "gloss": "any piece of furniture or decorative object or the like produced in a former"
+  },
+  {
+   "word": "die",
+   "topic_synset_id": "49706",
+   "gloss": "a cutting tool that is fitted into a diestock and used for cutting male"
+  },
+  {
+   "word": "baseline",
+   "topic_synset_id": "78705",
+   "gloss": "the back line bounding each end of a tennis or handball court"
+  },
+  {
+   "word": "fixation",
+   "topic_synset_id": "6066",
+   "gloss": "(histology) the preservation and hardening of a tissue sample to retain as nearly as"
+  },
+  {
+   "word": "hopper",
+   "topic_synset_id": "51716",
+   "gloss": "funnel-shaped receptacle"
+  },
+  {
+   "word": "palm",
+   "topic_synset_id": "90985",
+   "gloss": "any plant of the family Palmae having an unbranched trunk crowned by large pinnate"
+  },
+  {
+   "word": "abdomen",
+   "topic_synset_id": "62845",
+   "gloss": "the cavity containing the major viscera"
+  },
+  {
+   "word": "shank",
+   "topic_synset_id": "55502",
+   "gloss": "cylinder forming the part of a bit by which it is held in the"
+  },
+  {
+   "word": "car",
+   "topic_synset_id": "47023",
+   "gloss": "the compartment that is suspended from an airship and that carries personnel and the"
+  },
+  {
+   "word": "pomegranate",
+   "topic_synset_id": "74420",
+   "gloss": "large globular fruit having many seeds with juicy red pulp in a tough brownish-red"
+  },
+  {
+   "word": "groundcover",
+   "topic_synset_id": "92728",
+   "gloss": "low-growing plants planted in deep shade or on a steep slope where turf is"
+  },
+  {
+   "word": "schooltime",
+   "topic_synset_id": "104050",
+   "gloss": "the period of instruction in a school"
+  }
+ ]
+}

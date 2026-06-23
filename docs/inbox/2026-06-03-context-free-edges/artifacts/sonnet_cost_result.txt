@@ -1,0 +1,2 @@
+  sonnet  anger: $0.2286999, wall=214.4s, out=14433tok, cache_read=40653
+  sonnet   life: $0.14325420000000003, wall=135.1s, out=8736tok, cache_read=40684

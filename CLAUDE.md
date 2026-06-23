@@ -10,10 +10,9 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 
 | Document | Purpose |
 |----------|---------|
-| `docs/roadmap/PIPELINE.md` | **Programme pipeline** — single source of truth for active / next / queued / backlog milestones. Read first when starting milestone-level work. |
+| `docs/roadmap/PIPELINE.md` | **Programme pipeline + single capture funnel** — the one source of truth for the whole forward-work lifecycle: Inbox → Backlog → Queued → Next → Active → Done. Capture raw ideas into its `## Inbox`; read first when starting milestone-level work. |
 | `docs/roadmap/programme-overview.md` | Programme-level overview — what Metaforge is, current state, milestone sequence rationale |
 | `docs/decisions/log.md` | Append-only register of architectural and convention decisions |
-| `docs/inbox/captures.md` | Loose ideas captured during work, awaiting triage |
 | `Metaforge-PRD-2.md` | **Authoritative PRD** (supersedes original, parked ideas from original included) |
 | `docs/plans/2026-01-26-sprint-zero.md` | Sprint Zero implementation plan (backend complete) |
 | `docs/plans/2026-01-28-performance-tuning.md` | Performance optimisation notes and scaling strategies |
@@ -21,6 +20,7 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 | `docs/plans/` | Detailed implementation plans |
 | `docs/designs/metaphor-forge.md` | Sprint Zero feature |
 | `MetaforgeConcept.png` | Visual reference (antique + cosmic themes) |
+| `data-pipeline/grading/` + `data-pipeline/grading_sidecar/` | Metaphor Grading Tool — bootstrap-loop instrument (single-user web grading mode + FastAPI sidecar). See spec at `docs/superpowers/specs/2026-05-30-metaphor-grading-tool-design.md` and plan at `docs/superpowers/plans/2026-05-30-metaphor-grading-tool.md`. |
 
 ## Architecture
 
@@ -49,6 +49,12 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 - CI/CD pipeline
 - Testing, Polish for MVP
 
+## Grading tool — when active
+
+The Metaphor Grading Tool (`data-pipeline/grading_sidecar/` + grading mode in `mf-app`) is an active-learning bootstrap-loop instrument: Julian grades Sonnet-generated metaphor chains (live/dead/bad_path/irrelevant), bad_path examples feed the next round's prompt. Deployed at `metaforge-next.julianit.me` via path-scoped Caddy routing (`/api/grading/*`); the production URL graceful-degrades via the `/api/grading/healthz` probe. JSONL data committed under `data-pipeline/grading/` with `_provisional` markers (auto-commit every 15 min while sidecar runs). See `docs/superpowers/specs/2026-05-30-metaphor-grading-tool-design.md` for the authoritative design.
+
+**⚠️ Deploy topology (since 2026-06-01):** the live sidecar runs from the **`.worktrees/next`** worktree on branch **`grading-live`** — NOT the main checkout. Switching the main checkout's branch does **not** affect the live grading tool, and grading verdicts auto-commit to `grading-live`. The data + autocommit location is pinned by `Environment=PYTHONPATH=.../.worktrees/next/data-pipeline/` in `deploy/grading/metaforge-grading.service` (`paths.py` derives both from it). Cutover/redeploy = `sudo deploy/grading/deploy.sh` (installs the unit + restart; it does not git-pull). Do not "fix" the sidecar by repointing it at the main checkout. See memory `grading_ux_round3_landed`.
+
 ---
 
 ## Superpowers Skills
@@ -73,7 +79,9 @@ The superpowers skills are bundled in this repo for portability (CCotW, remote s
 | **Idempotency** | Batch functions must be idempotent to ensure composability and recovery from errors does not require wasting the work of previous runs |
 | **Observability** | Output to logs not just for errors and warnings, but to enable tracing of control flow and data transformations. Collect timing behind feature-flags for all complex or potentially long-running routines. Timer functions must devolve to NO-OP when the feature-flag is disabled and in all production deployments |
 | **Pipeline** | `docs/roadmap/PIPELINE.md` is the single source of truth for active / next / queued / backlog milestones. Read it when starting milestone-level work; update it on any state change. The `metaforge-pipeline` skill surfaces a quick report. |
-| **Captures & decisions** | Loose ideas → `docs/inbox/captures.md` (triage periodically: promote, defer, discard). Architectural/convention decisions → `docs/decisions/log.md` (append-only). The `backlog-capture`, `changelog-entry`, `changelog-squash` skills remain available if you want formal GH-Issue or CHANGELOG.md tracking, but neither is mandatory. |
+| **Captures & backlog (single funnel)** | One source of truth: `docs/roadmap/PIPELINE.md`. Capture raw ideas/observations/limitations into its `## Inbox (untriaged captures)` with zero friction (no triage at capture time). Triage periodically: promote each item **verbatim** down into Backlog → Queued → Next, or discard. There is **no** separate captures file and no parallel backlog. |
+| **Decisions** | Settled architectural/convention choices → `docs/decisions/log.md` (append-only). Findings/spike reports/working notes → dated `docs/inbox/*.md` (reference material, not backlog). |
+| **GitHub issues** | Reserved for **externally-facing** work only — licensing, public infra, community-visible items. Internal engineering work lives in the PIPELINE.md funnel, not in issues. `changelog-entry`/`changelog-squash` skills remain available for CHANGELOG.md tracking but are not mandatory. |
 
 **If you're about to write code without a failing test, STOP.**
 

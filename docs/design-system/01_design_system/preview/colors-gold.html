@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body { width:700px; background:var(--colour-bg-primary); color:var(--colour-text-primary);
+    font-family:var(--font-body); padding:22px 26px; }
+  .row { display:flex; gap:14px; align-items:stretch; }
+  .swatch { flex:1; border-radius:var(--hud-radius); border:1px solid rgba(232,224,212,0.08);
+    padding:12px 14px; display:flex; flex-direction:column; justify-content:flex-end; min-height:84px; }
+  .swatch .hex { font-family:var(--font-mono); font-size:11px; opacity:0.85; }
+  .swatch .nm { font-size:13px; margin-top:3px; }
+  .label { font-family:var(--font-body); font-size:11px; text-transform:uppercase;
+    letter-spacing:0.08em; color:var(--colour-text-muted); margin-bottom:13px; }
+  
+</style></head><body>
+<div class="label">Accent &mdash; warm gold</div>
+<div class="row">
+  <div class="swatch" style="background:#d4af37;color:#1a1a2e;min-height:96px"><span class="nm" style="font-weight:600">accent-gold</span><span class="hex">#d4af37</span></div>
+  <div class="swatch" style="background:rgba(212,175,55,0.5);min-height:96px"><span class="nm">gold-dim</span><span class="hex">rgba(212,175,55,.5)</span></div>
+  <div class="swatch" style="background:rgba(212,175,55,0.2);min-height:96px"><span class="nm">gold wash 20%</span><span class="hex">hover / badge bg</span></div>
+  <div class="swatch" style="background:transparent;border:1px solid rgba(212,175,55,0.2);min-height:96px"><span class="nm">gold hairline</span><span class="hex">20% &mdash; borders</span></div>
+</div></body></html>

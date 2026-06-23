@@ -43,6 +43,10 @@ MRR score + results JSON
 - **Snapping** (`snap_properties.py`) — maps LLM-extracted properties to curated vocabulary entries via a 3-stage cascade: exact match → morphological normalisation → embedding cosine similarity → drop.
 - **Enrichment** — LLM extracts 10-15 semantic properties per synset. Stored as JSON, then imported into the DB by `enrich_pipeline.py`.
 - **MRR evaluation** — queries the Go API's `/forge/suggest` endpoint against a set of known metaphor pairs. Measures how well the forge ranks known metaphorical targets.
+- **Sense attributes** (`sense_attributes`) — one row per WordNet sense: the stable cross-resource `sensekey` + SemCor `tagcount`. `tagcount` is the deterministic dominant-sense prior for topic disambiguation (NULL where SemCor never tagged the sense; ~19% of senses are tagged). Imported by `import_semcor.py`. See `docs/inbox/2026-06-05-sqlunet-data-strategy-review.md`.
+- **Domains** (`domains` + `synsets.domainid`) — 45 WordNet lexicographer-file classes (noun.artifact, verb.motion, …); a coarse semantic-type label per synset for M05/Bridge/thesaurus. **NOT a cascade aptness feature.** Imported by `import_domains.py`.
+- **BNC frequency** (`bnc_frequencies`) — POS-resolved word frequency (`lemma, pos, freq`); supplies the POS-dominance topic filter the word-level `frequencies` table cannot. Imported by `import_bnc.py`.
+- **Seed provenance** (`seed_sources`, `seed_meta`) — upstream-dataset manifest (versions/licences) + build metadata; licence-audit anchor. Imported by `import_provenance.py`.
 
 ## Operations
 

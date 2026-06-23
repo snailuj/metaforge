@@ -1,0 +1,43 @@
+loaded 54431 noun centroids in 21.0s
+kNN in-degree computed in 238.1s; indeg max=407 mean=40.0 p99=161
+cohort 1345 pairs / 174 topics
+
+=== depth=2 lam_hub=0.0 (beam=2000, cross+concr) ===
+  apt:   reached 13.9%  recall@200 11.9%  @1000 13.9%
+  inapt: reached 25.3%  recall@200 10.9%  @1000 25.1%
+  AUC(path-score) = 0.545   [baseline direct-embedding apt recall@200=13%]
+
+=== depth=2 lam_hub=0.5 (beam=2000, cross+concr) ===
+  apt:   reached 13.9%  recall@200 11.8%  @1000 13.9%
+  inapt: reached 25.3%  recall@200 11.5%  @1000 25.1%
+  AUC(path-score) = 0.546   [baseline direct-embedding apt recall@200=13%]
+
+=== depth=2 lam_hub=1.0 (beam=2000, cross+concr) ===
+  apt:   reached 13.9%  recall@200 11.5%  @1000 13.9%
+  inapt: reached 25.3%  recall@200 11.7%  @1000 25.3%
+  AUC(path-score) = 0.548   [baseline direct-embedding apt recall@200=13%]
+
+=== depth=2 lam_hub=2.0 (beam=2000, cross+concr) ===
+  apt:   reached 13.9%  recall@200 10.9%  @1000 13.9%
+  inapt: reached 25.3%  recall@200 11.7%  @1000 25.3%
+  AUC(path-score) = 0.550   [baseline direct-embedding apt recall@200=13%]
+
+=== depth=3 lam_hub=0.0 (beam=2000, cross+concr) ===
+  apt:   reached 13.6%  recall@200 7.0%  @1000 13.3%
+  inapt: reached 13.0%  recall@200 1.7%  @1000 8.7%
+  AUC(path-score) = 0.509   [baseline direct-embedding apt recall@200=13%]
+
+=== depth=3 lam_hub=0.5 (beam=2000, cross+concr) ===
+  apt:   reached 14.6%  recall@200 5.7%  @1000 14.3%
+  inapt: reached 20.6%  recall@200 1.7%  @1000 12.6%
+  AUC(path-score) = 0.522   [baseline direct-embedding apt recall@200=13%]
+
+=== depth=3 lam_hub=1.0 (beam=2000, cross+concr) ===
+  apt:   reached 17.5%  recall@200 7.1%  @1000 16.8%
+  inapt: reached 29.4%  recall@200 3.8%  @1000 18.1%
+  AUC(path-score) = 0.547   [baseline direct-embedding apt recall@200=13%]
+
+=== depth=3 lam_hub=2.0 (beam=2000, cross+concr) ===
+  apt:   reached 19.9%  recall@200 7.7%  @1000 19.0%
+  inapt: reached 33.6%  recall@200 5.5%  @1000 20.9%
+  AUC(path-score) = 0.557   [baseline direct-embedding apt recall@200=13%]

@@ -1,0 +1,790 @@
+{
+  "summary": "Phase 1 of the metaphor-graph fitness audit: ground schema, prompts, attempt history, empirical probes, external levers",
+  "agentCount": 6,
+  "logs": [
+    "Phase 1: grounding the audit — schema, prompts, attempts, probes, external",
+    "parallel[3] failed: agent({schema}): subagent completed without calling StructuredOutput (after 2 in-conversation nudges)"
+  ],
+  "result": {
+    "schema": {
+      "bridge_schema": "DEFINITION. Bridge-centric layer = 3 tables + 1 view, designed in /home/agent/projects/metaforge/docs/superpowers/specs/2026-05-28-metaphor-graph-schema-design.md, shipped on branch metaphor-graph/schema-base (HEAD c403ea19, 2026-05-28; branch diff vs main = 4 files / +2251 lines: data-pipeline/SCHEMA.sql +127, data-pipeline/scripts/metaphor_graph.py 534 lines, test_metaphor_graph.py 1118 lines, review log 472 lines). c403ea19 is NOT an ancestor of main (`git merge-base --is-ancestor` → NOT in main) but IS contained in the whole metaphor-graph lineage incl. the current main-checkout branch grading/ux-tag-notes-signal and the live grading-live branch. Canonical DDL now lives in two synced places: /home/agent/projects/metaforge/data-pipeline/SCHEMA.sql:404-459 (tables+indexes) and :461-521 (graph_edges view), and METAPHOR_GRAPH_DDL in /home/agent/projects/metaforge/data-pipeline/scripts/metaphor_graph.py:93-149 (+GRAPH_EDGES_VIEW_DDL :588-656; DDL-parity enforced by tests). TABLES: metaphor_bridges(bridge_id INTEGER PK AUTOINCREMENT, topic_synset_id TEXT NOT NULL FK synsets, vehicle_synset_id TEXT NOT NULL FK synsets, proposer TEXT, proposed_at TEXT, path_hash TEXT CHECK 64-hex, rationale TEXT, cached cascade features cosine_distance/ortony_score/cascade_score/signed_delta REAL, CHECK topic!=vehicle, UNIQUE(topic,vehicle,proposer,path_hash)); indexes idx_metaphor_bridges_topic/_vehicle/_proposer. metaphor_bridge_steps(bridge_id FK ON DELETE CASCADE, step_index, via_synset_id FK synsets, PK(bridge_id,step_index)); index idx_metaphor_bridge_steps_via. metaphor_judgments(judgment_id PK, bridge_id FK CASCADE, label CHECK IN ('live','dead_synonym','dead_lakoff','irrelevant','edge_case'), judged_by, judged_at, confidence REAL CHECK 0-1, notes, UNIQUE(bridge_id,judged_by)); indexes on label, judged_by; bridge_id lookups served by the UNIQUE auto-index. VIEW graph_edges = UNION ALL of has_property (synset_properties_curated⋈property_vocab_curated, weight=salience_sum), metonym_of (synset_metonyms⋈syntagms, phantom-edge+self-loop guarded), antonym_of (property_antonyms projected to synsets), metaphor_link (bridges⋈judgments WHERE label='live' only; one row per judge — consumers must DISTINCT). Write API: compute_path_hash (order-preserving sha256 over intermediate synset_ids, metaphor_graph.py:178-190), insert_bridge (idempotent on UNIQUE, transactional, :193-258), insert_bridge_with_raw_path (snaps raw concept strings exact+morphological via snap_concept_string :306-357, all-or-nothing BridgeSnapFailure, :501-551), record_judgment (insert-only, one verdict per (bridge,judge), changes = UPDATE by design, :554-585), lookup_primary_synset endpoint resolver (noun-preferred, polysemy-ASC, lemmatised fallback, :405-493). APPLIED STATE: MAIN typed DB (/home/agent/projects/metaforge/data-pipeline/output/lexicon_v2.db, 646MB, mtime Jun 5) HAS all 3 tables + graph_edges view (binary grep: 'CREATE TABLE metaphor_bridges'=1, metaphor_judgments=1, 'CREATE VIEW graph_edges'=1; a lexicon_v2.db.pre-metaphor-schema-backup exists alongside) — all 3 tables 0 rows (zero 'sonnet_v1'/'cascade_v1' proposer strings anywhere in the 646MB file; May-26 dump predates the DDL entirely). STAGING DB (/home/agent/projects/metaforge/.worktrees/next/data-pipeline/output/lexicon_v2.db, 365MB, mtime Jun 7) does NOT have the metaphor layer at all — 0 binary hits for metaphor_bridges/metaphor_bridge_steps/metaphor_judgments/graph_edges (no -wal file). This contradicts the task brief's assumption that staging has the metaphor_bridges DDL applied; the DDL-bearing DB is the MAIN checkout's typed one.",
+      "representational_gaps": [
+        "Verdict axes: live JSONL is judgement.v2 with TWO axes (linkage good|bad x metaphor live|dead|irrelevant) but metaphor_judgments has ONE label enum ('live','dead_synonym','dead_lakoff','irrelevant','edge_case'). Observed v2 values (85 rows: linkage good 73/bad 12; metaphor live 43/dead 37/irrelevant 5) and even v1 values ('dead', 'bad_path') do NOT map onto the enum. The 0.85-AUC bad_head-clean subset cannot be selected in SQL because the axis distinctions don't exist in-schema.",
+        "Tiers and tags: multi-select tiers[] (strong/ironic/surprising) and structured tags[] (bad_head 30/95 rows, leap, padding) have no columns or child table — bad_head (~31-35% of graded rows, the single biggest label-noise source) is unstorable and unfilterable.",
+        "Confidence type mismatch: schema CHECK confidence REAL 0.0-1.0 (SCHEMA.sql:447-449); operator emits ordinal strings 'high'/'med' — no defined mapping; lossy either way.",
+        "Verdict history: UNIQUE(bridge_id, judged_by) + explicit 'UPDATE not new row' design (spec Settled Decisions) destroys supersedes provenance; live JSONL already has supersedes_ts re-grade chains (95 rows -> 90 distinct chain signatures). Importing losslessly is impossible without schema change.",
+        "Proposer provenance: bridges carry only proposer TEXT + proposed_at — no round (r1/r2/handpicked), no prompt version, no model id. The bootstrap loop's round structure (chain.v1 'round' field) and the Haiku-vs-Sonnet cohort distinction (loop2_cohort_haiku_only) are unrepresentable; cross-round sense drift becomes invisible.",
+        "Path-geometry features: the ONLY verified liveness signal (max_hop_cos within-topic AUC 0.64-0.67, 0.85 clean; std_hop_cos) has no column. Bridges cache exactly the four cascade features (cosine_distance/ortony_score/cascade_score/signed_delta) that are measured AT CHANCE for liveness (raw AUC~0.50). The schema persists the dead features and omits the live ones; geometry currently lives only in chain_geometry_provisional.jsonl (4390 rows) keyed by chain_signature — a hash incompatible with path_hash (chain_signature covers endpoints+phrases; path_hash is intermediates-only synset ids), so even joining JSONL geometry to bridges requires recomputation.",
+        "Step surface forms: metaphor_bridge_steps stores via_synset_id only. chain.v1 stores per-step {phrase, head, synset_id} ('subterranean heat'->'heat'->63717). Dropping phrase+head makes bad_head (mis-extracted INTERMEDIATE heads) permanently undiagnosable from the DB and discards the snap provenance (snap_method/snap_score analogues exist in synset_properties_curated but not here).",
+        "Lemma-level edges: every endpoint/step is a synset FK; the surface lemma actually shown/judged is not recorded. No lemma-level edge or alias layer despite lemmas(185k) and sense_attributes(sensekey, tagcount) existing as join machinery.",
+        "Sense-split fragmentation: same topic lemma graded under DIFFERENT synset_ids across rounds (anger=30227 r1 vs 72770 r2; argument=70725 vs 67993; 19 topic strings -> 22 topic_synset_ids in 95 verdicts). Synset-keyed edges treat these as unrelated nodes, further fragmenting supervision whose synset-level recurrence is already near-absent (5/248 edges recur).",
+        "Negative edges: graph_edges exposes live-only metaphor_link rows (by design); dead/irrelevant/unjudged are queryable in base tables but indistinguishable from never-proposed in the view, and there is no 'known-dead pair' surface for a completion scorer to suppress cliches at serve time.",
+        "Verdict scope: judgments attach to a bridge (path-scoped, correct per grading_verdict_model_v2) but there is no pair-level rollup; multiple bridges per (topic,vehicle) need consumer-side aggregation with no defined precedence.",
+        "Triage artefacts (triage_scores score 1-10 + reason, triage_structural bad_head/leap/weak_linkage booleans, 2680+ rows) and chain glosses have no landing tables — the acquisition-ordering signal that decides WHAT gets graded is outside the DB.",
+        "Domain/type signal: domains (45 classes) + synsets.domainid are imported in both DBs but nothing links them into the bridge layer; fine via joins, but no cached cross-domain flag on bridges."
+      ],
+      "population_state": "METAPHOR LAYER EMPTY EVERYWHERE: metaphor_bridges / metaphor_bridge_steps / metaphor_judgments = 0 rows in the MAIN typed DB (DDL present, zero proposer-string hits in binary), tables ABSENT in STAGING. graph_edges metaphor_link arm therefore returns 0 rows. ALL graded truth lives only in JSONL on the grading-live worktree (/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/): judgements_provisional.jsonl 95 rows (10 judgement.v1 + 85 judgement.v2; 90 distinct chain_signatures; v2 tallies: metaphor live 43/dead 37/irrelevant 5, linkage good 73/bad 12, bad_head tag 30; 19 distinct topic lemmas across 22 distinct topic_synset_ids; supersedes chains present). Chains: sonnet_chains_provisional_r1.jsonl 200, _r2.jsonl 1804, _r2_handpicked.jsonl 746 (live worktree) vs 2386 (main checkout, uncommitted edit) — chain_geometry_provisional.jsonl has exactly 4390 distinct chain_signatures (=200+1804+2386) with n_hops/max_hop_cos/min/mean/std/path_total/endpoint_cos_dist; chain_glosses 3846 synsets; triage_scores 876 + triage_scores_r2 1804 + triage_structural 2680. The grading sidecar is DB-free (no sqlite3/lexicon references under data-pipeline/grading_sidecar/) — verdict->bridge materialisation has never run; the '9-task materialisation plan' (commits 58799d7c/c88efc8d per memory) is unexecuted. MAIN TYPED DB (646MB, Jun 5; counts from its May-26 dump lexicon_v2.sql, unchanged since except the Jun-5 sqlunet additive migration): synsets 107,519; lemmas 185,081; relations 234,810; syntagms 87,265; synset_metonyms 0; enrichment 81,602; synset_properties 973,947 (TYPED — 359,880 'sensorimotor' value hits in DB binary); property_vocabulary 21,485; synset_properties_curated 822,807; property_vocab_curated 35,000; vocab_clusters 35,000; synset_centroids 81,185; lemma_embeddings 56,181; synset_concreteness 73,927; property_antonyms 576; cluster_antonyms 424; plus DEAD legacy property_similarity 1,554,934 rows (removed from code in commit 53d01191, still physically present in BOTH DBs). Jun-5 sqlunet additions present in BOTH DBs (migrate_add_sqlunet_tables.py; binary-verified: '%1:' sensekey hits 362,266 identical in both; 'noun.artifact' present; 'PredicateMatrix' provenance rows present): sense_attributes ~185k (34,767 with tagcount per review), domains 45, bnc_frequencies 28,449, seed_sources ~10 + seed_meta 1, synsets.domainid backfilled. STAGING DB (365MB, Jun 7): same spine + sqlunet tables but OLD SMALL UN-TYPED enrichment — model markers sonnet 10,246 + gemini 1,982 + haiku 13 ≈ the 12,066 enrichment rows of its May-2 dump (synset_properties 300,555 un-typed — only 37 'sensorimotor' hits; curated links 129,804; centroids 9,994 in dump), i.e. the staging/forge deployment runs on ~12k enriched synsets while the typed 80k enrichment exists only in the main checkout DB. CAVEAT ON BASIS: a harness classifier outage blocked python/sqlite3 for the entire audit window; main-DB counts are from its own May-26 full dump (exact for pre-Jun-5 tables), staging counts from its May-2 dump + Jun-7 binary greps + the 2026-06-08 memory probe (12 un-typed rows for synset 72810); presence/absence claims are direct binary-grep evidence on the current .db files. Provenance/versioning: grading JSONL carries schema_version (chain.v1/judgement.v1/v2) and autocommits to branch grading-live; the DBs are gitignored binaries with seed_sources as the only in-DB provenance; no migration ledger ties a DB file to a schema commit (main DB acquired the metaphor DDL out-of-band from a branch that main does not contain).",
+      "scalability": "Completion-style access paths at 20k-100k synsets on SQLite/commodity hardware: (1) 'all bridges for topic t' / 'for vehicle v' / 'by proposer' — index-served (idx_metaphor_bridges_topic/_vehicle/_proposer); 'bridges through intermediate x' — idx_metaphor_bridge_steps_via; 'verdict for bridge' — UNIQUE(bridge_id,judged_by) auto-index; 'all live edges' — idx_metaphor_judgments_label. All O(log n + k); even 100k-1M bridge rows are trivial. (2) graph_edges is a 4-arm UNION ALL view; SQLite pushes WHERE src_synset_id=? into each arm: has_property arm (822,807 rows) hits idx_spc_synset, dst-side hits property_vocab_curated UNIQUE(synset_id); metonym arm hits idx_synset_metonyms_synset; antonym arm's vocab_id_b side is unindexed but the table is 576 rows — no table-scan risk at current or 100k scale. Unfiltered full-view scans materialise ~900k rows — acceptable batch-wise, not per-request. The view emits duplicate multiplicity by design (documented at SCHEMA.sql:463-475); consumers must DISTINCT. (3) BLOB embeddings: synset_centroids = packed 300xfloat32 (~1.2KB) keyed by synset_id PK — point lookups cheap; the Go API preloads the ENTIRE table into RAM at startup (api/internal/db/cascade_cache.go:42-77, maps sized for 80k/40k) ≈ ~100MB at 81k rows, ~125-150MB at 100k — fits school-grade commodity hardware but is a fixed RAM floor; SQLite has no vector index, so any 'nearest vehicles to topic centroid' ranking is an O(N) in-app scan (~30M mults at 100k x 300-d ≈ tens of ms — fine per-query; all-pairs O(N^2) infeasible — candidate gating mandatory). Geometry features (max_hop_cos) are app-side per-path BLOB fetches (k PK lookups per bridge) — must be precomputed/persisted for training-scale use (the existing chain_geometry JSONL is exactly that workaround). (4) Cold-start/feature-provider queries: the cascade candidate CTE (api/internal/db/cascade.go:139-219, cluster-overlap join via idx_spc_cluster) is the measured envelope — ~350ms per broad lemma at 107k synsets WITH idx_lemmas_synset_id, 3-4s without (SCHEMA.sql:41-48), 16s variant rejected for correlated COUNT — i.e. index discipline, not engine choice, is the binding factor; SQLite is adequate. (5) Liabilities: no index on synset_properties.property_type (type-pivot queries scan 974k rows; access synset-first instead); centroid coverage is enrichment-bound (81,185 of 107,519 synsets — geometry features undefined off-cohort; the 20k-enrichment MVP goal and the held 10k run gate coverage); dead property_similarity adds ~1.5M rows of file bloat in both DBs; single-writer SQLite is fine for a single-operator grading loop.",
+      "unit_of_representation": "Strictly synset-keyed: topic_synset_id/vehicle_synset_id/via_synset_id all FK synsets(synset_id) (TEXT numeric strings, e.g. '72810'); all POS representable since synsets.pos covers n/v/a/r/s, so verbs/adjectives CAN be endpoints — but nothing marks POS on the edge itself (join required). Noun-primacy is baked into resolution, not schema: lookup_primary_synset (metaphor_graph.py:405-493) prefers curated-vocab noun senses by ascending polysemy, with lemmatised fallback (-s/-ing) for ~9% of vehicles arriving as plurals/gerunds; snap_concept_string (:306-357) resolves path concepts exact+morphological against property_vocab_curated (no embedding stage). The lemma SURFACE FORM actually graded is not stored anywhere on the edge — once snapped, 'smelting' vs 'smelt' vs which sense was chosen is unrecoverable; sense_attributes (sensekey PK, tagcount, idx_sense_attributes_lemma_tagcount) provides a dominant-sense prior (53% curated coverage, 91% unique-winner) but the bridge layer never records which sensekey/sense-choice produced its synset ids. Sense-splits are a live data problem, not hypothetical: 95 verdicts contain 19 distinct topic lemmas but 22 distinct topic_synset_ids — anger graded as synset 30227 (round 1) AND 72770 (round 2), argument as 70725 AND 67993 — so a synset-level completion model sees fragmented, disjoint supervision for what the operator experiences as one topic, on top of already-minimal synset-level edge recurrence (5/248). There is no alias/equivalence layer; the only recourse is joining through lemmas/sense_attributes at query time, which the schema permits but nothing canonicalises. Conversely path identity (path_hash = sha256 over ordered intermediate synset ids) means two surface-distinct but same-synset paths correctly collapse, while a bad_head mis-snap silently mints a different bridge identity — head-extraction errors (~31-35% of graded rows) therefore corrupt edge identity, not just labels.",
+      "verdict": "UNFIT AS-IS for the fitness definition, though the bridge-centric core (path-first proposals, multi-proposer pool, per-(bridge,judge) verdicts, idempotent hashing, FK-to-synset spine) is the right skeleton and its index shape comfortably supports completion-style queries at 20k-100k synsets on commodity hardware. It fails on three load-bearing counts: (a) it cannot losslessly store the verdicts it exists to learn from — the 95 graded JSONL records (two-axis v2 verdicts, tiers, tags incl. bad_head, ordinal confidence, rounds, supersedes chains) cannot be imported into the single-enum metaphor_judgments without destroying exactly the axes (linkage-vs-liveness, bad_head) that the verified analyses condition on; (b) it persists the four cascade features measured at chance for liveness while having no columns for the only verified signal (max_hop_cos/std_hop_cos path geometry, within-topic AUC 0.64-0.67, 0.85 bad_head-clean) nor the per-step phrase/head data needed to diagnose the 31-35% bad_head contamination; (c) it is universally unpopulated — 0 bridge rows in the one DB that has the DDL, no DDL at all on staging (contrary to working assumptions), truth living in worktree-pinned JSONL with no materialisation ever run — so 'metaphor-graph-completion' currently has no graph. TOP 3 SCHEMA CHANGES: (1) Verdict-model v2 alignment: replace/augment metaphor_judgments.label with linkage TEXT + metaphor TEXT axes, a judgment_tags child table (bad_head/leap/padding + tiers), ordinal confidence, round INTEGER, and versioned verdicts (drop UNIQUE(bridge_id,judged_by) in favour of (bridge,judge,judged_at) with a latest-view, preserving supersedes) — prerequisite for any lossless import of the existing 89-95 verdicts. (2) Persist the signal: add max_hop_cos/std_hop_cos/n_hops (nullable REAL) to metaphor_bridges and phrase TEXT + head TEXT + snap_method/snap_score to metaphor_bridge_steps, so geometry features are queryable/indexable and bad_head becomes a stored, auditable property rather than a JSONL tag. (3) Lemma/sense anchoring + actually materialise: add topic_lemma/vehicle_lemma (+ optional sensekey FKs into sense_attributes) to metaphor_bridges and a topic-alias resolution (same-lemma synset grouping) so cross-round sense-splits (19 lemmas -> 22 synset ids) aggregate instead of fragment; then run the planned JSONL->metaphor_bridges import against the typed main DB and apply the DDL to staging. Secondary cleanups that matter for the commodity-hardware envelope: drop the dead 1.55M-row property_similarity table from both DBs, and define the chain_signature<->path_hash bridge so 4,390 precomputed geometry rows can be reused rather than recomputed.",
+      "refs": [
+        "/home/agent/projects/metaforge/data-pipeline/SCHEMA.sql:404-521 (metaphor tables + graph_edges view), :41-48 (idx_lemmas_synset_id 350ms-vs-3-4s note), :93-105 (sense_attributes), :267-282 (synset_properties + indexes)",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_graph.py:93-149 (DDL), :178-190 (compute_path_hash), :193-258 (insert_bridge), :306-357 (snap_concept_string), :405-493 (lookup_primary_synset), :554-585 (record_judgment), :588-656 (view DDL)",
+        "commit c403ea19 (branch metaphor-graph/schema-base, NOT ancestor of main; diff vs main = SCHEMA.sql +127, metaphor_graph.py 534L, test_metaphor_graph.py 1118L, review log 472L)",
+        "/home/agent/projects/metaforge/docs/superpowers/specs/2026-05-28-metaphor-graph-schema-design.md (settled decisions: UPDATE-not-version verdicts, live-only view, per-property cascade bridges)",
+        "/home/agent/projects/metaforge/docs/superpowers/review-logs/2026-05-28-metaphor-graph-schema-base-review.md (37-deferral ledger; L01 idempotency, L07 path validation)",
+        "/home/agent/projects/metaforge/data-pipeline/output/lexicon_v2.db (646MB Jun 5; metaphor DDL present, 0 rows; typed properties 359,880 'sensorimotor' hits) + lexicon_v2.sql May-26 dump (synset_properties 973,947; enrichment 81,602; synset_centroids 81,185; synset_properties_curated 822,807; property_vocab_curated 35,000; vocab_clusters 35,000; lemma_embeddings 56,181; synset_concreteness 73,927; property_antonyms 576; cluster_antonyms 424; property_similarity 1,554,934 DEAD; synsets 107,519; lemmas 185,081; relations 234,810; syntagms 87,265; synset_metonyms 0; metaphor_* 0/absent-from-dump)",
+        "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/output/lexicon_v2.db (365MB Jun 7; NO metaphor_* tables, NO graph_edges — 0 binary hits; un-typed: 37 'sensorimotor' hits; enrichment markers sonnet 10,246 + gemini 1,982 + haiku 13 ~= 12k cohort; sqlunet tables present: '%1:' 362,266 = main)",
+        "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/judgements_provisional.jsonl (95 rows = 10 v1 + 85 v2; 90 distinct chain_signatures; live 43/dead 37/irrelevant 5; linkage 73/12; bad_head 30; 19 topics/22 topic_synset_ids; e.g. lines 84,88 anger/argument sense-splits)",
+        "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/ (r1 200, r2 1804, handpicked 746 vs 2386 in main checkout; chain_geometry 4390 distinct sigs; glosses 3846; triage_scores 876 + r2 1804; triage_structural 2680)",
+        "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading_sidecar/ (no sqlite3/lexicon_v2 references — JSONL-only persistence)",
+        "/home/agent/projects/metaforge/api/internal/db/cascade_cache.go:42-77 (full-table RAM preload of concreteness/centroids/cluster_types)",
+        "/home/agent/projects/metaforge/api/internal/db/cascade.go:139-219 (cluster-overlap candidate CTE — the measured completion-style query envelope)",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/migrate_add_sqlunet_tables.py (additive sqlunet migration: domains/sense_attributes/bnc_frequencies/seed_sources + domainid backfill)",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/build_synset_centroids.py:42-48 (synset_centroids DDL lives in script, not SCHEMA.sql)",
+        "commit 53d01191 (removed property_similarity/idf from code; 1.55M rows still physically present in both DBs)",
+        "/home/agent/projects/metaforge/docs/inbox/2026-06-05-sqlunet-data-strategy-review.md (sense_attributes 34,767 tagged / bnc 28,449 / domains 45 / provenance 11 rows; 198/198-noun topic manifest)",
+        "AUDIT CAVEAT: harness command-classifier outage blocked python/sqlite3 for the whole window — DB facts above derive from allowlisted git/grep/wc/ls binary+dump probes; exact live COUNT(*) on the Jun-5/Jun-7 .db files should be re-verified when tooling recovers, esp. staging enrichment-table counts"
+      ]
+    },
+    "prompts": {
+      "cross_cutting": [
+        "PROMPT-VERSION PROVENANCE IS NOT RECORDED ANYWHERE: enrichment rows carry only model_used + extracted_at (SCHEMA.sql:246-254; enrich_pipeline.py:367-370 imports config.model and DROPS config.schema_version); chain.v1 records carry proposer ('sonnet_v1'/'run_chain_spike') + round + generated_at but no prompt hash; the anti-example AVOID block varies per round/run and its contents are never persisted with the chains it shaped; triage_scores rows carry no judge-model/persona-version/timestamp. A stored enrichment row can be traced to schema family (v1 vs v2, inferable from property shape) and source JSON filename, but NOT to the exact prompt text that produced it. The proposer string doubles as part of chain_signature, so even re-running an identical walk under a renamed proposer orphans existing verdicts.",
+        "MODEL-VERSION COUPLING IS INCONSISTENT: enrichment CLI uses unpinned aliases ('haiku'/'sonnet' — enrich_properties.py default 'haiku', gap_fill default 'sonnet') that silently float across Claude releases, while generation pins claude-haiku-4-5-20251001 / claude-sonnet-4-6. The M02-S04 retro already burned on this (prompt rename + model swap landed together — attribution impossible).",
+        "RATIONALE LOSS IS SYSTEMIC: the only rationale that survives to storage is the inapt 'explanation' (carried verbatim into metaphor_bridges.rationale by metaphor_graph_enrich_inapt.py:179). Everything else is discarded: Sonnet editorial decisions (which draft vehicles were kept/replaced and why), per-hop justifications in chains, judge 'reason' strings, disambiguation reasoning. The chain generator is never asked WHY a hop is apt or what RELATION TYPE it instantiates — exactly the edge metadata a graph-completion scorer would extrapolate over.",
+        "CONFIDENCE EMITTED THEN THROWN AWAY: Haiku apt prompt demands per-vehicle confidence 0.0-1.0 — chain_records_from_sonnet, ingest_haiku_apt and the chain prompt's vehicles_text rendering all drop it; the proxy judge returns {verdict, confidence, reason} and generate_metaphor_edges keeps only verdict for the tripwire, persisting NOTHING (paid judge verdicts on ~3 topics/batch vanish entirely — they are exactly weak-label training data for the liveness judge the programme says is the bottleneck).",
+        "TOKEN USAGE / COST / MODEL-ECHO DISCARDED AT TRANSPORT: claude -p result events include usage and model fields; _parse_events (lib/claude_client.py:449-518) extracts only the result text. Costs are estimated by hard-coded constants (generate_metaphor_edges.py:48-49) instead of measured.",
+        "SENSE INFORMATION IS LOST AT EVERY WORD→SYNSET BOUNDARY EXCEPT TOPICS: only topics get LLM sense-disambiguation. Heads and path concepts are snapped by lookup_primary_synset (least-polysemous curated lemma, noun-preferred; metaphor_graph.py:405-493) or snap_concept_string (exact+morphological only; :306-357) without the model ever seeing candidate glosses. This is the bad_head (~31%) factory: (a) Sonnet's inline head choice is unvalidated; (b) round-1 backfill falls back to FIRST TOKEN of the phrase on a Haiku echo-miss (head_extraction_backfill.py:99); (c) the snapper picks the wrong dominant sense (light→'lamp', documented); (d) latent bug: run_chain_spike.py:285-292 OVERWRITES step['head'] with the synset_id returned by lookup_primary_synset when --db is passed, destroying the lexical head. Geometry features are computed over per-step synset_ids (export_chain_geometry.py:33-61), so head errors directly corrupt the verified path-geometry signal (AUC 0.67 → 0.85 when bad_head rows are removed = the measured headroom).",
+        "NO STRUCTURED NEGATIVE-EXAMPLE MEMORY: the only negative feedback channel is the ad-hoc anti_examples JSON, and build_next_round_prompt.py:104-110 emits anti-examples with chain:[] (phrases 'left to caller') — fed directly to build_prompt this renders empty AVOID examples (notes only). It also still keys on the v1 verdict field label=='bad_path' (line 82) while live verdicts are v2 two-axis (linkage/metaphor/tags, grading_sidecar/models.py) — the bridge between graded verdicts and the next-round prompt is format-drifted. Inapt/dead exemplars from grading are not otherwise fed back.",
+        "FORMAT BRITTLENESS AT THE TRANSPORT LAYER: every prompt demands 'STRICT JSON only' yet _strip_fences (lib/claude_client.py:257-398) needed fence-tolerant + unfenced bracket-balance extraction after prose-wrapped JSON killed every batch of the 8k run (2026-05-14); residual silent-mis-success risk on refusal-with-example patterns (warned, not blocked); Haiku ID-echo drift (oewn-foo-n) needed an explicit echo-the-input-ID directive in BATCH_PROMPT_V2; ~3-4% parse-failure rate at batch=20 Haiku.",
+        "CLOSED TAXONOMIES CAPTURE COARSE STRUCTURE ONLY: 6 property types, 5 inapt failure modes, 4 anti-example note tags (merge/padding/leap/other parsed from free-text note prefixes by regex), 3 judge verdicts. None of the prompts asks for the per-hop metaphoric relation (attribute-transfer vs metonymy vs taxonomy vs image-schema), so the metaphor graph has typed NODES but untyped EDGES.",
+        "BATCH-COUPLED ID DISCIPLINE: batched prompts (enrichment, gap-fill, head extraction, disambiguation) key responses on the model echoing input IDs/lemmas/phrases exactly; mismatches are silently dropped (logged as unknown-ID warnings) or fall back (first-token heads), so per-item loss is invisible in aggregate outputs.",
+        "ALL PROMPTS ASSUME FRONTIER CLAUDE VIA CLI: no local/offline-LLM variants exist or have been calibrated, despite the school-deployment data-sovereignty constraint; generation costs (~$0.25/topic Haiku+Sonnet) and the persona judge's calibration are unquantified for self-hosted models."
+      ],
+      "fitness_assessment": "The prompt suite captures the minimum a metaphor-graph-completion scorer needs — sense-vetted topic endpoints, candidate vehicles, ordered hop labels with single-word heads, and human verdicts keyed by chain_signature — but it systematically discards the three things extrapolation to NOVEL pairs would lean on: (1) trustworthy per-step synset identity (bad_head ~31% comes from asking for a bare head WORD and then snapping it with a least-polysemy heuristic the model never sees — the only verified geometric signal, max_hop_cos within-topic AUC 0.67, rises to 0.85 on the bad_head-clean subset, so this is the single largest measured signal leak); (2) edge typing/rationale (no prompt asks what KIND of conceptual move a hop is, or why it is apt — chains are untyped polylines in embedding space); (3) already-paid-for soft labels (Haiku vehicle confidence, proxy-judge confidence+reason are emitted and dropped). SINGLE HIGHEST-SIGNAL-PER-DOLLAR FORMAT CHANGE: extend the chain-generation output schema from {phrase, head} to {phrase, head, gloss} — a 3-8-word sense gloss per intermediate step (or, better when DB-wired, have the runner present the head's candidate synset glosses and ask the model to pick an index, reusing the existing gloss-match prompt pattern from metaphor_disambiguate.py:232-258). This costs a few dozen output tokens per chain (marginal against the $0.19/topic Sonnet spend), requires no new calls, collapses the bad_head layer at its source, makes every per-step synset_id verifiable, and retroactively protects both the path-geometry features and verdict transfer across regenerated chains. Second-best (cheap, additive): persist judge {verdict, confidence, reason} per sampled chain_signature to a JSONL — it is free weak supervision for the unbuilt live/dead judge that the context-free-edges refutation identified as the real bottleneck. For the school/self-hosted constraint, note that generation-time prompts are an offline build step (sovereignty-compatible); only the eventual scorer must run on commodity hardware, and nothing in these formats yet records what a small local model would need for distillation (rationales, confidences) — another reason to stop discarding them.",
+      "inventory": [
+        {
+          "name": "Property enrichment v1 (Variant C, plain strings)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/enrich_properties.py:53-96 (BATCH_PROMPT), formatter :181-189, parse/merge :205-246",
+          "model": "CLI alias, default 'haiku' (unpinned; 8k run used 'sonnet'); via lib/claude_client.prompt_json expect=list",
+          "purpose": "Extract 10-15 short sensory/behavioural properties per word sense (sense pinned by definition); the substrate of the property cascade.",
+          "output_format": "JSON array only, no markdown: [{\"id\": \"...\", \"properties\": [\"word\", ...]}, ...] — properties are bare 1-2-word strings.",
+          "signal_captured": "Property strings per synset_id; sense-disambiguation enforced via negative few-shots (run/chain/fleece show wrong-sense properties explicitly).",
+          "signal_discarded": "Salience, property type, relation phrase, usage example, lemma register/connotation, confidence, rationale, property-property structure, antonymy/polarity, alternatives. Multi-word concepts allowed ('1-2 words') but later snap stages assume single words.",
+          "known_failure_modes": "Unknown-ID echo drops rows silently (log.warning enrich_properties.py:245); 'physical' framing era preceded v2; rows in DB indistinguishable from v2 except by absent type/salience columns; prose-wrapped JSON killed batches pre-_strip_fences fix."
+        },
+        {
+          "name": "Property enrichment v2 (sensorimotor, structured)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/enrich_properties.py:112-176 (BATCH_PROMPT_V2), formatter :192-202, preflight :259-362",
+          "model": "CLI alias via --model (unpinned; production runs 'sonnet'); prompt_json expect=list",
+          "purpose": "Current production property extraction: typed/salience-weighted properties + usage example + lemma metadata; explicitly motivated as 'metaphor discovery engine' bridge features. Produced the typed 80k enrichment in the 646MB lexicon_v2.db.",
+          "output_format": "JSON array only: [{\"id\", \"usage_example\", \"properties\": [{\"text\": <ONE word, no hyphens/compounds>, \"salience\": 0.0-1.0 (3 anchored bands), \"type\": one of sensorimotor|behaviour|effect|functional|emotional|social, \"relation\": short phrase e.g. 'fire emits heat'}], \"lemma_metadata\": [{\"lemma\", \"register\": formal|neutral|informal|slang, \"connotation\": positive|neutral|negative}]}] — ≥4 sensorimotor properties demanded; exact input-ID echo demanded.",
+          "signal_captured": "Typed properties, salience, per-property relation phrase, usage example, per-lemma register/connotation. Relation phrases ARE stored (synset_properties.relation) — rare survival of structure.",
+          "signal_discarded": "Single-word constraint deliberately destroys compositional properties ('cold metal' → pick one); no confidence distinct from salience; no cross-domain-transferability marker despite prompt motivating it; no property antonyms/negations; v2 schema_version recorded in output JSON config but DROPPED at DB import (enrich_pipeline.py:367-370 keeps only model). The bridging RATIONALE the preamble elicits ('anger connects to fire via...') is never requested as output.",
+          "known_failure_modes": "Haiku read 'physical' as a question about the synset (abstract concepts got 0 physical properties) — fixed by 'sensorimotor' rename (M02-S04); Haiku mirrored example-ID format producing parser-rejected oewn-foo-n IDs — fixed by echo directive; context-free edge derivation from these enrichments measured-dead (shared-feature AUC 0.55, 0.31% of bridge features present; docs/inbox/2026-06-03-context-free-edges/); snap stage drops creative properties not in curated vocab (logged to snap_dropped.jsonl)."
+        },
+        {
+          "name": "Physical gap-fill enrichment",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/gap_fill_physical.py:29-52 (GAP_FILL_PROMPT), :131-199 (runner forces type='physical')",
+          "model": "CLI alias, default 'sonnet' (unpinned); prompt_json expect=list",
+          "purpose": "Top-up pass: 4-6 physical/sensory properties for synsets with sparse sensorimotor coverage (audit_physical_coverage feeds it).",
+          "output_format": "JSON array only: [{\"id\", \"properties\": [{\"text\": single word, \"salience\": 0.0-1.0, \"type\": \"physical\", \"relation\": short phrase}]}] — runner overwrites every type to 'physical' regardless of model output (line 184).",
+          "signal_captured": "Physical property text + salience + relation for coverage gaps.",
+          "signal_discarded": "Whatever type the model actually assigned (clobbered); usage examples/lemma metadata absent; uses pre-rename 'physical' label that the M05 type normaliser must map (unknown types bucket to 'other' per data-pipeline/CLAUDE.md snap docs) — a self-inflicted normalisation dependency.",
+          "known_failure_modes": "Type-vocabulary mismatch with v2's 'sensorimotor' taxonomy; same silent unknown-ID drop pattern as v1."
+        },
+        {
+          "name": "Apt vehicle proposal — 1a template (LIVE in production generation)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_spike_1a.py:84-167 (_APT_TEMPLATE), :220-222; re-used live by /home/agent/projects/metaforge/data-pipeline/scripts/generate_metaphor_edges.py:444-447 (make_live_haiku_fn)",
+          "model": "claude-haiku-4-5-20251001 (pinned; Phase 1a also ran claude-sonnet-4-6 for comparison)",
+          "purpose": "Propose 3-7 concrete cross-domain vehicles per topic with shared features — the candidate-vehicle stage feeding chain generation. NOTE: the production runner imports the 1a hard-coded-few-shot variant, NOT the 1b gold-example variant.",
+          "output_format": "Single JSON object, no markdown/preamble, gloss echo banned: {\"topic\": \"<word>\", \"metaphors\": [{\"vehicle\": \"<word>\", \"shared_features\": [{\"dimension\": one of sensorimotor|behaviour|functional|effect|emotional|social, \"concept\": SINGLE common English word}], \"confidence\": 0.0-1.0}]} — 2 baked few-shot examples (anger, time).",
+          "signal_captured": "Vehicle lemma, per-feature (dimension, concept) pairs, per-vehicle confidence; quality criteria encode the Ortony asymmetry (vehicle more concrete than topic) and cross-domain requirement.",
+          "signal_discarded": "Confidence is dropped by every downstream consumer (chain prompt renders only '- vehicle: concept, concept'; bridge ingest stores neither); dimension labels are flattened away in the chain prompt and in bridges (raw_path=[concept] singletons, metaphor_graph_enrich_haiku.py:73-92 — co-occurrence structure of a vehicle's feature set destroyed into separate single-step bridges); no rationale; no rejected-vehicle list; no sense indication for the vehicle word (vehicle→synset left to lookup_primary_synset).",
+          "known_failure_modes": "Multi-word concept violations (validated/counted, ~report-level only); unsnappable creative concepts (snap-rate gate); dead-metaphor vehicles for primary emotions (fire/storm/wound — triage_notes.md); few-shot vocabulary (anger/time examples) biases proposals; Lakoff-classic allowance conflicts with the later live-metaphor product goal."
+        },
+        {
+          "name": "Inapt vehicle proposal — 1a template",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_spike_1a.py:169-217 (_INAPT_TEMPLATE), :225-227",
+          "model": "claude-haiku-4-5-20251001 (and claude-sonnet-4-6 in 1a)",
+          "purpose": "Generate plausible-but-inapt vehicles (hard negatives) for cascade discrimination evaluation.",
+          "output_format": "Single JSON object: {\"topic\", \"inapt_metaphors\": [{\"vehicle\": \"<word>\", \"inapt_reason_type\": one of single_dimension|same_domain|wrong_concreteness|dead_metaphor|synonym_or_hypernym, \"explanation\": \"<text>\"}]} — 2 baked examples.",
+          "signal_captured": "Hard-negative vehicles with closed-vocabulary failure typing + free-text explanation. Explanation survives into metaphor_bridges.rationale via the inapt ingest — the ONLY rationale that reaches storage.",
+          "signal_discarded": "Severity/confidence; the specific shared surface dimension as a structured concept (re-extracted later at extra cost by WEAK_DIM_PROMPT); near-miss ranking.",
+          "known_failure_modes": "dead_metaphor negatives are arguably POSITIVE training signal under the genre-writer product frame (Lakoff misalignment memory); reason types self-assigned by the same model family later evaluated — circularity risk."
+        },
+        {
+          "name": "Apt + inapt vehicle proposal — 1b/Phase-2 templates (gold few-shot)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_spike_1b.py:158-202 (_APT_TEMPLATE), :205-241 (_INAPT_TEMPLATE), builders :248-265; consumed at scale by /home/agent/projects/metaforge/data-pipeline/scripts/metaphor_spike_2.py:310-385",
+          "model": "claude-haiku-4-5-20251001 (MODEL_HAIKU), gold examples from claude-sonnet-4-6",
+          "purpose": "Same task as 1a but with Sonnet-generated gold few-shot examples (love/knowledge/fear) baked in; produced the 200-topic Phase-2 cohort (metaphor_spike_apt_phase2_20260525T004154.jsonl) that seeds chain generation and the Loop-2 'Haiku-only' stored dumps.",
+          "output_format": "Identical JSON shapes to 1a apt/inapt; examples block rendered as EXAMPLE/Input/Output triples from spike_1b_gold_examples.json.",
+          "signal_captured": "Same as 1a, at 200-topic scale; raw responses written verbatim to JSONL (incl. _gloss attached locally) — good raw-capture discipline.",
+          "signal_discarded": "Same as 1a. Additionally the runner's scores JSONL keeps only {cohort, topic, vehicle, synsets, cascade_status, final_score, gate_passed} — LLM confidence and shared_features never join the scored rows.",
+          "known_failure_modes": "Loop-2 cohort is Haiku-only (memory: dead-metaphor-leaning enrichments, findings suspect); gold-example topics excluded from cohort to avoid contamination (handled); single .format() brace-escaping fragility (documented in builders)."
+        },
+        {
+          "name": "Gold few-shot example generation (Sonnet-as-prompt-engineer)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/generate_spike_1b_gold_examples.py:47-126",
+          "model": "claude-sonnet-4-6 (pinned)",
+          "purpose": "One-off Sonnet pass over 3 out-of-cohort topics producing the gold apt/inapt examples baked into the 1b/Phase-2 Haiku templates.",
+          "output_format": "Full apt + inapt response objects (same schemas as above) stored verbatim in committed spike_1b_gold_examples.json with top-level {\"model\": ..., \"topics\": [...]} — best provenance practice in the repo.",
+          "signal_captured": "Complete validated exemplars + producing-model identity, committed to git.",
+          "signal_discarded": "Sonnet's selection variance (single sample per topic; no alternates kept).",
+          "known_failure_modes": "Validation failures abort (intended); gold examples freeze a 2026-05 Sonnet style into all later Haiku output."
+        },
+        {
+          "name": "Sonnet editorial rewrite — Stage A bridge vehicles (head-polarity clause)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_graph_enrich_sonnet.py:27-55 (SONNET_EDIT_PROMPT), runner :73-108, ingest :111-189",
+          "model": "claude-sonnet-4-6 (wired in metaphor_graph_enrich_run.py:124-128)",
+          "purpose": "Editorial rewrite of Haiku's draft vehicles into 10 polished vehicles with 3-6 one-word path concepts each; proposer haiku_sonnet_v1 bridges. Carries the round-3 polarity clause: path concepts must preserve source-phrase semantic polarity ('resists change' → 'resistance'/'stability', not 'change').",
+          "output_format": "JSON: {\"topic\": \"<echo>\", \"vehicles\": [{\"vehicle\": \"<single english word>\", \"path_concepts\": [\"<lowercase word>\", ...]}]} — verbatim response appended to audit JSONL (good), then exploded.",
+          "signal_captured": "Polished vehicle set + path-concept vocabulary; full raw response audited to JSONL for post-hoc inspection.",
+          "signal_discarded": "Editorial rationale (which draft vehicles were replaced and WHY — explicitly the signal a quality model would want); concept ordering (treated as unordered dimensions); per-vehicle confidence; ingest explodes each concept into a separate single-step bridge (raw_path=[concept]) so the path_concepts SET structure is lost; vehicles failing lookup_primary_synset silently become snap_failure counts.",
+          "known_failure_modes": "Pre-polarity-clause outputs (all existing stored audits) carry polarity-flipped concepts — no re-extraction was done (round-3 'no re-extraction' decision), so stored haiku_sonnet_v1 bridges retain the defect the clause now prevents; concept snap to property_vocab_curated drops creative concepts."
+        },
+        {
+          "name": "Inapt weak-dimension synthesis",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_graph_enrich_inapt.py:35-48 (WEAK_DIM_PROMPT), synthesise :64-109, ingest :112-194",
+          "model": "claude-haiku-4-5-20251001 (wired in metaphor_graph_enrich_run.py:118-122)",
+          "purpose": "From each (topic, inapt vehicle, explanation), extract the ONE weak shared dimension word — creates negative-evidence bridges (proposer haiku_v1_inapt_synthesised) with the original explanation as rationale.",
+          "output_format": "JSON: {\"weak_concept\": \"<single lowercase word>\"} — one call per inapt vehicle; synth-log JSONL caches {topic, vehicle, inapt_reason_type, weak_concept, explanation}.",
+          "signal_captured": "Single weak-dimension concept per failed metaphor + verbatim explanation into bridge rationale; idempotent synth-log avoids re-spend.",
+          "signal_discarded": "Confidence; alternative weak dimensions; degree of weakness; the inapt_reason_type is in the synth-log but NOT stored on the bridge row (no column).",
+          "known_failure_modes": "Single-word constraint + snap_concept_string (property-vocab-only) drops concepts outside curated vocab; one-concept reduction of multi-factor failures."
+        },
+        {
+          "name": "Sonnet ordered-chain generation (THE chain generator: context-free-hop clause + per-step heads + anti-example AVOID block)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/run_chain_spike.py:50-127 (build_prompt; context-free-hop clause at :99, head spec at :101-103, anti-block builder :80-91); consumed in production by /home/agent/projects/metaforge/data-pipeline/scripts/generate_metaphor_edges.py:307-316, canonicalisation :56-136",
+          "model": "claude-sonnet-4-6 (default _DEFAULT_MODEL run_chain_spike.py:42; generate_metaphor_edges --sonnet-model default same)",
+          "purpose": "Rewrite Haiku's flat candidate-vehicle sets into exactly 10 vehicles each with an ORDERED chain of concept steps topic→vehicle; full creative license to substitute vehicles. Context-free-hop clause (commit d1b3a837) demands each adjacent pair be apt IN ISOLATION so hops stay valid when other paths reuse them — the prompt-level move toward reusable graph edges. anti_examples from graded bad_path verdicts render as an AVOID block (chain + why-it-failed notes).",
+          "output_format": "STRICT JSON and nothing else: {\"topic\": \"<echo>\", \"vehicles\": [{\"vehicle\": \"<single-word lemma>\", \"chain\": [{\"phrase\": \"<word or very short noun phrase>\", \"head\": \"<single-word lexical head>\"}, ...]}]} — chain must start with topic and end with vehicle; exactly 10 vehicles; runner then forces canonical endpoints, computes chain_signature over final phrases, resolves per-step synset via resolve_synset(head) or resolve_synset(phrase), validates as chain.v1 ChainRecord {schema_version, topic, topic_synset_id, vehicle, vehicle_synset_id, proposer, round, chain[{phrase, head, synset_id}], chain_signature, generated_at}.",
+          "signal_captured": "Ordered hop labels with lexical heads; vehicle substitutions; chain.v1 records grading-native; dedup by signature; resume/attempted bookkeeping.",
+          "signal_discarded": "Per-hop rationale and RELATION TYPE (untyped edges); per-chain/hop confidence; which Haiku candidates were kept vs substituted (substitution decisions = editorial taste signal); Haiku dimension labels (flattened to '- vehicle: concept, ...' input); alternative chains; head sense (model never sees candidate glosses — head→synset_id resolution happens post-hoc via least-polysemy heuristic); Haiku confidence (not even rendered into the prompt); NO head-polarity clause in THIS prompt (polarity guidance exists only in the Sonnet-edit and Haiku-backfill prompts) — 'resists change'-type steps still depend on Sonnet volunteering a polarity-preserving head.",
+          "known_failure_modes": "bad_head ~31% of graded rows originates here + at snapping (see cross-cutting); latent bug run_chain_spike.py:285-292 overwrites LLM head with the looked-up SYNSET ID when CLI --db is passed; house-style tics (undertow bolted onto ~14 topics, amber ~18×, 4-hop topic→mood→concrete pattern — triage_notes.md); cliché vehicles for primary emotions; self-metaphor and unresolvable vehicles skipped (logged); empty-anti-example rendering when fed build_next_round_prompt output verbatim."
+        },
+        {
+          "name": "Haiku head-extraction backfill (round-1 chains; head-polarity clause)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/head_extraction_backfill.py:35-43 (HEAD_PROMPT_INSTRUCTIONS), :46-54 (extract_heads_batch), fallback :94-99",
+          "model": "claude-haiku-4-5-20251001 (HAIKU_MODEL :28)",
+          "purpose": "Retrofit {phrase, head, synset_id} steps onto the round-1 flat-string chains (pre-head-schema): batched 50-phrase Haiku calls for multi-word intermediates only; endpoints canonicalised. Carries the round-3 polarity clause ('resists change' → 'resistance'/'stability', not 'change'; 'avoids risk' → 'caution').",
+          "output_format": "Strict JSON: {\"phrases\": [{\"phrase\": \"<exact echo>\", \"head\": \"<single word>\"}, ...]} — keyed by exact phrase echo; heads lower-cased; then lookup_primary_synset snaps each head (nullable).",
+          "signal_captured": "Single-word reusable head per multi-word phrase, with explicit reuse-across-traversals preference and polarity preservation.",
+          "signal_discarded": "Polarity/inversion FLAG itself (the model resolves polarity silently — no marker survives for audit); head confidence; alternative heads; POS; sense gloss of the chosen head (snapping done blind afterwards).",
+          "known_failure_modes": "Echo-miss → silent FIRST-TOKEN fallback (line 99: p.split()[0].lower()) — a classic bad_head source ('resists change'→'resists'); single-word phrases bypass the LLM entirely (head=phrase.lower()) so polysemy errors go straight to the snapper; round-1 records predate the polarity clause; generated_at placeholder '2026-05-30T00:00:00Z' (provenance fiction)."
+        },
+        {
+          "name": "Sense disambiguation — dominant everyday sense (10k mass-generation gate)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_disambiguate.py:204-229 (build_disambiguation_prompt), parse :261-280, driver :321-361",
+          "model": "claude-haiku-4-5-20251001 (DEFAULT_MODEL :32), chunk_size 30 lemmas/call",
+          "purpose": "Pick the dominant everyday noun sense per head lemma (or ABSTAIN) so mass generation doesn't run on junk senses (house→'playing house', must→'grape juice'); output feeds load_vetted_topics.",
+          "output_format": "STRICT JSON: {\"picks\": [{\"lemma\": \"<echo>\", \"sense_index\": <1-based int or null>}, ...]} — senses presented as numbered gloss list; null = abstain; conservative parse drops missing/garbled/out-of-range (never guesses).",
+          "signal_captured": "Vetted {word, topic_synset_id, gloss} triples; abstention as a first-class outcome; resumable checkpoint JSONL.",
+          "signal_discarded": "Confidence; reason; ranking of runner-up senses; multi-sense viability (a lemma with two metaphor-rich senses is forced to one or abstained); abstention REASON.",
+          "known_failure_modes": "Index-echo discipline (lemma echo mismatch = silent drop/abstain); chunk failure abstains whole chunk; dominant-sense prior is the model's, uncalibrated against SemCor (tagcount import was the planned deterministic replacement — sqlunet review)."
+        },
+        {
+          "name": "Sense disambiguation — gloss match (pre-glossed 200 cohort)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_disambiguate.py:232-258 (build_gloss_match_prompt), used by vetted_topics_from_glossed :146-197",
+          "model": "claude-haiku-4-5-20251001",
+          "purpose": "For curated-gloss topics, pick the candidate synset whose gloss MATCHES the target gloss (gloss authoritative, not frequency) — fixed the Stage A 63.5% topic-snap defect for the 200 cohort.",
+          "output_format": "Same as dominant-sense: {\"picks\": [{\"lemma\", \"sense_index\": <int or null>}]}; exact-gloss and single-sense lemmas short-circuit without LLM.",
+          "signal_captured": "Gloss-consistent topic_synset_id with curated gloss preserved on output.",
+          "signal_discarded": "Match quality/closeness (binary pick or abstain); confidence; near-tie information.",
+          "known_failure_modes": "Same echo/index discipline; 'closest' instruction can force a weak match short of abstention despite the abstain clause."
+        },
+        {
+          "name": "Proxy liveness judge (tripwire monitor)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_live_rate.py:82-113 (build_judge_prompt), judge_chain :116-136, parse_verdict :57-69; wired at /home/agent/projects/metaforge/data-pipeline/scripts/generate_metaphor_edges.py:462-463, sampling :368-390",
+          "model": "claude-haiku-4-5-20251001 (DEFAULT_JUDGE_MODEL), max_retries=2",
+          "purpose": "Conservative zero-false-positive live/dead/irrelevant verdict on a SAMPLE (~3 topics/batch) of generated chains, feeding a sliding-window tripwire that pauses a cratering generation run. Explicitly a monitor, NOT the admission gate.",
+          "output_format": "ONLY this JSON object: {\"verdict\": \"live|dead|irrelevant\", \"confidence\": <0.0-1.0>, \"reason\": \"<short>\"} — imperative one-shot structure (role-preamble version made the model ask for input instead of judging); unrecognised/missing verdicts collapse to 'dead' (never inflate live).",
+          "signal_captured": "Verdict only, consumed transiently by the tripwire state machine (healthy band ~0.08-0.14 live-rate).",
+          "signal_discarded": "EVERYTHING is discarded after the tripwire tick: verdict, confidence and reason are not persisted anywhere (no JSONL, no DB) — paid weak labels on exactly the chains the operator will later grade, lost; the chain rendering uses phrases only (heads/synset_ids not shown to the judge); no per-hop judgement.",
+          "known_failure_modes": "Earlier retry-storm (~10 min/batch) before JUDGE_MAX_RETRIES=2 cap; abs_floor 0.08 false-tripped a healthy run (recalibrated to 0.03); judge tuned to under-call live so its 'dead' is uninformative; garbled→dead collapse conservatively biases the live-rate down."
+        },
+        {
+          "name": "Forge Reader liveness-triage persona (operator-run, ad-hoc)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/grading/liveness_judge_persona.md (mirrored live at /home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/liveness_judge_persona.md); outputs: .worktrees/next/data-pipeline/grading/triage_scores.jsonl, triage_scores_r2.jsonl, triage_structural.jsonl, triage_notes.md; consumed by grading_sidecar/routes/walk.py (walk ordering) and signal_report.py",
+          "model": "Unrecorded — invoked ad hoc in operator Claude sessions ('task-specific' output clause); no model/version stamped in output rows",
+          "purpose": "Genre-fiction-editor persona scoring each chain 0-10 for liveness (hit = 7+) to prioritise human grading and bin garbage; structural pass flags bad_head/leap/weak_linkage. Drives the signal-prioritised grading walk.",
+          "output_format": "Persona doc leaves output 'task-specific'; actual stored rows: triage_scores*: {chain_signature, topic, vehicle, score: 0-10 int, reason: \"<=8 words\"}; triage_structural: {chain_signature, topic, vehicle, bad_head: bool, leap: bool, weak_linkage: bool, note: str}; plus free-prose triage_notes.md (patterns: named-technical-object vehicles live, elemental nouns dead, undertow/amber tics).",
+          "signal_captured": "Per-chain 0-10 liveness + terse reason; orthogonal structural defect flags (bad_head ~31% comes from this file); rich pattern-level prose (vehicle-class priors) in notes.md.",
+          "signal_discarded": "Judge provenance (model, persona version, run timestamp) absent from rows; rubric anchors not machine-linked to scores; the pattern-level findings in triage_notes.md (vehicle-class liveness priors — directly actionable features) exist only as prose; 0-10 collapses to hit-threshold in walk ordering; no per-hop scores.",
+          "known_failure_modes": "Persona is explicitly 'not a calibrated ground-truth instrument', prompt-sensitive by design; later-snapshot-wins union across triage files assumes signature stability; scores can drift across sessions/models with no recorded basis for correction."
+        },
+        {
+          "name": "Next-round prompt builder (anti-example selection — prompt INPUT constructor, no LLM call)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/build_next_round_prompt.py:23-110",
+          "model": "n/a (deterministic; output feeds run_chain_spike.build_prompt anti_examples)",
+          "purpose": "Bootstrap-loop closure: select ≤target bad_path verdicts (substantive notes ≥20 chars), cluster by leading note tag (merge|padding|leap|other), cap per cluster, pick next deterministic topic batch — emits the anti-example payload for the next chain-generation round.",
+          "output_format": "stdout JSON: {\"next_batch\": [topic, ...], \"anti_examples\": [{\"chain\": [], \"notes\": \"...\"}]} — chain phrase lists deliberately empty ('left to caller').",
+          "signal_captured": "Curated bad-path NOTES routed back into the generator's AVOID block; deterministic, reproducible topic scheduling.",
+          "signal_discarded": "The actual failing CHAINS (chain:[] — if fed verbatim, the AVOID block shows notes with no example walk); verdict tags[]/tiers/linkage axes (keys on legacy v1 label=='bad_path' at :82 while live data is v2 two-axis with structured tags incl. bad_head — grading_sidecar/models.py normalise_judgement is not used here); live/dead exemplars unused (only bad_path feeds back).",
+          "known_failure_modes": "v1/v2 verdict-schema drift makes the loop's negative-feedback channel silently under-select; regex tag parsing of free-text note prefixes; notes <20 chars vanish entirely."
+        },
+        {
+          "name": "Claude CLI transport + JSON-extraction layer (all prompts above pass through this)",
+          "file": "/home/agent/projects/metaforge/lib/claude_client.py:524-588 (_invoke: claude -p --output-format json --max-turns 1, timeout 900s), :449-518 (_parse_events), :257-398 (_strip_fences), :685-760 (prompt_json/prompt_batch), parse-failure dumps :26+661-682",
+          "model": "any (model string passed through to claude CLI)",
+          "purpose": "Single subprocess gateway: retries (5×, no retry on rate-limit, 1 attempt on timeout), 429 session-limit classification with reset parsing, fence/unfenced JSON extraction, expect-type validation, full raw-text dump on parse failure.",
+          "output_format": "Demands CLI event JSON; extracts last result event's text; fenced-block body, else first bracket-balanced JSON span that parses, else raw text → ParseError. Suspicious short results (≤3-item list / ≤2-key dict) warn only.",
+          "signal_captured": "Result text; typed diagnostics on failure (head/tail/total_len); raw dumps in data-pipeline/logs/parse_failures.",
+          "signal_discarded": "CLI result-event usage/cost/model fields (never read — costs estimated by constants instead); session/request IDs; stop reason; any thinking content; per-call latency (logged only at batch granularity by callers).",
+          "known_failure_modes": "Prose-wrapped JSON killed the 8k run 2026-05-14 (fixed); refusal-with-example can still return content-wrong short JSON (warned, not blocked); Haiku missing-comma/truncation at ~char 20k (~3-4% per batch=20); reset-time regex deliberately brittle (loud SessionLimitFormatError on server wording drift)."
+        },
+        {
+          "name": "ARCHIVED — evolutionary prompt-optimisation suite (historical producer of early enrichment rows)",
+          "file": "/home/agent/projects/metaforge/data-pipeline/scripts/_archive/prompt_templates.py:16-152 (5 exploration personas: persona_poet, contrastive, narrative, taxonomic, embodied), :157-258 (_TWEAK_META_PROMPT meta-prompt → {\"modified_prompt\",\"description\"}), :262-313 (_IMPROVER_META_PROMPT → raw refined prompt text); drivers _archive/evolve_prompts.py, _archive/generate_evolution_report.py:308 (prompt_text report sections); _archive/m02_s04_reenrich_emotion_cohort.py (BATCH_PROMPT_V2_SM A/B variant)",
+          "model": "haiku (tweaks) / sonnet (improver) aliases — unpinned",
+          "purpose": "MRR-driven evolutionary search over enrichment prompt variants (exploration personas + LLM-generated exploitation tweaks with fixture-vocabulary leak guard); m02_s04 scripts ran the sensorimotor-rename A/B. No longer in use but some early enrichment JSONs/DB rows descend from these variants.",
+          "output_format": "Personas: same v1 array format [{\"id\",\"properties\":[str]}]; tweak meta-prompt: {\"modified_prompt\",\"description\"}; improver: bare prompt text.",
+          "signal_captured": "Prompt-fitness trajectory (MRR per variant) in evolution reports.",
+          "signal_discarded": "Variant→row linkage: rows produced by a persona/tweak variant are indistinguishable in the DB from BATCH_PROMPT rows (same output schema, no variant marker).",
+          "known_failure_modes": "Meta-prompt could leak fixture vocabulary (guarded); archived without a registry mapping which stored enrichment files used which variant."
+        }
+      ],
+      "refs": [
+        "/home/agent/projects/metaforge/lib/claude_client.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/enrich_properties.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/gap_fill_physical.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_spike_1a.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_spike_1b.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_spike_2.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/generate_spike_1b_gold_examples.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/run_chain_spike.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/generate_metaphor_edges.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/head_extraction_backfill.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_disambiguate.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_live_rate.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_graph_enrich_sonnet.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_graph_enrich_inapt.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_graph_enrich_haiku.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_graph_enrich_run.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/build_next_round_prompt.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/metaphor_graph.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/export_chain_geometry.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/export_chain_glosses.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/enrich_pipeline.py",
+        "/home/agent/projects/metaforge/data-pipeline/SCHEMA.sql",
+        "/home/agent/projects/metaforge/data-pipeline/grading/liveness_judge_persona.md",
+        "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/triage_scores.jsonl",
+        "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/triage_structural.jsonl",
+        "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/triage_notes.md",
+        "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading_sidecar/models.py",
+        "/home/agent/projects/metaforge/data-pipeline/grading_sidecar/routes/walk.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/_archive/prompt_templates.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/_archive/evolve_prompts.py",
+        "/home/agent/projects/metaforge/data-pipeline/scripts/_archive/m02_s04_reenrich_emotion_cohort.py",
+        "/home/agent/projects/metaforge/docs/inbox/2026-06-03-context-free-edges/artifacts/hf_relational_shortcuts.py (one-off Part-B causal-reversal judge prompts, orchestrator-executed, not pipeline-resident)"
+      ]
+    },
+    "attempts": {
+      "attempts": [
+        {
+          "name": "Pre-M01 MRR-era enrichment + evolutionary prompt search (Feb 2026)",
+          "hypothesis": "LLM property enrichment quality can be tuned via A/B prompt variants and evolutionary prompt search, measured by MRR of known metaphor pairs through /forge/suggest",
+          "method": "enrichment experiments (2k Gemini-flash vs Sonnet, 8k Sonnet), ab_variant_A/B/C prompt tests, evolve_prompts.py/evolve_trials.sh evolutionary search, evaluate_mrr.py against metaphor_pairs fixtures",
+          "result": "MRR pre-gate 0.0358 (mrr_v2_3530.json) falling to 0.0073 after concreteness gate; MRR demoted to secondary regression check when M01 landed; evolutionary-prompt tooling flagged defunct in Pipeline Tooling Consolidation backlog",
+          "status": "superseded",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/plans/20260209-enrichment-experiment-report.md",
+            "/home/agent/projects/metaforge/data-pipeline/output/eval_baseline_v2.json",
+            "/home/agent/projects/metaforge/docs/roadmap/PIPELINE.md:173"
+          ]
+        },
+        {
+          "name": "M01 — Automated Eval Harness (discriminative aptness)",
+          "hypothesis": "A salience-weighted Jaccard aptness evaluator calibrated against MUNCH inapt controls can replace MRR as the primary forge KPI and detect deliberately degraded parameters",
+          "method": "evaluate_aptness.py (shared cluster_ids, salience-weighted), run_sweep.py parameter-sweep harness, MUNCH preprocessor (10,261 apt + 1,447 inapt), S03 sensitivity validation with degraded variants + random_uniform null",
+          "result": "Baseline: MRR 0.0073, separation_score 0.0103, aptness_rate 0.0849 (target sep >0.3). Sensitivity: >=3 distinct separation values across 5 variants, aptness_rate monotone in threshold percentile p50>p95>p99, null within +/-0.02 — harness trustworthy",
+          "status": "supported",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/data-pipeline/sweeps/SENSITIVITY-V2-FINDINGS.md",
+            "/home/agent/projects/metaforge/data-pipeline/output/eval_baseline_v2.json",
+            "/home/agent/projects/metaforge/docs/roadmap/M01-eval-harness-roadmap.md"
+          ]
+        },
+        {
+          "name": "M02 — Asymmetric Ortony scoring variants",
+          "hypothesis": "Asymmetric vehicle-salience-weighted scoring (Ortony 1979) discriminates apt metaphor pairs better than symmetric property-overlap formulas (success bar: >=5% absolute separation lift)",
+          "method": "Three variants (ortony_vehicle_salience, ortony_imbalance, ortony_log_ratio) registered in SCORING_FNS, swept v1/v2/v3 on 232 apt / 317 inapt MUNCH cohort, then S04 retro (attrition audit, union-size distributions, snap@0.48 test, sensorimotor prompt rename, Sonnet-vs-Haiku A/B, cohort rebuild to 271/978) and final post-rebuild sweep",
+          "result": "v2 sweep: ortony_imbalance +0.0010 sep (only positive sign, aptness_rate 0.0733 vs 0.0388 best symmetric) — but the edge was a cohort-shape artifact (apt unions ~30% smaller). Post Haiku+sensorimotor rebuild (random_uniform +0.0068≈0), every formula in the pointwise-property-overlap family lands within +/-0.06 of zero; ortony_imbalance collapses to -0.0005. CLOSED EMPIRICALLY NEGATIVE 2026-05-16",
+          "status": "refuted",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/data-pipeline/sweeps/M02-S02-sweep-findings.md",
+            "/home/agent/projects/metaforge/data-pipeline/sweeps/M02-S04-CLOSING-findings.md",
+            "/home/agent/projects/metaforge/docs/roadmap/M02-ortony-scoring-roadmap.md"
+          ]
+        },
+        {
+          "name": "M02-S04 substrate work — sensorimotor prompt rename + Haiku adoption + cohort-shape diagnostics",
+          "hypothesis": "The eval verdicts were confounded by cohort shape and prompt/model substrate, not just scoring math",
+          "method": "S04-A attrition audit by domain, S04-B union-size distributions, physical→sensorimotor prompt-rename A/B (5-synset then multi-domain), Sonnet-vs-Haiku A/B, cohort-priority Haiku+sensorimotor re-enrichment",
+          "result": "Sensorimotor props per abstract synset 0.8→5.4; Haiku 51/51 reliable, 36% faster, ~10x cheaper, 17% more sensorimotor-dense → adopted as production enrichment model; MUNCH inapt retention 22%→67% (978 resolved); cohort-shape diagnostic now standard preflight",
+          "status": "supported",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/data-pipeline/sweeps/M02-S04-CLOSING-findings.md",
+            "/home/agent/projects/metaforge/data-pipeline/sweeps/M02-S04-sonnet-vs-haiku.md",
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/m02_s04_prompt_and_model_attribution.md"
+          ]
+        },
+        {
+          "name": "M03 — Cascade gate-and-rank (concreteness gate → Ortony rank → domain-distance re-rank)",
+          "hypothesis": "Structural primitives (gate + re-rank) can produce above-null separation where pointwise formulas cannot",
+          "method": "Python evaluate_cascade.py, two-stage eval (Stage 1 on pre-purge DB byte-state, Stage 2 on rebuilt full-coverage DB), 24-variation ablation sweep incl. gate-only / rank-only / sanity rows, exact-reproduction sanity vs M02 baseline",
+          "result": "Winner cascade_full_alpha1.0_additive: sep +0.1396 (Stage 1) → +0.1779 (Stage 2) vs M02 plateau -0.0407 (+0.2186 lift, 20x null +0.0091). Gate is indispensable (rank-only -0.0427); additive crushes multiplicative (+0.1779 vs +0.0265). Winner config: gate threshold 1.0, alpha 1.0, d_cap 0.77, jaccard_salience, additive. CAVEAT (2026-06-08): cascade features later confirmed AT CHANCE for human live/dead (raw scalar AUC≈0.50) — supported on the MUNCH separation metric, dead as a liveness scorer; demoted to feature-provider/cold-start",
+          "status": "supported",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/roadmap/M03-S04-stage2-findings.md",
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/m03_cascade_winner_config.md",
+            "/home/agent/projects/metaforge/docs/roadmap/M03-cascade-gate-and-rank-roadmap.md"
+          ]
+        },
+        {
+          "name": "M03-S05 — Forge integration of cascade into Go API",
+          "hypothesis": "The Python-blessed cascade can be ported to the production /forge/suggest hot path with parity",
+          "method": "CascadeCache (~50MB startup), shared_gated SQL CTE pushdown, cascade_parity_test.go to ±1e-6 on 4 crib pairs, behind --cascade flag",
+          "result": "Landed 2026-05-21; query <2s vs 200s pre-CTE. Surfaced finding: classical cross-domain pairs (anger→fire) share NO curated cluster between primary synsets → Go endpoint cannot surface them → motivated M04",
+          "status": "supported",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/plans/2026-05-21-m03-s05-forge-integration.md",
+            "/home/agent/projects/metaforge/docs/roadmap/PIPELINE.md:204"
+          ]
+        },
+        {
+          "name": "M04 v1 — Cosine-band embedding candidate generation (MUNCH sweep)",
+          "hypothesis": "Broadening candidate generation with a FastText cosine band (d_min,d_max) unioned with cluster overlap will surface the cross-domain pairs the cluster path misses",
+          "method": "Go ANN scan over synset_centroids, 9-cell (d_min,d_max) calibration sweep via m04_sweep_runner.py on MUNCH 200+200 subsample; canary test TestCascadeUnion_ClassicalPairsSurface_AsCandidates",
+          "result": "All 9 cells identical to baseline (sep 0.0258, aptness 0.3333); embedding contributed 0 apt hits; 97% of MUNCH pairs unresolvable at limit=50. Root cause: MUNCH is paraphrase-style, orthogonal to the cross-domain surface M04 targets. Canary proves anger→fire/idea→light/time→money/truth→hammer DO surface as candidates. Operator verdict: keep ModeCluster default; sweep proved nothing about the change",
+          "status": "inconclusive",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/data-pipeline/sweeps/m04_embedding_band_verdict.md",
+            "/home/agent/projects/metaforge/docs/roadmap/M04-cosine-candidate-gen-roadmap.md",
+            "/home/agent/projects/metaforge/data-pipeline/output/m04_embedding_band_results.json"
+          ]
+        },
+        {
+          "name": "M04 v2 — Lakoff cross-domain cohort sweep",
+          "hypothesis": "Re-running the cosine-band sweep on a proper cross-domain cohort (80 Lakoff-classic apt + 90 plausibility-rated inapt) will show the generation-broadening lift",
+          "method": "Hand-built lakoff_apt/lakoff_inapt JSONL fixtures (~30 Lakoff & Johnson classes), same sweep harness, 9 cells",
+          "result": "Baseline and all cells 0.0000 or NEGATIVE sep (down to -0.27); embedding path 0 hits at output despite candidates being generated — M03 scoring (jaccard_salience + cosine rerank) ranks cross-domain pairs below within-domain neighbours because both signals reward similarity. Cosine band alone is insufficient; validated M05 type-aligned premise. ModeCluster stays default (union mode costs ~5x latency)",
+          "status": "refuted",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/data-pipeline/sweeps/m04v2_lakoff_band_verdict.md",
+            "/home/agent/projects/metaforge/data-pipeline/output/m04v2_lakoff_band_results.json",
+            "/home/agent/projects/metaforge/docs/roadmap/PIPELINE.md:18"
+          ]
+        },
+        {
+          "name": "M05 — Type-aligned structural matching (γ type-diversity bonus over the 6 property types)",
+          "hypothesis": "Rewarding DIVERSITY of property types in the overlap (sensorimotor+behaviour+effect...), not overlap size, converts cross-domain candidates into ranking lift",
+          "method": "γ sweep {0, 0.25, 0.5, 1, 2} on Lakoff cohort at limit=10000, m05_cohort_diagnose.py preflight (100% drops are real candidate-gen rejections)",
+          "result": "Monotone γ→separation signal, Δsep/Δγ ≈ +0.263 linear; γ=1.0 ratified into DefaultCascadeConfig (crosses zero from -0.25 to +0.01; γ=2.0 hits +0.27 but rides n=1 inapt survivor). Caveats: aptness_rate=0 everywhere (γ moves ranks not absolute scores); apt resolution only 19/80=24%. Merged to main 2026-05-24 at 8b3777ac",
+          "status": "supported",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/data-pipeline/sweeps/m05_lakoff_gamma_verdict.md",
+            "/home/agent/projects/metaforge/data-pipeline/output/m05_lakoff_gamma_phase2_results.json",
+            "/home/agent/projects/metaforge/docs/inbox/m05-brainstorming-notes.md"
+          ]
+        },
+        {
+          "name": "Metaphor-Enrichment Pivot Spike (Phases 1a/1b/2)",
+          "hypothesis": "LLM-generated metaphor enrichment (topic → apt vehicles + shared-feature rationale) with structured inapt controls gives a usable apt/inapt cohort and validates the generation mechanism",
+          "method": "Phase 1a: 5 topics × Haiku/Sonnet × 2 prompts (format gates); Phase 1b: Sonnet-as-prompt-engineer gold few-shots baked into Haiku (63% cost saving); Phase 2: 200 topics × Haiku × 2 prompts (~$2), scored through the cascade",
+          "result": "End-to-end discrimination ratio 2.78x (apt 19.4% vs inapt 7.0% promoted) — above 1.5x bail floor; scored-pair sep +0.0055 exposed as a metric artifact (gate-drops invisible) → FU-1 end-to-end ratio metric. Per-reason: synonym_or_hypernym 100%, single_dimension 62%, same_domain 55%, dead_metaphor 38% (hardest). The Phase 2 cohort became the Karpathy-loop and Stage-A 200-topic cohort — later flagged Haiku-only/dead-metaphor-leaning (loop2_cohort_haiku_only)",
+          "status": "supported",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/inbox/2026-05-25-metaphor-spike-findings.md",
+            "/home/agent/projects/metaforge/docs/inbox/2026-05-24-metaphor-enrichment-pivot-spike.md",
+            "/home/agent/projects/metaforge/data-pipeline/output/metaphor_spike_scores_phase2_20260525T004154.jsonl"
+          ]
+        },
+        {
+          "name": "Karpathy Loop 1 — fresh-subagent cascade improvement loop (13 iterations)",
+          "hypothesis": "An autonomous propose-measure-commit/revert loop over cascade knobs can lift the Phase-2 end-to-end ratio without regressing the Lakoff cohort",
+          "method": "Immutable harness (evaluate_loop_metric.py bootstrap median + commit gate), loop_iter_wrap.py orchestrator, worktree isolation, fresh agent per iteration, dual-cohort gate (Phase 2 must improve AND Lakoff not drop >5%)",
+          "result": "Phase 2 median 2.3512 → 3.0264 (+28.7%); Lakoff pinned at 0.6000 every iteration (later audit: the HARD gate was why — loop-1 produced ZERO Lakoff signal). 6 committed wins (WordNet lemmatiser fallback, noun-POS preference +12.1%, rerank_exponent=0.75, d_cap 0.77→0.68, concreteness_bonus_coef=0.002), 7 informative reverts. Load-bearing finding: Phase 2 and Lakoff have structurally INVERTED discriminator profiles (apt concreteness Δ +0.92 vs -0.32; cosine direction flipped) — no global knob lifts both. Cost ~$10-15. Branch `loop`, never merged to main",
+          "status": "supported",
+          "evidence_refs": [
+            "commit d35bb3a2 (docs/inbox/2026-05-25-karpathy-loop-1-findings.md, on loop branch)",
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/karpathy_loop_1_outcomes.md",
+            "/home/agent/projects/metaforge/docs/roadmap/PIPELINE.md:201"
+          ]
+        },
+        {
+          "name": "Karpathy Loops 2–3 — soft gate, Pareto trade, harness-pin unlocks + noise-floor audit",
+          "hypothesis": "Unlocking new axes (soft-gate sigmoid, ortony_weight, gate_alpha, alpha) escapes loop-1's plateau and lifts the Lakoff cohort",
+          "method": "Continuation on loop branch: soft-gate sigmoid penalty mode (8a39b027), rerank_exponent 0.75→0.5→0.35, operator-promoted PARETO_COMMIT ortony_weight=1.75 + rerank_exponent=0.12, loop-3 pin unlocks → gate_alpha 2.0→3.0, alpha 1.0→0.75; retrospective 5-seed noise-floor audit on loop-meta branch (28f3379d)",
+          "result": "Pareto trade lifted Lakoff 0.6042 → 0.8617 (+43 pair flips) at -1.5% Phase 2. Noise audit: Phase 2 σ=0.0448 (2.1% of baseline) — L1-6, L2-14/15, L3-18/19 all sub-1σ (statistically null); soft-gate rescued ~30% of high-concreteness OOD topics from empty results. Product caveat (memories): Lakoff = dead-metaphor cohort, so loop-2/3 Lakoff-chasing may be product-negative for a live-metaphor forge. Out-of-cohort eyeball harness (7c43dcdc): 79% top-1 rank disagreement Go vs Python on 20 OOD topics → snapping-reconciliation backlog item",
+          "status": "superseded",
+          "evidence_refs": [
+            "commits f2179772, 587bc8fd, be1ac359, 61c0754e, 9504d60e, 28f3379d (loop/loop-meta branches)",
+            "/home/agent/projects/metaforge/docs/inbox/2026-05-25-soft-gate-go-port.md",
+            "/home/agent/projects/metaforge/data-pipeline/output/loop1_eyeball_report.md",
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/product_goal_live_vs_dead_metaphors.md"
+          ]
+        },
+        {
+          "name": "Antonym-clash signal (loop iter 25) + antonyms proper import",
+          "hypothesis": "Apt vehicles produce more antonym clashes against topic properties than inapt vehicles — a usable negative-space feature",
+          "method": "Iter-25 loop hypothesis against property_antonyms (derived via the attribute-relation hack, 576 pairs / ~1% vocab coverage); proper-import plan drafted (WordNet lexical pointers ~7-8k pairs + ConceptNet /r/Antonym +10-20k)",
+          "result": "Apt vehicles show 3-5x higher antonym-clash rates than inapt, but absolute magnitude too small to move the metric at ~1% coverage; signal weaker on Phase 2 than Lakoff = suspect. Import plan PARKED 2026-05-26 pending literary-metaphor eval clarity; sqlunet review later confirmed lexrelations as Tier-2 (import when Bridge consumer exists)",
+          "status": "inconclusive",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/inbox/2026-05-26-antonyms-proper-import.md",
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/antonym_import_deprioritised.md"
+          ]
+        },
+        {
+          "name": "Metaphor-graph schema (bridge-centric) + Stage A 4-proposer enrichment",
+          "hypothesis": "Explicit metaphor edges with first-class multi-hop bridge paths, multiple proposers and per-bridge judgments are the substrate the graph-completion scorer needs",
+          "method": "metaphor_bridges/metaphor_bridge_steps/metaphor_judgments tables + graph_edges view (schema-base branch, HEAD c403ea19, unmerged); Stage A spec: 4 proposers (cascade_v1, haiku_v1 reuse, haiku_sonnet_v1 edit pass, haiku_v1_inapt_synthesised) over the 200-topic cohort; topic-snap fix (lookup_primary_synset 100% vs property-vocab snap 63.5%)",
+          "result": "Schema BUILT and applied to run DB (graph_edges ~823k derived-arm rows, 0 metaphor edges); metaphor_bridges still 0 rows — Stage A DB population was overtaken by the JSONL-native generation runner; DB judgment schema is v1 while grading emits v2 (reconciliation pending). Edge-vs-path liveness semantics still an open fork",
+          "status": "in-flight",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/superpowers/specs/2026-05-28-metaphor-graph-schema-design.md",
+            "/home/agent/projects/metaforge/docs/superpowers/specs/2026-05-28-metaphor-graph-enrichment-stage-a.md",
+            "/home/agent/projects/metaforge/docs/roadmap/PIPELINE.md:113",
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/project_stagea_topic_snap_fix.md"
+          ]
+        },
+        {
+          "name": "Context-free edge derivation from the 80k enrichments (the big spike)",
+          "hypothesis": "(PRIMARY, operator-requested) high-quality context-free metaphor edges can be DERIVED/synthesised from the existing ~80k shared-feature enrichments instead of generated per topic",
+          "method": "Orchestrated 12-approach investigation ($6.65): shared-feature overlap (raw/IDF/salience), distance-gated feature anchoring, embedding ANN bands, distilled classifier, WordNet relations traversal, gloss overlap, unified property∪synset graph uniform PageRank + link predictors, signal-guided beam search (4 schemes × depth × beam) + hub penalty, relational shortcuts, caching/dedup, tiered routing, direct cost measurement; 11-agent adversarial fact-check; cross-validated on Julian's verdicts",
+          "result": "REFUTED 5 ways: shared-feature AUC 0.552 / recall ceiling 2.1% / ANTI-correlated (inapt share more); embedding ANN median apt rank 2,870/81,185; WordNet relations 0/7 canonical pairs; gloss overlap AUC 0.537 anti-correlated; guided multi-hop best recall@200 11.9% < direct 13%. Root cause measured: only 0.31% (18/5846) of LLM-claimed bridge features exist in both concepts' enrichments — the bridge feature is contextually constructed. Holds on human labels. Concreteness AUC 0.81 on spike INVERTS to 0.375 on human-graded topics (retracted). Generation is the survivor: $0.062 Haiku + $0.14-0.35 Sonnet per topic, ~71% live by Julian (n≈21/3 topics); judge feasibility probe: Haiku/Sonnet 75% agreement κ 0.44, Opus 64% κ 0.31, ZERO false-positives, ~30-44% conservative rejects (n=12). Verdict: build the judge, not a derivation engine",
+          "status": "refuted",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/inbox/2026-06-03-context-free-edges/FINAL_REPORT.md",
+            "/home/agent/projects/metaforge/docs/inbox/2026-06-03-context-free-edges/claims-ledger.md",
+            "/home/agent/projects/metaforge/docs/inbox/2026-06-03-context-free-edges/artifacts/factcheck_results.json"
+          ]
+        },
+        {
+          "name": "Context-free-hop prompt clause pilot (chain generation quality)",
+          "hypothesis": "Adding a context-free-hop clause to the Sonnet chain prompt reduces context-bound hops without regenerating verdict-orphaning churn",
+          "method": "Apples-to-apples regen of the round-1 grading cohort (20 topics × 10 vehicles, same Haiku vehicles, same model, only the prompt differs); 107 matched pairs compared old-vs-new side by side for Julian's eyeball",
+          "result": "Avg steps/chain 5.30 → 4.21; the flagged context-bound hop (ambush→stillness→camouflage) eliminated; multi-word intermediates (bad_head risk surface) unchanged 57%→53% — clause does not fix head extraction; ~47% vehicle churn from Sonnet editorial licence",
+          "status": "supported",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/inbox/2026-06-03-context-free-hop-pilot.md",
+            "commit d1b3a837 (context-free-hop clause in run_chain_spike.build_prompt)"
+          ]
+        },
+        {
+          "name": "Generation subsystem — runner + live-rate tripwire + LLM sense disambiguation (200-loop r2, 10k held)",
+          "hypothesis": "Continuous Haiku→Sonnet chain generation with a proxy-judge tripwire can populate the metaphor-edge layer in the background while the judge matures; sense accuracy is a hard gate",
+          "method": "generate_metaphor_edges.py (idempotent resume, --max-topics/--max-cost-usd, per-batch proxy-judge live-rate tripwire), metaphor_disambiguate.py (gloss-match for the 200, dominant-sense LLM for the head), run_generation_loop.sh autonomous 429-aware wrapper; adversarial pre-spend review (23 findings, both money brakes had failed open)",
+          "result": "200-topic round-2 RAN: 1,804 chains in sonnet_chains_provisional_r2.jsonl + 746 handpicked; healthy proxy live-rate ~0.10-0.20, tripwire abs_floor retuned 0.08→0.03 after a 429-storm false-trip (fixed 6b3cd03b). Sense blocker concretely demonstrated (fire→'firing weapons', love→'sexual activities') → 10k run HELD pending SemCor tagcounts; ~$1.9k 10k generation remains Julian's switch. Costs ~$0.25/topic",
+          "status": "in-flight",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/inbox/2026-06-04-generation-launch.md",
+            "/home/agent/projects/metaforge/docs/inbox/2026-06-04-metaphor-edge-generation-handoff.md",
+            "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/sonnet_chains_provisional_r2.jsonl"
+          ]
+        },
+        {
+          "name": "SQLUNET data-strategy review + additive import (SemCor/domains/BNC/provenance)",
+          "hypothesis": "The complete 117-table SQLUNET source contains the missing sense-frequency and type signals; a documented import standard beats the original stab-in-the-dark extract",
+          "method": "Read-only SQL over the full 569MB sqlunet.db + lexicon_v2.db (12 subsystem evaluators + adversarial verification); then additive migration migrate_add_sqlunet_tables.py on branch metaphor-graph/sqlunet-import",
+          "result": "LANDED: sense_attributes 185,129 rows (34,767 tagged; 53% curated-synset coverage; 91% unique-winner dominant-sense WSD; 672 verb-dominant noun-head culls), domains+synsets.domainid 100% coverage (45 classes — guard: type infra, NOT an aptness feature; 89% of pairs cross-domain regardless of live/dead), bnc_frequencies 26,980 (catches 995 verb-dominant lemmas, 58% SemCor-invisible), seed_sources/seed_meta provenance. Clean rebuild BLOCKED by import_familiarity.py↔xlsx drift; additive judged more faithful anyway. Parked: lexrelations/VerbNet-FOL/samples/FrameNet schema. Excluded: FrameNet annotation 234MB/10.2M rows 0% spine-joinable, PropBank, PredMatrix, ILI/Wikidata",
+          "status": "supported",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/inbox/2026-06-05-sqlunet-data-strategy-review.md",
+            "/home/agent/projects/metaforge/docs/roadmap/PIPELINE.md:127-137",
+            "/home/agent/projects/metaforge/data-pipeline/CLAUDE.md (sense_attributes/domains/bnc sections)"
+          ]
+        },
+        {
+          "name": "Grading bootstrap loop — tool, two-axis verdicts, walk, tags, signal report",
+          "hypothesis": "An instrumented eyeballer capturing Julian's per-chain verdicts is the only path to quantified metaphor quality (eval and generator share the same missing ground truth)",
+          "method": "Grading mode in mf-app + FastAPI sidecar on metaforge-next (JSONL-committed, auto-commit); v2 two-axis verdict (linkage good/bad + metaphor live/dead/irrelevant + multi-select tiers + structured tags incl. bad_head); signal-prioritised walk with per-topic dwell; signal report (coverage + geometry concordance); read-time linkage_effective derivation (tags imply bad linkage)",
+          "result": "89 resolved verdicts / 21 topics as of 2026-06-10 (~48 live / 37 dead; linkage_effective bad 35/good 54). Bad_head ~31% of graded rows — extractor confirmed broken (the Haiku extraction-evaluator was equally blind). Binding constraint identified: topic BREADTH not depth (was 75 labels/14 of 259 topics). The loop's anti-example→prompt feedback ran ~2 rounds (head-polarity + context-free-hop clauses); Wilson-CI convergence iteration never reached",
+          "status": "in-flight",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/superpowers/specs/2026-05-30-metaphor-grading-tool-design.md",
+            "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/judgements_provisional.jsonl (95 rows)",
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/grading_linkage_tag_semantics.md",
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/head_extraction_broken_confirmed.md"
+          ]
+        },
+        {
+          "name": "One-shot Forge-Reader liveness triage (uncalibrated proxy judge)",
+          "hypothesis": "A persona-driven LLM judge can order ungraded chains by liveness to prioritise Julian's attention and surface generator failure modes",
+          "method": "liveness_judge_persona.md ('The Forge Reader', genre-fiction gut-punch bar) run over 876 handpicked + 1,804 r2 chains → triage_scores(.jsonl/_r2.jsonl) + triage_structural.jsonl, consumed by the grading walk ordering",
+          "result": "Generator signals surfaced: vehicle over-reuse (fermentation 20x, undertow 19x, amber 16x — mostly dead, mean ~4); big primary emotions die (serenity/wrath/despair 0-1 hits/10 — generator reaches for canonical dead metaphors); what LIVES = named-technical-object/process vehicles (verdigris, moraine, annealing, escrow) on cognitive/social topics. NEVER measured against Julian's gold (the judge_bootstrap memory: 'already a judge in the loop, just never measured') — same blind spot as the failed extraction-evaluator; treat as hypothesis generator only. Its ~1% bad_head estimate vs ~31% graded reality is the cautionary number",
+          "status": "inconclusive",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/triage_scores.jsonl",
+            "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/liveness_judge_persona.md",
+            "/home/agent/projects/metaforge/docs/roadmap/PIPELINE.md:107",
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/judge_bootstrap_direction.md"
+          ]
+        },
+        {
+          "name": "Completion baseline + learning-curve harness (cascade features → liveness)",
+          "hypothesis": "Measure the label-count slope ('how many gradings do we need?') by training logistic-on-cascade-features at increasing n with grouped CV; cascade features as the feature-provider for a learned completion layer",
+          "method": "grading_io.py / extract_cascade_features.py / learning_curve.py on branch metaphor-graph/completion-harness (isolated worktree, 34 tests); GROUP-by-topic CV, repeated stratified folds, confidence bands, cascade-only baseline; typed 646MB main-checkout DB",
+          "result": "Cascade features AT CHANCE for human live/dead: full 16-feature model grouped-CV AUC 0.554; raw cascade scalar out-of-fold AUC ≈ 0.50 (the 0.386 'anti-predictive' was a logistic-wrapping artefact — corrected 2026-06-09); both learning-curve slopes flat. Confirms context-free refutation on the supervised path. Slope guidance delivered: ~300-500 labels across ~80-120 topics for a first useful completion model; from-scratch graph embedding = multi-thousand labels, steer away. Julian flagged re-doing cascade work was 'a little strange' — lead with explicit-edge work",
+          "status": "supported",
+          "evidence_refs": [
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/completion_baseline_harness.md",
+            "/home/agent/projects/metaforge/.worktrees/completion-harness/data-pipeline/scripts/learning_curve.py",
+            "/home/agent/projects/metaforge/.worktrees/completion-harness/docs/inbox/2026-06-08-metaphor-graph-path-signal.md:85-87"
+          ]
+        },
+        {
+          "name": "Path-geometry 'one big leap' signal (max_hop_cos)",
+          "hypothesis": "The curated graded chain PATHS (not endpoints, not the property graph) carry live/dead signal — Julian's 'doesn't the metaphor graph give us some signal?'",
+          "method": "Edges = consecutive synset-centroid hops in chain.v1 paths (72 chains, 44 live/28 dead, 15 topic groups); within-topic concordance + cross-topic single-feature grouped CV + permutation tests; 5-auditor adversarial confound audit (chain length, tags, endpoint re-expression, centroid coverage)",
+          "result": "VERIFIED: max_hop_cos within-topic concordance 0.64-0.67 (0.674 on 89 pairs), 0.851 on the bad_head/tag-clean subset (clean-pair permutation p=0.0006); cross-topic single-feature ~0.60 (p≈0.15, underpowered). Peak/dispersion property — mean smoothness at chance 0.51. endpoint_cos_dist ≡ cascade cosine (r=1.000000) → the new info is wholly in intermediate hops. NO topology signal (5/248 edges, 20/236 nodes recur). Earlier 'graph dies cross-topic AUC 0.454' was a wrong 16-feature test. Caveats: leans on adornment+ambush (~50% of pairs); drop adornment → 0.580. Recommendations not yet executed: materialise into metaphor_bridges; grade for breadth",
+          "status": "supported",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/.worktrees/completion-harness/docs/inbox/2026-06-08-metaphor-graph-path-signal.md",
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/metaphor_graph_path_signal.md",
+            "/home/agent/projects/metaforge/.worktrees/completion-harness/data-pipeline/scripts/metaphor_graph_features.py"
+          ]
+        },
+        {
+          "name": "LLM judge agreement harness + two-stage judge (Stage 1 linkage, Stage 2 liveness)",
+          "hypothesis": "An LLM judge measured by leave-one-topic-out Cohen's κ against Julian's 89 verdicts can come online in two orthogonal heads: Stage 1 construction/linkage (κ≥0.4, the throughput multiplier auto-filtering ~30% malformed chains) before Stage 2 topic→vehicle PAIRING liveness (κ≥0.3, chain deliberately NOT shown)",
+          "method": "Plan (2026-06-10, awaiting greenlight): judge_corpus.py (reuse resolve_verdicts/normalise_judgement; linkage_effective re-base 11→35 bad), judge_harness.py (topic-disjoint folds, few-shot leakage assertions, κ+confusion+bands, stub-judge unit tests), claude CLI via lib/claude_client.py with content-addressed cache, judge_stage1.py then judge_stage2.py; isolated worktree metaphor-graph/judge-harness",
+          "result": "Not yet executed. Priors from the feasibility probe: 64-75% agreement, κ 0.31-0.44, zero false-positives, n=12/3 topics. bad_head rows STAY in the liveness set (endpoints are canonicalised — 2026-06-10 correction; liveness corpus ≈85, geometry-reliable subset 57 is a separate workstream). Stage-1 κ<0.2 ⇒ same failure mode as the broken extraction-evaluator ⇒ extractor fix becomes the prerequisite",
+          "status": "in-flight",
+          "evidence_refs": [
+            "/home/agent/projects/metaforge/docs/plans/2026-06-10-judge-harness-plan.md",
+            "/home/agent/.claude/projects/-home-agent-projects-metaforge/memory/judge_bootstrap_direction.md",
+            "/home/agent/projects/metaforge/docs/inbox/2026-06-03-context-free-edges/FINAL_REPORT.md:89"
+          ]
+        }
+      ],
+      "pattern": "Three regularities dominate the history. (1) EVERY static-similarity substrate fails for cross-domain metaphor liveness, in every framing tried: pointwise property overlap in all reweightings (M02: all variants within ±0.06 of null), cosine bands (M04 v2: 0/negative sep), shared features/embeddings/WordNet relations/glosses/multi-hop traversal (context-free spike: AUC 0.50-0.55, mostly ANTI-correlated), and the cascade's own features against human labels (completion harness: raw scalar AUC≈0.50). The measured root cause is structural, not a tuning failure — the bridge feature of a live metaphor is contextually constructed (only 0.31% of LLM-claimed bridge features exist in both concepts' static enrichments), and cross-domain metaphor is by definition the low-surface-similarity case, so any similarity-encoding substrate selects synonyms (the inapt direction). (2) What works is (a) building the measurement instrument FIRST and validating it adversarially (M01 sensitivity, cohort-shape diagnostics, the 11-agent fact-check, the 5-auditor path-signal audit, the planned κ harness) — every instrument that was NOT measured against gold failed silently (Haiku extraction-evaluator blind to ~31% bad_head; the Forge Reader triage's ~1% bad_head estimate vs 31% reality); and (b) human-judged, contextually-generated artifacts: Haiku→Sonnet generation is ~71% live by Julian's grading and cheap ($0.20-0.29/topic), and the only genuinely new positive scoring signal in the whole programme — path-geometry max_hop_cos 0.64-0.67 within topic, 0.85 clean-subset — lives in the geometry of generated-then-graded chains, exactly the explicit-edge layer of the metaphor-graph-completion hypothesis. (3) The recurring failure mode is eval-cohort/objective misalignment: MUNCH is paraphrase-style (M04 v1 measured nothing), Phase 2 and Lakoff have inverted discriminator profiles so global knob-tuning is zero-sum (Karpathy loops; later noise audit showed several committed 'wins' were sub-1σ), Lakoff itself is a DEAD-metaphor cohort misaligned with the live-metaphor product goal, and proxy-judge labels risk learning the proxy's bias. Net: the substrate hypothesis under audit is consistent with all evidence — cascade demoted to feature-provider/cold-start, signal in explicit judged edges — and the binding constraint at every recent decision point is the same: ~89 gold labels over 21 topics and no validated judge. The programme keeps re-discovering 'build the judge, grade for topic breadth' and then spending cycles on substrate experiments that refute themselves; the judge harness plan (2026-06-10) is the first attempt aimed squarely at the bottleneck.",
+      "unexplored": [
+        "Stage-1/Stage-2 LLM judge with κ agreement harness — fully planned (docs/plans/2026-06-10-judge-harness-plan.md), zero code executed; the single most-recommended next step across three independent reports",
+        "Head-extractor FIX (root cause of ~31% bad_head) — Stage 1 only detects; the extraction step itself has never been reworked, and the Haiku extraction-evaluator that should have caught it was never validated",
+        "Materialising the 89 graded paths into metaphor_bridges (still 0 rows) and persisting max_hop_cos/std_hop_cos as within-topic candidate features — explicit recommendation of the path-signal report, not done",
+        "Per-hop/per-edge linkage marking in the grading UI (resolves the open edge-vs-path liveness fork that gates graph_edges.metaphor_link semantics) — brainstorm deliberately deferred",
+        "Grading-for-breadth accelerators: topic Graded/Ungraded filter, triage-score band filter/sort, contrastive top/middle/bottom sampling per topic (PIPELINE Inbox item, not built) — directly attacks the binding label constraint",
+        "Domain-pair liveness contingency test on collapsed (~6-10 super-group) lexicographer domains — pre-registered cheap falsification design exists in PIPELINE Backlog, gated on more labels; never run",
+        "The Bridge (target-conditioned bidirectional A* between known endpoints) — queued since M02 close with algorithmic sketch (salience-weighted edges, concreteness gradient, cluster-cluster adjacency); never built; deliberately excluded from the derivation spike as a different use case",
+        "GNN / learned link-prediction graph completion trained on judged edges — explicitly deferred as post-judge (needs the judged-edge corpus that doesn't exist yet); the project's own working hypothesis has never actually been trained",
+        "The held ~$1.9k 10k frequency-head generation run + rebuilding topic selection on the now-imported SemCor tagcounts (deterministic dominant-sense WSD replacing LLM disambiguation) — SemCor landed 2026-06-05, the consumer rebuild hasn't happened",
+        "Generator-side fixes from triage hypotheses: per-vehicle reuse cap / diversity penalty (fermentation 20x), topic-class-aware prompting for big primary emotions, biasing vehicle proposal toward named-technical-object/process nouns — none implemented or validated against real grades",
+        "snap_properties.py as an algorithmic surface (entire 800-line file untouched by all three loops): salience curves, embedding threshold, signal-weighted JSJSJS snap, per-property signal eval closed loop — flagged high-leverage in loop-1 findings, never opened",
+        "Sense-gloss-only enrichment ablation (does the model metaphor-map the concept or pattern-match the word?) — backlog since 2026-05-24, would also test cheaper gloss-conditioned generation",
+        "Synthetic matched inapt cohort (M02 S04-E) and the staged-but-never-run m02_s04_threshold_sensitivity.yaml sweep — the MUNCH-replacement question was never closed from the inapt side",
+        "Secondary-sense/all-senses ANN candidate generation (M04 follow-up): eval whether querying all source senses recovers apt vehicles the primary-sense path misses — designed, never measured",
+        "Cohort-aware regime switching in the cascade (detect Phase-2-like vs Lakoff-like regime and apply different rerank shapes) and smoother loop metrics — proposed in loop-1 findings as the escape from the zero-sum knob plateau, never tried",
+        "Antonym proper import (WordNet lexical pointers ~7-8k pairs + ConceptNet augment) and re-measurement of the 3-5x antonym-clash signal at real coverage — parked",
+        "Wilson-CI convergence iteration of the grading loop's bad-path→anti-example prompt cycle (spec'd up to 8 rounds; only ~2 ad-hoc prompt-clause rounds ever ran)",
+        "Commodity-hardware / self-hosted offline LLM feasibility quantification for the judge and generator (the schools data-sovereignty deployment constraint) — no measurement anywhere in the repo of local-model judge agreement or inference cost; all attempts assume the claude CLI",
+        "Tier-prediction (strong/ironic/surprising) — explicitly out of scope as multi-thousand-label regime; noted, never attempted",
+        "Parked Tier-2 SQLUNET substrates for Bridge traversal (lexrelations antonym/derivation/pertainym edges, FrameNet schema frame-graph, VerbNet FOL, gold samples) — import gated on a consumer that hasn't been built"
+      ]
+    },
+    "probes": null,
+    "external": {
+      "levers": [
+        {
+          "name": "Domains-interaction aptness geometry (Tourangeau & Sternberg 1981) as a two-feature upgrade to max_hop_cos",
+          "source": "https://www.sciencedirect.com/science/article/abs/pii/0010028581900037 ; https://link.springer.com/article/10.1007/BF01067086",
+          "what_it_is": "Classic empirical finding: metaphor aptness correlates POSITIVELY with between-domain distance (topic-domain vs vehicle-domain far apart) and NEGATIVELY with within-domain distance (the vehicle should occupy in its domain the analogous position the topic occupies in its own), and NOT with overall similarity.",
+          "why_relevant": "External validation and refinement of the project's verified path-geometry anchor (max_hop_cos 'one big leap', within-topic AUC 0.67/0.85). The literature predicts TWO orthogonal features, not one: (a) leap size across the bridge (already captured by max_hop_cos) and (b) positional/structural congruence within each domain (not yet captured). Implementable as cosine features over existing FastText embeddings + synset domain labels (the SQLUNET `domains` import already planned as type signal). Gives middle-grades writers metaphors that feel daring but coherent — exactly the genre 'gut-punch' target.",
+          "accuracy_evidence": "Tourangeau & Sternberg: aptness +between-domain distance, -within-domain distance, ~0 overall distance (human-rated). Project-internal concordance: cascade overall-similarity features are at chance for liveness while leap geometry separates — exactly the pattern the 1981 result predicts.",
+          "hardware_fit": "Trivial: cosine arithmetic over precomputed embeddings, CPU, milliseconds at lookup time. Perfect sovereignty fit (no external calls).",
+          "education_fit": "Pure geometry over a locally-curated lexicon; zero content-safety or licensing exposure."
+        },
+        {
+          "name": "Career-of-Metaphor + structure-mapping: relational (not attributional) overlap as the aptness feature for NOVEL metaphors",
+          "source": "https://groups.psych.northwestern.edu/gentner/papers/BowdleGentner05.pdf ; https://www.qrg.northwestern.edu/ideas/smeidea.htm ; https://groups.psych.northwestern.edu/gentner/papers/FalkenhainerForbusGentner89.pdf",
+          "what_it_is": "Bowdle & Gentner: novel metaphors are processed as comparisons (analogical structure-mapping); conventional ones as categorisations. SME is the efficient symbolic matcher: prefers shared RELATIONAL structure (predicates over predicates) and ignores attribute matches; no backtracking, polynomial, battle-tested on thousands of cases.",
+          "why_relevant": "Explains WHY context-free attribute-overlap derivation from the 80k property enrichments was measured dead (AUC 0.55): attributes are the wrong match type for novel-metaphor aptness. The lever is not to run full SME, but to re-shape enrichment toward small predicate structures (relation(topic-part, topic-part)) and score candidate pairs by relational-alignment count — a feature the cascade currently cannot express. Directly targets the product's live (novel) metaphor class rather than the Lakoff dead-metaphor class.",
+          "accuracy_evidence": "SME robust across thousands of examples over decades; psychological evidence that relational matches drive judged aptness of novel figurative comparisons (structure-mapping corpus of studies). Caveat: no off-the-shelf aptness AUC on a comparable benchmark; this is a theory-grounded feature hypothesis to test against the 89 verdicts.",
+          "hardware_fit": "Symbolic matching over tiny per-synset predicate sets is CPU-trivial at 1k-100k node scale; representation extraction is the cost (offline LLM batch, see feasibility).",
+          "education_fit": "Deterministic and inspectable (alignments are explainable to a student: 'X is to its world what Y is to its world'); no licence issues (SME is an algorithm; reimplement)."
+        },
+        {
+          "name": "Veale stereotype/category resources as candidate-generation priors (Metaphor Magnet patterns, Thesaurus Rex ad-hoc categories, NOC List)",
+          "source": "https://aclanthology.org/W16-1105/ ; https://github.com/prosecconetwork/The-NOC-List ; https://www.researchgate.net/publication/262402205 ; https://afflatus.ucd.ie/node/4",
+          "what_it_is": "Veale's line: harvest stereotypical noun properties from web n-gram patterns ('as ADJ as a NOUN'), fine-grained shared ad-hoc categories (Thesaurus Rex), and a hand-curated triple KB of ~1k famous figures (NOC List) explicitly built for metaphor generation. Generation = find vehicles sharing a highly salient stereotype with the topic, then sharpen with affect (+/-).",
+          "why_relevant": "The methodology (salient-stereotype indexing for vehicle RETRIEVAL, separate from aptness SCORING) maps cleanly onto Metaforge's candidate-generation stage: a stereotype-salience index over the existing property store is a cheap recall booster that the cascade can then rank. Veale's data artefacts also demonstrate the 'small curated KB beats big noisy graph' pattern Metaforge is converging on with graded bridges.",
+          "accuracy_evidence": "Veale's human evals are small and modest (typical apt/comprehensible ratings ~60-70% in W16-1105-adjacent studies); no held-out AUC tradition. Treat as recall lever, not precision lever.",
+          "hardware_fit": "Pure lookup tables; trivially CPU/SQLite. But the live afflatus.ucd.ie web services are intermittently defunct and would violate zero-exfiltration anyway — use data/method, never the service.",
+          "education_fit": "Thesaurus Rex/Metaphor Magnet data is web-harvested (Google n-grams) — needs profanity/stereotype vetting for middle grades; NOC List includes villains/controversial figures, needs curation; NOC is freely available on GitHub for computational-creativity use (verify repo licence file before redistribution in a school product)."
+        },
+        {
+          "name": "Conceptual-mapping-conditioned generation + discriminative decoding (Stowe et al. 2021; MERMAID)",
+          "source": "https://aclanthology.org/2021.naacl-main.336/ ; https://aclanthology.org/2021.acl-long.524/ ; https://arxiv.org/abs/2103.06779",
+          "what_it_is": "Metaphor generation conditioned on explicit source→target conceptual mappings (CM-Gen) and on symbol/commonsense scaffolds with a metaphor-discriminator re-ranking the beam (MERMAID). Both built parallel corpora cheaply via masked-LM literalisation of poetry.",
+          "why_relevant": "Two transferable mechanics for the Sonnet chain generator and any future local fine-tune: (1) feed the graph's bridge (the explicit topic→vehicle mapping) into the prompt rather than asking for free-form metaphor — the graded metaphor-graph becomes the conditioning input; (2) generate-then-discriminate: over-generate chains, re-rank with the (to-be-built) liveness judge — matching the project's 'loops filter garbage, LLM-graph layer carries positive signal' framing.",
+          "accuracy_evidence": "MERMAID human eval: best model preferred over 3 baselines 66% of the time; poems enhanced with its metaphors preferred 68%. Pre-LLM-era absolute quality is below Sonnet, but the conditioning/re-ranking ARCHITECTURE is the evidence-backed lever.",
+          "hardware_fit": "BART-scale (<1B) models fine-tune and run on a single consumer GPU; discriminator is a small classifier. Fully self-hostable.",
+          "education_fit": "Training data from Gutenberg Poetry corpus (public domain); generated text still needs an output safety filter for a middle-grades product."
+        },
+        {
+          "name": "Small supervised aptness regressors on graded human judgments (Bizzoni & Lappin)",
+          "source": "https://aclanthology.org/W18-0906/ ; https://arxiv.org/abs/1809.01060",
+          "what_it_is": "DNN (and by extension any small supervised model) trained on a modest corpus of human metaphor-aptness/paraphrase judgments, predicting binary and gradient aptness.",
+          "why_relevant": "Existence proof at exactly Metaforge's data scale: useful aptness prediction from hundreds (not tens of thousands) of graded pairs. Endorses the completion-harness plan (pairwise classifier over path-geometry + property features against Julian's verdicts) over representation learning. Their context finding also matters for the grading tool: presenting metaphors IN passage context compresses aptness ratings toward the mean — grade out-of-context for maximal label separation, which the current chain-grading UI already does.",
+          "accuracy_evidence": "75% binary accuracy; Pearson .75 / Spearman .68 on gradient aptness from a corpus of ~hundreds of pairs. Context-compression effect replicated in both human and model ratings (1809.01060).",
+          "hardware_fit": "Logistic/GBM/small-MLP scale; trains in seconds on CPU; inference negligible.",
+          "education_fit": "Model trained on operator's own verdicts; no external data licence; fully sovereign."
+        },
+        {
+          "name": "Heuristic link prediction on the SUBSTRATE graph (Adamic-Adar/Jaccard/PA + node2vec) as features, sized to 1k-100k nodes",
+          "source": "https://arxiv.org/abs/2412.03757 ; https://arxiv.org/pdf/2411.14711 ; https://arxiv.org/pdf/1802.09691",
+          "what_it_is": "At small scale, classical neighbourhood heuristics are competitive with embeddings WHEN the graph closes triangles; AA drops to AUC 0.5 on triangle-free/lattice structures; GraphSAGE-class only wins on sparser non-clique structure; no method dominates universally. SEAL learns which heuristic fits but needs thousands of edges.",
+          "why_relevant": "Decision rule for the audit: the graded metaphor edge-set is near-bipartite and non-recurring (5/248 edges recur) → structural heuristics computed ON THE METAPHOR EDGES will be at chance, exactly like AA on triangle-free graphs. But the same heuristics computed on the dense substrate (WordNet/property/ConceptNet layers) — 'number of shared property-neighbours', 'weighted common categories' — are valid cheap FEATURES feeding the pairwise scorer. This cleanly separates where graph-completion machinery can and cannot earn its keep.",
+          "accuracy_evidence": "Synthetic benchmark (2412.03757): AA ≈ node2vec ≈ GraphSAGE on clique-rich graphs; AA = random (AUC 0.5) with no triangles; 2411.14711 reviews GNN-vs-heuristic parity. node2vec on 100k-node graphs trains in minutes on CPU.",
+          "hardware_fit": "AA/Jaccard are O(deg²) per pair — microseconds; node2vec/GraphSAGE at 100k nodes: minutes-to-an-hour CPU-only, offline, once. Ideal commodity fit.",
+          "education_fit": "Pure algorithms over the local DB; zero exfiltration; explainable scores."
+        },
+        {
+          "name": "Domain-level edge generalisation via MetaNet conceptual-metaphor repository (+ Amnestic Forgery RDF)",
+          "source": "https://metanet.icsi.berkeley.edu/metanet/ ; https://arxiv.org/abs/1805.12115 ; https://benjamins.com/catalog/bct.100",
+          "what_it_is": "Hand-curated repository of hundreds of conceptual metaphors as frame-to-frame mappings (source domain → target domain) with FrameNet-style structure; Amnestic Forgery is a machine-readable ontology of it.",
+          "why_relevant": "Direct attack on the 'synset-level edge recurrence nearly absent' finding: recurrence plausibly exists at DOMAIN level (e.g. EMOTION-IS-WEATHER) even when never repeating at synset level. Lifting graded topic→vehicle edges to domain→domain edges via MetaNet/SQLUNET domain typing gives the completion scorer a level at which 89 verdicts can actually generalise. Second use: MetaNet mappings encode CONVENTIONAL (dead) metaphors — a conventionality prior, i.e. a negative/penalty feature for the live-metaphor product goal, or a 'extend-the-conventional-mapping-novelly' generation strategy.",
+          "accuracy_evidence": "MetaNet is expert-curated (high precision, ~700 metaphors, incomplete recall); no AUC tradition — value is structural typing, not scoring. Must be validated against the verdicts at domain granularity before trusting.",
+          "hardware_fit": "Static import into SQLite; negligible compute.",
+          "education_fit": "Repository is publicly browsable research output (ICSI); Amnestic Forgery ontology published openly (check CC terms on the dataset page before bundling); content is academic and benign, includes some political/moral domains (poverty, gun violence) — filter the seed list for a middle-grades catalogue."
+        },
+        {
+          "name": "ConceptNet 5.5 + Numberbatch as a commonsense bridge layer (HasProperty/CapableOf/UsedFor) with explicit curation pass",
+          "source": "https://conceptnet.io/ ; https://arxiv.org/abs/1612.03975 ; http://blog.conceptnet.io/ ; https://arxiv.org/html/2312.06053v1",
+          "what_it_is": "CC BY-SA 4.0 multilingual commonsense graph (~1.5M English nodes); relations WordNet lacks (HasProperty, CapableOf, UsedFor, SymbolOf); Numberbatch embeddings (also CC BY-SA) are strong on word relatedness. ATOMIC/IEKG are the event/idiom-flavoured siblings used in figurative-language work.",
+          "why_relevant": "Fills the relation gap identified by the SME lever: the property enrichments are attribute-heavy, ConceptNet supplies typed relational edges between everyday concepts for free, enabling relational-overlap and substrate-heuristic features (lever 6) without new LLM spend. SymbolOf/HasProperty edges are direct vehicle-retrieval indices for noun-primary metaphor.",
+          "accuracy_evidence": "Numberbatch led SemEval-2017 relatedness tasks; but OMCS-derived edges are noisy and HasProperty coverage is thin — internally consistent with the refuted context-free derivation: ConceptNet is a recall/feature substrate, not an aptness oracle.",
+          "hardware_fit": "Full English subgraph fits in SQLite/parquet on a laptop; conceptnet-lite exists; CPU-only queries. Fully offline.",
+          "education_fit": "Licence: CC BY-SA 4.0 — ShareAlike infects the derived database layer (acceptable for a self-hosted school deployment; constrains any future proprietary DB licensing — flag to operator). Content safety: documented history of offensive crowd-sourced and Wiktionary-derived assertions, partially filtered upstream (blog.conceptnet.io); a school product MUST run its own denylist/curation pass over imported edges."
+        },
+        {
+          "name": "Fine-tuned/calibrated LLM judge for metaphor creativity, bootstrapped from operator verdicts (DiStefano et al. 2024 pattern)",
+          "source": "https://www.tandfonline.com/doi/full/10.1080/10400419.2024.2326343 ; https://arxiv.org/pdf/2509.18401 ; https://arxiv.org/pdf/2403.11810",
+          "what_it_is": "Automatic scoring of metaphor creativity by fine-tuning LLMs on human creativity ratings; reported to correlate strongly with human raters and beat word-count and semantic-distance baselines. Companion findings: Claude-class (Sonnet) judges align best with human creative-quality annotations among tested models; open-judge reliability shows a marked jump at ≥7B.",
+          "why_relevant": "This is the literature-endorsed path for the project's binding constraint (the UNBUILT live/dead judge): scale Julian's grading by fine-tuning/calibrating a judge on his verdicts, judge offline in batch, and feed accepted edges into the metaphor graph. 89 resolved verdicts are enough for few-shot calibration + a held-out eval set, not yet for fine-tuning — which quantifies the value of continued grading.",
+          "accuracy_evidence": "DiStefano et al.: fine-tuned-LLM creativity scores correlate strongly with human ratings, outperforming elaboration and semantic-distance baselines (exact r paywalled, 403 on fetch). Persian creativity study (2509.18401): Claude 3.7 Sonnet closest to human annotators on originality/elaboration dimensions; open 7-8B judges usable but degraded on free-form creative judging.",
+          "hardware_fit": "Judging is OFFLINE batch at HQ: an 8B Q4 judge on an RTX 3060 ≈ 29-42 tok/s ≈ ~3M output tokens/day — thousands of chain judgments/day on one consumer GPU. Nothing runs in schools.",
+          "education_fit": "No runtime exposure; judge outputs become graph edges shipped as data. Qwen (Apache-2.0) judges avoid Llama-licence output-training restrictions when distilling from verdicts."
+        },
+        {
+          "name": "Aptness-over-conventionality operationalisation (Jones & Estes; Thibodeau & Durgin) for judge criteria and grading rubric",
+          "source": "https://www.sciencedirect.com/science/article/abs/pii/S0749596X06000180 ; https://durginlab.domains.swarthmore.edu/publications/ThiboDurgin2011.pdf",
+          "what_it_is": "Empirical line showing aptness (how well the vehicle's salient properties characterise the topic) predicts metaphor comprehension/preference better than conventionality or familiarity; processing-fluency accounts of the aptness-conventionality entanglement.",
+          "why_relevant": "Grounds the product decision already taken (live > dead; Lakoff cohort misaligned) in the psycholinguistic literature, and supplies rubric language for both Julian's grading UI and the judge prompt: rate property-salience fit, not familiarity. Pairs with M02 Ortony salience-imbalance (high-salient in vehicle, low-salient in topic) as the asymmetric property-selection rule.",
+          "accuracy_evidence": "Jones & Estes 2006: aptness out-predicts conventionality across comprehension measures; replicated/complicated by Thibodeau & Durgin 2011 (fluency confound) — so keep aptness and novelty as separate axes in the verdict model (the two-axis verdict v2 already does this).",
+          "hardware_fit": "Rubric/feature-design lever; no compute.",
+          "education_fit": "Improves pedagogical explainability: 'apt because the vehicle's most famous trait fits the topic' is teachable to middle-graders."
+        },
+        {
+          "name": "Confound-controlled judging protocol (anti-surface-feature evaluation design)",
+          "source": "https://arxiv.org/abs/2507.15357 ; https://arxiv.org/html/2403.11810v1",
+          "what_it_is": "2025 evidence that LLM metaphor 'understanding' is heavily driven by lexical overlap and sentence length rather than metaphorical content; MUNCH shows models struggle specifically on novel+apt metaphors.",
+          "why_relevant": "Hard constraint on lever 9: an LLM judge scoring Metaforge chains will reward surface artefacts (chain length, word overlap with topic gloss) unless the protocol controls them. Concretely: judge pairwise within-topic with length-matched candidates, strip glosses from the rendering, and audit judge-vs-Julian disagreement specifically on high-lexical-overlap pairs. Also explains why the bad_head 31% contamination matters: mis-extracted heads create surface-overlap artefacts the judge will latch onto.",
+          "accuracy_evidence": "2507.15357: across NLI/QA datasets, lexical overlap and sentence length out-influence metaphorical content in LLM performance; MUNCH: paraphrase-judgment failures concentrate on novel-apt items — precisely Metaforge's target class.",
+          "hardware_fit": "Protocol design; no compute cost.",
+          "education_fit": "Indirect: keeps the shipped graph from systematically over-rating glib surface matches that would read as weak metaphors to students."
+        }
+      ],
+      "edge_llm_feasibility": "Feasible for OFFLINE batch substrate population and judging on one consumer GPU; NOT credible as a runtime aptness judge in schools, and not needed there. Numbers: CPU-only 7-8B Q4 ≈ 8-15 tok/s on typical consumer CPUs (EPYC 7763 ~15 t/s; school desktop class lower) — single-user demo speed, collapses under classroom concurrency; Apple M1 ~30-50 t/s config-dependent; RTX 3060 ≈ 29-42 t/s and RTX 4060 Ti ≈ 38 t/s on Llama-3.1-8B Q4_K_M (localscore.ai, databasemart, geerlingguy Vulkan); RTX 4090 ~180 t/s FP16 7B, more with speculative decoding (sources: github.com/ggml-org/llama.cpp discussions #4167/#3847, openbenchmarking.org/test/pts/llama-cpp, mustafa.net/llm-tokens-per-second-benchmarks, localscore.ai/model/1). One RTX-3060-class box at 40 t/s ≈ 3.5M output tokens/day ≈ thousands of chain generations or judgments per day — so the ~$1.9k 10k-topic API generation run has a slower-but-sovereign local fallback measured in days-to-low-weeks, not months. Structured output: llama.cpp GBNF / JSON-schema-to-grammar guarantees syntactic validity of JSON at the sampler level (schema is not seen by the model — must also be described in-prompt; known gaps converting PCRE shorthands, issue #22314; llguidance/outlines/xgrammar are faster, broader-coverage alternatives) — so parse-failure retry storms (as hit in the judge runner) are an avoidable failure mode locally. Licensing for school deployment: Qwen (Apache-2.0) and per 2026 reporting Gemma 4 (Apache-2.0; earlier Gemma releases carried Google's custom terms — verify per-model) are clean; Phi is MIT; Llama's community licence (acceptable-use policy, 700M-MAU cap, and a prohibition on using outputs to improve non-Llama models) is workable for a school but is the most encumbered and the output-training clause complicates distilling judges from Llama outputs. Quality gap, honestly stated: judge reliability shows a marked jump only at ≥7B, and creative/free-form aesthetic judgement is where small open judges degrade most; Sonnet-class models currently align best with human creativity annotations (arxiv 2509.18401), and LLM metaphor competence is substantially surface-feature-driven (arxiv 2507.15357), so an out-of-the-box 1-8B local judge of liveness/aptness should be assumed materially worse than Sonnet until calibrated on operator verdicts — the literature path (DiStefano et al. 2024) is fine-tuning on human ratings, which needs more than the current 89 verdicts (use them as few-shot calibration + held-out eval; fine-tune at ~10^3 verdicts). Recommended architecture under zero-exfiltration: schools run a pure graph/feature lookup (no LLM required at runtime — all heavy lifting is precomputed into the shipped SQLite); optional on-prem 1-4B Q4 CPU model only for surface rendering/paraphrase of already-scored metaphors, never for aptness scoring; generation+judging stay at HQ as batch (API Sonnet preferred for quality, local 8B as sovereign fallback).",
+      "dead_ends": [
+        "Trained KG embeddings (TransE/RotatE/ComplEx/DistMult via PyKEEN-class tooling) on the graded metaphor edge-set: literature shows MRR collapse on sparse triples (≈0.8 → <0.2 at 20% of training triples; false-negative sampling pathology worsens it — arxiv 2209.08769, 2208.07622); at 89 resolved verdicts with 5/248 edge recurrence there is no transductive signal to embed. Revisit only at ~10^3-10^4 graded edges, and even then prefer inductive/feature-based scoring.",
+        "SEAL/GNN-style learned link prediction on the metaphor edges: requires thousands of links and recurring local subgraph structure; the metaphor graph is near-bipartite with almost no closed triangles, the regime where neighbourhood-structure methods test at AUC ≈ 0.5 (arxiv 2412.03757, 1802.09691). Structural methods belong on the dense substrate layers, not the verdict layer.",
+        "Word-vector parallelogram analogy arithmetic (king-man+woman) as the aptness engine: Linzen 2016 / Rogers et al. 2017 / Peterson et al. show results are heavily nearest-neighbour artefacts and the parallelogram model cannot carry relational reasoning (arxiv 2010.03446; sciencedirect S0010027720302596). Embeddings stay as distance FEATURES, not as an analogy mechanism.",
+        "Classical conceptual-blending engines (Divago, COINVENT amalgams): require hand-axiomatised domain microtheories per concept pair; never validated against human aptness judgments at scale; decades of work produced demo-scale outputs (winged-horse class). Not populatable at 20k-word scale on any budget; mine their optimality principles (topology/integration/unpacking) for feature ideas only (tandfonline 09540091.2017.1326463; springer 978-3-319-43610-4_5).",
+        "Veale's live web services (Metaphor Magnet/Thesaurus Rex endpoints) as runtime or pipeline dependencies: intermittently defunct, externally hosted (violates zero-exfiltration), and built on Google n-grams snapshots. Use the published method and any redistributable data dumps; never the service.",
+        "Off-the-shelf small-LLM 'metaphor understanding' as a quality proxy: 2025 evidence (arxiv 2507.15357) that performance is driven by lexical overlap/sentence length, and MUNCH shows failures concentrate exactly on novel+apt items — the product's target class. Uncalibrated local-LLM liveness scores would systematically reward surface artefacts (and interact badly with the 31% bad_head contamination).",
+        "Attribute-overlap aptness scoring generally (the externally-validated version of the internally-refuted context-free derivation): Gentner's relational-vs-attributional results and Tourangeau & Sternberg's null correlation with overall similarity both predict the measured AUC 0.55 — shared-attribute counting cannot be rescued by more enrichment volume; the missing ingredient is relational/positional structure, not more properties.",
+        "Runtime LLM inference on school client hardware (Chromebook/old-desktop class): 7-8B Q4 needs ~5-6 GB RAM and yields single-digit tok/s CPU-only; classroom concurrency makes it unusable, and a per-school GPU server contradicts the commodity constraint. Runtime must be precomputed-lookup; this is an architecture decision, not a tuning problem."
+      ],
+      "refs": [
+        "https://www.sciencedirect.com/science/article/abs/pii/0010028581900037",
+        "https://groups.psych.northwestern.edu/gentner/papers/BowdleGentner05.pdf",
+        "https://groups.psych.northwestern.edu/gentner/papers/FalkenhainerForbusGentner89.pdf",
+        "https://www.qrg.northwestern.edu/ideas/smeidea.htm",
+        "https://aclanthology.org/W16-1105/",
+        "https://github.com/prosecconetwork/The-NOC-List",
+        "https://www.researchgate.net/publication/262402205_Specifying_viewpoint_and_information_need_with_affective_metaphors_a_system_demonstration_of_the_Metaphor_Magnet_web_appservice",
+        "https://afflatus.ucd.ie/node/4",
+        "https://aclanthology.org/2021.naacl-main.336/",
+        "https://arxiv.org/abs/2103.06779",
+        "https://aclanthology.org/2021.acl-long.524/",
+        "https://aclanthology.org/W18-0906/",
+        "https://arxiv.org/abs/1809.01060",
+        "https://www.sciencedirect.com/science/article/abs/pii/S0749596X06000180",
+        "https://durginlab.domains.swarthmore.edu/publications/ThiboDurgin2011.pdf",
+        "https://metanet.icsi.berkeley.edu/metanet/",
+        "https://arxiv.org/abs/1805.12115",
+        "https://conceptnet.io/",
+        "https://arxiv.org/abs/1612.03975",
+        "http://blog.conceptnet.io/",
+        "https://arxiv.org/html/2312.06053v1",
+        "https://arxiv.org/abs/2412.03757",
+        "https://arxiv.org/pdf/2411.14711",
+        "https://arxiv.org/pdf/1802.09691",
+        "https://arxiv.org/pdf/2209.08769",
+        "https://arxiv.org/pdf/2208.07622",
+        "https://arxiv.org/pdf/2010.03446",
+        "https://www.sciencedirect.com/science/article/am/pii/S0010027720302596",
+        "https://www.tandfonline.com/doi/full/10.1080/10400419.2024.2326343",
+        "https://arxiv.org/pdf/2509.18401",
+        "https://arxiv.org/html/2403.11810v1",
+        "https://arxiv.org/abs/2507.15357",
+        "https://arxiv.org/pdf/2308.01497",
+        "https://www.tandfonline.com/doi/full/10.1080/09540091.2017.1326463",
+        "https://link.springer.com/chapter/10.1007/978-3-319-43610-4_5",
+        "https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md",
+        "https://github.com/ggml-org/llama.cpp/issues/22314",
+        "https://github.com/ggml-org/llama.cpp/discussions/4167",
+        "https://github.com/ggml-org/llama.cpp/discussions/3847",
+        "https://openbenchmarking.org/test/pts/llama-cpp",
+        "https://www.localscore.ai/model/1",
+        "https://www.localscore.ai/accelerator/43",
+        "https://www.databasemart.com/blog/ollama-gpu-benchmark-rtx4060",
+        "https://mustafa.net/llm-tokens-per-second-benchmarks/",
+        "https://lushbinary.com/blog/gemma-4-vs-llama-4-vs-qwen-3-5-open-weight-model-comparison/",
+        "https://huggingface.co/blog/daya-shankar/open-source-llms"
+      ]
+    },
+    "gaps": {
+      "missing": [
+        "The fifth grounding report (probes) is null — never produced. Combined with the schema report's own caveat (python/sqlite3 classifier outage; all DB counts derive from May-26/May-2 dumps + binary greps), there is NO live COUNT(*) verification of either lexicon_v2.db. I re-verified the grading JSONL tallies myself (95 rows / 85 v2 / live 43 / dead 37 / bad_head 30 / linkage-bad 12 — all match the schema report), but DB-side row counts (synset_properties 973,947; enrichment 81,602; staging ~12k un-typed cohort) remain dump-derived and should be re-probed before hypotheses cite them.",
+        "The verdict denominator chain 95 rows -> 90 distinct chain_signatures -> 89 resolved -> ~48 live / 37 dead -> 21 topics is asserted in the brief and attempts report but DERIVED nowhere. The resolution algorithm (latest-per-signature, v1 bad_path maps to metaphor=None and drops out, tag-forced effective linkage) is only inferable from /home/agent/projects/metaforge/data-pipeline/grading_sidecar/models.py:129-186. One scripted derivation should pin this before any hypothesis quotes 89/48/37.",
+        "The path-signal analysis used 72 of 89 chains (44 live/28 dead) — the 17-chain drop is unexplained (centroid coverage? bad_head geometry holdout? v1 rows?). The headline 0.851 clean-subset concordance has no stated pair denominator (a 'geometry-reliable subset 57' is mentioned separately but never tied to the 0.85 figure). These are the audit's strongest anchors and their Ns are not grounded.",
+        "Handpicked-cohort triplication unreconciled: sonnet_chains_provisional_r2_handpicked.jsonl = 746 rows (live grading worktree) vs 876 (_triage_snapshot_handpicked.jsonl, UNTRACKED in main) vs 2386 (main checkout, UNCOMMITTED modification). chain_geometry (4390 = 200+1804+2386) keys to the main 2386 set; triage_scores (876) keys to the snapshot; the live tool serves 746. No report states which cohort is canonical.",
+        "Judgement-truth fragmentation: main checkout data-pipeline/grading/judgements_provisional.jsonl has 13 rows vs 95 on the grading-live worktree — gold verdicts live only on a deploy branch with no stated sync discipline for analysis worktrees (completion-harness and path-signal cite .worktrees paths, but main is stale AND has uncommitted grading-data edits).",
+        "POS coverage: the fitness definition says all-POS in scope (noun-primary), but every grounded surface is noun-only — 198/198-noun topic manifest, noun-preferred lookup_primary_synset, all graded verdicts noun-noun. Zero evidence exists on verb/adjective metaphor support; hypotheses about 'the substrate' will silently mean 'the noun substrate'.",
+        "Novelty axis unexamined: fitness requires NOVEL apt metaphors, but no report grounds how novelty is operationalised. Verdict v2 has live/dead (which per the external report's Jones & Estes / Thibodeau & Durgin lever conflates aptness, conventionality and novelty); tiers (strong/ironic/surprising) have NEVER been assigned (models.py:180 comment confirms); the conventionality-prior idea exists only as an external lever. The target variable for 'novel' is undefined.",
+        "Operator-gold noise floor: single rater, no intra-rater reliability estimate. The JSONL contains supersedes re-grade chains (95 rows -> 90 signatures) that could be mined for self-agreement; nobody has. Every accuracy claim is measured against gold whose own consistency is unquantified.",
+        "Live base-rate instability unreconciled: ~71% live by Julian (context-free spike, n≈21 over 3 topics) vs 51-54% live in the graded walk cohort (43/85 v2, ~48/89 resolved). Different sampling regimes, but prevalence drives every AUC/kappa interpretation in the hypotheses phase and no report pins it.",
+        "Commodity-hardware constraint never measured on-box: the external report is entirely web benchmarks (localscore, llama.cpp discussions); no local tok/s or local-judge-agreement measurement exists anywhere in the repo. The 'schools run precomputed-lookup only' architecture is asserted, not validated; the only quantified runtime number is the ~100-150MB centroid RAM floor from cascade_cache.go.",
+        "Unexamined surfaces: web/src/components/mf-grade-panel.ts (the LINKAGE_FORCING_TAGS client mirror — the 35-effective-bad figure depends on UI/server convention staying in sync, only the sidecar side was audited); grading_sidecar/routes/walk.py ordering + signal_report.py concordance implementation (consume the triage/geometry files whose cohort identity is ambiguous); snap_properties.py (~800 lines, flagged high-leverage by loop-1 findings, untouched by any audit); export_chain_geometry.py centroid-coverage/missing-step handling (determines the 72-of-89 drop).",
+        "External-report claims taken on trust: DiStefano et al. exact correlation paywalled (403 on fetch); Gemma 4 Apache-2.0 licence 'per 2026 reporting — verify'; NOC List licence 'verify repo licence file'; ConceptNet CC BY-SA ShareAlike infection of the shipped DB flagged but no operator decision recorded. None blocking, all should be marked unverified in the hypotheses inputs."
+      ],
+      "conflicts": [
+        "Schema report vs task brief: the STAGING DB (.worktrees/next/.../lexicon_v2.db) has NO metaphor_bridges/judgments/graph_edges DDL at all (binary-grep verified) — contradicts the working assumption that staging carries the bridge schema. The only DDL-bearing DB is the main checkout's 646MB typed one, and it has 0 rows in all three tables.",
+        "chain_signature composition: schema report says it 'covers endpoints+phrases'; actual code is sha256(proposer + normalised phrases) (grading_sidecar/models.py:34-38; generate_metaphor_edges.py:112) — the prompts report is correct that the PROPOSER is in the key (renaming a proposer orphans all verdicts). The schema report's path_hash-vs-chain_signature join-gap analysis is right but understates it: the join must also strip/match proposer.",
+        "Verdict-count discrepancies across reports: brief '89 resolved, ~48 live/37 dead, 21 topic-synsets' vs schema '95 rows/90 sigs; v2: 43 live/37 dead/5 irrelevant; 19 lemmas/22 topic_synset_ids' vs attempts '89 resolved/21 topics; linkage_effective bad 35/good 54' vs judge-harness plan 'linkage re-base 11->35 bad' vs file-verified raw v2 linkage-bad = 12. The 11-vs-12 and 21-vs-22 off-by-ones and the 43-vs-48 live gap (v1 contribution) are all unresolved denominator mismatches.",
+        "bad_head semantics: the schema report frames bad_head rows as label noise excluded from the '0.85 clean subset' (and says the subset 'cannot be selected in SQL'), while the attempts report's 2026-06-10 correction + models.py:160-171 keep bad_head rows IN the liveness corpus (endpoints canonicalised; bad_head corrupts only intermediate geometry). The reports disagree on whether bad_head shrinks the supervision set (~89->~59) or only the geometry-feature subset (89->~57 pairs). This changes effective-n for every hypothesis.",
+        "Anti-example bootstrap loop status: attempts says the feedback loop 'ran ~2 rounds'; prompts shows (and I verified) build_next_round_prompt.py:82 still keys on the legacy v1 label=='bad_path' and emits chain:[] — under the now-v2-only data the negative-feedback channel selects nothing. Both can be true only if the rounds ran on the 10 v1 rows; the loop is presently broken and the reports do not agree on its operational status.",
+        "Healthy proxy live-rate band: prompts report '~0.08-0.14' vs attempts '~0.10-0.20' vs memory '~0.20'; tripwire abs_floor cited as both 0.08 and retuned-to-0.03. Matters because proxy live-rate is the generator-quality baseline any judge hypothesis will be sanity-checked against.",
+        "Triage denominator: attempts says the Forge Reader triage ran over '876 handpicked + 1,804 r2' chains, but the live handpicked file is 746 rows; 876 matches only the untracked _triage_snapshot_handpicked.jsonl in main. Triage coverage is keyed to a cohort snapshot that no longer matches any committed chain file.",
+        "Topic-universe denominators: '14 of 259 topics' (attempts, breadth constraint) vs 200-topic Phase-2 cohort vs 198-noun vetted manifest vs 21/22 graded topic-synsets — at least four topic universes used interchangeably; breadth-vs-depth hypotheses need one defined denominator.",
+        "Brief's anchors vs attempts' caveats on the path-geometry signal: brief states 'AUC 0.67 (0.85 clean)' unqualified; attempts grounds it as concordance 0.674 on 89 pairs, cross-topic ~0.60 at p≈0.15 (underpowered), leaning on adornment+ambush for ~50% of pairs, and dropping adornment alone collapses it to 0.580. Not an inter-report contradiction but the hypotheses phase must inherit the fragility, not the headline.",
+        "Cascade 'supported' vs 'at chance': M03 cascade is recorded as status=supported (sep +0.1779 on MUNCH) while the completion harness records its features at AUC≈0.50 for human liveness. The attempts report carries the reconciling caveat (different objectives), but any hypothesis scoring must not cite M03 'support' as evidence of liveness signal — flag so the metric-objective split (MUNCH separation vs operator liveness) stays explicit."
+      ],
+      "hypothesis_seeds": [
+        "Domain-level edge generalisation: lift graded topic->vehicle edges to domain->domain (sqlunet domains already imported; MetaNet as external prior) — directly attacks the 5/248 synset-level recurrence and 19-lemma->22-synset fragmentation that make synset-level completion data-starved.",
+        "Lemma/sense-anchored edge layer: store the graded surface lemma + sensekey on bridges so cross-round sense-splits aggregate instead of fragment — treats the 22-vs-19 split and bad_head identity-minting as representation bugs, not label noise.",
+        "Path-geometry-first scorer (generate-then-rank): Sonnet generation as candidate engine, max_hop_cos/std_hop_cos as the ranking features, cascade demoted to gating — builds on the only verified positive signal, conditional on persisting geometry into the schema and surviving the adornment-fragility caveat.",
+        "Two-stage calibrated LLM judge (Stage-1 linkage kappa>=0.4 filter, Stage-2 pair liveness kappa>=0.3) as the label-scaling instrument — fully planned (docs/plans/2026-06-10-judge-harness-plan.md), zero code run; the literature path (fine-tune on operator ratings at ~10^3 labels) is the external report's strongest endorsement.",
+        "Fix the head extractor at generation time (per-step gloss or sense-index pick inside the chain prompt schema) — prompts report's single highest-signal-per-dollar change; collapses the ~31% bad_head contamination at source and protects both geometry features and verdict transfer.",
+        "Relational/structure-mapping features (SME-style predicate alignment; ConceptNet typed relations as free relational substrate) — theory-grounded explanation for why attribute-overlap was measured dead; cheaply testable against the 89 verdicts.",
+        "Two-feature aptness geometry (Tourangeau & Sternberg): between-domain leap distance (existing max_hop_cos) + within-domain positional congruence (new) — an upgrade hypothesis to the single-leap feature, implementable on existing embeddings + domain labels.",
+        "Conventionality prior as a NEGATIVE feature (MetaNet/Lakoff mapping membership penalises dead metaphors) — aligns the scorer with the live-metaphor genre-writer product goal and reuses the otherwise-misaligned Lakoff assets.",
+        "Substrate-layer link-prediction features only (Adamic-Adar/Jaccard/node2vec on the dense property/WordNet/ConceptNet layers, never on the sparse verdict layer) feeding a small supervised pairwise regressor (Bizzoni & Lappin existence proof at ~hundreds of labels) — the external report's decision rule for where graph-completion machinery can earn its keep."
+      ],
+      "ready": "GO — with three pre-conditions to execute in the first hour of the hypotheses phase (none requires new data collection): (1) pin the verdict denominator chain with one script (95 rows -> 90 sigs -> 89 resolved -> live/dead split -> 35 effective-bad -> 72-chain geometry subset -> 0.85-clean pair count) and attach it as the single source of numbers, since four reports currently quote four different slices; (2) declare the canonical handpicked cohort (746 vs 876 vs 2386) and which chain set geometry/triage/walk each key to, committing or discarding the main checkout's uncommitted grading edits; (3) carry corrected anchors into the hypotheses prompt: staging has NO metaphor DDL, chain_signature includes the proposer, bad_head rows stay in the liveness corpus (excluded only from geometry), and the path-geometry signal inherits the adornment-fragility caveat (drop adornment -> 0.580, cross-topic p≈0.15). The null probes report is tolerable because the schema report's dump/binary-grep evidence plus my direct JSONL re-verification cover the load-bearing counts; re-run live DB COUNT(*) probes when the Bash classifier is stable, but do not block on it."
+    }
+  }
+}

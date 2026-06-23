@@ -1,0 +1,77 @@
+{"ok": true, "model": "haiku", "wall_s": 46.9, "duration_ms": 42058, "cost_usd": 0.0949275, "in_tok": 10, "out_tok": 5612, "cache_creation": 53486, "cache_read": 0, "result_len": 1315}
+{"ok": true, "model": "haiku", "wall_s": 40.6, "duration_ms": 35619, "cost_usd": 0.04662404999999999, "in_tok": 10, "out_tok": 4370, "cache_creation": 16883, "cache_read": 36603, "result_len": 1518}
+{"ok": true, "model": "haiku", "wall_s": 57.3, "duration_ms": 52698, "cost_usd": 0.0537653, "in_tok": 10, "out_tok": 5799, "cache_creation": 16880, "cache_read": 36603, "result_len": 1410}
+{"ok": true, "model": "haiku", "wall_s": 63.0, "duration_ms": 50691, "cost_usd": 0.05340405, "in_tok": 10, "out_tok": 5726, "cache_creation": 16883, "cache_read": 36603, "result_len": 1312}
+{"ok": true, "model": "haiku", "wall_s": 57.9, "duration_ms": 54514, "cost_usd": 0.06128905, "in_tok": 10, "out_tok": 7303, "cache_creation": 16883, "cache_read": 36603, "result_len": 1458}
+{"ok": true, "model": "sonnet", "wall_s": 198.0, "duration_ms": 194410, "cost_usd": 0.34462275, "in_tok": 3, "out_tok": 12811, "cache_creation": 40653, "cache_read": 0, "result_len": 2615}
+{"ok": true, "model": "sonnet", "wall_s": 214.4, "duration_ms": 209994, "cost_usd": 0.2286999, "in_tok": 3, "out_tok": 14433, "cache_creation": 0, "cache_read": 40653, "result_len": 2829}
+{"ok": true, "model": "sonnet", "wall_s": 135.1, "duration_ms": 130047, "cost_usd": 0.14325420000000003, "in_tok": 3, "out_tok": 8736, "cache_creation": 0, "cache_read": 40684, "result_len": 2681}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.05553375000000001, "out_tok": 870}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.16047150000000002, "out_tok": 618}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.32101624999999995, "out_tok": 642}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.028260349999999997, "out_tok": 1075}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.06883484999999999, "out_tok": 40}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.18560975000000002, "out_tok": 1207}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.028190350000000003, "out_tok": 1063}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.06884985, "out_tok": 43}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.18393474999999998, "out_tok": 1141}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.02605285, "out_tok": 634}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.06893235, "out_tok": 47}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.18347225, "out_tok": 1122}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.026230350000000003, "out_tok": 671}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.07586985, "out_tok": 511}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.1787785, "out_tok": 935}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.03063035, "out_tok": 1552}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.06874485, "out_tok": 37}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.17107224999999998, "out_tok": 630}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.03585785, "out_tok": 2596}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.06884235, "out_tok": 42}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.17630975, "out_tok": 837}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.027115350000000003, "out_tok": 847}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.06896985, "out_tok": 50}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.17000975000000002, "out_tok": 585}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.026631600000000005, "out_tok": 751}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.0686586, "out_tok": 30}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.16639725, "out_tok": 441}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.028186600000000003, "out_tok": 1062}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.0686736, "out_tok": 31}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.16585975, "out_tok": 420}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.0266066, "out_tok": 747}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.0686886, "out_tok": 33}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.16747849999999997, "out_tok": 486}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.0325441, "out_tok": 1932}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.009818899999999998, "out_tok": 1143}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.0128244, "out_tok": 48}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.1048225, "out_tok": 793}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.028821600000000003, "out_tok": 1172}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.0690486, "out_tok": 39}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.10902550000000001, "out_tok": 961}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.026851599999999996, "out_tok": 780}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.06892859999999999, "out_tok": 33}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.1170985, "out_tok": 1284}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.0268691, "out_tok": 782}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.06899609999999999, "out_tok": 36}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.1045495, "out_tok": 782}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.028446599999999996, "out_tok": 1099}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.0766536, "out_tok": 548}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.112223, "out_tok": 1089}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.0271666, "out_tok": 844}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.0688386, "out_tok": 28}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.10044149999999999, "out_tok": 618}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.0270041, "out_tok": 810}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.0689211, "out_tok": 32}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.1191715, "out_tok": 1367}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.0078043, "out_tok": 740}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.0692436, "out_tok": 53}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.0987715, "out_tok": 551}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.02643285, "out_tok": 696}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.07368735, "out_tok": 350}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.1025205, "out_tok": 701}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.031057849999999998, "out_tok": 1621}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.06893235, "out_tok": 33}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.1080945, "out_tok": 924}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.02568785, "out_tok": 548}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.06894735, "out_tok": 35}
+{"model": "opus", "step": "judge_feasibility", "cost_usd": 0.100442, "out_tok": 618}
+{"model": "haiku", "step": "judge_feasibility", "cost_usd": 0.02623535, "out_tok": 655}
+{"model": "sonnet", "step": "judge_feasibility", "cost_usd": 0.06908985, "out_tok": 42}

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>mf-force-graph e2e fixture — grade mode</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #1a1a2e; }
+      /* Fixed host size so the canvas + label overlay have real dimensions and
+         the projector/layout comparison is deterministic. */
+      #host { position: absolute; inset: 0; }
+      mf-force-graph { display: block; width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <script type="module">
+      import '/src/components/mf-force-graph.ts'
+
+      // Fixed grade chains. Each step is { phrase, head, synset_id }: the node is
+      // keyed/deduped by synset_id and LABELLED by head, while the per-connection
+      // `phrase` (incidental surface wording) surfaces in the backlink tooltip.
+      // Phrases deliberately differ from heads so the head-primary label is testable.
+      const mkChain = (topic, vehicle, steps, sig) => ({
+        schema_version: 'chain.v1',
+        topic,
+        topic_synset_id: `syn-${topic}`,
+        vehicle,
+        vehicle_synset_id: `syn-${vehicle}`,
+        proposer: 'fixture',
+        round: 1,
+        // step = [head, phrase]; synset keyed off head so a shared head dedups.
+        chain: steps.map(([head, phrase]) => ({ phrase, head, synset_id: `syn-${head}` })),
+        chain_signature: sig,
+        generated_at: '2026-05-31T00:00:00Z',
+      })
+
+      // Chains a + b share the intermediate head `weight`, reached from two
+      // distinct sources (`grief`, `sorrow`) via two distinct phrases — so the
+      // `weight` node carries two deduped backlinks for the tooltip assertion.
+      const chains = [
+        mkChain('grief', 'anchor', [
+          ['grief', 'raw grief'], ['weight', 'the leaden weight'], ['depth', 'cold depth'], ['anchor', 'an anchor'],
+        ], 'sig-a'),
+        mkChain('sorrow', 'wildfire', [
+          ['sorrow', 'quiet sorrow'], ['weight', 'a pressing heaviness'], ['blaze', 'sudden blaze'], ['wildfire', 'a wildfire'],
+        ], 'sig-b'),
+        mkChain('memory', 'archive', [
+          ['memory', 'old memory'], ['fragment', 'a fragment'], ['archive', 'the archive'],
+        ], 'sig-c'),
+      ]
+
+      const el = document.createElement('mf-force-graph')
+      el.mode = 'grade'
+      el.gradeChains = chains
+      document.getElementById('host').appendChild(el)
+
+      const raf = () => new Promise((r) => requestAnimationFrame(() => r()))
+
+      // Deterministic readiness. Relying on the d3 force sim is racy: the data
+      // coords (node.x/y/z — what graph2ScreenCoords projects) and the three.js
+      // object positions (what the labels ride on) sync a frame apart, so pausing
+      // mid-warmup can leave labels at the origin while data is already spread.
+      // Instead we PIN each node to a fixed spread (fx/fy/fz on a circle) and wait
+      // until every node's __threeObj has actually synced to its pinned data
+      // position before freezing — no stochastic timing, no lag window.
+      async function ready() {
+        await el.updateComplete
+        const g = el.__test_graph
+        const start = performance.now()
+        // Wait for the graph to be fed.
+        while (performance.now() - start < 8000) {
+          const nodes = g && g.graphData && g.graphData().nodes
+          if (nodes && nodes.length > 0) break
+          await new Promise((r) => setTimeout(r, 50))
+        }
+        const nodes = g.graphData().nodes
+        // Pin nodes to a deterministic circle in the XY plane (radius 100, z=0).
+        nodes.forEach((n, i) => {
+          const a = (i / nodes.length) * Math.PI * 2
+          n.fx = Math.cos(a) * 100
+          n.fy = Math.sin(a) * 100
+          n.fz = 0
+        })
+        // Re-feed so d3 picks up the fixed coords, then advance frames until every
+        // node's three-object position matches its pinned data coord (synced).
+        const synced = () => nodes.every((n) => {
+          const o = n.__threeObj
+          // Spread gate: avoid the frame-0 false positive where both data and
+          // object sit at the origin before the sim applies the pin.
+          const spread = Math.hypot(n.x ?? 0, n.y ?? 0, n.z ?? 0) > 1
+          return spread && o && Math.abs(o.position.x - (n.x ?? 0)) < 0.01 &&
+            Math.abs(o.position.y - (n.y ?? 0)) < 0.01 &&
+            Math.abs(o.position.z - (n.z ?? 0)) < 0.01
+        })
+        const syncStart = performance.now()
+        while (performance.now() - syncStart < 4000 && !synced()) {
+          await raf()
+        }
+        // Freeze (pauses sim, cancels grade zoomToFit, disables damping) + render
+        // one CSS2D frame against the resting camera.
+        el.__test_pauseAndRenderFrame()
+        window.mfGraphEl = el
+        window.mfReady = true
+      }
+      ready()
+    </script>
+  </body>
+</html>

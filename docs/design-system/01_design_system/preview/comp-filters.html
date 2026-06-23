@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body { width:700px; background:var(--colour-bg-primary); color:var(--colour-text-primary);
+    font-family:var(--font-body); padding:22px 26px; }
+  .label { font-family:var(--font-body); font-size:11px; text-transform:uppercase;
+    letter-spacing:0.08em; color:var(--colour-text-muted); margin-bottom:14px; }
+  .glass { background:rgba(22,33,62,0.6); border:1px solid rgba(212,175,55,0.2);
+    border-radius:4px; backdrop-filter:blur(8px); }
+  .seclabel { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:#6b6560; margin-bottom:4px; }
+  .chips { display:flex; flex-wrap:wrap; gap:4px; }
+  .chip { font-size:14px; padding:2px 6px; border-radius:3px; cursor:pointer; }
+  
+</style></head><body>
+<div class="label">Rarity filter toggles</div>
+<div style="display:flex;gap:12px">
+  <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:#8bb89a;cursor:pointer"><input type="checkbox" checked style="accent-color:#8bb89a;width:15px;height:15px">Common</label><label style="display:flex;align-items:center;gap:6px;font-size:14px;color:#c4956a;cursor:pointer"><input type="checkbox" checked style="accent-color:#c4956a;width:15px;height:15px">Unusual</label><label style="display:flex;align-items:center;gap:6px;font-size:14px;color:#a88bc4;cursor:pointer"><input type="checkbox" checked style="accent-color:#a88bc4;width:15px;height:15px">Rare</label>
+</div></body></html>

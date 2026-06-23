@@ -1,0 +1,24 @@
+  PPR 50/180 topics
+  PPR 100/180 topics
+  PPR 150/180 topics
+
+resolved cohort pairs: 1497 (apt=977, inapt=520)
+
+=== DISCRIMINATION: AUC(metric, apt-vs-inapt) ===
+          ppr_raw: AUC=0.502
+          ppr_idf: AUC=0.502
+      adamic_adar: AUC=0.606
+   resource_alloc: AUC=0.609
+     common_neigh: AUC=0.599
+
+=== GENERATION: can PPR(idf) PROPOSE the apt vehicle? rank over 81k synsets ===
+  apt: median rank 30984, recall@10 0.0%, @100 0.0%, @1000 0.7%, @5000 4.6%
+  inapt: median rank 27102, recall@10 0.0%, @100 0.2%, @1000 0.8%, @5000 11.7%
+
+=== shortest-path length distribution (BFS, bipartite; hub-connectivity artifact) ===
+  apt (n=120): len_dist={2: 45, 4: 75}, unreachable(<=6 hops)=0
+  inapt (n=120): len_dist={2: 61, 4: 59}, unreachable(<=6 hops)=0
+
+INTERPRETATION: if PPR/AA/RA AUC ~0.5 AND apt-vehicle median PPR rank is deep,
+AND apt/inapt path-length distributions overlap, then multi-hop graph traversal
+of the deduplicated property-union-synset graph ALSO fails — completing the refutation.
