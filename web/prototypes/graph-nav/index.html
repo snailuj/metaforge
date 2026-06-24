@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Metaforge · Graph Navigation + 2nd-Order Edge Nodes (prototype)</title>
+<!--
+  Self-contained no-build prototype. Inline CSS + vanilla JS, mock data only.
+  Opens with file://. Aesthetic + colours mirror web/src/styles/tokens.css.
+  Demonstrates: spatial constellation (SVG) and a linear accessible "walk" list
+  as two faces of ONE small graph with a SHARED cursor; 2nd-order nodes hidden
+  behind a count badge and expanded on demand; bridge nodes (a node that is
+  itself a relationship); an aria-live position readout.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Playfair+Display:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* mirrored verbatim from web/src/styles/tokens.css */
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-hud: rgba(22, 33, 62, 0.6);
+    --text-primary: #e8e0d4;
+    --text-secondary: #a89f94;
+    --text-muted: #6b6560;
+    --gold: #d4af37;
+    --gold-dim: rgba(212, 175, 55, 0.5);
+    --node-central: #d4af37;
+    --node-synonym: #c4956a;
+    --node-hypernym: #8b6f47;
+    --node-hyponym: #6a8b6f;
+    --node-similar: #7a6a8b;
+    --edge-default: rgba(232, 224, 212, 0.15);
+    --edge-dim: rgba(232, 224, 212, 0.07);
+    --edge-highlight: rgba(212, 175, 55, 0.55);
+    --bridge: #b56ed0;            /* gravity-well violet, per concept art */
+    --font-heading: 'Playfair Display', Georgia, serif;
+    --font-body: 'Crimson Text', 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --hud-border: 1px solid rgba(212, 175, 55, 0.2);
+    --hud-radius: 6px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 700px at 30% -10%, #20203a 0%, transparent 60%),
+      radial-gradient(900px 600px at 95% 110%, #1c2547 0%, transparent 55%),
+      var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.5;
+    min-height: 100%;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* faint star-field so the cosmic theme reads even on flat fills */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      radial-gradient(1.4px 1.4px at 12% 22%, rgba(232,224,212,0.55), transparent),
+      radial-gradient(1.2px 1.2px at 78% 14%, rgba(232,224,212,0.4), transparent),
+      radial-gradient(1px 1px at 42% 72%, rgba(232,224,212,0.35), transparent),
+      radial-gradient(1.3px 1.3px at 88% 64%, rgba(232,224,212,0.4), transparent),
+      radial-gradient(1px 1px at 22% 88%, rgba(232,224,212,0.3), transparent),
+      radial-gradient(1.1px 1.1px at 62% 38%, rgba(232,224,212,0.35), transparent);
+    opacity: 0.6;
+  }
+
+  .shell { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 22px 26px 40px; }
+
+  header.app { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
+  header.app h1 {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: 0.5px;
+    margin: 0;
+    color: var(--text-primary);
+  }
+  header.app .tag {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--gold);
+    border: 1px solid var(--gold-dim);
+    border-radius: 999px;
+    padding: 2px 10px;
+  }
+  header.app .sub { color: var(--text-secondary); font-style: italic; font-size: 14px; margin-left: auto; }
+
+  /* word switcher */
+  .switcher { display: flex; gap: 8px; margin: 14px 0 18px; flex-wrap: wrap; align-items: center; }
+  .switcher .lbl { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); margin-right: 4px; }
+  .switcher button {
+    font-family: var(--font-heading); font-size: 15px;
+    background: var(--bg-hud); color: var(--text-secondary);
+    border: var(--hud-border); border-radius: var(--hud-radius);
+    padding: 6px 16px; cursor: pointer; transition: all 140ms ease;
+  }
+  .switcher button:hover { color: var(--text-primary); border-color: var(--gold-dim); }
+  .switcher button[aria-pressed="true"] {
+    color: var(--bg-primary); background: var(--gold); border-color: var(--gold);
+    box-shadow: 0 0 16px rgba(212,175,55,0.35);
+  }
+
+  /* two-face layout */
+  .faces { display: grid; grid-template-columns: 1.35fr 1fr; gap: 22px; align-items: stretch; }
+  @media (max-width: 900px) { .faces { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--bg-hud);
+    border: var(--hud-border);
+    border-radius: 10px;
+    padding: 0;
+    backdrop-filter: blur(2px);
+    display: flex; flex-direction: column;
+    min-height: 520px;
+  }
+  .panel > .panel-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; border-bottom: var(--hud-border);
+  }
+  .panel-head h2 {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--text-secondary); margin: 0;
+  }
+  .panel-head .hint { margin-left: auto; font-size: 12px; color: var(--text-muted); font-style: italic; }
+
+  /* ---- SPATIAL FACE (SVG constellation) ---- */
+  .spatial-wrap { position: relative; flex: 1; }
+  svg.constellation { width: 100%; height: 100%; display: block; }
+  .node-disc { cursor: pointer; transition: r 160ms ease; }
+  .node-label { font-family: var(--font-body); font-size: 14px; fill: var(--text-primary); pointer-events: none; }
+  .node-label.order2 { font-size: 12px; fill: var(--text-secondary); }
+  .badge-bg { fill: var(--bg-secondary); stroke: var(--gold-dim); stroke-width: 1; cursor: pointer; }
+  .badge-txt { font-family: var(--font-mono); font-size: 11px; fill: var(--gold); pointer-events: none; }
+  .bridge-lozenge { cursor: pointer; }
+  .bridge-gloss { font-family: var(--font-body); font-style: italic; font-size: 11px; fill: var(--bridge); pointer-events: none; }
+  .focus-ring { fill: none; stroke: var(--text-primary); stroke-width: 2; stroke-dasharray: 4 4; opacity: 0.9; pointer-events: none; }
+  @keyframes spin { to { stroke-dashoffset: -16; } }
+  .focus-ring { animation: spin 1.4s linear infinite; }
+  .orbit { fill: none; stroke: var(--edge-dim); stroke-width: 1; }
+  text.central-name { font-family: var(--font-heading); font-weight: 700; }
+
+  /* ---- LINEAR / ACCESSIBLE FACE (walk list) ---- */
+  .walk { flex: 1; display: flex; flex-direction: column; }
+  .readout {
+    margin: 12px 16px 0; padding: 10px 12px;
+    background: var(--bg-secondary); border: var(--hud-border); border-left: 3px solid var(--gold);
+    border-radius: 4px; font-size: 14px; color: var(--text-primary); min-height: 44px;
+  }
+  .readout .where { color: var(--gold); font-weight: 600; }
+  .readout .next { color: var(--text-secondary); font-style: italic; }
+
+  ul.tree { list-style: none; margin: 10px 0 0; padding: 6px 10px 10px; overflow-y: auto; flex: 1; }
+  ul.tree li { margin: 0; }
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 6px; cursor: pointer;
+    border: 1px solid transparent; transition: background 120ms ease, border-color 120ms ease;
+  }
+  .row:hover { background: rgba(232,224,212,0.05); }
+  .row.cursor { background: rgba(212,175,55,0.12); border-color: var(--gold-dim); }
+  .row:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+  .row .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: 0 0 8px currentColor; }
+  .row .word { font-family: var(--font-heading); font-size: 16px; }
+  .row.order0 .word { color: var(--gold); font-weight: 700; }
+  .row .rel { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); }
+  .row .grow { flex: 1; }
+  .row .badge {
+    font-family: var(--font-mono); font-size: 11px; color: var(--gold);
+    border: 1px solid var(--gold-dim); border-radius: 999px; padding: 1px 8px;
+  }
+  .row.bridge { border-style: dashed; border-color: rgba(181,110,208,0.5); background: rgba(181,110,208,0.08); }
+  .row.bridge .word { color: var(--bridge); font-style: italic; font-family: var(--font-body); font-size: 15px; }
+  .row.bridge .rel { color: var(--bridge); }
+  .row.child { margin-left: 26px; }
+  .row.child .word { font-size: 14px; color: var(--text-secondary); }
+  .caret { width: 14px; text-align: center; color: var(--text-muted); font-family: var(--font-mono); flex: none; }
+
+  .controls {
+    display: flex; gap: 8px; padding: 12px 16px; border-top: var(--hud-border); flex-wrap: wrap; align-items: center;
+  }
+  .controls button {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.5px;
+    background: var(--bg-secondary); color: var(--text-primary);
+    border: var(--hud-border); border-radius: var(--hud-radius);
+    padding: 7px 12px; cursor: pointer; transition: all 130ms ease;
+  }
+  .controls button:hover { border-color: var(--gold-dim); color: var(--gold); }
+  .controls button:active { transform: translateY(1px); }
+  .controls .kbd { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+  .controls .kbd kbd {
+    font-family: var(--font-mono); background: var(--bg-secondary); border: 1px solid var(--text-muted);
+    border-radius: 3px; padding: 0 5px; color: var(--text-secondary); margin: 0 1px;
+  }
+
+  /* legend */
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin: 18px 2px 0; font-size: 13px; color: var(--text-secondary); }
+  .legend .item { display: flex; align-items: center; gap: 7px; }
+  .legend .swatch { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 7px currentColor; }
+  .legend .swatch.lozenge { border-radius: 2px; transform: rotate(45deg); width: 11px; height: 11px; }
+  .legend .note { color: var(--text-muted); font-style: italic; }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  footer.note { margin-top: 22px; font-size: 12px; color: var(--text-muted); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="app">
+    <h1>Metaforge</h1>
+    <span class="tag">graph nav · prototype</span>
+    <span class="sub">one graph, two faces — a spatial constellation and an accessible walk</span>
+  </header>
+
+  <div class="switcher" role="group" aria-label="Choose an example word">
+    <span class="lbl">Example</span>
+    <button data-word="melancholy" aria-pressed="true">melancholy</button>
+    <button data-word="anchor" aria-pressed="false">anchor</button>
+    <button data-word="forge" aria-pressed="false">forge</button>
+  </div>
+
+  <div class="faces">
+    <!-- SPATIAL FACE -->
+    <section class="panel" aria-label="Spatial constellation view">
+      <div class="panel-head">
+        <h2>3D Constellation</h2>
+        <span class="hint">click a node, a “+N” badge, or a bridge lozenge</span>
+      </div>
+      <div class="spatial-wrap">
+        <svg class="constellation" viewBox="0 0 640 520" preserveAspectRatio="xMidYMid meet"
+             role="img" aria-label="Spatial constellation. This view duplicates the accessible walk list to the right; use that list for keyboard and screen-reader navigation.">
+          <defs>
+            <radialGradient id="centreGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#ffe9a8" />
+              <stop offset="45%" stop-color="#d4af37" />
+              <stop offset="100%" stop-color="#8a6d1f" />
+            </radialGradient>
+            <radialGradient id="bridgeGlow" cx="50%" cy="50%" r="60%">
+              <stop offset="0%" stop-color="#e6c4f5" />
+              <stop offset="55%" stop-color="#b56ed0" />
+              <stop offset="100%" stop-color="#5e2f73" />
+            </radialGradient>
+          </defs>
+          <g id="orbits"></g>
+          <g id="edges"></g>
+          <g id="bridges"></g>
+          <g id="nodes"></g>
+          <g id="ring"></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- LINEAR / ACCESSIBLE FACE -->
+    <section class="panel" aria-label="Accessible walk list view">
+      <div class="panel-head">
+        <h2>Walk the graph · accessible</h2>
+        <span class="hint">keyboard + touch + screen-reader</span>
+      </div>
+      <div class="walk">
+        <!-- Visible status line. The authoritative announcement is the aria-live sr-only twin below. -->
+        <div class="readout" id="readout" aria-hidden="true">
+          <span class="where">melancholy</span> — central node.
+        </div>
+        <div class="sr-only" id="liveReadout" role="status" aria-live="polite"></div>
+
+        <ul class="tree" id="tree" role="tree" aria-label="Word neighbourhood, walkable"></ul>
+
+        <div class="controls">
+          <button id="btnPrev" type="button">↑ Prev</button>
+          <button id="btnNext" type="button">↓ Next</button>
+          <button id="btnExpand" type="button">▸ Expand / collapse</button>
+          <button id="btnEnter" type="button">⏎ Select / cross</button>
+          <button id="btnHome" type="button">⌂ Centre</button>
+          <span class="kbd"><kbd>↑</kbd><kbd>↓</kbd> walk · <kbd>E</kbd> expand · <kbd>↵</kbd> cross · <kbd>Home</kbd> centre</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="legend" aria-hidden="true">
+    <span class="item"><span class="swatch" style="color:#d4af37"></span> central (order 0)</span>
+    <span class="item"><span class="swatch" style="color:#c4956a"></span> synonym</span>
+    <span class="item"><span class="swatch" style="color:#8b6f47"></span> hypernym</span>
+    <span class="item"><span class="swatch" style="color:#6a8b6f"></span> hyponym</span>
+    <span class="item"><span class="swatch" style="color:#7a6a8b"></span> similar</span>
+    <span class="item"><span class="swatch" style="color:#a89f94"></span> 2nd-order <span class="note">(hidden until expanded)</span></span>
+    <span class="item"><span class="swatch lozenge" style="color:#b56ed0"></span> bridge — a node that <em>is</em> a relationship</span>
+  </div>
+
+  <footer class="note">
+    Illustrative mock. No real graph physics / no backend. Colours and type mirror
+    <code>web/src/styles/tokens.css</code>; bridge motif from <code>MetaforgeConcept.png</code>.
+    Both faces share one cursor — moving it in the list moves the spatial focus ring, and vice versa.
+  </footer>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * MOCK DATA — three example neighbourhoods.                          *
+ * Each node: id, word, rel (relation type / 'central'), order (0/1/2)*
+ * Bridges: a node that IS a relationship, sitting between two nodes.  *
+ * children[] on an order-1 node = its 2nd-order ring (hidden default).*
+ * ------------------------------------------------------------------ */
+const REL_COLOUR = {
+  central: 'var(--node-central)',
+  synonym: 'var(--node-synonym)',
+  hypernym: 'var(--node-hypernym)',
+  hyponym: 'var(--node-hyponym)',
+  similar: 'var(--node-similar)',
+  order2: 'var(--text-secondary)',
+  bridge: 'var(--bridge)',
+};
+
+const DATA = {
+  melancholy: {
+    central: 'melancholy',
+    relations: [
+      { id: 'sorrowful', word: 'sorrowful', rel: 'synonym', children: [
+          { id: 'grief', word: 'grief', rel: 'similar' },
+          { id: 'mournful', word: 'mournful', rel: 'synonym' },
+          { id: 'forlorn', word: 'forlorn', rel: 'similar' },
+          { id: 'desolate', word: 'desolate', rel: 'similar' },
+        ] },
+      { id: 'pensive', word: 'pensive', rel: 'synonym', children: [
+          { id: 'wistful', word: 'wistful', rel: 'synonym' },
+          { id: 'reflective', word: 'reflective', rel: 'similar' },
+          { id: 'brooding', word: 'brooding', rel: 'similar' },
+        ] },
+      { id: 'sadness', word: 'sadness', rel: 'hypernym', children: [
+          { id: 'emotion', word: 'emotion', rel: 'hypernym' },
+          { id: 'despair', word: 'despair', rel: 'hyponym' },
+        ] },
+      { id: 'gloomy', word: 'gloomy', rel: 'similar', children: [
+          { id: 'overcast', word: 'overcast', rel: 'similar' },
+          { id: 'sombre', word: 'sombre', rel: 'synonym' },
+        ] },
+      { id: 'autumnal', word: 'autumnal', rel: 'similar', children: [] },
+    ],
+    bridge: {
+      id: 'gravity-well', word: 'gravity well (JOY)', from: null, to: 'joy',
+      gloss: 'a metaphor bridge: melancholy has JOY’s gravity — it pulls inward',
+      farWord: 'joy',
+    },
+  },
+  anchor: {
+    central: 'anchor',
+    relations: [
+      { id: 'mooring', word: 'mooring', rel: 'synonym', children: [
+          { id: 'berth', word: 'berth', rel: 'similar' },
+          { id: 'harbour', word: 'harbour', rel: 'similar' },
+        ] },
+      { id: 'device', word: 'device', rel: 'hypernym', children: [
+          { id: 'tool', word: 'tool', rel: 'hypernym' },
+          { id: 'fixture', word: 'fixture', rel: 'similar' },
+        ] },
+      { id: 'grapnel', word: 'grapnel', rel: 'hyponym', children: [
+          { id: 'kedge', word: 'kedge', rel: 'hyponym' },
+          { id: 'fluke', word: 'fluke', rel: 'similar' },
+          { id: 'drogue', word: 'drogue', rel: 'similar' },
+        ] },
+      { id: 'steadfast', word: 'steadfast', rel: 'similar', children: [
+          { id: 'grounded', word: 'grounded', rel: 'similar' },
+          { id: 'secure', word: 'secure', rel: 'synonym' },
+        ] },
+    ],
+    bridge: {
+      id: 'hold-heaviness', word: 'hold ↔ heaviness', from: null, to: 'burden',
+      gloss: 'a metaphor bridge: what anchors you can also weigh you down',
+      farWord: 'burden',
+    },
+  },
+  forge: {
+    central: 'forge',
+    relations: [
+      { id: 'fashion', word: 'fashion', rel: 'synonym', children: [
+          { id: 'shape', word: 'shape', rel: 'synonym' },
+          { id: 'wrought', word: 'wrought', rel: 'similar' },
+          { id: 'temper', word: 'temper', rel: 'similar' },
+        ] },
+      { id: 'smithy', word: 'smithy', rel: 'hypernym', children: [
+          { id: 'workshop', word: 'workshop', rel: 'hypernym' },
+          { id: 'anvil', word: 'anvil', rel: 'similar' },
+        ] },
+      { id: 'counterfeit', word: 'counterfeit', rel: 'similar', children: [
+          { id: 'fake', word: 'fake', rel: 'synonym' },
+          { id: 'falsify', word: 'falsify', rel: 'similar' },
+        ] },
+      { id: 'kindle', word: 'kindle', rel: 'similar', children: [] },
+    ],
+    bridge: {
+      id: 'crucible', word: 'crucible', from: null, to: 'ordeal',
+      gloss: 'a metaphor bridge: a forge tests by fire — so does an ordeal',
+      farWord: 'ordeal',
+    },
+  },
+};
+
+/* ------------------------------------------------------------------ *
+ * STATE                                                              *
+ * ------------------------------------------------------------------ */
+let currentWord = 'melancholy';
+const expanded = new Set();   // ids of order-1 nodes whose children are shown
+let cursorId = '__central__'; // shared cursor across both faces
+
+/* Build the flat ordered list of "walkable" rows from current data + expanded set.
+   This list is THE single source of truth that both faces render from. */
+function buildRows() {
+  const d = DATA[currentWord];
+  const rows = [];
+  rows.push({ id: '__central__', word: d.central, rel: 'central', order: 0 });
+  d.relations.forEach(r => {
+    rows.push({
+      id: r.id, word: r.word, rel: r.rel, order: 1,
+      childCount: r.children.length, expanded: expanded.has(r.id),
+    });
+    if (expanded.has(r.id)) {
+      r.children.forEach(c => rows.push({ id: c.id, word: c.word, rel: c.rel, order: 2, parent: r.id }));
+    }
+  });
+  // bridge sits at the end of the walk — a node that is itself a relationship
+  rows.push({
+    id: d.bridge.id, word: d.bridge.word, rel: 'bridge', order: 1,
+    isBridge: true, gloss: d.bridge.gloss, farWord: d.bridge.farWord,
+  });
+  return rows;
+}
+
+/* ------------------------------------------------------------------ *
+ * SPATIAL FACE — lay nodes on orbits, draw edges, badges, bridge.    *
+ * ------------------------------------------------------------------ */
+const SVGNS = 'http://www.w3.org/2000/svg';
+const CX = 300, CY = 260;          // centre of constellation
+const R1 = 150, R2 = 230;          // inner / outer orbit radii
+function el(tag, attrs, text) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (text != null) n.textContent = text;
+  return n;
+}
+
+function renderSpatial() {
+  const d = DATA[currentWord];
+  const gOrbits = document.getElementById('orbits');
+  const gEdges = document.getElementById('edges');
+  const gBridges = document.getElementById('bridges');
+  const gNodes = document.getElementById('nodes');
+  const gRing = document.getElementById('ring');
+  [gOrbits, gEdges, gBridges, gNodes, gRing].forEach(g => (g.innerHTML = ''));
+
+  // orbit circles
+  gOrbits.appendChild(el('circle', { class: 'orbit', cx: CX, cy: CY, r: R1 }));
+  gOrbits.appendChild(el('circle', { class: 'orbit', cx: CX, cy: CY, r: R2 }));
+
+  // position map for ring + edges
+  const pos = { __central__: { x: CX, y: CY } };
+
+  // first-order nodes evenly around inner orbit
+  const n = d.relations.length;
+  d.relations.forEach((r, i) => {
+    const ang = (-90 + (360 / n) * i) * Math.PI / 180;
+    const x = CX + R1 * Math.cos(ang), y = CY + R1 * Math.sin(ang);
+    pos[r.id] = { x, y, ang };
+    // edge centre -> node
+    gEdges.appendChild(el('line', { x1: CX, y1: CY, x2: x, y2: y, stroke: 'var(--edge-default)', 'stroke-width': 1.4 }));
+
+    // 2nd-order: if expanded, fan children into the outer arc; else show a count badge
+    if (expanded.has(r.id) && r.children.length) {
+      const spread = 34; // degrees of arc fanned around the parent's angle
+      const baseDeg = -90 + (360 / n) * i;
+      r.children.forEach((c, j) => {
+        const t = r.children.length === 1 ? 0 : (j / (r.children.length - 1) - 0.5);
+        const cAng = (baseDeg + t * spread) * Math.PI / 180;
+        const cx = CX + R2 * Math.cos(cAng), cy = CY + R2 * Math.sin(cAng);
+        pos[c.id] = { x: cx, y: cy };
+        gEdges.appendChild(el('line', { x1: x, y1: y, x2: cx, y2: cy, stroke: 'var(--edge-dim)', 'stroke-width': 1 }));
+        const disc = el('circle', { class: 'node-disc', cx, cy, r: 5, fill: REL_COLOUR[c.rel] || REL_COLOUR.order2, 'fill-opacity': 0.85 });
+        disc.addEventListener('click', () => setCursor(c.id));
+        gNodes.appendChild(disc);
+        const lblX = cx + (Math.cos(cAng) >= 0 ? 9 : -9);
+        const anchor = Math.cos(cAng) >= 0 ? 'start' : 'end';
+        gNodes.appendChild(el('text', { class: 'node-label order2', x: lblX, y: cy + 4, 'text-anchor': anchor }, c.word));
+      });
+    }
+
+    // the first-order node disc
+    const disc = el('circle', { class: 'node-disc', cx: x, cy: y, r: 9, fill: REL_COLOUR[r.rel] });
+    disc.addEventListener('click', () => setCursor(r.id));
+    gNodes.appendChild(disc);
+    const lblX = x + (Math.cos(ang) >= 0 ? 14 : -14);
+    const anchor = Math.cos(ang) >= 0 ? 'start' : 'end';
+    gNodes.appendChild(el('text', { class: 'node-label', x: lblX, y: y + 5, 'text-anchor': anchor }, r.word));
+
+    // count badge for collapsed 2nd-order ring ("+N")
+    if (r.children.length && !expanded.has(r.id)) {
+      const bx = x + (Math.cos(ang) >= 0 ? 14 : -14) , by = y - 14;
+      const bAnchor = Math.cos(ang) >= 0 ? 'start' : 'end';
+      const grp = el('g', {});
+      const badge = el('rect', { class: 'badge-bg', x: bAnchor === 'start' ? bx - 2 : bx - 26, y: by - 12, width: 28, height: 16, rx: 8 });
+      const btxt = el('text', { class: 'badge-txt', x: bAnchor === 'start' ? bx + 12 : bx - 12, y: by, 'text-anchor': 'middle' }, '+' + r.children.length);
+      grp.appendChild(badge); grp.appendChild(btxt);
+      grp.style.cursor = 'pointer';
+      grp.addEventListener('click', () => { toggleExpand(r.id); setCursor(r.id); });
+      gNodes.appendChild(grp);
+    }
+  });
+
+  // central node (drawn last so it sits on top)
+  gNodes.appendChild(el('circle', { cx: CX, cy: CY, r: 26, fill: 'url(#centreGlow)' }));
+  gNodes.appendChild(el('circle', { cx: CX, cy: CY, r: 26, fill: 'none', stroke: 'var(--gold)', 'stroke-opacity': 0.5, 'stroke-width': 1 }));
+  const cName = el('text', { class: 'node-label central-name', x: CX, y: CY + 5, 'text-anchor': 'middle', fill: '#1a1a2e' }, d.central);
+  gNodes.appendChild(cName);
+
+  // BRIDGE — a lozenge sitting off to the side, on an edge to the "far" word
+  const bAng = (-90 + 360 / n * (n - 0.5)) * Math.PI / 180; // tuck between last two relations
+  const bx = CX + (R2 + 18) * Math.cos(bAng), by = CY + (R2 + 18) * Math.sin(bAng);
+  pos[d.bridge.id] = { x: bx, y: by };
+  // dashed link from centre region to the bridge
+  gBridges.appendChild(el('line', { x1: CX, y1: CY, x2: bx, y2: by, stroke: 'var(--bridge)', 'stroke-width': 1.2, 'stroke-dasharray': '5 4', 'stroke-opacity': 0.6 }));
+  const loz = el('rect', { class: 'bridge-lozenge', x: bx - 11, y: by - 11, width: 22, height: 22, rx: 4, fill: 'url(#bridgeGlow)', transform: `rotate(45 ${bx} ${by})` });
+  loz.addEventListener('click', () => setCursor(d.bridge.id));
+  gBridges.appendChild(loz);
+  // far-word node beyond the bridge
+  const fx = CX + (R2 + 70) * Math.cos(bAng), fy = CY + (R2 + 70) * Math.sin(bAng);
+  gBridges.appendChild(el('line', { x1: bx, y1: by, x2: fx, y2: fy, stroke: 'var(--bridge)', 'stroke-width': 1.2, 'stroke-dasharray': '5 4', 'stroke-opacity': 0.45 }));
+  gBridges.appendChild(el('circle', { cx: fx, cy: fy, r: 7, fill: 'var(--bridge)', 'fill-opacity': 0.5, stroke: 'var(--bridge)' }));
+  gBridges.appendChild(el('text', { class: 'node-label order2', x: fx, y: fy - 12, 'text-anchor': 'middle', fill: 'var(--bridge)' }, d.bridge.farWord));
+  // bridge gloss caption
+  gBridges.appendChild(el('text', { class: 'bridge-gloss', x: bx + 16, y: by + 26, 'text-anchor': 'middle' }, '⬦ bridge'));
+
+  // focus ring at the cursor position
+  const p = pos[cursorId] || pos.__central__;
+  const ringR = cursorId === '__central__' ? 32 : (cursorId === d.bridge.id ? 18 : 15);
+  gRing.appendChild(el('circle', { class: 'focus-ring', cx: p.x, cy: p.y, r: ringR }));
+}
+
+/* ------------------------------------------------------------------ *
+ * LINEAR FACE — render the walk list (role=tree, roving tabindex).   *
+ * ------------------------------------------------------------------ */
+function renderList() {
+  const tree = document.getElementById('tree');
+  tree.innerHTML = '';
+  const rows = buildRows();
+  rows.forEach(row => {
+    const li = document.createElement('li');
+    li.setAttribute('role', 'treeitem');
+    if (row.childCount) li.setAttribute('aria-expanded', row.expanded ? 'true' : 'false');
+
+    const div = document.createElement('div');
+    div.className = 'row order' + row.order + (row.isBridge ? ' bridge' : '') + (row.order === 2 ? ' child' : '');
+    if (row.id === cursorId) div.classList.add('cursor');
+    div.tabIndex = row.id === cursorId ? 0 : -1;
+    div.dataset.id = row.id;
+
+    // caret for expandable order-1 nodes
+    const caret = document.createElement('span');
+    caret.className = 'caret';
+    caret.textContent = row.childCount ? (row.expanded ? '▾' : '▸') : (row.order === 2 ? '·' : '');
+    div.appendChild(caret);
+
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.style.color = REL_COLOUR[row.isBridge ? 'bridge' : (row.order === 2 ? row.rel : row.rel)] || REL_COLOUR.order2;
+    if (row.isBridge) { dot.style.borderRadius = '2px'; dot.style.transform = 'rotate(45deg)'; }
+    div.appendChild(dot);
+
+    const word = document.createElement('span');
+    word.className = 'word';
+    word.textContent = row.word;
+    div.appendChild(word);
+
+    const rel = document.createElement('span');
+    rel.className = 'rel';
+    rel.textContent = row.isBridge ? 'bridge' : (row.order === 0 ? 'central' : row.rel);
+    div.appendChild(rel);
+
+    const grow = document.createElement('span'); grow.className = 'grow'; div.appendChild(grow);
+
+    if (row.childCount && !row.expanded) {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = '+' + row.childCount;
+      badge.title = row.childCount + ' second-order relations — press E to reveal';
+      div.appendChild(badge);
+    }
+    if (row.isBridge) {
+      const cross = document.createElement('span');
+      cross.className = 'badge';
+      cross.style.borderColor = 'rgba(181,110,208,0.5)';
+      cross.style.color = 'var(--bridge)';
+      cross.textContent = '⏎ cross';
+      div.appendChild(cross);
+    }
+
+    div.addEventListener('click', () => setCursor(row.id));
+    div.addEventListener('dblclick', () => activate(row.id));
+    li.appendChild(div);
+    tree.appendChild(li);
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * READOUT — the aria-live position sentence.                         *
+ * Same content drives the visible line and the sr-only live region.  *
+ * ------------------------------------------------------------------ */
+function describe() {
+  const d = DATA[currentWord];
+  const rows = buildRows();
+  const idx = rows.findIndex(r => r.id === cursorId);
+  const row = rows[idx];
+  if (!row) return { html: '', text: '' };
+
+  if (row.order === 0) {
+    const n = d.relations.length;
+    return {
+      html: `<span class="where">${row.word}</span> — central node. <span class="next">${n} direct relations, plus 1 bridge. ↓ to walk.</span>`,
+      text: `${row.word}, central node. ${n} direct relations, plus one metaphor bridge. Press down arrow to walk.`,
+    };
+  }
+  if (row.isBridge) {
+    return {
+      html: `<span class="where">${row.word}</span> — bridge · a node that <em>is</em> a relationship. <span class="next">${row.gloss}. ⏎ to cross to “${row.farWord}”.</span>`,
+      text: `${row.word}. Bridge node — a node that is itself a relationship. ${row.gloss}. Press Enter to cross to ${row.farWord}.`,
+    };
+  }
+  // count position-within-its-tier (order 1 among order-1, order 2 among siblings)
+  if (row.order === 1) {
+    const ones = rows.filter(r => r.order === 1 && !r.isBridge);
+    const pos = ones.findIndex(r => r.id === row.id) + 1;
+    const expandHint = row.childCount
+      ? (row.expanded ? `Showing ${row.childCount} further relations — E to collapse.` : `Press E to reveal ${row.childCount} further relations.`)
+      : 'No further relations.';
+    return {
+      html: `<span class="where">${row.word}</span> — ${row.rel}, ${pos} of ${ones.length}. <span class="next">${expandHint}</span>`,
+      text: `${row.word}, ${row.rel}, ${pos} of ${ones.length}. ${expandHint}`,
+    };
+  }
+  // order 2
+  const parent = d.relations.find(r => r.id === row.parent);
+  const sibs = parent ? parent.children : [];
+  const pos = sibs.findIndex(s => s.id === row.id) + 1;
+  return {
+    html: `<span class="where">${row.word}</span> — ${row.rel}, 2nd-order via “${parent ? parent.word : ''}”, ${pos} of ${sibs.length}. <span class="next">↑ back to “${parent ? parent.word : ''}”.</span>`,
+    text: `${row.word}, ${row.rel}, second order, reached via ${parent ? parent.word : ''}, ${pos} of ${sibs.length}.`,
+  };
+}
+
+function announce() {
+  const { html, text } = describe();
+  const ro = document.getElementById('readout');
+  ro.innerHTML = html;
+  // re-set live region so AT re-announces even on identical text
+  const live = document.getElementById('liveReadout');
+  live.textContent = '';
+  // microtask so SRs register the change
+  requestAnimationFrame(() => { live.textContent = text; });
+}
+
+/* ------------------------------------------------------------------ *
+ * CURSOR + ACTIONS                                                   *
+ * ------------------------------------------------------------------ */
+function setCursor(id) {
+  cursorId = id;
+  renderList();
+  renderSpatial();
+  announce();
+  // move keyboard focus to the cursor row so AT lands there
+  const cur = document.querySelector('.row.cursor');
+  if (cur) cur.focus({ preventScroll: false });
+}
+
+function move(delta) {
+  const rows = buildRows();
+  let idx = rows.findIndex(r => r.id === cursorId);
+  if (idx < 0) idx = 0;
+  idx = Math.max(0, Math.min(rows.length - 1, idx + delta));
+  setCursor(rows[idx].id);
+}
+
+function toggleExpand(id) {
+  const d = DATA[currentWord];
+  const rel = d.relations.find(r => r.id === id);
+  if (!rel || !rel.children.length) return;
+  if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
+}
+
+/* E / Expand button: expand-or-collapse the focused order-1 node's 2nd-order ring */
+function expandAtCursor() {
+  const rows = buildRows();
+  const row = rows.find(r => r.id === cursorId);
+  if (!row) return;
+  // if on an order-2 child, collapse its parent instead
+  const targetId = row.order === 2 ? row.parent : row.id;
+  toggleExpand(targetId);
+  cursorId = targetId;
+  renderList(); renderSpatial(); announce();
+  const cur = document.querySelector('.row.cursor'); if (cur) cur.focus();
+}
+
+/* Enter / Select: on a bridge, "cross" it (re-centre on the far word's dataset
+   if we have one; otherwise just flash the gloss). On a normal node, this is
+   where double-click-to-navigate would fire in the real component. */
+function activate(id) {
+  const d = DATA[currentWord];
+  if (id === d.bridge.id) {
+    // demonstrate "crossing": if the far word is a known dataset, re-centre there
+    if (DATA[d.bridge.farWord]) { switchWord(d.bridge.farWord); return; }
+    // else just re-announce with a "crossed" flourish
+    const live = document.getElementById('liveReadout');
+    live.textContent = `Crossed the ${d.bridge.word} bridge toward ${d.bridge.farWord}. (No further neighbourhood loaded in this mock.)`;
+    const ro = document.getElementById('readout');
+    ro.innerHTML = `<span class="where">crossed → ${d.bridge.farWord}</span> <span class="next">via ${d.bridge.word}. In the real app this re-centres the graph on “${d.bridge.farWord}”.</span>`;
+    return;
+  }
+  // normal node: in the real component this dispatches mf-node-navigate (re-centre)
+  const ro = document.getElementById('readout');
+  const row = buildRows().find(r => r.id === id);
+  if (row) ro.innerHTML = `<span class="where">${row.word}</span> <span class="next">— selected. In the real app, double-tap re-centres the graph on this word.</span>`;
+}
+
+/* ------------------------------------------------------------------ *
+ * WORD SWITCHER                                                      *
+ * ------------------------------------------------------------------ */
+function switchWord(word) {
+  if (!DATA[word]) return;
+  currentWord = word;
+  expanded.clear();
+  cursorId = '__central__';
+  document.querySelectorAll('.switcher button').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.word === word)));
+  renderList(); renderSpatial(); announce();
+}
+
+/* ------------------------------------------------------------------ *
+ * WIRING                                                             *
+ * ------------------------------------------------------------------ */
+document.querySelectorAll('.switcher button').forEach(b =>
+  b.addEventListener('click', () => switchWord(b.dataset.word)));
+
+document.getElementById('btnNext').addEventListener('click', () => move(1));
+document.getElementById('btnPrev').addEventListener('click', () => move(-1));
+document.getElementById('btnExpand').addEventListener('click', expandAtCursor);
+document.getElementById('btnEnter').addEventListener('click', () => activate(cursorId));
+document.getElementById('btnHome').addEventListener('click', () => setCursor('__central__'));
+
+document.addEventListener('keydown', (e) => {
+  // only when focus is in the walk list / controls area
+  if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+  else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); expandAtCursor(); }
+  else if (e.key === 'Enter') { e.preventDefault(); activate(cursorId); }
+  else if (e.key === 'Home') { e.preventDefault(); setCursor('__central__'); }
+});
+
+/* initial paint */
+renderList();
+renderSpatial();
+announce();
+</script>
+</body>
+</html>

@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Forge · Metaforge prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,500;0,700;1,500&display=swap" rel="stylesheet" />
+<style>
+  /* ---- tokens mirrored from web/src/styles/tokens.css ---- */
+  :root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-hud: rgba(22, 33, 62, 0.6);
+    --text-primary: #e8e0d4;
+    --text-secondary: #a89f94;
+    --text-muted: #6b6560;
+    --gold: #d4af37;
+    --gold-dim: rgba(212, 175, 55, 0.5);
+    --copper: #c4956a;       /* node-synonym — the vehicle / blend colour */
+    --copper-dim: rgba(196, 149, 106, 0.5);
+    --violet: #7a6a8b;       /* node-similar */
+    --amber: #d98a3d;
+    --amber-dim: rgba(217, 138, 61, 0.45);
+    --dead: #8a5a5a;
+    --edge-default: rgba(232, 224, 212, 0.15);
+    --font-heading: 'Playfair Display', Georgia, serif;
+    --font-body: 'Crimson Text', 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(122, 106, 139, 0.18), transparent 70%),
+      radial-gradient(ellipse 60% 40% at 90% 110%, rgba(212, 175, 55, 0.08), transparent 70%),
+      var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 18px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* faint starfield */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, rgba(232,224,212,0.5), transparent),
+      radial-gradient(1px 1px at 70% 20%, rgba(232,224,212,0.35), transparent),
+      radial-gradient(1px 1px at 40% 70%, rgba(232,224,212,0.4), transparent),
+      radial-gradient(1px 1px at 85% 60%, rgba(232,224,212,0.3), transparent),
+      radial-gradient(1px 1px at 55% 45%, rgba(212,175,55,0.4), transparent),
+      radial-gradient(1px 1px at 12% 80%, rgba(232,224,212,0.3), transparent),
+      radial-gradient(1.4px 1.4px at 90% 35%, rgba(196,149,106,0.35), transparent);
+    background-repeat: no-repeat;
+    opacity: 0.7;
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 2.4rem 1.5rem 4rem; }
+
+  header.brand { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.25rem; }
+  header.brand .mark {
+    font-family: var(--font-heading); font-weight: 700; font-size: 1.05rem;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold);
+  }
+  header.brand .mark::before { content: "✦ "; color: var(--gold-dim); }
+  header.brand .crumb { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.15em; color: var(--text-muted); text-transform: uppercase; }
+
+  h1 {
+    font-family: var(--font-heading); font-weight: 700; font-size: 2.5rem;
+    margin: 0.4rem 0 0.2rem; letter-spacing: 0.01em;
+  }
+  .tagline { color: var(--text-secondary); font-size: 1.1rem; max-width: 48rem; margin: 0 0 0.3rem; }
+  .tagline em { color: var(--text-primary); font-style: italic; }
+  .dual { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 1.8rem; }
+  .dual b { color: var(--gold-dim); font-weight: 500; }
+
+  /* ---------- two-column layout ---------- */
+  .console { display: grid; grid-template-columns: 22rem 1fr; gap: 1.5rem; align-items: start; }
+  @media (max-width: 880px) { .console { grid-template-columns: 1fr; } }
+
+  /* ===== LEFT: the bench ===== */
+  .bench {
+    background: var(--bg-hud);
+    border: 1px solid rgba(212, 175, 55, 0.22);
+    border-radius: 6px;
+    padding: 1.35rem 1.35rem 1.5rem;
+    backdrop-filter: blur(3px);
+    box-shadow: 0 14px 40px -24px rgba(0,0,0,0.85), inset 0 1px 0 rgba(232,224,212,0.04);
+    position: sticky; top: 1.5rem;
+  }
+  .bench-title { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 1rem; }
+
+  .field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.9rem; }
+  .field label { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-muted); display: flex; justify-content: space-between; align-items: baseline; }
+  .field label .toggle { cursor: pointer; color: var(--copper-dim); letter-spacing: 0.08em; }
+  .field label .toggle:hover { color: var(--copper); }
+  .field input {
+    background: rgba(26, 26, 46, 0.7);
+    border: 1px solid rgba(232, 224, 212, 0.14);
+    border-radius: 4px; color: var(--text-primary);
+    font-family: var(--font-heading); font-size: 1.4rem; font-weight: 500;
+    padding: 0.5rem 0.75rem; transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .field input:focus { outline: none; border-color: var(--gold-dim); box-shadow: 0 0 0 1px var(--gold-dim), 0 0 22px -6px rgba(212,175,55,0.4); }
+  .field.topic input { color: var(--gold); }
+  .field.blend input { color: var(--copper); }
+  .field.blend.off input { opacity: 0.35; }
+  .field.blend.off { opacity: 0.7; }
+
+  .knobs { margin: 1.1rem 0 1.2rem; border-top: 1px solid rgba(232,224,212,0.08); padding-top: 1rem; }
+  .knob { margin-bottom: 0.95rem; }
+  .knob-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.3rem; }
+  .knob-name { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-secondary); }
+  .knob-read { font-family: var(--font-body); font-style: italic; font-size: 0.95rem; color: var(--gold); transition: color 0.2s; }
+  .knob input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 3px; border-radius: 3px;
+    background: linear-gradient(90deg, rgba(232,224,212,0.1), rgba(212,175,55,0.35));
+    outline: none; cursor: pointer; margin: 0.15rem 0 0.25rem;
+  }
+  .knob input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 15px; height: 15px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, var(--gold), #b48e28);
+    border: 1px solid rgba(26,26,46,0.6); box-shadow: 0 0 10px -1px rgba(212,175,55,0.7); cursor: grab;
+  }
+  .knob input[type=range]::-moz-range-thumb {
+    width: 15px; height: 15px; border-radius: 50%; border: 1px solid rgba(26,26,46,0.6);
+    background: var(--gold); box-shadow: 0 0 10px -1px rgba(212,175,55,0.7); cursor: grab;
+  }
+  .knob-poles { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.55rem; letter-spacing: 0.05em; color: var(--text-muted); }
+
+  .forge-btn {
+    width: 100%;
+    background: linear-gradient(180deg, rgba(212,175,55,0.95), rgba(180,142,40,0.95));
+    color: #1a1a2e; border: none; border-radius: 4px;
+    font-family: var(--font-mono); font-size: 0.82rem; font-weight: 500; letter-spacing: 0.18em;
+    text-transform: uppercase; padding: 0.8rem 1rem; cursor: pointer;
+    box-shadow: 0 8px 22px -10px rgba(212,175,55,0.7);
+    transition: transform 0.12s, box-shadow 0.18s; margin-top: 0.3rem;
+  }
+  .forge-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -10px rgba(212,175,55,0.85); }
+  .forge-btn:active { transform: translateY(0); }
+  .forge-btn::before { content: "⚒  "; }
+  .gate-note { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.04em; color: var(--text-muted); text-align: center; margin-top: 0.75rem; line-height: 1.6; }
+  .gate-note b { color: var(--violet); font-weight: 500; }
+
+  /* example chips */
+  .examples { margin-top: 1.1rem; border-top: 1px solid rgba(232,224,212,0.08); padding-top: 0.9rem; }
+  .examples .pre { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 0.5rem; }
+  .ex-chip {
+    display: inline-block; background: rgba(122, 106, 139, 0.16);
+    border: 1px solid rgba(232, 224, 212, 0.16); border-radius: 999px;
+    color: var(--text-secondary); font-family: var(--font-body); font-size: 0.86rem;
+    padding: 0.22rem 0.75rem; margin: 0 0.35rem 0.4rem 0; cursor: pointer; transition: all 0.18s;
+  }
+  .ex-chip:hover { border-color: var(--gold-dim); color: var(--text-primary); background: rgba(212, 175, 55, 0.1); }
+  .ex-chip .x { color: var(--copper-dim); margin: 0 0.25rem; }
+
+  /* ===== RIGHT: candidate column ===== */
+  .results-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.9rem; flex-wrap: wrap; gap: 0.5rem; }
+  .results-head .req {
+    font-family: var(--font-heading); font-size: 1.5rem; font-weight: 500;
+  }
+  .results-head .req .topic { color: var(--gold); }
+  .results-head .req .blend { color: var(--copper); font-size: 1.15rem; font-style: italic; }
+  .results-head .req .x { color: var(--text-muted); margin: 0 0.4rem; font-size: 1rem; }
+  .results-head .count { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.1em; color: var(--text-muted); text-transform: uppercase; }
+
+  .cards { display: flex; flex-direction: column; gap: 0.85rem; }
+
+  .card {
+    background: linear-gradient(180deg, rgba(22,33,62,0.55), rgba(22,33,62,0.32));
+    border: 1px solid rgba(232,224,212,0.1); border-left: 3px solid var(--gold-dim);
+    border-radius: 5px; padding: 1rem 1.1rem 0.9rem;
+    box-shadow: 0 10px 26px -20px rgba(0,0,0,0.9);
+    opacity: 0; transform: translateY(10px);
+    transition: opacity 0.45s ease, transform 0.45s ease, border-color 0.2s, box-shadow 0.2s, max-height 0.4s ease;
+    position: relative; overflow: hidden;
+  }
+  .card.shown { opacity: 1; transform: translateY(0); }
+  .card:hover { border-color: rgba(212,175,55,0.3); box-shadow: 0 14px 30px -18px rgba(0,0,0,0.95); }
+  .card.kept { border-left-color: var(--gold); background: linear-gradient(180deg, rgba(212,175,55,0.1), rgba(22,33,62,0.3)); }
+  .card.dismissed { opacity: 0; transform: translateY(-6px); max-height: 0 !important; padding-top: 0; padding-bottom: 0; margin: 0; border-width: 0; pointer-events: none; }
+  .card.tier-ironic { border-left-color: var(--violet); }
+  .card.tier-complex { border-left-color: var(--amber); }
+
+  .card .image {
+    font-family: var(--font-heading); font-size: 1.45rem; font-weight: 500;
+    line-height: 1.25; display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.1rem;
+  }
+  .card .image .t { color: var(--text-secondary); }
+  .card .image .arrow { color: var(--gold-dim); margin: 0 0.45rem; font-size: 1.1rem; }
+  .card .image .v { color: var(--copper); }
+  .card .image .prov { font-family: var(--font-mono); font-size: 0.62rem; color: var(--text-muted); letter-spacing: 0.04em; margin-left: 0.55rem; font-weight: 400; }
+  .card .image .prov .b { color: var(--copper-dim); }
+
+  .card .read {
+    font-family: var(--font-body); font-style: italic; color: var(--text-primary);
+    font-size: 1.04rem; margin: 0.4rem 0 0.7rem; opacity: 0.92;
+  }
+  .card .read::before { content: "“"; color: var(--gold-dim); }
+  .card .read::after { content: "”"; color: var(--gold-dim); }
+
+  .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+  .meta { display: flex; align-items: center; gap: 0.7rem; }
+  .tier {
+    font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.16em; text-transform: uppercase;
+    padding: 0.2rem 0.55rem; border-radius: 3px; border: 1px solid currentColor; color: var(--gold);
+  }
+  .tier.ironic { color: var(--violet); }
+  .tier.complex { color: var(--amber); }
+  .tier.strong { color: var(--copper); }
+  .aptness { display: flex; align-items: center; gap: 0.4rem; }
+  .aptness .bar { width: 78px; height: 5px; border-radius: 3px; background: rgba(232,224,212,0.08); overflow: hidden; }
+  .aptness .bar .fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--gold-dim), var(--gold)); }
+  .aptness .lbl { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.06em; color: var(--text-muted); }
+
+  .actions { display: flex; gap: 0.4rem; }
+  .act {
+    font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.06em;
+    border: 1px solid rgba(232,224,212,0.16); background: rgba(26,26,46,0.5);
+    color: var(--text-secondary); border-radius: 4px; padding: 0.32rem 0.6rem; cursor: pointer;
+    transition: all 0.16s; display: inline-flex; align-items: center; gap: 0.3rem;
+  }
+  .act:hover { color: var(--text-primary); }
+  .act.keep:hover { border-color: var(--gold-dim); background: rgba(212,175,55,0.12); color: var(--gold); }
+  .act.refine:hover { border-color: var(--violet); background: rgba(122,106,139,0.18); color: var(--text-primary); }
+  .act.dismiss:hover { border-color: var(--dead); color: #c98a8a; }
+  .card.kept .act.keep { border-color: var(--gold); background: rgba(212,175,55,0.18); color: var(--gold); }
+
+  .reforge-flash { animation: flash 0.5s ease; }
+  @keyframes flash { 0% { box-shadow: 0 0 0 1px var(--violet), 0 0 30px -6px rgba(122,106,139,0.7); } 100% { box-shadow: none; } }
+
+  /* ===== Kept rail ===== */
+  .rail {
+    margin-top: 1.8rem; background: var(--bg-hud); border: 1px solid rgba(212,175,55,0.2);
+    border-radius: 6px; padding: 1rem 1.2rem 1.1rem; backdrop-filter: blur(3px);
+  }
+  .rail-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.7rem; flex-wrap: wrap; gap: 0.4rem; }
+  .rail-head .ttl { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-secondary); }
+  .rail-head .ttl b { color: var(--gold); }
+  .rail-head .teach { font-family: var(--font-body); font-style: italic; font-size: 0.92rem; color: var(--text-muted); }
+  .rail-head .teach b { color: var(--gold-dim); font-style: normal; font-weight: 500; }
+  .rail-items { display: flex; gap: 0.6rem; flex-wrap: wrap; min-height: 2.2rem; align-items: center; }
+  .rail-empty { font-family: var(--font-body); font-style: italic; color: var(--text-muted); font-size: 0.95rem; }
+  .token {
+    font-family: var(--font-heading); font-size: 1rem; font-weight: 500;
+    background: rgba(212,175,55,0.08); border: 1px solid var(--gold-dim); border-radius: 4px;
+    padding: 0.3rem 0.7rem; display: inline-flex; align-items: center; gap: 0.3rem;
+    animation: pop 0.35s cubic-bezier(.2,.9,.3,1.2);
+  }
+  .token .t { color: var(--text-secondary); }
+  .token .arr { color: var(--gold-dim); }
+  .token .v { color: var(--copper); }
+  .token .copy { font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); cursor: pointer; margin-left: 0.3rem; padding-left: 0.4rem; border-left: 1px solid rgba(232,224,212,0.12); }
+  .token .copy:hover { color: var(--gold); }
+  @keyframes pop { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  /* toast */
+  .toast {
+    position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: rgba(22,33,62,0.95); border: 1px solid var(--gold-dim); border-radius: 4px;
+    color: var(--text-primary); font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.04em;
+    padding: 0.6rem 1.1rem; opacity: 0; transition: opacity 0.25s, transform 0.25s; z-index: 50;
+    box-shadow: 0 12px 30px -12px rgba(0,0,0,0.9);
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  footer.note { margin-top: 2.4rem; font-family: var(--font-mono); font-size: 0.64rem; color: var(--text-muted); letter-spacing: 0.04em; line-height: 1.85; }
+  footer.note b { color: var(--gold-dim); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="brand">
+    <span class="mark">Metaforge</span>
+    <span class="crumb">prototype · the forge</span>
+  </header>
+  <h1>The Forge</h1>
+  <p class="tagline">Not a list to look something up in — an <em>instrument you play</em>. Name a topic, fold in a second, set the mood, and forge images that are yours for this session alone.</p>
+  <p class="dual"><b>forge, not index</b> — metaphors are positional goods; a published list rusts to cliché. The Forge <b>generates</b>, session-conditioned, behind a taste-gate.</p>
+
+  <div class="console">
+    <!-- ===== LEFT: the bench ===== -->
+    <aside class="bench">
+      <div class="bench-title">⚒ the bench</div>
+
+      <div class="field topic">
+        <label>Topic</label>
+        <input id="topic" value="grief" spellcheck="false" autocomplete="off" />
+      </div>
+
+      <div class="field blend off" id="blendField">
+        <label>Blend <span class="toggle" id="blendToggle">+ fold in a second</span></label>
+        <input id="blend" value="" placeholder="—" spellcheck="false" autocomplete="off" />
+      </div>
+
+      <div class="knobs">
+        <div class="knob" data-knob="register" data-low="plain" data-high="ornate">
+          <div class="knob-head"><span class="knob-name">Register</span><span class="knob-read">spare</span></div>
+          <input type="range" min="0" max="100" value="30" />
+          <div class="knob-poles"><span>plain</span><span>ornate</span></div>
+        </div>
+        <div class="knob" data-knob="concreteness" data-low="abstract" data-high="tactile">
+          <div class="knob-head"><span class="knob-name">Concreteness</span><span class="knob-read">tactile</span></div>
+          <input type="range" min="0" max="100" value="72" />
+          <div class="knob-poles"><span>abstract</span><span>tactile</span></div>
+        </div>
+        <div class="knob" data-knob="surprise" data-low="expected" data-high="uncanny">
+          <div class="knob-head"><span class="knob-name">Surprise</span><span class="knob-read">apt</span></div>
+          <input type="range" min="0" max="100" value="48" />
+          <div class="knob-poles"><span>expected</span><span>uncanny</span></div>
+        </div>
+        <div class="knob" data-knob="darkness" data-low="luminous" data-high="shadowed">
+          <div class="knob-head"><span class="knob-name">Darkness</span><span class="knob-read">shadowed</span></div>
+          <input type="range" min="0" max="100" value="68" />
+          <div class="knob-poles"><span>luminous</span><span>shadowed</span></div>
+        </div>
+      </div>
+
+      <button class="forge-btn" id="forgeBtn">Forge</button>
+      <div class="gate-note">the <b>taste-judge</b> gated <span id="gatedN">7</span> dimmer candidates below the line</div>
+
+      <div class="examples">
+        <span class="pre">try a request</span>
+        <span class="ex-chip" data-ex="grief||shadowed">grief</span>
+        <span class="ex-chip" data-ex="grief|tide|shadowed">grief <span class="x">×</span> tide</span>
+        <span class="ex-chip" data-ex="the city|a wound|uncanny">the city <span class="x">×</span> a wound</span>
+      </div>
+    </aside>
+
+    <!-- ===== RIGHT: candidate column ===== -->
+    <section class="stack">
+      <div class="results-head">
+        <div class="req" id="reqLabel"><span class="topic">grief</span></div>
+        <div class="count" id="countLabel">5 images forged</div>
+      </div>
+      <div class="cards" id="cards"></div>
+    </section>
+  </div>
+
+  <!-- ===== Kept rail ===== -->
+  <div class="rail">
+    <div class="rail-head">
+      <span class="ttl">Kept this session <b id="keptCount">· 0</b></span>
+      <span class="teach">your kept set stays yours — it quietly <b>teaches the Forge your taste</b></span>
+    </div>
+    <div class="rail-items" id="rail"><span class="rail-empty">keep an image and it lands here — copy it straight into a draft</span></div>
+  </div>
+
+  <footer class="note">
+    <b>mock data.</b> The real Forge calls the cascade <b>/forge/suggest</b> (api/internal/handler · forge.Match); the image = <b>Word</b>, the tier ribbon = <b>forge.Tier</b> (legendary/complex/ironic/strong). <b>Blend</b> + the four <b>knobs</b> are proposed new request params for a session-conditioned generator. The <b>one-line read</b> is the Forge Reader's voice (today: a placeholder over SharedProperties). Each <b>Keep</b> is a candidate <b>metaphor_bridges</b> edge — supervision the judge learns from, never a list it serves. Palette + type from <b>web/src/styles/tokens.css</b>.
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const cardsEl = $("#cards");
+  const railEl = $("#rail");
+
+  // ---- mock candidate sets -------------------------------------------------
+  // keyed by request signature; knob "mood" (darkness/surprise read-out) selects a variant
+  // so turning a knob visibly reshapes — not just re-sorts — the column.
+  const DATA = {
+    "grief": {
+      shadowed: [
+        { t: "grief", v: "a house with the power cut", read: "you keep reaching for the switch that used to work", tier: "strong", apt: 0.74 },
+        { t: "grief", v: "ash still warm", read: "the shape of the fire is gone but the heat won't let your hand close", tier: "legendary", apt: 0.91 },
+        { t: "grief", v: "a phantom limb", read: "the body files a report for a wing it no longer has", tier: "complex", apt: 0.83 },
+        { t: "grief", v: "low tide that never turns", read: "everything that floated you has gone out and stayed out", tier: "strong", apt: 0.7 },
+        { t: "grief", v: "a key to a sold house", read: "you carry it because your pocket refuses the news", tier: "ironic", apt: 0.66 },
+      ],
+      luminous: [
+        { t: "grief", v: "a candle burned to the holder", read: "it gave all its light and left you the warm brass", tier: "strong", apt: 0.72 },
+        { t: "grief", v: "an empty swing still moving", read: "the air keeps a place for the weight that left it", tier: "legendary", apt: 0.88 },
+        { t: "grief", v: "morning in a closed shop", read: "the light comes in for no one who is coming", tier: "complex", apt: 0.78 },
+        { t: "grief", v: "a song you can't unhear", read: "the melody outlives the radio it arrived on", tier: "strong", apt: 0.69 },
+        { t: "grief", v: "dew on a stranger's car", read: "the night left its tears on the nearest cold thing", tier: "ironic", apt: 0.61 },
+      ],
+    },
+    "grief|tide": {
+      shadowed: [
+        { t: "grief", v: "undertow", read: "the pull that takes you out past your depth without a sound", tier: "legendary", apt: 0.93, prov: "tide" },
+        { t: "grief", v: "a drowned bell", read: "it still rings down there, just slow and full of water", tier: "complex", apt: 0.85, prov: "tide" },
+        { t: "grief", v: "the line of wrack on the sand", read: "it leaves a tidemark to show how high it once came", tier: "strong", apt: 0.79, prov: "tide" },
+        { t: "grief", v: "a harbour at slack water", read: "no current either way, just the weight of all that water waiting", tier: "strong", apt: 0.73, prov: "tide" },
+        { t: "grief", v: "salt left in the boards", read: "the sea withdrew and seasoned the wood with itself", tier: "ironic", apt: 0.67, prov: "tide" },
+      ],
+      luminous: [
+        { t: "grief", v: "a returning tide", read: "what went out comes back, just never on the day you ask", tier: "strong", apt: 0.76, prov: "tide" },
+        { t: "grief", v: "moon-pull on still water", read: "something far and cold keeps lifting the whole of you", tier: "legendary", apt: 0.86, prov: "tide" },
+        { t: "grief", v: "a shell held to the ear", read: "you keep the small roar of an ocean that has left", tier: "complex", apt: 0.8, prov: "tide" },
+        { t: "grief", v: "tidepool at noon", read: "a bright cup of the sea, going warm and small and alone", tier: "strong", apt: 0.71, prov: "tide" },
+        { t: "grief", v: "foam on the last wave", read: "the brilliance is only the water giving itself up", tier: "ironic", apt: 0.63, prov: "tide" },
+      ],
+    },
+    "the city|a wound": {
+      uncanny: [
+        { t: "the city", v: "a wound that won't scar over", read: "every new building is proud flesh on the same old cut", tier: "legendary", apt: 0.9, prov: "a wound" },
+        { t: "the city", v: "stitches pulling loose at night", read: "the bridges strain to hold two torn edges together", tier: "complex", apt: 0.84, prov: "a wound" },
+        { t: "the city", v: "a scab picked by the river", read: "the water keeps worrying the same raw seam of bank", tier: "strong", apt: 0.77, prov: "a wound" },
+        { t: "the city", v: "infection under neon", read: "the bright signs are the fever the streets run all night", tier: "ironic", apt: 0.72, prov: "a wound" },
+        { t: "the city", v: "an old graft taking", read: "the new district knits, pink and tight, to the burnt grid", tier: "strong", apt: 0.68, prov: "a wound" },
+      ],
+      apt: [
+        { t: "the city", v: "a healed-over wound", read: "the motorway is the white seam where the old district was cut away", tier: "strong", apt: 0.81, prov: "a wound" },
+        { t: "the city", v: "a bruise seen from above", read: "from the plane the suburbs spread like a slow yellow-green ache", tier: "legendary", apt: 0.85, prov: "a wound" },
+        { t: "the city", v: "a cut that learned to drain", read: "the canals carry off what the streets can no longer hold", tier: "complex", apt: 0.78, prov: "a wound" },
+        { t: "the city", v: "a callus on the plain", read: "hard skin grown thick where the world kept rubbing", tier: "strong", apt: 0.7, prov: "a wound" },
+        { t: "the city", v: "a sutured horizon", read: "the skyline's a row of stitches against the dark", tier: "ironic", apt: 0.64, prov: "a wound" },
+      ],
+    },
+  };
+
+  // ---- state ---------------------------------------------------------------
+  let dismissed = new Set();   // by image string, within current render
+  let revealTimers = [];
+
+  function sig() {
+    const topic = $("#topic").value.trim().toLowerCase();
+    const blend = blendOn ? $("#blend").value.trim().toLowerCase() : "";
+    return blend ? topic + "|" + blend : topic;
+  }
+  // which mood variant the knobs currently select
+  function moodKey(variants) {
+    const dark = +document.querySelector('[data-knob=darkness] input').value;
+    const surp = +document.querySelector('[data-knob=surprise] input').value;
+    if (variants.uncanny || variants.apt) return surp >= 60 ? "uncanny" : "apt";
+    return dark >= 50 ? "shadowed" : "luminous";
+  }
+
+  // ---- knob read-outs ------------------------------------------------------
+  const KNOB_WORDS = {
+    register:     [["spare", 0], ["plain", 25], ["measured", 50], ["wrought", 72], ["ornate", 100]],
+    concreteness: [["abstract", 0], ["conceptual", 25], ["sensory", 50], ["tactile", 72], ["visceral", 100]],
+    surprise:     [["expected", 0], ["apt", 35], ["fresh", 55], ["uncanny", 78], ["vertiginous", 100]],
+    darkness:     [["luminous", 0], ["bright", 25], ["dusky", 50], ["shadowed", 70], ["abyssal", 100]],
+  };
+  function readWord(knob, v) {
+    const table = KNOB_WORDS[knob];
+    let word = table[0][0];
+    for (const [w, thr] of table) { if (v >= thr) word = w; }
+    return word;
+  }
+  function updateKnobReads() {
+    document.querySelectorAll(".knob").forEach((k) => {
+      const name = k.dataset.knob;
+      const v = +k.querySelector("input").value;
+      k.querySelector(".knob-read").textContent = readWord(name, v);
+    });
+  }
+
+  // ---- blend toggle --------------------------------------------------------
+  let blendOn = false;
+  function setBlend(on, value) {
+    blendOn = on;
+    const f = $("#blendField");
+    f.classList.toggle("off", !on);
+    $("#blendToggle").textContent = on ? "× remove" : "+ fold in a second";
+    if (value !== undefined) $("#blend").value = value;
+    if (!on) $("#blend").value = "";
+  }
+  $("#blendToggle").addEventListener("click", () => {
+    setBlend(!blendOn, blendOn ? "" : ($("#blend").value || "tide"));
+    render();
+  });
+
+  // ---- render --------------------------------------------------------------
+  function buildImage(c) {
+    const prov = c.prov ? ` <span class="prov">·<span class="b"> ×${c.prov}</span></span>` : "";
+    return `<span class="t">${c.t}</span><span class="arrow">→</span><span class="v">${c.v}</span>${prov}`;
+  }
+
+  function render(flashIdx) {
+    revealTimers.forEach(clearTimeout); revealTimers = [];
+    cardsEl.innerHTML = "";
+
+    const key = sig();
+    const set = DATA[key];
+
+    // request label
+    const topic = $("#topic").value.trim();
+    const blend = blendOn ? $("#blend").value.trim() : "";
+    $("#reqLabel").innerHTML = `<span class="topic">${topic || "—"}</span>` +
+      (blend ? `<span class="x">×</span><span class="blend">${blend}</span>` : "");
+
+    if (!set) {
+      $("#countLabel").textContent = "no mock for this request";
+      cardsEl.innerHTML = `<div class="card shown" style="border-left-color:var(--dead)"><div class="image"><span class="t">${topic||"—"}</span><span class="arrow">→</span><span class="v" style="color:var(--text-muted);font-style:italic">?</span></div><div class="read" style="color:var(--text-muted)">try one of the worked requests on the bench — grief, grief × tide, the city × a wound</div></div>`;
+      return;
+    }
+
+    const mood = moodKey(set);
+    const cands = (set[mood] || Object.values(set)[0]).filter((c) => !dismissed.has(c.t + "→" + c.v));
+    $("#countLabel").textContent = cands.length + " images forged · mood: " + mood;
+    $("#gatedN").textContent = 4 + Math.floor(Math.random() * 6);
+
+    cands.forEach((c, i) => {
+      const el = document.createElement("div");
+      el.className = "card tier-" + c.tier;
+      el.style.maxHeight = "300px";
+      el.dataset.img = c.t + "→" + c.v;
+      el.innerHTML = `
+        <div class="image">${buildImage(c)}</div>
+        <div class="read">${c.read}</div>
+        <div class="card-foot">
+          <div class="meta">
+            <span class="tier ${c.tier}">${c.tier}</span>
+            <span class="aptness"><span class="bar"><span class="fill" style="width:${Math.round(c.apt*100)}%"></span></span><span class="lbl">apt ${c.apt.toFixed(2)}</span></span>
+          </div>
+          <div class="actions">
+            <button class="act keep">✓ keep</button>
+            <button class="act refine">↻ more like this</button>
+            <button class="act dismiss">✕</button>
+          </div>
+        </div>`;
+      cardsEl.appendChild(el);
+
+      el.querySelector(".keep").addEventListener("click", () => keep(c, el));
+      el.querySelector(".dismiss").addEventListener("click", () => {
+        dismissed.add(c.t + "→" + c.v);
+        el.classList.add("dismissed");
+        toast("Dismissed — slot freed");
+      });
+      el.querySelector(".refine").addEventListener("click", () => refine(c));
+
+      revealTimers.push(setTimeout(() => el.classList.add("shown"), 80 + i * 110));
+      if (flashIdx === i) revealTimers.push(setTimeout(() => el.classList.add("reforge-flash"), 80 + i * 110));
+    });
+  }
+
+  // ---- keep / rail ---------------------------------------------------------
+  const kept = [];
+  function keep(c, el) {
+    if (el) el.classList.add("kept");
+    const id = c.t + "→" + c.v;
+    if (kept.includes(id)) return;
+    kept.push(id);
+
+    if (railEl.querySelector(".rail-empty")) railEl.innerHTML = "";
+    const tok = document.createElement("span");
+    tok.className = "token";
+    tok.innerHTML = `<span class="t">${c.t}</span><span class="arr">→</span><span class="v">${c.v}</span><span class="copy">copy</span>`;
+    tok.querySelector(".copy").addEventListener("click", () => toast(`Copied "${c.t} → ${c.v}" to clipboard (mock)`));
+    railEl.appendChild(tok);
+    $("#keptCount").textContent = "· " + kept.length;
+    toast("Kept — teaching the Forge your taste");
+  }
+
+  // ---- refine: nudge knobs toward this card's character, re-forge ----------
+  function refine(c) {
+    // "more like this" = pull surprise/darkness toward the card's tier character
+    const surpKnob = document.querySelector('[data-knob=surprise] input');
+    const darkKnob = document.querySelector('[data-knob=darkness] input');
+    if (c.tier === "ironic" || c.tier === "complex") surpKnob.value = Math.min(100, +surpKnob.value + 18);
+    if (c.tier === "legendary") darkKnob.value = Math.min(100, +darkKnob.value + 12);
+    updateKnobReads();
+    toast(`Refining around "${c.v}" — re-forging`);
+    render();
+  }
+
+  // ---- toast ---------------------------------------------------------------
+  let toastTimer;
+  function toast(msg) {
+    const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 1900);
+  }
+
+  // ---- wiring --------------------------------------------------------------
+  $("#forgeBtn").addEventListener("click", () => { dismissed = new Set(); render(); });
+  $("#topic").addEventListener("keydown", (e) => { if (e.key === "Enter") { dismissed = new Set(); render(); } });
+  $("#blend").addEventListener("keydown", (e) => { if (e.key === "Enter") { dismissed = new Set(); render(); } });
+
+  document.querySelectorAll(".knob input").forEach((inp) => {
+    inp.addEventListener("input", () => { updateKnobReads(); });
+    inp.addEventListener("change", () => { render(); });   // re-forge when the writer settles a knob
+  });
+
+  document.querySelectorAll(".ex-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const [t, b, mood] = chip.dataset.ex.split("|");
+      $("#topic").value = t;
+      setBlend(!!b, b || "");
+      // set darkness/surprise to land on the named mood variant
+      const darkKnob = document.querySelector('[data-knob=darkness] input');
+      const surpKnob = document.querySelector('[data-knob=surprise] input');
+      if (mood === "luminous") darkKnob.value = 25;
+      else if (mood === "shadowed") darkKnob.value = 70;
+      else if (mood === "uncanny") surpKnob.value = 80;
+      else if (mood === "apt") surpKnob.value = 35;
+      updateKnobReads();
+      dismissed = new Set();
+      render();
+    });
+  });
+
+  // ---- init ----------------------------------------------------------------
+  updateKnobReads();
+  render();   // default request on load so the screenshot shows a full column
+})();
+</script>
+</body>
+</html>

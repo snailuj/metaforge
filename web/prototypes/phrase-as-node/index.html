@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phrase-as-Node · Metaforge prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,500;0,700;1,500&display=swap" rel="stylesheet" />
+<style>
+  /* ---- tokens mirrored from web/src/styles/tokens.css ---- */
+  :root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-hud: rgba(22, 33, 62, 0.6);
+    --text-primary: #e8e0d4;
+    --text-secondary: #a89f94;
+    --text-muted: #6b6560;
+    --gold: #d4af37;
+    --gold-dim: rgba(212, 175, 55, 0.5);
+    --node-synonym: #c4956a;
+    --node-similar: #7a6a8b;     /* amethyst — used for vec: phrase nodes */
+    --node-hyponym: #6a8b6f;
+    --edge-default: rgba(232, 224, 212, 0.15);
+    --edge-highlight: rgba(212, 175, 55, 0.4);
+    --amber: #d98a3d;
+    --amber-dim: rgba(217, 138, 61, 0.45);
+    --dead: #8a5a5a;
+    --live: #6db86d;
+    --amethyst: #9d86c4;
+    --amethyst-dim: rgba(157, 134, 196, 0.5);
+    --font-heading: 'Playfair Display', Georgia, serif;
+    --font-body: 'Crimson Text', 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(122, 106, 139, 0.20), transparent 70%),
+      radial-gradient(ellipse 60% 40% at 88% 112%, rgba(212, 175, 55, 0.08), transparent 70%),
+      var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* faint starfield */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, rgba(232,224,212,0.5), transparent),
+      radial-gradient(1px 1px at 70% 20%, rgba(232,224,212,0.35), transparent),
+      radial-gradient(1px 1px at 40% 70%, rgba(232,224,212,0.4), transparent),
+      radial-gradient(1px 1px at 85% 60%, rgba(232,224,212,0.3), transparent),
+      radial-gradient(1px 1px at 55% 45%, rgba(212,175,55,0.4), transparent),
+      radial-gradient(1px 1px at 12% 80%, rgba(232,224,212,0.3), transparent),
+      radial-gradient(1px 1px at 33% 12%, rgba(157,134,196,0.45), transparent);
+    background-repeat: no-repeat;
+    opacity: 0.7;
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: 1160px; margin: 0 auto; padding: 2.4rem 1.5rem 4rem; }
+
+  header.brand { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.25rem; }
+  header.brand .mark {
+    font-family: var(--font-heading); font-weight: 700; font-size: 1.02rem;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold);
+  }
+  header.brand .mark::before { content: "✦ "; color: var(--gold-dim); }
+  header.brand .crumb { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.15em; color: var(--text-muted); text-transform: uppercase; }
+
+  h1 {
+    font-family: var(--font-heading); font-weight: 700; font-size: 2.4rem;
+    margin: 0.4rem 0 0.2rem; letter-spacing: 0.01em;
+  }
+  .tagline { color: var(--text-secondary); font-size: 1.08rem; max-width: 50rem; margin: 0 0 0.5rem; }
+  .tagline em { color: var(--text-primary); font-style: italic; }
+  .disease {
+    font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.04em;
+    color: var(--text-muted); margin-bottom: 1.8rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;
+  }
+  .disease b { color: var(--gold-dim); font-weight: 500; }
+  .disease .site { border: 1px solid rgba(232,224,212,0.14); border-radius: 999px; padding: 0.12rem 0.6rem; color: var(--text-secondary); }
+
+  /* legend of the node contract */
+  .legend {
+    display: flex; gap: 1.4rem; flex-wrap: wrap; align-items: center;
+    background: var(--bg-hud); border: 1px solid rgba(212,175,55,0.18); border-radius: 6px;
+    padding: 0.9rem 1.2rem; margin-bottom: 2rem; backdrop-filter: blur(3px);
+  }
+  .legend .li { display: flex; align-items: center; gap: 0.55rem; }
+  .legend .li .cap { font-size: 0.86rem; color: var(--text-secondary); }
+  .legend .li .cap b { color: var(--text-primary); font-weight: 600; }
+  .legend .li .cap .ref { font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-muted); }
+
+  /* mini glyphs for the legend */
+  .glyph { width: 34px; height: 34px; position: relative; flex: 0 0 34px; }
+  .glyph .ring { position: absolute; inset: 4px; border-radius: 50%; }
+  .glyph.single .ring { border: 2px solid var(--gold); background: radial-gradient(circle at 35% 30%, rgba(212,175,55,0.32), rgba(22,33,62,0.9)); }
+  .glyph.vec .ring { border: 2px dashed var(--amethyst); background: radial-gradient(circle at 35% 30%, rgba(157,134,196,0.26), rgba(22,33,62,0.85)); }
+  .glyph.impov .ring { border: 2px dashed var(--dead); opacity: 0.7; background: radial-gradient(circle at 35% 30%, rgba(138,90,90,0.18), rgba(22,33,62,0.6)); }
+  /* petal-ring sense-SET glyph */
+  .petals { position: absolute; inset: 0; }
+  .petals span { position: absolute; left: 50%; top: 50%; width: 5px; height: 11px; margin: -16px 0 0 -2.5px;
+    border-radius: 3px; transform-origin: 50% 16px; background: rgba(232,224,212,0.16); }
+  .petals span.lit { background: var(--gold); box-shadow: 0 0 7px var(--gold-dim); }
+  .glyph.set .core { position: absolute; inset: 11px; border-radius: 50%; border: 1.5px solid var(--gold-dim);
+    background: radial-gradient(circle at 35% 30%, rgba(212,175,55,0.3), rgba(22,33,62,0.92)); }
+
+  /* ---- two-column stage ---- */
+  .stage { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 1.6rem; align-items: start; }
+  @media (max-width: 920px) { .stage { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--bg-hud); border: 1px solid rgba(212,175,55,0.18); border-radius: 8px;
+    padding: 1.2rem 1.3rem 1.4rem; backdrop-filter: blur(3px);
+    box-shadow: 0 14px 40px -26px rgba(0,0,0,0.8), inset 0 1px 0 rgba(232,224,212,0.04);
+  }
+  .panel-h { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.2rem; }
+  .panel-h h2 { font-family: var(--font-heading); font-weight: 700; font-size: 1.18rem; margin: 0; }
+  .panel-h .tag { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-muted); }
+  .panel .sub { color: var(--text-secondary); font-size: 0.92rem; margin: 0 0 1rem; }
+
+  /* example selector */
+  .examples { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.4rem; }
+  .ex-btn {
+    background: rgba(122,106,139,0.14); border: 1px solid rgba(232,224,212,0.16); border-radius: 999px;
+    color: var(--text-secondary); font-family: var(--font-body); font-size: 0.94rem;
+    padding: 0.32rem 0.95rem; cursor: pointer; transition: all 0.16s;
+  }
+  .ex-btn:hover { border-color: var(--gold-dim); color: var(--text-primary); }
+  .ex-btn.active { border-color: var(--gold); color: var(--gold); background: rgba(212,175,55,0.12); }
+  .ex-btn .arr { color: var(--gold-dim); margin: 0 0.25rem; }
+
+  /* ---- graph mini-canvas ---- */
+  .graph {
+    position: relative; height: 268px; border-radius: 6px;
+    background:
+      radial-gradient(ellipse 70% 60% at 50% 50%, rgba(122,106,139,0.10), transparent 75%),
+      rgba(26,26,46,0.45);
+    border: 1px solid rgba(232,224,212,0.08); overflow: hidden; margin-bottom: 0.4rem;
+  }
+  .graph svg.links { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+  .gnode {
+    position: absolute; transform: translate(-50%, -50%); z-index: 1;
+    display: flex; flex-direction: column; align-items: center; gap: 0.32rem;
+    transition: opacity 0.4s ease;
+  }
+  .gnode .body {
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 999px; cursor: pointer; position: relative;
+    transition: transform 0.16s, box-shadow 0.2s;
+  }
+  .gnode .body:hover { transform: scale(1.05); }
+  /* round word/synset node */
+  .gnode.word .body {
+    width: 56px; height: 56px; border: 2px solid var(--gold-dim);
+    background: radial-gradient(circle at 35% 30%, rgba(212,175,55,0.22), rgba(22,33,62,0.92));
+    box-shadow: 0 0 0 6px rgba(212,175,55,0.05), 0 8px 22px -12px rgba(0,0,0,0.8);
+  }
+  .gnode.topic .body { border-color: var(--gold); border-width: 2.5px; width: 60px; height: 60px;
+    background: radial-gradient(circle at 35% 30%, rgba(212,175,55,0.38), rgba(22,33,62,0.95)); }
+  /* phrase node = pill, wider */
+  .gnode.phrase .body {
+    min-width: 96px; height: 46px; padding: 0 0.85rem; border-radius: 24px;
+    border: 2px solid var(--node-synonym);
+    background: linear-gradient(180deg, rgba(196,149,106,0.20), rgba(22,33,62,0.92));
+    box-shadow: 0 0 0 5px rgba(196,149,106,0.06), 0 8px 22px -12px rgba(0,0,0,0.8);
+  }
+  /* vec: phrase (no synset) = amethyst dashed pill */
+  .gnode.phrase.vec .body {
+    border: 2px dashed var(--amethyst);
+    background: linear-gradient(180deg, rgba(157,134,196,0.20), rgba(22,33,62,0.92));
+    box-shadow: 0 0 0 5px rgba(157,134,196,0.07), 0 8px 22px -12px rgba(0,0,0,0.8);
+  }
+  .gnode .body .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 9px var(--gold); }
+  .gnode.phrase .body .lbl {
+    font-family: var(--font-heading); font-size: 1rem; font-weight: 500; color: var(--text-primary); white-space: nowrap;
+  }
+  .gnode.phrase.vec .body .lbl { color: var(--amethyst); }
+  .gnode .name { font-family: var(--font-heading); font-size: 0.98rem; text-align: center; color: var(--text-primary); }
+  .gnode.topic .name { color: var(--gold); font-size: 1.06rem; }
+  .gnode .ref { font-family: var(--font-mono); font-size: 0.56rem; letter-spacing: 0.04em; color: var(--text-muted); }
+  .gnode.phrase.vec .ref { color: var(--amethyst-dim); }
+
+  /* sense-SET petal-ring overlaid on a phrase / word node */
+  .setbadge {
+    position: absolute; top: -9px; right: -9px; width: 22px; height: 22px;
+    border-radius: 50%; background: rgba(22,33,62,0.95); border: 1px solid var(--gold-dim);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 0.56rem; color: var(--gold); z-index: 2;
+  }
+  .impov-flag {
+    position: absolute; top: -9px; left: -9px; padding: 0.02rem 0.34rem;
+    border-radius: 999px; background: rgba(138,90,90,0.9); color: #f0e6e6;
+    font-family: var(--font-mono); font-size: 0.5rem; letter-spacing: 0.06em; text-transform: uppercase; z-index: 2;
+  }
+
+  .graph-caption {
+    font-size: 0.86rem; color: var(--text-secondary); min-height: 2.5em;
+    border-left: 2px solid var(--gold-dim); padding-left: 0.7rem; margin-top: 0.7rem;
+  }
+  .graph-caption b { color: var(--text-primary); }
+  .graph-caption .vh { color: var(--amethyst); }
+
+  /* before/after impoverishment toggle */
+  .ba-row { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.8rem; }
+  .switch {
+    display: inline-flex; border: 1px solid rgba(232,224,212,0.16); border-radius: 999px; overflow: hidden;
+    font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .switch button { background: transparent; color: var(--text-muted); border: none; padding: 0.3rem 0.8rem; cursor: pointer; }
+  .switch button.on { background: rgba(212,175,55,0.16); color: var(--gold); }
+  .switch button.on.bad { background: rgba(138,90,90,0.22); color: #d89a9a; }
+  .ba-row .hint { font-size: 0.8rem; color: var(--text-muted); }
+
+  /* ---- grading / sense-check panel ---- */
+  .scheck-h { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.7rem; }
+  .scheck-h .role { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+  .scheck-h .word { font-family: var(--font-heading); font-size: 1.5rem; color: var(--text-primary); }
+  .scheck-h .pos { font-family: var(--font-mono); font-size: 0.66rem; color: var(--amethyst); border: 1px solid var(--amethyst-dim); border-radius: 3px; padding: 0.04rem 0.34rem; }
+
+  .chain-context {
+    font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;
+    background: rgba(26,26,46,0.5); border: 1px solid rgba(232,224,212,0.08); border-radius: 5px; padding: 0.55rem 0.8rem;
+  }
+  .chain-context .arr { color: var(--gold-dim); margin: 0 0.35rem; }
+  .chain-context .here { color: var(--gold); font-weight: 600; }
+
+  .prompt { font-size: 0.82rem; color: var(--text-muted); font-family: var(--font-mono); letter-spacing: 0.03em; margin-bottom: 0.5rem; text-transform: uppercase; }
+
+  /* candidate senses (the sense-SET picker) */
+  .senses { display: flex; flex-direction: column; gap: 0.45rem; margin-bottom: 1.1rem; }
+  .sense {
+    display: flex; align-items: flex-start; gap: 0.6rem; text-align: left;
+    background: rgba(24,27,34,0.7); color: var(--text-primary);
+    border: 1px solid rgba(232,224,212,0.12); border-radius: 6px;
+    padding: 0.5rem 0.7rem; cursor: pointer; transition: all 0.16s; font-family: var(--font-body); font-size: 0.92rem;
+  }
+  .sense:hover { border-color: var(--gold-dim); }
+  .sense.apt { border-color: var(--live); background: rgba(38,58,38,0.5); }
+  .sense .tick {
+    flex: 0 0 18px; width: 18px; height: 18px; border-radius: 4px; margin-top: 1px;
+    border: 1.5px solid rgba(232,224,212,0.3); display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; color: var(--bg-primary); background: transparent;
+  }
+  .sense.apt .tick { background: var(--live); border-color: var(--live); }
+  .sense .meta { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; }
+  .sense .meta .top { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+  .sense .cpos { font-family: var(--font-mono); font-size: 0.66rem; color: var(--amethyst); }
+  .sense .clemma { font-family: var(--font-heading); font-size: 1.02rem; }
+  .sense.apt .clemma { color: var(--live); }
+  .sense .ctag { font-family: var(--font-mono); font-size: 0.62rem; color: var(--text-muted); margin-left: auto; }
+  .sense .cgloss { color: var(--text-secondary); font-size: 0.85rem; }
+
+  .set-readout { font-family: var(--font-mono); font-size: 0.72rem; color: var(--gold-dim); margin-bottom: 1rem; }
+  .set-readout b { color: var(--gold); }
+
+  /* verdict bar — real sense-check vocabulary */
+  .verdicts { display: flex; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+  .verdict {
+    font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.04em;
+    background: rgba(24,27,34,0.8); color: var(--text-secondary);
+    border: 1px solid rgba(232,224,212,0.16); border-radius: 4px; padding: 0.42rem 0.7rem; cursor: pointer; transition: all 0.15s;
+  }
+  .verdict:hover { color: var(--text-primary); }
+  .verdict.right:hover, .verdict.right.sel { border-color: var(--live); color: var(--live); }
+  .verdict.wrong:hover, .verdict.wrong.sel { border-color: var(--dead); color: #d89a9a; }
+  .verdict.rare:hover, .verdict.rare.sel { border-color: var(--amber); color: var(--amber); }
+  .verdict.split:hover, .verdict.split.sel { border-color: var(--gold); color: var(--gold); background: rgba(212,175,55,0.12); }
+  .verdict .k { opacity: 0.5; margin-left: 0.3rem; }
+
+  /* the verdict payload preview */
+  .payload {
+    font-family: var(--font-mono); font-size: 0.72rem; line-height: 1.55;
+    background: rgba(12,14,22,0.8); border: 1px solid rgba(157,134,196,0.22); border-radius: 6px;
+    padding: 0.7rem 0.85rem; color: var(--text-secondary); overflow-x: auto;
+  }
+  .payload .k { color: var(--amethyst); }
+  .payload .s { color: var(--node-synonym); }
+  .payload .live { color: var(--live); }
+  .payload .vec { color: var(--amethyst); }
+  .payload .cm { color: var(--text-muted); }
+  .payload .note { display: block; margin-top: 0.5rem; color: var(--text-muted); font-style: italic; font-family: var(--font-body); font-size: 0.78rem; }
+
+  footer.note { margin-top: 2.4rem; font-size: 0.84rem; color: var(--text-muted); border-top: 1px solid rgba(232,224,212,0.08); padding-top: 1rem; max-width: 54rem; }
+  footer.note b { color: var(--text-secondary); }
+  footer.note code { font-family: var(--font-mono); font-size: 0.78rem; color: var(--amethyst); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="brand">
+    <span class="mark">Metaforge</span>
+    <span class="crumb">prototype · block 2 · phrase-as-node</span>
+  </header>
+
+  <h1>Phrase-as-Node</h1>
+  <p class="tagline">
+    The node stops being a single word. It becomes a <em>phrase</em> carrying a
+    <em>sense-SET</em> — because real metaphor is multi-word, and metaphor is sense-forgiving.
+  </p>
+  <div class="disease">
+    <b>one disease, three sites:</b>
+    <span class="site">vehicle-skip — "no synset"</span>
+    <span class="site">bad_head — phrase impoverishment</span>
+    <span class="site">merge — phrase smuggled across nodes</span>
+  </div>
+
+  <!-- the node contract, made legible -->
+  <div class="legend" aria-label="node contract legend">
+    <div class="li">
+      <div class="glyph single"><div class="ring"></div></div>
+      <div class="cap"><b>single synset</b> — the old contract <span class="ref">syn:</span></div>
+    </div>
+    <div class="li">
+      <div class="glyph set">
+        <div class="petals">
+          <span class="lit" style="transform:rotate(-40deg)"></span>
+          <span class="lit" style="transform:rotate(-20deg)"></span>
+          <span class="lit" style="transform:rotate(0deg)"></span>
+          <span style="transform:rotate(20deg)"></span>
+          <span style="transform:rotate(40deg)"></span>
+        </div>
+        <div class="core"></div>
+      </div>
+      <div class="cap"><b>sense-SET</b> — several senses apt at once <span class="ref">3 of 5 live</span></div>
+    </div>
+    <div class="li">
+      <div class="glyph vec"><div class="ring"></div></div>
+      <div class="cap"><b>no-synset phrase</b> — FastText-vector node <span class="ref">vec:</span></div>
+    </div>
+    <div class="li">
+      <div class="glyph impov"><div class="ring"></div></div>
+      <div class="cap"><b>impoverished</b> — what bad_head was <span class="ref">(the bug)</span></div>
+    </div>
+  </div>
+
+  <div class="examples" role="tablist" aria-label="examples">
+    <button class="ex-btn active" data-ex="pressed">nostalgia <span class="arr">→</span> pressed flower</button>
+    <button class="ex-btn" data-ex="glance">whisper <span class="arr">→</span> glance</button>
+    <button class="ex-btn" data-ex="wound">grief <span class="arr">→</span> buried wound</button>
+  </div>
+
+  <div class="stage">
+    <!-- LEFT: graph view -->
+    <section class="panel">
+      <div class="panel-h">
+        <h2>In the graph</h2>
+        <span class="tag" id="gtag">vec: phrase node</span>
+      </div>
+      <p class="sub" id="gsub">A multi-word vehicle becomes a first-class node — never dropped as "no synset."</p>
+
+      <div class="graph" id="graph">
+        <svg class="links" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <line id="edge" x1="22" y1="50" x2="74" y2="50" stroke="var(--edge-highlight)" stroke-width="0.5" />
+        </svg>
+        <!-- nodes injected by JS -->
+      </div>
+
+      <div class="graph-caption" id="gcap"></div>
+
+      <div class="ba-row" id="baRow">
+        <span class="hint">node contract:</span>
+        <span class="switch">
+          <button id="baOld" class="bad">old: impoverished</button>
+          <button id="baNew" class="on">new: phrase + set</button>
+        </span>
+        <span class="hint" id="baHint"></span>
+      </div>
+    </section>
+
+    <!-- RIGHT: grading sense-check -->
+    <section class="panel">
+      <div class="panel-h">
+        <h2>In grading</h2>
+        <span class="tag">sense-check · editor mode</span>
+      </div>
+      <p class="sub">Tick every sense that could carry the image. This is the existing
+        <span style="color:var(--gold)">split</span> verdict, made into the node's actual shape.</p>
+
+      <div class="scheck-h">
+        <span class="role" id="scRole">vehicle</span>
+        <span class="word" id="scWord">pressed flower</span>
+        <span class="pos" id="scPos">vec:</span>
+      </div>
+
+      <div class="chain-context" id="scChain"></div>
+
+      <div class="prompt" id="scPrompt">which senses are apt? (tick all that apply)</div>
+      <div class="senses" id="senses"></div>
+
+      <div class="set-readout" id="setReadout"></div>
+
+      <div class="prompt">verdict</div>
+      <div class="verdicts" id="verdicts">
+        <button class="verdict right" data-v="right">Right<span class="k">1</span></button>
+        <button class="verdict wrong" data-v="wrong">Wrong<span class="k">2</span></button>
+        <button class="verdict rare" data-v="rare_ok">Rare-but-better<span class="k">3</span></button>
+        <button class="verdict split sel" data-v="split">Split<span class="k">4</span></button>
+      </div>
+
+      <div class="payload" id="payload"></div>
+    </section>
+  </div>
+
+  <footer class="note">
+    <b>What this lands.</b> Same instrument, same verdict file — the sense-SET selection rides
+    into the verdict as <code>apt_synset_ids</code> (already the shape <code>mf-grade-sensecheck</code>
+    POSTs for a split), and a no-synset phrase rides as <code>endpoint_ref: "vec:pressed_flower"</code>
+    instead of a synset id. A plain single-word node is just a sense-SET of size 1 with a
+    <code>syn:</code> ref — the old corpus reads unchanged. One verdict can yield several
+    sense-keyed edges: that's generative richness for the compositor, not a disambiguation chore.
+  </footer>
+</div>
+
+<script>
+/* ---------- example data ---------- */
+const EXAMPLES = {
+  pressed: {
+    gtag: 'vec: phrase node',
+    gsub: 'A multi-word vehicle becomes a first-class node — never dropped as "no synset."',
+    topic: { name: 'nostalgia', ref: 'syn:05813229' },
+    // vehicle node config
+    vehicle: { kind: 'phrase-vec', label: 'pressed flower', ref: 'vec:pressed_flower', setCount: null, headOld: 'flower' },
+    gcapNew: 'The vehicle is the whole phrase <b>pressed flower</b> — a <span class="vh">vec:</span> node backed by a FastText vector because no WordNet synset exists for the phrase. It is still a first-class edge endpoint.',
+    gcapOld: 'Old contract: the phrase is impoverished to its head noun <b>flower</b>, and the metaphor — the <i>pressed</i>, the flatness, the keepsake — is lost. Often the whole pair was dropped: "no synset."',
+    baHintNew: 'phrase kept · vec-backed',
+    baHintOld: 'modifier dropped · "pressed" → flower',
+    // sense-check
+    scRole: 'vehicle', scWord: 'pressed flower', scPos: 'vec:',
+    scChain: '<span>nostalgia</span><span class="arr">→</span><span class="here">pressed flower</span>',
+    prompt: 'no synset for the phrase — confirm the vector node + apt facets',
+    // for a vec node the "senses" are facet-glosses of the phrase image, not WordNet synsets
+    senses: [
+      { id: 'vec:facet:keepsake', pos: 'n', lemma: 'keepsake', gloss: 'a thing kept for the memory it holds', tag: 'facet', apt: true },
+      { id: 'vec:facet:flatten',  pos: 'v', lemma: 'flattened', gloss: 'pressed thin and preserved out of time', tag: 'facet', apt: true },
+      { id: 'vec:facet:fragile',  pos: 'adj', lemma: 'fragile', gloss: 'brittle, browned, easily crumbled', tag: 'facet', apt: true },
+      { id: 'syn:11669921',       pos: 'n', lemma: 'flower', gloss: 'the reproductive organ of a plant', tag: 'head-only', apt: false }
+    ],
+    verdict: 'split',
+    payload: [
+      ['cm', '// one verdict → first-class vec endpoint'],
+      ['line', '<span class="k">topic_ref</span>:    <span class="s">"syn:05813229"</span>   <span class="cm">// nostalgia</span>'],
+      ['line', '<span class="k">vehicle_ref</span>:  <span class="vec">"vec:pressed_flower"</span>'],
+      ['line', '<span class="k">verdict</span>:      <span class="live">live</span>'],
+      ['line', '<span class="k">apt_facets</span>:   [<span class="vec">"keepsake"</span>, <span class="vec">"flattened"</span>, <span class="vec">"fragile"</span>]'],
+      ['note', 'No "no synset" drop. The phrase survives as a vector node; the compositor realises it with modifiers at forge-time.']
+    ]
+  },
+
+  glance: {
+    gtag: 'sense-SET node',
+    gsub: 'One word, several apt senses at once — the node carries the set, not a single synset.',
+    topic: { name: 'whisper', ref: 'syn:07129867' },
+    vehicle: { kind: 'word-set', label: 'glance', ref: 'syn-set ×3', setCount: 3, headOld: null },
+    gcapNew: 'The vehicle <b>glance</b> is genuinely live across <b>three</b> senses at once — the brief look (n), to glance-briefly (v), and to glance-off at an angle (v). The node carries the <b>sense-SET</b>, lit petals = apt senses.',
+    gcapOld: 'Old contract: <b>glance</b> collapses to the lowest-id noun synset — "a quick look" — discarding the off-at-an-angle verb that makes <i>whisper → glance</i> live. ~⅔ of the sense-fertility thrown away.',
+    baHintNew: '3 of 5 senses live',
+    baHintOld: 'collapsed to 1 synset',
+    scRole: 'vehicle', scWord: 'glance', scPos: 'n·v',
+    scChain: '<span>whisper</span><span class="arr">→</span><span class="here">glance</span>',
+    prompt: 'which senses are apt? (tick all that apply)',
+    senses: [
+      { id: 'syn:02151966', pos: 'n', lemma: 'glance, glimpse', gloss: 'a quick look', tag: 'tc 41', apt: true },
+      { id: 'syn:02171398', pos: 'v', lemma: 'glance, peek', gloss: 'throw a quick look in a particular direction', tag: 'tc 17', apt: true },
+      { id: 'syn:01904293', pos: 'v', lemma: 'glance, graze', gloss: 'hit at an angle and bounce away', tag: 'tc 6', apt: true },
+      { id: 'syn:02153203', pos: 'v', lemma: 'glance, skim', gloss: 'read or look hastily over', tag: 'tc 3', apt: false },
+      { id: 'syn:00099341', pos: 'v', lemma: 'glint, gleam', gloss: 'gleam or glow intermittently', tag: 'tc 1', apt: false }
+    ],
+    verdict: 'split',
+    payload: [
+      ['cm', '// one verdict → N sense-keyed edges'],
+      ['line', '<span class="k">topic_ref</span>:    <span class="s">"syn:07129867"</span>  <span class="cm">// whisper</span>'],
+      ['line', '<span class="k">vehicle</span>:      <span class="s">"glance"</span>'],
+      ['line', '<span class="k">verdict</span>:      <span class="live">live</span> (<span class="k">split</span>)'],
+      ['line', '<span class="k">apt_synset_ids</span>: ['],
+      ['line', '  <span class="s">"syn:02151966"</span>, <span class="cm">// look (n)</span>'],
+      ['line', '  <span class="s">"syn:02171398"</span>, <span class="cm">// glance-briefly (v)</span>'],
+      ['line', '  <span class="s">"syn:01904293"</span>  <span class="cm">// glance-off (v)</span>'],
+      ['line', ']'],
+      ['note', '3 live sense-edges harvested from ONE pairing. Sense becomes a generative knob the compositor resolves per session.']
+    ]
+  },
+
+  wound: {
+    gtag: 'phrase node · bad_head repaired',
+    gsub: 'An impoverished mid-chain phrase is restored and graded as the whole image.',
+    topic: { name: 'grief', ref: 'syn:07535670' },
+    vehicle: { kind: 'phrase-syn', label: 'buried wound', ref: 'syn:14298815 +mod', setCount: 2, headOld: 'wound' },
+    gcapNew: 'The step is the whole phrase <b>buried wound</b> — head snapped to <i>wound</i> for geometry, but the modifier <i>buried</i> is retained on the node and graded. A <span class="vh">bad_head</span> reject becomes a gradeable live edge.',
+    gcapOld: 'Old contract: the chain <b>grief → wound → scar</b> impoverished <i>buried wound</i> to <b>wound</b> and got tagged <span style="color:#d89a9a">bad_head</span> — the burial, the concealment, the thing-that-festers, all gone.',
+    baHintNew: 'modifier kept · head snapped',
+    baHintOld: 'tagged bad_head',
+    scRole: 'step (2 of 3)', scWord: 'buried wound', scPos: 'n +mod',
+    scChain: '<span>grief</span><span class="arr">→</span><span class="here">buried wound</span><span class="arr">→</span><span>scar</span>',
+    prompt: 'phrase retained — which head senses are apt?',
+    senses: [
+      { id: 'syn:14298815', pos: 'n', lemma: 'wound, lesion', gloss: 'an injury to living tissue', tag: 'tc 22', apt: true },
+      { id: 'syn:00309647', pos: 'n', lemma: 'trauma', gloss: 'an emotional wound or shock with lasting effect', tag: 'tc 9', apt: true },
+      { id: 'syn:02118476', pos: 'v', lemma: 'wound, injure', gloss: 'cause injury to', tag: 'tc 5', apt: false }
+    ],
+    verdict: 'split',
+    payload: [
+      ['cm', '// bad_head dissolved — phrase + head-sense-set'],
+      ['line', '<span class="k">topic_ref</span>:   <span class="s">"syn:07535670"</span>  <span class="cm">// grief</span>'],
+      ['line', '<span class="k">phrase</span>:      <span class="s">"buried wound"</span>'],
+      ['line', '<span class="k">head_ref</span>:    <span class="s">"syn:14298815"</span>  <span class="cm">// wound (geometry anchor)</span>'],
+      ['line', '<span class="k">modifier</span>:    <span class="s">"buried"</span>     <span class="cm">// retained, not dropped</span>'],
+      ['line', '<span class="k">verdict</span>:     <span class="live">live</span> (<span class="k">split</span>)'],
+      ['line', '<span class="k">apt_synset_ids</span>: [<span class="s">"syn:14298815"</span>, <span class="s">"syn:00309647"</span>]'],
+      ['note', 'Geometry still anchors on the head synset (max_hop_cos stays computable); the phrase + modifier ride alongside for the compositor.']
+    ]
+  }
+};
+
+/* node layout positions in the graph (percent) */
+const POS = { topic: { x: 22, y: 50 }, vehicle: { x: 74, y: 50 } };
+
+let current = 'pressed';
+let baMode = 'new'; // 'new' | 'old'
+
+const $ = (s, r=document) => r.querySelector(s);
+const graph = $('#graph');
+
+function petalRing(litCount, total) {
+  // small petal ring used inside a set badge tooltip — but here we use the count badge.
+  return litCount;
+}
+
+function renderGraph() {
+  const ex = EXAMPLES[current];
+  // clear existing dynamic nodes
+  graph.querySelectorAll('.gnode').forEach(n => n.remove());
+
+  // topic node (always a gold pier)
+  const t = document.createElement('div');
+  t.className = 'gnode topic';
+  t.style.left = POS.topic.x + '%';
+  t.style.top = POS.topic.y + '%';
+  t.innerHTML = `
+    <div class="body"><span class="dot"></span></div>
+    <div class="name">${ex.topic.name}</div>
+    <div class="ref">${ex.topic.ref}</div>`;
+  graph.appendChild(t);
+
+  // vehicle node — shape depends on kind + baMode
+  const v = document.createElement('div');
+  v.style.left = POS.vehicle.x + '%';
+  v.style.top = POS.vehicle.y + '%';
+  const veh = ex.vehicle;
+  const old = baMode === 'old';
+
+  if (old) {
+    // impoverished / collapsed presentation
+    if (veh.kind === 'word-set') {
+      // single collapsed synset
+      v.className = 'gnode word';
+      v.innerHTML = `
+        <span class="impov-flag">1 synset</span>
+        <div class="body"><span class="dot"></span></div>
+        <div class="name">${veh.headOld || veh.label}</div>
+        <div class="ref">syn: (lowest-id)</div>`;
+    } else {
+      // phrase impoverished to head word
+      v.className = 'gnode word';
+      v.innerHTML = `
+        <span class="impov-flag">${veh.kind === 'phrase-syn' ? 'bad_head' : 'no synset'}</span>
+        <div class="body"><span class="dot"></span></div>
+        <div class="name">${veh.headOld}</div>
+        <div class="ref">${veh.kind === 'phrase-vec' ? 'dropped' : 'syn: head only'}</div>`;
+    }
+  } else {
+    // new contract
+    if (veh.kind === 'phrase-vec') {
+      v.className = 'gnode phrase vec';
+      v.innerHTML = `
+        <div class="body"><span class="lbl">${veh.label}</span></div>
+        <div class="ref">${veh.ref}</div>`;
+    } else if (veh.kind === 'phrase-syn') {
+      v.className = 'gnode phrase';
+      v.innerHTML = `
+        <span class="setbadge">×${veh.setCount}</span>
+        <div class="body"><span class="lbl">${veh.label}</span></div>
+        <div class="ref">${veh.ref}</div>`;
+    } else { // word-set
+      v.className = 'gnode word';
+      v.innerHTML = `
+        <span class="setbadge">×${veh.setCount}</span>
+        <div class="body"><span class="dot"></span></div>
+        <div class="name">${veh.label}</div>
+        <div class="ref">${veh.ref}</div>`;
+    }
+  }
+  graph.appendChild(v);
+
+  // edge styling: gold solid in new, dashed-dead in old when dropped
+  const edge = $('#edge');
+  if (old && veh.kind === 'phrase-vec') {
+    edge.setAttribute('stroke', 'var(--dead)');
+    edge.setAttribute('stroke-dasharray', '2 2');
+  } else {
+    edge.setAttribute('stroke', 'var(--edge-highlight)');
+    edge.removeAttribute('stroke-dasharray');
+  }
+
+  // caption + tag + hint
+  $('#gcap').innerHTML = old ? ex.gcapOld : ex.gcapNew;
+  $('#gtag').textContent = ex.gtag;
+  $('#gsub').textContent = ex.gsub;
+  $('#baHint').textContent = old ? ex.baHintOld : ex.baHintNew;
+  $('#baOld').classList.toggle('on', old);
+  $('#baNew').classList.toggle('on', !old);
+}
+
+function renderSenseCheck() {
+  const ex = EXAMPLES[current];
+  $('#scRole').textContent = ex.scRole;
+  $('#scWord').textContent = ex.scWord;
+  $('#scPos').textContent = ex.scPos;
+  $('#scChain').innerHTML = ex.scChain;
+  $('#scPrompt').textContent = ex.prompt;
+
+  // senses
+  const wrap = $('#senses');
+  wrap.innerHTML = '';
+  ex.senses.forEach((s, i) => {
+    const el = document.createElement('button');
+    el.className = 'sense' + (s.apt ? ' apt' : '');
+    el.dataset.idx = i;
+    el.innerHTML = `
+      <span class="tick">${s.apt ? '✓' : ''}</span>
+      <span class="meta">
+        <span class="top">
+          <span class="cpos">${s.pos}</span>
+          <span class="clemma">${s.lemma}</span>
+          <span class="ctag">${s.tag}</span>
+        </span>
+        <span class="cgloss">${s.gloss}</span>
+      </span>`;
+    el.addEventListener('click', () => {
+      s.apt = !s.apt;
+      renderSenseCheck();
+      renderGraph();
+    });
+    wrap.appendChild(el);
+  });
+
+  // keep the live set-count in sync on the graph badge / petals
+  const aptCount = ex.senses.filter(s => s.apt).length;
+  if (ex.vehicle.setCount !== null) ex.vehicle.setCount = aptCount;
+
+  // readout
+  const total = ex.senses.length;
+  $('#setReadout').innerHTML =
+    `sense-SET: <b>${aptCount}</b> of ${total} ${ex.vehicle.kind === 'phrase-vec' ? 'facets' : 'senses'} live`;
+
+  // payload preview
+  const pl = $('#payload');
+  pl.innerHTML = ex.payload.map(([cls, txt]) => {
+    if (cls === 'note') return `<span class="note">${txt}</span>`;
+    if (cls === 'cm') return `<div class="cm">${txt}</div>`;
+    return `<div>${txt}</div>`;
+  }).join('');
+
+  // verdict selection
+  $('#verdicts').querySelectorAll('.verdict').forEach(b =>
+    b.classList.toggle('sel', b.dataset.v === ex.verdict));
+}
+
+function selectExample(key) {
+  current = key;
+  baMode = 'new';
+  $$('.ex-btn').forEach(b => b.classList.toggle('active', b.dataset.ex === key));
+  renderGraph();
+  renderSenseCheck();
+}
+const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+
+/* wire up */
+$$('.ex-btn').forEach(b => b.addEventListener('click', () => selectExample(b.dataset.ex)));
+$('#baOld').addEventListener('click', () => { baMode = 'old'; renderGraph(); });
+$('#baNew').addEventListener('click', () => { baMode = 'new'; renderGraph(); });
+
+/* initial */
+selectExample('pressed');
+</script>
+</body>
+</html>

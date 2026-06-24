@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Bridge · Metaforge prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,500;0,700;1,500&display=swap" rel="stylesheet" />
+<style>
+  /* ---- tokens mirrored from web/src/styles/tokens.css ---- */
+  :root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-hud: rgba(22, 33, 62, 0.6);
+    --text-primary: #e8e0d4;
+    --text-secondary: #a89f94;
+    --text-muted: #6b6560;
+    --gold: #d4af37;
+    --gold-dim: rgba(212, 175, 55, 0.5);
+    --node-synonym: #c4956a;
+    --node-similar: #7a6a8b;
+    --edge-default: rgba(232, 224, 212, 0.15);
+    --edge-highlight: rgba(212, 175, 55, 0.4);
+    --amber: #d98a3d;
+    --amber-dim: rgba(217, 138, 61, 0.45);
+    --dead: #8a5a5a;
+    --font-heading: 'Playfair Display', Georgia, serif;
+    --font-body: 'Crimson Text', 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(122, 106, 139, 0.18), transparent 70%),
+      radial-gradient(ellipse 60% 40% at 85% 110%, rgba(212, 175, 55, 0.08), transparent 70%),
+      var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 18px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* faint starfield */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, rgba(232,224,212,0.5), transparent),
+      radial-gradient(1px 1px at 70% 20%, rgba(232,224,212,0.35), transparent),
+      radial-gradient(1px 1px at 40% 70%, rgba(232,224,212,0.4), transparent),
+      radial-gradient(1px 1px at 85% 60%, rgba(232,224,212,0.3), transparent),
+      radial-gradient(1px 1px at 55% 45%, rgba(212,175,55,0.4), transparent),
+      radial-gradient(1px 1px at 12% 80%, rgba(232,224,212,0.3), transparent);
+    background-repeat: no-repeat;
+    opacity: 0.7;
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+
+  header.brand { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.25rem; }
+  header.brand .mark {
+    font-family: var(--font-heading); font-weight: 700; font-size: 1.05rem;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold);
+  }
+  header.brand .mark::before { content: "✦ "; color: var(--gold-dim); }
+  header.brand .crumb { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.15em; color: var(--text-muted); text-transform: uppercase; }
+
+  h1 {
+    font-family: var(--font-heading); font-weight: 700; font-size: 2.6rem;
+    margin: 0.4rem 0 0.2rem; letter-spacing: 0.01em;
+  }
+  .tagline { color: var(--text-secondary); font-size: 1.12rem; max-width: 46rem; margin: 0 0 0.4rem; }
+  .tagline em { color: var(--text-primary); font-style: italic; }
+  .dual { font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 2rem; }
+  .dual b { color: var(--gold-dim); font-weight: 500; }
+
+  /* ---- input row ---- */
+  .console {
+    background: var(--bg-hud);
+    border: 1px solid rgba(212, 175, 55, 0.22);
+    border-radius: 6px;
+    padding: 1.4rem 1.6rem;
+    backdrop-filter: blur(3px);
+    box-shadow: 0 14px 40px -24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(232,224,212,0.04);
+  }
+  .pair-row { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
+  .field { flex: 1 1 220px; display: flex; flex-direction: column; gap: 0.35rem; }
+  .field label {
+    font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .field input {
+    background: rgba(26, 26, 46, 0.7);
+    border: 1px solid rgba(232, 224, 212, 0.14);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: var(--font-heading); font-size: 1.45rem; font-weight: 500;
+    padding: 0.55rem 0.8rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .field input:focus {
+    outline: none; border-color: var(--gold-dim);
+    box-shadow: 0 0 0 1px var(--gold-dim), 0 0 22px -6px rgba(212,175,55,0.4);
+  }
+  .field.source input { color: var(--gold); }
+  .field.target input { color: var(--node-synonym); }
+
+  .span-glyph {
+    flex: 0 0 86px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+    padding-bottom: 0.5rem; color: var(--gold-dim);
+  }
+  .span-glyph svg { width: 86px; height: 34px; overflow: visible; }
+  .span-glyph .lbl { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.15em; color: var(--text-muted); margin-top: 2px; }
+
+  .cross-row { display: flex; align-items: center; justify-content: space-between; margin-top: 1.1rem; gap: 1rem; flex-wrap: wrap; }
+  .chips { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+  .chips .pre { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.12em; color: var(--text-muted); text-transform: uppercase; margin-right: 0.2rem; }
+  .chip {
+    background: rgba(122, 106, 139, 0.16);
+    border: 1px solid rgba(232, 224, 212, 0.16);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    font-family: var(--font-body); font-size: 0.92rem;
+    padding: 0.28rem 0.85rem; cursor: pointer;
+    transition: all 0.18s;
+  }
+  .chip:hover { border-color: var(--gold-dim); color: var(--text-primary); background: rgba(212, 175, 55, 0.1); }
+  .chip .arr { color: var(--gold-dim); margin: 0 0.3rem; }
+  .chip.weak .arr { color: var(--amber-dim); }
+
+  .cross-btn {
+    background: linear-gradient(180deg, rgba(212,175,55,0.95), rgba(180,142,40,0.95));
+    color: #1a1a2e; border: none; border-radius: 4px;
+    font-family: var(--font-mono); font-size: 0.82rem; font-weight: 500; letter-spacing: 0.16em;
+    text-transform: uppercase; padding: 0.7rem 1.6rem; cursor: pointer;
+    box-shadow: 0 8px 22px -10px rgba(212,175,55,0.7);
+    transition: transform 0.12s, box-shadow 0.18s;
+  }
+  .cross-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -10px rgba(212,175,55,0.8); }
+  .cross-btn:active { transform: translateY(0); }
+
+  /* ---- result span ---- */
+  .result { margin-top: 2.2rem; min-height: 60px; }
+
+  .verdict-bar { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.4rem; flex-wrap: wrap; }
+  .verdict-word {
+    font-family: var(--font-mono); font-size: 0.8rem; font-weight: 500; letter-spacing: 0.22em;
+    text-transform: uppercase; padding: 0.32rem 0.85rem; border-radius: 3px; border: 1px solid currentColor;
+  }
+  .verdict-word.solid { color: var(--gold); }
+  .verdict-word.leans { color: var(--amber); }
+  .verdict-word.none  { color: var(--dead); }
+
+  .meter { flex: 1 1 220px; min-width: 180px; height: 6px; border-radius: 3px; background: rgba(232,224,212,0.08); overflow: hidden; position: relative; }
+  .meter .fill { height: 100%; width: 0; border-radius: 3px; transition: width 0.7s cubic-bezier(.2,.7,.2,1); }
+  .meter .fill.solid { background: linear-gradient(90deg, var(--gold-dim), var(--gold)); }
+  .meter .fill.leans { background: linear-gradient(90deg, var(--amber-dim), var(--amber)); }
+  .meter .fill.none  { background: linear-gradient(90deg, rgba(138,90,90,0.4), var(--dead)); }
+  .meter-label { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.1em; color: var(--text-muted); white-space: nowrap; }
+
+  /* the bridge itself: stones along a span */
+  .bridge {
+    position: relative;
+    padding: 2.2rem 0 1.2rem;
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 0;
+  }
+  /* the deck line behind the stones */
+  .deck-line {
+    position: absolute; left: 4%; right: 4%; top: calc(2.2rem + 30px);
+    height: 2px; background: var(--edge-default); z-index: 0;
+  }
+
+  .hop {
+    position: relative; z-index: 1; flex: 1 1 0;
+    display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
+    min-width: 0;
+    opacity: 0; transform: translateY(10px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .hop.shown { opacity: 1; transform: translateY(0); }
+
+  /* the stone / pier */
+  .stone {
+    width: 60px; height: 60px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid var(--gold-dim);
+    background: radial-gradient(circle at 35% 30%, rgba(212,175,55,0.22), rgba(22,33,62,0.9));
+    box-shadow: 0 0 0 6px rgba(212,175,55,0.06), 0 10px 24px -12px rgba(0,0,0,0.8);
+    cursor: pointer; transition: transform 0.18s, box-shadow 0.2s, border-color 0.2s;
+    position: relative;
+  }
+  .stone:hover { transform: scale(1.06); box-shadow: 0 0 0 8px rgba(212,175,55,0.12), 0 14px 28px -12px rgba(0,0,0,0.8); }
+  .hop.pier .stone { width: 70px; height: 70px; border-color: var(--gold); border-width: 2.5px;
+    background: radial-gradient(circle at 35% 30%, rgba(212,175,55,0.38), rgba(22,33,62,0.95)); }
+  .hop.weak .stone { border-color: var(--amber); background: radial-gradient(circle at 35% 30%, rgba(217,138,61,0.26), rgba(22,33,62,0.9)); box-shadow: 0 0 0 6px rgba(217,138,61,0.1), 0 10px 24px -12px rgba(0,0,0,0.8); }
+  .hop.faded .stone { border-color: var(--dead); border-style: dashed; opacity: 0.6; background: radial-gradient(circle at 35% 30%, rgba(138,90,90,0.15), rgba(22,33,62,0.6)); }
+  .stone .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 10px var(--gold); }
+  .hop.weak .stone .dot { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+  .hop.faded .stone .dot { background: var(--dead); box-shadow: none; }
+
+  .hop-word { font-family: var(--font-heading); font-size: 1.18rem; font-weight: 500; text-align: center; }
+  .hop.pier .hop-word { color: var(--gold); font-size: 1.32rem; }
+  .hop.weak .hop-word { color: var(--amber); }
+  .hop.faded .hop-word { color: var(--text-muted); font-style: italic; }
+
+  /* relation label sits on the deck segment to the LEFT of a stone */
+  .relation {
+    position: absolute; top: -1.55rem; left: -50%; width: 100%;
+    text-align: center;
+    font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em;
+    color: var(--text-secondary); text-transform: lowercase;
+    pointer-events: none;
+  }
+  .relation::before, .relation::after { content: ""; }
+  .hop.weak .relation { color: var(--amber); }
+  .hop.gap .relation { color: var(--dead); }
+  /* "long hop" / broken deck segment marker */
+  .hop.weak::before, .hop.gap::before {
+    content: ""; position: absolute; z-index: 0;
+    top: 30px; left: -50%; width: 100%; height: 2px;
+  }
+  .hop.weak::before { background: repeating-linear-gradient(90deg, var(--amber-dim) 0 6px, transparent 6px 12px); }
+  .hop.gap::before { background: repeating-linear-gradient(90deg, var(--dead) 0 4px, transparent 4px 12px); }
+
+  /* justification card */
+  .justify {
+    margin-top: 0.2rem; max-width: 92%;
+    font-size: 0.84rem; color: var(--text-secondary); text-align: center;
+    max-height: 0; overflow: hidden; opacity: 0;
+    transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease;
+  }
+  .hop.open .justify { max-height: 140px; opacity: 1; margin-top: 0.5rem; }
+  .justify .why { font-style: italic; color: var(--text-primary); }
+  .justify .prov { display: block; margin-top: 0.35rem; font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.04em; color: var(--text-muted); }
+  .justify .prov .live { color: var(--gold-dim); }
+  .justify .prov .dead { color: var(--dead); }
+
+  /* the composed line + actions */
+  .outcome {
+    margin-top: 1.6rem; padding: 1.2rem 1.4rem;
+    background: rgba(26, 26, 46, 0.55); border-left: 2px solid var(--gold-dim); border-radius: 4px;
+  }
+  .outcome.warn { border-left-color: var(--amber); }
+  .outcome.cold { border-left-color: var(--dead); }
+  .outcome .composed {
+    font-family: var(--font-heading); font-style: italic; font-size: 1.34rem; color: var(--text-primary);
+    margin-bottom: 0.3rem; line-height: 1.35;
+  }
+  .outcome .caveat { color: var(--text-secondary); font-size: 0.96rem; margin-bottom: 0.9rem; }
+  .outcome .caveat b { color: var(--amber); font-weight: 600; }
+  .outcome.cold .caveat b { color: var(--dead); }
+
+  .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+  .act {
+    background: rgba(122, 106, 139, 0.14); border: 1px solid rgba(232, 224, 212, 0.16);
+    color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em;
+    text-transform: uppercase; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; transition: all 0.16s;
+  }
+  .act:hover { border-color: var(--gold-dim); color: var(--text-primary); background: rgba(212,175,55,0.1); }
+  .act.primary { background: rgba(212,175,55,0.16); border-color: var(--gold-dim); color: var(--gold); }
+  .act.grade { margin-left: auto; }
+  .act.grade .tu { font-size: 0.9rem; }
+
+  .empty { color: var(--text-muted); font-style: italic; padding: 2rem 0; text-align: center; font-size: 1.05rem; }
+
+  /* toast */
+  .toast {
+    position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--bg-secondary); border: 1px solid var(--gold-dim); color: var(--text-primary);
+    font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.04em;
+    padding: 0.7rem 1.3rem; border-radius: 4px; opacity: 0; pointer-events: none;
+    transition: opacity 0.25s, transform 0.25s; z-index: 20;
+    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.7);
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  footer.note { margin-top: 3rem; font-family: var(--font-mono); font-size: 0.64rem; color: var(--text-muted); letter-spacing: 0.04em; line-height: 1.8; }
+  footer.note b { color: var(--gold-dim); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="brand">
+    <span class="mark">Metaforge</span>
+    <span class="crumb">prototype · the bridge</span>
+  </header>
+
+  <h1>The Bridge</h1>
+  <p class="tagline">You bring the metaphor. We show you <em>why it works</em> — the conceptual path from one idea to the other, hop by hop.</p>
+  <p class="dual"><b>dual of the forge</b> — the Forge asks "what is X like?". The Bridge asks "why is X like Y?" and traces the span between them.</p>
+
+  <div class="console">
+    <div class="pair-row">
+      <div class="field source">
+        <label>Source · tenor</label>
+        <input id="src" value="grief" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="span-glyph" aria-hidden="true">
+        <svg viewBox="0 0 86 34">
+          <path d="M2,30 Q43,2 84,30" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <line x1="2" y1="30" x2="2" y2="18" stroke="currentColor" stroke-width="1.5"/>
+          <line x1="84" y1="30" x2="84" y2="18" stroke="currentColor" stroke-width="1.5"/>
+          <circle cx="23" cy="14.5" r="2.4" fill="currentColor"/>
+          <circle cx="43" cy="8.5" r="2.4" fill="currentColor"/>
+          <circle cx="63" cy="14.5" r="2.4" fill="currentColor"/>
+        </svg>
+        <span class="lbl">span</span>
+      </div>
+      <div class="field target">
+        <label>Target · vehicle</label>
+        <input id="tgt" value="glacier" autocomplete="off" spellcheck="false" />
+      </div>
+    </div>
+
+    <div class="cross-row">
+      <div class="chips">
+        <span class="pre">try</span>
+        <button class="chip" data-ex="anger|fire">anger <span class="arr">→</span> fire</button>
+        <button class="chip" data-ex="grief|glacier">grief <span class="arr">→</span> glacier</button>
+        <button class="chip weak" data-ex="memory|spreadsheet">memory <span class="arr">→</span> spreadsheet</button>
+      </div>
+      <button class="cross-btn" id="cross">Cross the span →</button>
+    </div>
+  </div>
+
+  <div class="result" id="result">
+    <div class="empty">Pick a pair and cross the span. The path will assemble itself, left to right.</div>
+  </div>
+
+  <footer class="note">
+    <b>mock data.</b> The real Bridge traverses harvested <b>metaphor_bridges</b> edges (currently 0 rows) via bidirectional A* over concept-senses, sharing the Forge's graph substrate. Strength reads the <b>weakest hop</b> — a chain is only as strong as its widest leap (the max-hop geometry signal). Weak / no-path verdicts double as <b>inapt-cohort labels</b> for the judge. Palette + type from <b>web/src/styles/tokens.css</b>.
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- mock bridge data ----------------------------------------------------
+  // Each path: piers (first + last) are the user's words; middle = intermediate
+  // concepts. relation = what licenses the hop INTO this node (from the left).
+  // strength of the WEAKEST hop governs the verdict.
+  const BRIDGES = {
+    "anger|fire": {
+      verdict: "solid", strength: 0.88, weakestHop: 2,
+      composed: "his anger was fire — consuming, leaving only ash where it passed",
+      caveat: "A solid, well-trodden bridge. The leap from <i>consuming</i> to <i>fire</i> is the load-bearing image.",
+      hops: [
+        { word: "anger", role: "pier", relation: null, why: "the feeling you brought.", prov: "tenor · graded topic", live: true },
+        { word: "heat", relation: "is felt as", why: "anger is bodily heat — the flush, the burning, 'hot under the collar'.", prov: "metaphor_bridges · 31 graded paths", live: true },
+        { word: "consuming", relation: "intensifies into", why: "heat that builds devours its source — the move from sensation to appetite.", prov: "metaphor_bridges · 18 graded paths", live: true },
+        { word: "destruction", relation: "results in", why: "what consumes, destroys — the metaphor's emotional payload.", prov: "metaphor_bridges · 22 graded paths", live: true },
+        { word: "fire", role: "pier", relation: "is embodied by", why: "fire is the canonical agent of consuming destruction.", prov: "vehicle · graded topic", live: true }
+      ]
+    },
+    "grief|glacier": {
+      verdict: "solid", strength: 0.81, weakestHop: 1,
+      composed: "her grief was a glacier — slow, immense, grinding flat whatever it crossed",
+      caveat: "A solid bridge with one wide opening hop. <i>Grief</i> to <i>weight</i> is intuitive but unstated — the rest is firm.",
+      hops: [
+        { word: "grief", role: "pier", relation: null, why: "the feeling you brought.", prov: "tenor · graded topic", live: true },
+        { word: "weight", relation: "is felt as", why: "grief presses — 'heavy heart', 'weighed down', a mass you carry.", prov: "metaphor_bridges · 9 graded paths", live: true },
+        { word: "slow inexorable mass", relation: "becomes", why: "weight that moves can't be hurried or stopped — it advances on its own clock.", prov: "metaphor_bridges · 6 graded paths", live: true },
+        { word: "grinding", relation: "acts by", why: "an unstoppable mass reshapes everything beneath it, slowly, totally.", prov: "metaphor_bridges · 11 graded paths", live: true },
+        { word: "glacier", role: "pier", relation: "is embodied by", why: "a glacier IS slow inexorable grinding mass — the image lands whole.", prov: "vehicle · graded topic", live: true }
+      ]
+    },
+    "memory|spreadsheet": {
+      verdict: "none", strength: 0.24, weakestHop: 2,
+      composed: null,
+      caveat: "No honest path within 3 hops. <b>memory</b> and <b>spreadsheet</b> share storage, but the bridge breaks at the leap to <b>feeling</b> — a spreadsheet has no warmth, no decay, no unreliability. This reads as a <b>category joke</b>, not a metaphor a reader will feel.",
+      hops: [
+        { word: "memory", role: "pier", relation: null, why: "the concept you brought.", prov: "tenor · graded topic", live: true },
+        { word: "storage", relation: "is literally", why: "both hold information for later — but this is the LITERAL sense, not a metaphor.", prov: "wordnet · hypernym · dead", live: false, weak: true },
+        { word: "?", role: "gap", relation: "no live hop to", why: "no graded edge carries 'storage' toward the felt, lossy, emotional qualities of memory. The span won't close.", prov: "metaphor_bridges · 0 paths", live: false },
+        { word: "spreadsheet", role: "pier faded", relation: "unreachable", why: "a spreadsheet is exact, cold and reliable — the opposite of what memory means to a reader.", prov: "vehicle · ungraded", live: false }
+      ]
+    }
+  };
+
+  // a fourth, weak-but-real example reachable by typing (e.g. memory|courtroom)
+  BRIDGES["memory|courtroom"] = {
+    verdict: "leans", strength: 0.52, weakestHop: 2,
+    composed: "memory is a courtroom — it summons witnesses, but the verdict is never safe",
+    caveat: "The bridge stands, but <b>leans</b> on one strained hop: <b>recall → testimony</b>. Apt and fresh if you lean INTO the unreliability; a stretch if you don't.",
+    hops: [
+      { word: "memory", role: "pier", relation: null, why: "the concept you brought.", prov: "tenor · graded topic", live: true },
+      { word: "recall", relation: "is the act of", why: "memory is summoning the past on demand.", prov: "metaphor_bridges · 7 graded paths", live: true },
+      { word: "testimony", relation: "reframed as", why: "recall as sworn account — fallible, contested, performed for an audience. The strained, interesting hop.", prov: "metaphor_bridges · 2 graded paths", live: true, weak: true },
+      { word: "judgement", relation: "subjected to", why: "testimony is weighed and ruled on — truth decided, not known.", prov: "metaphor_bridges · 5 graded paths", live: true },
+      { word: "courtroom", role: "pier", relation: "is staged in", why: "the courtroom is where contested testimony meets judgement.", prov: "vehicle · graded topic", live: true }
+    ]
+  };
+
+  const $ = (s, r) => (r || document).querySelector(s);
+  const el = (tag, cls) => { const n = document.createElement(tag); if (cls) n.className = cls; return n; };
+
+  const src = $("#src"), tgt = $("#tgt"), result = $("#result"), toast = $("#toast");
+  let revealTimers = [];
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => toast.classList.remove("show"), 1900);
+  }
+
+  function clearTimers() { revealTimers.forEach(clearTimeout); revealTimers = []; }
+
+  function lookup(s, t) {
+    const key = (s + "|" + t).toLowerCase().trim();
+    return { key, data: BRIDGES[key] };
+  }
+
+  function render(s, t) {
+    clearTimers();
+    const { key, data } = lookup(s, t);
+    result.innerHTML = "";
+
+    if (!data) {
+      const e = el("div", "empty");
+      e.innerHTML = "No mock bridge for <b style='color:var(--gold-dim)'>" + s + " → " + t +
+        "</b>. Try the example chips, or <i>memory → courtroom</i> for a weak-but-real bridge.";
+      result.appendChild(e);
+      return;
+    }
+
+    const vClass = data.verdict; // solid | leans | none
+    const vWord = { solid: "Solid bridge", leans: "Leans · one strained hop", none: "No bridge found" }[vClass];
+
+    // verdict + strength meter
+    const bar = el("div", "verdict-bar");
+    const vw = el("span", "verdict-word " + vClass); vw.textContent = vWord;
+    const meter = el("div", "meter");
+    const fill = el("div", "fill " + vClass); meter.appendChild(fill);
+    const mlbl = el("span", "meter-label");
+    mlbl.textContent = "weakest hop · " + Math.round(data.strength * 100) + "%";
+    bar.appendChild(vw); bar.appendChild(meter); bar.appendChild(mlbl);
+    result.appendChild(bar);
+
+    // the bridge
+    const bridge = el("div", "bridge");
+    const deck = el("div", "deck-line"); bridge.appendChild(deck);
+
+    data.hops.forEach((hop, i) => {
+      const cls = ["hop"];
+      if (hop.role && hop.role.indexOf("pier") > -1) cls.push("pier");
+      if (hop.role === "pier faded" || hop.role === "gap") cls.push("faded");
+      if (hop.role === "gap") cls.push("gap");
+      if (hop.weak) cls.push("weak");
+      const h = el("div", cls.join(" "));
+
+      if (hop.relation) {
+        const rel = el("div", "relation"); rel.textContent = "— " + hop.relation + " —";
+        h.appendChild(rel);
+      }
+      const stone = el("div", "stone");
+      const dot = el("div", "dot"); stone.appendChild(dot);
+      h.appendChild(stone);
+
+      const w = el("div", "hop-word"); w.textContent = hop.word; h.appendChild(w);
+
+      const j = el("div", "justify");
+      const why = el("span", "why"); why.textContent = hop.why; j.appendChild(why);
+      const prov = el("span", "prov");
+      prov.innerHTML = "↳ " + hop.prov + " · <span class='" + (hop.live ? "live'>live" : "dead'>dead") + "</span>";
+      j.appendChild(prov);
+      h.appendChild(j);
+
+      // toggle justification on click
+      stone.addEventListener("click", () => h.classList.toggle("open"));
+
+      bridge.appendChild(h);
+    });
+    result.appendChild(bridge);
+
+    // outcome line + actions
+    const outcome = el("div", "outcome " + (vClass === "none" ? "cold" : vClass === "leans" ? "warn" : ""));
+    if (data.composed) {
+      const c = el("div", "composed"); c.textContent = "“" + data.composed + "”";
+      outcome.appendChild(c);
+    }
+    const cav = el("div", "caveat"); cav.innerHTML = data.caveat; outcome.appendChild(cav);
+
+    const actions = el("div", "actions");
+    if (data.composed) {
+      const copy = el("button", "act primary"); copy.textContent = "Copy line";
+      copy.addEventListener("click", () => {
+        const text = data.composed;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(
+            () => showToast("Copied: “" + text.slice(0, 42) + (text.length > 42 ? "…" : "") + "”"),
+            () => showToast("Copy blocked (needs https) — select and copy manually")
+          );
+        } else { showToast("Copy unavailable in this context"); }
+      });
+      actions.appendChild(copy);
+
+      const send = el("button", "act"); send.textContent = "Send to draft";
+      send.addEventListener("click", () => showToast("Sent to draft scratchpad (mock)"));
+      actions.appendChild(send);
+    } else {
+      const seek = el("button", "act"); seek.textContent = "Suggest a vehicle instead";
+      seek.addEventListener("click", () => showToast("→ hand off to the Forge (mock)"));
+      actions.appendChild(seek);
+    }
+
+    // covert grading hook — the inapt/apt label for the judge
+    const grade = el("div", "act grade");
+    grade.innerHTML = "Did this land? <span class='tu'>👍</span> <span class='tu'>👎</span>";
+    grade.title = "Writes an apt/inapt label to the eval cohort (mock)";
+    grade.querySelectorAll(".tu").forEach((b, idx) => {
+      b.style.cursor = "pointer";
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        showToast(idx === 0 ? "Marked apt — added to gold cohort (mock)" : "Marked inapt — feeds the inapt-cohort (mock)");
+      });
+    });
+    actions.appendChild(grade);
+
+    outcome.appendChild(actions);
+    result.appendChild(outcome);
+
+    // staggered reveal: light stones left→right, then meter, then outcome
+    const hops = bridge.querySelectorAll(".hop");
+    hops.forEach((h, i) => {
+      revealTimers.push(setTimeout(() => h.classList.add("shown"), 120 + i * 280));
+    });
+    const after = 120 + hops.length * 280;
+    revealTimers.push(setTimeout(() => { fill.style.width = Math.round(data.strength * 100) + "%"; }, after - 200));
+    outcome.style.opacity = "0"; outcome.style.transition = "opacity 0.5s ease"; outcome.style.transform = "translateY(8px)";
+    revealTimers.push(setTimeout(() => {
+      outcome.style.opacity = "1"; outcome.style.transform = "translateY(0)";
+      // auto-open the load-bearing / weakest hop's justification so the mechanism is visible
+      if (typeof data.weakestHop === "number" && hops[data.weakestHop]) hops[data.weakestHop].classList.add("open");
+    }, after + 120));
+  }
+
+  $("#cross").addEventListener("click", () => render(src.value, tgt.value));
+  [src, tgt].forEach((inp) => inp.addEventListener("keydown", (e) => { if (e.key === "Enter") render(src.value, tgt.value); }));
+
+  document.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const [s, t] = chip.dataset.ex.split("|");
+      src.value = s; tgt.value = t;
+      render(s, t);
+    });
+  });
+
+  // render the default pair on load so the screenshot shows a full result
+  render(src.value, tgt.value);
+})();
+</script>
+</body>
+</html>
