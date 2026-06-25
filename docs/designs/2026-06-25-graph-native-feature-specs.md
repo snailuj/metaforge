@@ -40,4 +40,19 @@
 
 ---
 
-*Build note: the four `web/prototypes/<feature>/` flat mockups + their `docs/designs/*-prototype.md` briefs were the first (rejected) round — kept for the ideas, but the build target is now graph-native on the real engine per the above.*
+## Settled decisions (post-prototype, 2026-06-25)
+
+After the graph-native prototype round (real `3d-force-graph` engine; mockups at `web/prototypes/{graph-nav,bridge,forge,phrase-as-node}/index.html`), these open points are resolved:
+
+- **Bridge endpoint colour.** Both endpoints are **gold-ringed** on the public surface; topic vs vehicle is distinguished by ring/label, **not** the grading-tool vehicle blue (that was borrowed only for prototype legibility and has no place on the non-privileged surface).
+- **Phrase-node constituent edges.** A phrase node carries incoming edges from **whatever constituent roles it actually has** (subject / object / verb / modifier as present) — do not force all four; a noun phrase ("pressed flower") simply has fewer.
+- **Distinct bridge edges (impl).** The real build renders the curved/dashed/glowing metaphor edges with three's **`Line2` / `LineMaterial` (fat lines)**; the prototype's 1px-line-plus-glow-tube is a CDN/UMD limitation, not the target.
+- Everything else is as specced above — the operator Q&A answers are the contract.
+
+## Spike scope (first real-code step)
+
+Port the **cinematic base (section B)** into the actual `mf-force-graph` Lit component **behind a flag**: fog-of-war (hop-distance fade), bloom-on-focus, free-flight + click-to-fly, cosmic background/fog — real-bundle-verified (headless Playwright on the built bundle). Bridge / Forge / Phrase-as-Node layer on once the base lands in the component.
+
+---
+
+*The earlier flat `web/prototypes/*` round (2026-06-24) was rejected for not being graph-native; its `docs/designs/*-prototype.md` briefs are kept for the ideas only. The graph-native prototypes above are the build reference.*
