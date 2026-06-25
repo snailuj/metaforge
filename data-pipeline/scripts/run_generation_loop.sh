@@ -47,6 +47,7 @@ AVOID_VEHICLES="${AVOID_VEHICLES:-}"        # set to a JSON list of over-used ve
 TW_ABS_FLOOR="${TW_ABS_FLOOR:-}"           # override --tw-abs-floor (collapse line; lower for low-yield pools)
 MAX_ITERS="${MAX_ITERS:-400}"              # runaway guard (windows), not the real bound
 SLEEP_BUFFER="${SLEEP_BUFFER:-90}"          # seconds added past the stated reset
+AUTOCOMMIT_EVERY="${AUTOCOMMIT_EVERY:-}"    # git-commit the output every N batches (loss guard; off if empty)
 
 SUMMARY="$(mktemp)"
 trap 'rm -f "$SUMMARY"' EXIT
@@ -62,12 +63,14 @@ while [ "$iter" -lt "$MAX_ITERS" ]; do
   [ -n "$AVOID_VEHICLES" ] && avoid_arg=(--avoid-vehicles "$AVOID_VEHICLES")
   tw_arg=()
   [ -n "$TW_ABS_FLOOR" ] && tw_arg=(--tw-abs-floor "$TW_ABS_FLOOR")
+  commit_arg=()
+  [ -n "$AUTOCOMMIT_EVERY" ] && commit_arg=(--autocommit-every "$AUTOCOMMIT_EVERY")
 
   "$PY" "$GEN" \
     --topics "$TOPICS" --output "$OUTPUT" --db "$DB" \
     --round "$ROUND" --batch-size "$BATCH_SIZE" --judge-sample "$JUDGE_SAMPLE" \
     --max-topics "$MAX_TOPICS" --max-cost-usd "$MAX_COST_USD" \
-    --summary-out "$SUMMARY" "${haiku_arg[@]}" "${avoid_arg[@]}" "${tw_arg[@]}"
+    --summary-out "$SUMMARY" "${haiku_arg[@]}" "${avoid_arg[@]}" "${tw_arg[@]}" "${commit_arg[@]}"
   rc=$?
 
   if [ ! -s "$SUMMARY" ]; then
