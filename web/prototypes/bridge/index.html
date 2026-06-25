@@ -3,13 +3,51 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>The Bridge · Metaforge prototype</title>
+<title>Metaforge · The Bridge (source → target)</title>
+<!--
+  GRAPH-NATIVE prototype, built on the REAL engine (three.js + 3d-force-graph),
+  per docs/designs/2026-06-25-graph-native-feature-specs.md (section A — The Bridge).
+  Single self-contained no-build file, opens via file://, CDN globals only.
+
+  This LAYERS THE BRIDGE on the cinematic base (web/prototypes/graph-nav):
+    - HYBRID DUAL-SEARCH: a TOPIC field + a "to…" VEHICLE field. Completing the
+      topic pans + selects that node; completing the vehicle pans + selects it;
+      both end up selected. Showing that choreography (pan + dual-selection) is
+      the prototype's central job.
+    - BOTH ENDPOINTS RENDER LIKE THE THESAURUS — ALL their edges (synonyms,
+      hyponyms, hypernyms, similar), not only the metaphor path.
+    - METAPHOR-PATH EDGES ARE VISUALLY DISTINCT: a violet linkage outline/glow,
+      and the edge itself behaves obviously differently — CURVED + DASHED +
+      animated particles — vs the straight, solid thesaurus edges.
+    - ALL PATHS rendered when more than one bridge exists between the pair.
+    - "WHY THIS HOP" lives as EDGE LABELS on the metaphor edges (not the panel).
+    - NO / WEAK BRIDGE: endpoints stay unconnected + a status line explains it.
+      Three example pairs are wired, including one no-bridge pair.
+
+  Inherited verbatim from the base: tuned HTML overlay (collapsible info panel,
+  rarity filter, flight hint), fog-of-war, bloom-on-focus, click/fly-to,
+  controlType:'fly' WASD/QE flight, crisp SpriteText labels, the tokens.css
+  palette and the relation-colour conventions from colours.ts / mf-force-graph.ts.
+-->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,500;0,700;1,500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Playfair+Display:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<!-- Engine globals. Order matters: THREE first (3d-force-graph reads window.THREE),
+     then the graph, then the crisp text-sprite label helper. -->
+<script src="https://unpkg.com/three@0.149.0/build/three.min.js"
+        integrity="sha384-RRHfJ6w1mTlKUBMYT/hvnRiOzEB/vyRV3DrQOseb6oYfvaZSfdd0byS4bHps0k2R"
+        crossorigin="anonymous"></script>
+<script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"
+        integrity="sha384-GNPicn8pBA2/PGSyPTpxIlPurgLUYcNYJ2zskIq782dE9+gp5E32WSyuxZqA7J+u"
+        crossorigin="anonymous"></script>
+<script src="https://unpkg.com/three-spritetext@1.8.2/dist/three-spritetext.min.js"
+        integrity="sha384-8hX0id4j/d/+9ukCS+LZDb9WpPp63OqiuZ5bpPPnixibnP01z1avvWuQD3xdEIQX"
+        crossorigin="anonymous"></script>
+
 <style>
-  /* ---- tokens mirrored from web/src/styles/tokens.css ---- */
   :root {
+    /* mirrored verbatim from web/src/styles/tokens.css */
     --bg-primary: #1a1a2e;
     --bg-secondary: #16213e;
     --bg-hud: rgba(22, 33, 62, 0.6);
@@ -18,545 +56,1298 @@
     --text-muted: #6b6560;
     --gold: #d4af37;
     --gold-dim: rgba(212, 175, 55, 0.5);
+    /* node colours (colours.ts NODE_COLOURS) */
+    --node-central: #d4af37;
     --node-synonym: #c4956a;
+    --node-hypernym: #8b6f47;
+    --node-hyponym: #6a8b6f;
     --node-similar: #7a6a8b;
+    /* rarity colours (colours.ts RARITY_COLOURS) — drive the rarity filter chips */
+    --rarity-common: #8bb89a;
+    --rarity-unusual: #c4956a;
+    --rarity-rare: #a88bc4;
     --edge-default: rgba(232, 224, 212, 0.15);
     --edge-highlight: rgba(212, 175, 55, 0.4);
-    --amber: #d98a3d;
-    --amber-dim: rgba(217, 138, 61, 0.45);
-    --dead: #8a5a5a;
+    --bridge: #b56ed0;            /* gravity-well violet — metaphor linkage */
+    --vehicle: #6fb8e0;          /* vehicle endpoint accent (mf-force-graph GRADE vehicle blue) */
     --font-heading: 'Playfair Display', Georgia, serif;
     --font-body: 'Crimson Text', 'Times New Roman', serif;
     --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --hud-border: 1px solid rgba(212, 175, 55, 0.2);
+    --hud-radius: 4px;
   }
 
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
-  body {
-    min-height: 100vh;
-    background:
-      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(122, 106, 139, 0.18), transparent 70%),
-      radial-gradient(ellipse 60% 40% at 85% 110%, rgba(212, 175, 55, 0.08), transparent 70%),
-      var(--bg-primary);
-    color: var(--text-primary);
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg-primary);
+    overflow: hidden;
     font-family: var(--font-body);
-    font-size: 18px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-  }
-  /* faint starfield */
-  body::before {
-    content: "";
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background-image:
-      radial-gradient(1px 1px at 20% 30%, rgba(232,224,212,0.5), transparent),
-      radial-gradient(1px 1px at 70% 20%, rgba(232,224,212,0.35), transparent),
-      radial-gradient(1px 1px at 40% 70%, rgba(232,224,212,0.4), transparent),
-      radial-gradient(1px 1px at 85% 60%, rgba(232,224,212,0.3), transparent),
-      radial-gradient(1px 1px at 55% 45%, rgba(212,175,55,0.4), transparent),
-      radial-gradient(1px 1px at 12% 80%, rgba(232,224,212,0.3), transparent);
-    background-repeat: no-repeat;
-    opacity: 0.7;
-  }
-
-  .wrap { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
-
-  header.brand { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.25rem; }
-  header.brand .mark {
-    font-family: var(--font-heading); font-weight: 700; font-size: 1.05rem;
-    letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold);
-  }
-  header.brand .mark::before { content: "✦ "; color: var(--gold-dim); }
-  header.brand .crumb { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.15em; color: var(--text-muted); text-transform: uppercase; }
-
-  h1 {
-    font-family: var(--font-heading); font-weight: 700; font-size: 2.6rem;
-    margin: 0.4rem 0 0.2rem; letter-spacing: 0.01em;
-  }
-  .tagline { color: var(--text-secondary); font-size: 1.12rem; max-width: 46rem; margin: 0 0 0.4rem; }
-  .tagline em { color: var(--text-primary); font-style: italic; }
-  .dual { font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 2rem; }
-  .dual b { color: var(--gold-dim); font-weight: 500; }
-
-  /* ---- input row ---- */
-  .console {
-    background: var(--bg-hud);
-    border: 1px solid rgba(212, 175, 55, 0.22);
-    border-radius: 6px;
-    padding: 1.4rem 1.6rem;
-    backdrop-filter: blur(3px);
-    box-shadow: 0 14px 40px -24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(232,224,212,0.04);
-  }
-  .pair-row { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
-  .field { flex: 1 1 220px; display: flex; flex-direction: column; gap: 0.35rem; }
-  .field label {
-    font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.2em;
-    text-transform: uppercase; color: var(--text-muted);
-  }
-  .field input {
-    background: rgba(26, 26, 46, 0.7);
-    border: 1px solid rgba(232, 224, 212, 0.14);
-    border-radius: 4px;
     color: var(--text-primary);
-    font-family: var(--font-heading); font-size: 1.45rem; font-weight: 500;
-    padding: 0.55rem 0.8rem;
-    transition: border-color 0.2s, box-shadow 0.2s;
   }
-  .field input:focus {
-    outline: none; border-color: var(--gold-dim);
-    box-shadow: 0 0 0 1px var(--gold-dim), 0 0 22px -6px rgba(212,175,55,0.4);
+  #graph { position: fixed; inset: 0; z-index: 0; }
+
+  .hud { position: fixed; z-index: 10; }
+
+  /* Top-left collapsible info panel ("collapso") */
+  #panel {
+    top: 1rem; left: 1rem; width: 20rem; max-width: calc(100vw - 2rem);
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    overflow: hidden;
+    transition: border-color 200ms ease;
   }
-  .field.source input { color: var(--gold); }
-  .field.target input { color: var(--node-synonym); }
-
-  .span-glyph {
-    flex: 0 0 86px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-    padding-bottom: 0.5rem; color: var(--gold-dim);
+  /* When the panel describes the vehicle endpoint, its accent shifts blue. */
+  #panel.is-vehicle { border-color: rgba(111,184,224,0.4); }
+  #panel-header {
+    display: flex; align-items: baseline; gap: 0.6rem;
+    padding: 0.85rem 1rem 0.6rem;
+    cursor: pointer; user-select: none;
   }
-  .span-glyph svg { width: 86px; height: 34px; overflow: visible; }
-  .span-glyph .lbl { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.15em; color: var(--text-muted); margin-top: 2px; }
-
-  .cross-row { display: flex; align-items: center; justify-content: space-between; margin-top: 1.1rem; gap: 1rem; flex-wrap: wrap; }
-  .chips { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-  .chips .pre { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.12em; color: var(--text-muted); text-transform: uppercase; margin-right: 0.2rem; }
-  .chip {
-    background: rgba(122, 106, 139, 0.16);
-    border: 1px solid rgba(232, 224, 212, 0.16);
-    border-radius: 999px;
-    color: var(--text-secondary);
-    font-family: var(--font-body); font-size: 0.92rem;
-    padding: 0.28rem 0.85rem; cursor: pointer;
-    transition: all 0.18s;
+  #panel-word {
+    font-family: var(--font-heading);
+    font-size: 1.6rem; font-weight: 700;
+    color: var(--gold);
+    letter-spacing: 0.01em;
+    line-height: 1;
+    transition: color 200ms ease;
   }
-  .chip:hover { border-color: var(--gold-dim); color: var(--text-primary); background: rgba(212, 175, 55, 0.1); }
-  .chip .arr { color: var(--gold-dim); margin: 0 0.3rem; }
-  .chip.weak .arr { color: var(--amber-dim); }
-
-  .cross-btn {
-    background: linear-gradient(180deg, rgba(212,175,55,0.95), rgba(180,142,40,0.95));
-    color: #1a1a2e; border: none; border-radius: 4px;
-    font-family: var(--font-mono); font-size: 0.82rem; font-weight: 500; letter-spacing: 0.16em;
-    text-transform: uppercase; padding: 0.7rem 1.6rem; cursor: pointer;
-    box-shadow: 0 8px 22px -10px rgba(212,175,55,0.7);
-    transition: transform 0.12s, box-shadow 0.18s;
+  #panel.is-vehicle #panel-word { color: var(--vehicle); }
+  /* tiny endpoint tag — TOPIC / VEHICLE — so the dual-selection reads at a glance */
+  #panel-role {
+    font-family: var(--font-mono); font-size: 0.55rem; letter-spacing: 0.16em;
+    text-transform: uppercase; padding: 0.16rem 0.4rem; border-radius: 2px;
+    border: 1px solid currentColor; white-space: nowrap; display: none;
   }
-  .cross-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -10px rgba(212,175,55,0.8); }
-  .cross-btn:active { transform: translateY(0); }
-
-  /* ---- result span ---- */
-  .result { margin-top: 2.2rem; min-height: 60px; }
-
-  .verdict-bar { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.4rem; flex-wrap: wrap; }
-  .verdict-word {
-    font-family: var(--font-mono); font-size: 0.8rem; font-weight: 500; letter-spacing: 0.22em;
-    text-transform: uppercase; padding: 0.32rem 0.85rem; border-radius: 3px; border: 1px solid currentColor;
+  #panel-role.topic   { color: var(--gold); }
+  #panel-role.vehicle { color: var(--vehicle); }
+  .badge {
+    font-family: var(--font-mono);
+    font-size: 0.6rem; letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.18rem 0.45rem; border-radius: 2px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
   }
-  .verdict-word.solid { color: var(--gold); }
-  .verdict-word.leans { color: var(--amber); }
-  .verdict-word.none  { color: var(--dead); }
+  .badge.common  { color: var(--rarity-common); }
+  .badge.unusual { color: var(--rarity-unusual); }
+  .badge.rare    { color: var(--rarity-rare); }
+  #panel-pos {
+    font-family: var(--font-body); font-style: italic;
+    color: var(--text-secondary); font-size: 0.95rem;
+  }
+  #panel-collapse {
+    margin-left: auto; color: var(--text-muted);
+    font-family: var(--font-mono); font-size: 0.85rem;
+    transition: transform 200ms ease;
+  }
+  #panel.collapsed #panel-collapse { transform: rotate(-90deg); }
+  #panel.collapsed #panel-body { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+  #panel-body {
+    padding: 0 1rem 1rem; max-height: 70vh; opacity: 1;
+    overflow-y: auto;
+    transition: max-height 260ms ease, opacity 200ms ease, padding 260ms ease;
+  }
+  #panel-def {
+    font-size: 1rem; line-height: 1.5;
+    color: var(--text-primary);
+    margin: 0.1rem 0 0.9rem;
+  }
+  .rel-group { margin-top: 0.85rem; }
+  .rel-group h4 {
+    margin: 0 0 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.62rem; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--text-muted);
+    border-bottom: 1px solid rgba(212,175,55,0.12);
+    padding-bottom: 0.25rem;
+  }
+  .rel-terms { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .term {
+    font-size: 0.95rem;
+    padding: 0.18rem 0.5rem; border-radius: 2px;
+    background: rgba(232,224,212,0.05);
+    border: 1px solid transparent;
+    cursor: pointer; transition: all 140ms ease;
+    color: var(--text-primary);
+  }
+  .term:hover {
+    border-color: var(--gold-dim);
+    background: rgba(212,175,55,0.1);
+    color: var(--gold);
+  }
+  .term[data-rel="synonym"]  { border-left: 3px solid var(--node-synonym); }
+  .term[data-rel="hypernym"] { border-left: 3px solid var(--node-hypernym); }
+  .term[data-rel="hyponym"]  { border-left: 3px solid var(--node-hyponym); }
+  .term[data-rel="similar"]  { border-left: 3px solid var(--node-similar); }
 
-  .meter { flex: 1 1 220px; min-width: 180px; height: 6px; border-radius: 3px; background: rgba(232,224,212,0.08); overflow: hidden; position: relative; }
-  .meter .fill { height: 100%; width: 0; border-radius: 3px; transition: width 0.7s cubic-bezier(.2,.7,.2,1); }
-  .meter .fill.solid { background: linear-gradient(90deg, var(--gold-dim), var(--gold)); }
-  .meter .fill.leans { background: linear-gradient(90deg, var(--amber-dim), var(--amber)); }
-  .meter .fill.none  { background: linear-gradient(90deg, rgba(138,90,90,0.4), var(--dead)); }
-  .meter-label { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.1em; color: var(--text-muted); white-space: nowrap; }
-
-  /* the bridge itself: stones along a span */
-  .bridge {
+  /* ---- Bridge dual-search: stacked TOPIC + "to…" VEHICLE fields ---- */
+  #searchwrap {
+    top: 1rem; left: 50%; transform: translateX(-50%);
+    width: min(34rem, calc(100vw - 24rem));
+  }
+  .bridge-fields {
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
     position: relative;
-    padding: 2.2rem 0 1.2rem;
-    display: flex; align-items: flex-start; justify-content: space-between;
-    gap: 0;
   }
-  /* the deck line behind the stones */
-  .deck-line {
-    position: absolute; left: 4%; right: 4%; top: calc(2.2rem + 30px);
-    height: 2px; background: var(--edge-default); z-index: 0;
-  }
-
-  .hop {
-    position: relative; z-index: 1; flex: 1 1 0;
-    display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
-    min-width: 0;
-    opacity: 0; transform: translateY(10px);
-    transition: opacity 0.5s ease, transform 0.5s ease;
-  }
-  .hop.shown { opacity: 1; transform: translateY(0); }
-
-  /* the stone / pier */
-  .stone {
-    width: 60px; height: 60px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    border: 2px solid var(--gold-dim);
-    background: radial-gradient(circle at 35% 30%, rgba(212,175,55,0.22), rgba(22,33,62,0.9));
-    box-shadow: 0 0 0 6px rgba(212,175,55,0.06), 0 10px 24px -12px rgba(0,0,0,0.8);
-    cursor: pointer; transition: transform 0.18s, box-shadow 0.2s, border-color 0.2s;
+  .field-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.15rem 0.7rem;
     position: relative;
   }
-  .stone:hover { transform: scale(1.06); box-shadow: 0 0 0 8px rgba(212,175,55,0.12), 0 14px 28px -12px rgba(0,0,0,0.8); }
-  .hop.pier .stone { width: 70px; height: 70px; border-color: var(--gold); border-width: 2.5px;
-    background: radial-gradient(circle at 35% 30%, rgba(212,175,55,0.38), rgba(22,33,62,0.95)); }
-  .hop.weak .stone { border-color: var(--amber); background: radial-gradient(circle at 35% 30%, rgba(217,138,61,0.26), rgba(22,33,62,0.9)); box-shadow: 0 0 0 6px rgba(217,138,61,0.1), 0 10px 24px -12px rgba(0,0,0,0.8); }
-  .hop.faded .stone { border-color: var(--dead); border-style: dashed; opacity: 0.6; background: radial-gradient(circle at 35% 30%, rgba(138,90,90,0.15), rgba(22,33,62,0.6)); }
-  .stone .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 10px var(--gold); }
-  .hop.weak .stone .dot { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
-  .hop.faded .stone .dot { background: var(--dead); box-shadow: none; }
-
-  .hop-word { font-family: var(--font-heading); font-size: 1.18rem; font-weight: 500; text-align: center; }
-  .hop.pier .hop-word { color: var(--gold); font-size: 1.32rem; }
-  .hop.weak .hop-word { color: var(--amber); }
-  .hop.faded .hop-word { color: var(--text-muted); font-style: italic; }
-
-  /* relation label sits on the deck segment to the LEFT of a stone */
-  .relation {
-    position: absolute; top: -1.55rem; left: -50%; width: 100%;
-    text-align: center;
-    font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em;
-    color: var(--text-secondary); text-transform: lowercase;
+  .field-row + .field-row { border-top: 1px solid rgba(212,175,55,0.14); }
+  .field-tag {
+    font-family: var(--font-mono); font-size: 0.55rem; letter-spacing: 0.14em;
+    text-transform: uppercase; width: 3.4rem; flex: none; text-align: right;
+    color: var(--text-muted);
+  }
+  .field-row.topic   .field-tag { color: var(--gold-dim); }
+  .field-row.vehicle .field-tag { color: rgba(111,184,224,0.7); }
+  .field-input {
+    flex: 1 1 auto; min-width: 0;
+    background: transparent; border: none; outline: none;
+    color: var(--text-primary);
+    font-family: var(--font-body); font-size: 1.05rem;
+    padding: 0.62rem 0.2rem;
+  }
+  .field-input::placeholder { color: var(--text-muted); }
+  .field-state {
+    flex: none; font-family: var(--font-mono); font-size: 0.62rem;
+    color: var(--text-muted); padding-right: 0.2rem; white-space: nowrap;
+  }
+  .field-state.set { color: var(--gold); }
+  .field-row.vehicle .field-state.set { color: var(--vehicle); }
+  #search-hint {
+    position: absolute; right: 0.55rem; top: 0.5rem;
+    font-family: var(--font-mono); font-size: 0.7rem;
+    color: var(--text-muted);
+    border: 1px solid rgba(232,224,212,0.18);
+    border-radius: 3px; padding: 0.05rem 0.35rem;
     pointer-events: none;
   }
-  .relation::before, .relation::after { content: ""; }
-  .hop.weak .relation { color: var(--amber); }
-  .hop.gap .relation { color: var(--dead); }
-  /* "long hop" / broken deck segment marker */
-  .hop.weak::before, .hop.gap::before {
-    content: ""; position: absolute; z-index: 0;
-    top: 30px; left: -50%; width: 100%; height: 2px;
+  /* Per-field suggestion dropdowns */
+  .suggestions {
+    position: absolute; left: 4.2rem; right: 0.5rem; top: 100%;
+    margin-top: 0.2rem; z-index: 30;
+    background: rgba(16,18,32,0.96);
+    backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    overflow: hidden;
+    display: none;
+    box-shadow: 0 10px 34px rgba(0,0,0,0.5);
   }
-  .hop.weak::before { background: repeating-linear-gradient(90deg, var(--amber-dim) 0 6px, transparent 6px 12px); }
-  .hop.gap::before { background: repeating-linear-gradient(90deg, var(--dead) 0 4px, transparent 4px 12px); }
-
-  /* justification card */
-  .justify {
-    margin-top: 0.2rem; max-width: 92%;
-    font-size: 0.84rem; color: var(--text-secondary); text-align: center;
-    max-height: 0; overflow: hidden; opacity: 0;
-    transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease;
+  .suggestions.open { display: block; }
+  .suggestion {
+    padding: 0.5rem 0.85rem; cursor: pointer;
+    font-size: 1rem; color: var(--text-primary);
+    display: flex; justify-content: space-between; align-items: center;
   }
-  .hop.open .justify { max-height: 140px; opacity: 1; margin-top: 0.5rem; }
-  .justify .why { font-style: italic; color: var(--text-primary); }
-  .justify .prov { display: block; margin-top: 0.35rem; font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.04em; color: var(--text-muted); }
-  .justify .prov .live { color: var(--gold-dim); }
-  .justify .prov .dead { color: var(--dead); }
+  .suggestion:hover, .suggestion.active { background: rgba(212,175,55,0.12); color: var(--gold); }
+  .suggestion small { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; }
 
-  /* the composed line + actions */
-  .outcome {
-    margin-top: 1.6rem; padding: 1.2rem 1.4rem;
-    background: rgba(26, 26, 46, 0.55); border-left: 2px solid var(--gold-dim); border-radius: 4px;
+  /* "Try a bridge" example chips — discoverable, under the dual-search */
+  #examples {
+    margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.4rem;
+    align-items: center;
   }
-  .outcome.warn { border-left-color: var(--amber); }
-  .outcome.cold { border-left-color: var(--dead); }
-  .outcome .composed {
-    font-family: var(--font-heading); font-style: italic; font-size: 1.34rem; color: var(--text-primary);
-    margin-bottom: 0.3rem; line-height: 1.35;
+  #examples .ex-label {
+    font-family: var(--font-mono); font-size: 0.55rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-muted);
   }
-  .outcome .caveat { color: var(--text-secondary); font-size: 0.96rem; margin-bottom: 0.9rem; }
-  .outcome .caveat b { color: var(--amber); font-weight: 600; }
-  .outcome.cold .caveat b { color: var(--dead); }
-
-  .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
-  .act {
-    background: rgba(122, 106, 139, 0.14); border: 1px solid rgba(232, 224, 212, 0.16);
-    color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em;
-    text-transform: uppercase; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; transition: all 0.16s;
+  .ex-chip {
+    font-family: var(--font-body); font-size: 0.85rem;
+    padding: 0.22rem 0.6rem; border-radius: 999px;
+    background: rgba(181,110,208,0.1);
+    border: 1px solid rgba(181,110,208,0.35);
+    color: #d9b3ec; cursor: pointer;
+    transition: all 140ms ease; white-space: nowrap;
   }
-  .act:hover { border-color: var(--gold-dim); color: var(--text-primary); background: rgba(212,175,55,0.1); }
-  .act.primary { background: rgba(212,175,55,0.16); border-color: var(--gold-dim); color: var(--gold); }
-  .act.grade { margin-left: auto; }
-  .act.grade .tu { font-size: 0.9rem; }
+  .ex-chip:hover { background: rgba(181,110,208,0.22); border-color: var(--bridge); }
+  .ex-chip.nobridge { background: rgba(107,101,96,0.12); border-color: rgba(168,160,148,0.3); color: var(--text-secondary); }
+  .ex-chip .arrow { color: var(--text-muted); margin: 0 0.15rem; }
 
-  .empty { color: var(--text-muted); font-style: italic; padding: 2rem 0; text-align: center; font-size: 1.05rem; }
-
-  /* toast */
-  .toast {
-    position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%) translateY(20px);
-    background: var(--bg-secondary); border: 1px solid var(--gold-dim); color: var(--text-primary);
-    font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.04em;
-    padding: 0.7rem 1.3rem; border-radius: 4px; opacity: 0; pointer-events: none;
-    transition: opacity 0.25s, transform 0.25s; z-index: 20;
-    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.7);
+  /* Bridge status line — sits just below the dual search */
+  #bridge-status {
+    margin-top: 0.5rem;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    padding: 0.55rem 0.85rem;
+    font-size: 0.92rem; line-height: 1.4;
+    display: none;
   }
-  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #bridge-status.show { display: block; }
+  #bridge-status.found  { border-color: rgba(181,110,208,0.45); }
+  #bridge-status.none   { border-color: rgba(196,122,122,0.45); }
+  #bridge-status .st-head {
+    font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.14em;
+    text-transform: uppercase; margin-bottom: 0.2rem;
+  }
+  #bridge-status.found .st-head { color: var(--bridge); }
+  #bridge-status.none  .st-head { color: #c47a7a; }
+  #bridge-status .st-body { color: var(--text-secondary); }
+  #bridge-status .st-body b { color: var(--text-primary); font-weight: 600; }
 
-  footer.note { margin-top: 3rem; font-family: var(--font-mono); font-size: 0.64rem; color: var(--text-muted); letter-spacing: 0.04em; line-height: 1.8; }
-  footer.note b { color: var(--gold-dim); font-weight: 500; }
+  /* Rarity filter — bottom-left */
+  #rarity {
+    bottom: 1rem; left: 1rem;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    padding: 0.55rem 0.7rem;
+    display: flex; gap: 0.4rem; align-items: center;
+  }
+  #rarity .label {
+    font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-muted); margin-right: 0.2rem;
+  }
+  .rchip {
+    font-size: 0.8rem; cursor: pointer; user-select: none;
+    padding: 0.22rem 0.55rem; border-radius: 2px;
+    border: 1px solid currentColor;
+    opacity: 1; transition: opacity 140ms ease, background 140ms ease;
+  }
+  .rchip.common  { color: var(--rarity-common); }
+  .rchip.unusual { color: var(--rarity-unusual); }
+  .rchip.rare    { color: var(--rarity-rare); }
+  .rchip.off { opacity: 0.32; text-decoration: line-through; }
+
+  /* Legend — teaches the "obviously different" bridge edge. Bottom-left,
+     above the rarity filter. */
+  #legend {
+    bottom: 4.1rem; left: 1rem;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    padding: 0.5rem 0.7rem;
+    display: flex; flex-direction: column; gap: 0.35rem;
+    font-size: 0.78rem;
+  }
+  #legend .leg-title {
+    font-family: var(--font-mono); font-size: 0.55rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .leg-row { display: flex; align-items: center; gap: 0.5rem; color: var(--text-secondary); }
+  .leg-swatch { width: 2.2rem; flex: none; }
+  .leg-swatch.solid  { border-top: 2px solid var(--node-synonym); }
+  .leg-swatch.bridge { border-top: 2px dashed var(--bridge); }
+
+  /* Flight hint — bottom-centre */
+  #flight-hint {
+    bottom: 1.1rem; left: 50%; transform: translateX(-50%);
+    font-family: var(--font-mono); font-size: 0.72rem;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-align: center;
+    background: rgba(22,33,62,0.4);
+    padding: 0.3rem 0.8rem; border-radius: var(--hud-radius);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #flight-hint b { color: var(--text-secondary); font-weight: 600; }
+
+  /* Title wisp — bottom-right */
+  #wisp {
+    bottom: 1rem; right: 1rem;
+    font-family: var(--font-heading); font-size: 0.85rem;
+    color: var(--text-muted); letter-spacing: 0.04em;
+    opacity: 0.75; pointer-events: none; text-align: right;
+  }
+  #wisp small { display: block; font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.1em; }
+
+  #panel-body::-webkit-scrollbar { width: 6px; }
+  #panel-body::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.25); border-radius: 3px; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header class="brand">
-    <span class="mark">Metaforge</span>
-    <span class="crumb">prototype · the bridge</span>
-  </header>
+  <div id="graph"></div>
 
-  <h1>The Bridge</h1>
-  <p class="tagline">You bring the metaphor. We show you <em>why it works</em> — the conceptual path from one idea to the other, hop by hop.</p>
-  <p class="dual"><b>dual of the forge</b> — the Forge asks "what is X like?". The Bridge asks "why is X like Y?" and traces the span between them.</p>
-
-  <div class="console">
-    <div class="pair-row">
-      <div class="field source">
-        <label>Source · tenor</label>
-        <input id="src" value="grief" autocomplete="off" spellcheck="false" />
+  <!-- Top-left collapsible info panel -->
+  <aside id="panel" class="hud">
+    <div id="panel-header">
+      <span id="panel-word">grief</span>
+      <span id="panel-role" class="topic">topic</span>
+      <span id="panel-badge" class="badge unusual">unusual</span>
+      <span id="panel-pos">n.</span>
+      <span id="panel-collapse">▾</span>
+    </div>
+    <div id="panel-body">
+      <p id="panel-def"></p>
+      <div id="rel-broader" class="rel-group">
+        <h4>Broader Terms</h4>
+        <div class="rel-terms"></div>
       </div>
-      <div class="span-glyph" aria-hidden="true">
-        <svg viewBox="0 0 86 34">
-          <path d="M2,30 Q43,2 84,30" fill="none" stroke="currentColor" stroke-width="1.5" />
-          <line x1="2" y1="30" x2="2" y2="18" stroke="currentColor" stroke-width="1.5"/>
-          <line x1="84" y1="30" x2="84" y2="18" stroke="currentColor" stroke-width="1.5"/>
-          <circle cx="23" cy="14.5" r="2.4" fill="currentColor"/>
-          <circle cx="43" cy="8.5" r="2.4" fill="currentColor"/>
-          <circle cx="63" cy="14.5" r="2.4" fill="currentColor"/>
-        </svg>
-        <span class="lbl">span</span>
+      <div id="rel-similar" class="rel-group">
+        <h4>Similar</h4>
+        <div class="rel-terms"></div>
       </div>
-      <div class="field target">
-        <label>Target · vehicle</label>
-        <input id="tgt" value="glacier" autocomplete="off" spellcheck="false" />
+      <div id="rel-narrower" class="rel-group">
+        <h4>Narrower</h4>
+        <div class="rel-terms"></div>
       </div>
     </div>
+  </aside>
 
-    <div class="cross-row">
-      <div class="chips">
-        <span class="pre">try</span>
-        <button class="chip" data-ex="anger|fire">anger <span class="arr">→</span> fire</button>
-        <button class="chip" data-ex="grief|glacier">grief <span class="arr">→</span> glacier</button>
-        <button class="chip weak" data-ex="memory|spreadsheet">memory <span class="arr">→</span> spreadsheet</button>
+  <!-- Centre-top HYBRID DUAL-SEARCH -->
+  <div id="searchwrap" class="hud">
+    <div class="bridge-fields">
+      <div class="field-row topic">
+        <span class="field-tag">Topic</span>
+        <input id="search-topic" class="field-input" type="text" placeholder="a word to bridge from…" autocomplete="off" spellcheck="false" />
+        <span id="state-topic" class="field-state"></span>
+        <div id="sug-topic" class="suggestions"></div>
       </div>
-      <button class="cross-btn" id="cross">Cross the span →</button>
+      <div class="field-row vehicle">
+        <span class="field-tag">to…</span>
+        <input id="search-vehicle" class="field-input" type="text" placeholder="a word to bridge to…" autocomplete="off" spellcheck="false" />
+        <span id="state-vehicle" class="field-state"></span>
+        <div id="sug-vehicle" class="suggestions"></div>
+      </div>
+      <span id="search-hint">/</span>
+    </div>
+
+    <!-- Discoverable example bridges (incl. a no-bridge pair) -->
+    <div id="examples">
+      <span class="ex-label">Try</span>
+    </div>
+
+    <!-- Bridge status line -->
+    <div id="bridge-status">
+      <div class="st-head"></div>
+      <div class="st-body"></div>
     </div>
   </div>
 
-  <div class="result" id="result">
-    <div class="empty">Pick a pair and cross the span. The path will assemble itself, left to right.</div>
+  <!-- Rarity filter -->
+  <div id="rarity" class="hud">
+    <span class="label">Show</span>
+    <span class="rchip common"  data-rarity="common">Common</span>
+    <span class="rchip unusual" data-rarity="unusual">Unusual</span>
+    <span class="rchip rare"    data-rarity="rare">Rare</span>
   </div>
 
-  <footer class="note">
-    <b>mock data.</b> The real Bridge traverses harvested <b>metaphor_bridges</b> edges (currently 0 rows) via bidirectional A* over concept-senses, sharing the Forge's graph substrate. Strength reads the <b>weakest hop</b> — a chain is only as strong as its widest leap (the max-hop geometry signal). Weak / no-path verdicts double as <b>inapt-cohort labels</b> for the judge. Palette + type from <b>web/src/styles/tokens.css</b>.
-  </footer>
-</div>
+  <!-- Edge legend -->
+  <div id="legend" class="hud">
+    <span class="leg-title">Edges</span>
+    <div class="leg-row"><span class="leg-swatch solid"></span> thesaurus (straight, solid)</div>
+    <div class="leg-row"><span class="leg-swatch bridge"></span> metaphor bridge (curved, dashed, glowing)</div>
+  </div>
 
-<div class="toast" id="toast"></div>
+  <!-- Flight hint -->
+  <div id="flight-hint" class="hud">
+    <b>WASD</b> move · <b>R/F</b> up/down · <b>Q/E</b> roll · drag to look · <b>click</b> a star to fly there
+  </div>
+  <div id="wisp" class="hud">The Bridge<small>source → target</small></div>
 
 <script>
-(function () {
-  "use strict";
+/* ============================================================================
+   CONSTELLATION — thesaurus clusters (a TOPIC word and several VEHICLE words,
+   each with their FULL relation neighbourhood — synonyms / hypernyms /
+   hyponyms / similar) joined by one or more METAPHOR BRIDGE PATHS. One vehicle
+   (the stapler) has NO strong bridge to the topic.
 
-  // ---- mock bridge data ----------------------------------------------------
-  // Each path: piers (first + last) are the user's words; middle = intermediate
-  // concepts. relation = what licenses the hop INTO this node (from the left).
-  // strength of the WEAKEST hop governs the verdict.
-  const BRIDGES = {
-    "anger|fire": {
-      verdict: "solid", strength: 0.88, weakestHop: 2,
-      composed: "his anger was fire — consuming, leaving only ash where it passed",
-      caveat: "A solid, well-trodden bridge. The leap from <i>consuming</i> to <i>fire</i> is the load-bearing image.",
-      hops: [
-        { word: "anger", role: "pier", relation: null, why: "the feeling you brought.", prov: "tenor · graded topic", live: true },
-        { word: "heat", relation: "is felt as", why: "anger is bodily heat — the flush, the burning, 'hot under the collar'.", prov: "metaphor_bridges · 31 graded paths", live: true },
-        { word: "consuming", relation: "intensifies into", why: "heat that builds devours its source — the move from sensation to appetite.", prov: "metaphor_bridges · 18 graded paths", live: true },
-        { word: "destruction", relation: "results in", why: "what consumes, destroys — the metaphor's emotional payload.", prov: "metaphor_bridges · 22 graded paths", live: true },
-        { word: "fire", role: "pier", relation: "is embodied by", why: "fire is the canonical agent of consuming destruction.", prov: "vehicle · graded topic", live: true }
-      ]
-    },
-    "grief|glacier": {
-      verdict: "solid", strength: 0.81, weakestHop: 1,
-      composed: "her grief was a glacier — slow, immense, grinding flat whatever it crossed",
-      caveat: "A solid bridge with one wide opening hop. <i>Grief</i> to <i>weight</i> is intuitive but unstated — the rest is firm.",
-      hops: [
-        { word: "grief", role: "pier", relation: null, why: "the feeling you brought.", prov: "tenor · graded topic", live: true },
-        { word: "weight", relation: "is felt as", why: "grief presses — 'heavy heart', 'weighed down', a mass you carry.", prov: "metaphor_bridges · 9 graded paths", live: true },
-        { word: "slow inexorable mass", relation: "becomes", why: "weight that moves can't be hurried or stopped — it advances on its own clock.", prov: "metaphor_bridges · 6 graded paths", live: true },
-        { word: "grinding", relation: "acts by", why: "an unstoppable mass reshapes everything beneath it, slowly, totally.", prov: "metaphor_bridges · 11 graded paths", live: true },
-        { word: "glacier", role: "pier", relation: "is embodied by", why: "a glacier IS slow inexorable grinding mass — the image lands whole.", prov: "vehicle · graded topic", live: true }
-      ]
-    },
-    "memory|spreadsheet": {
-      verdict: "none", strength: 0.24, weakestHop: 2,
-      composed: null,
-      caveat: "No honest path within 3 hops. <b>memory</b> and <b>spreadsheet</b> share storage, but the bridge breaks at the leap to <b>feeling</b> — a spreadsheet has no warmth, no decay, no unreliability. This reads as a <b>category joke</b>, not a metaphor a reader will feel.",
-      hops: [
-        { word: "memory", role: "pier", relation: null, why: "the concept you brought.", prov: "tenor · graded topic", live: true },
-        { word: "storage", relation: "is literally", why: "both hold information for later — but this is the LITERAL sense, not a metaphor.", prov: "wordnet · hypernym · dead", live: false, weak: true },
-        { word: "?", role: "gap", relation: "no live hop to", why: "no graded edge carries 'storage' toward the felt, lossy, emotional qualities of memory. The span won't close.", prov: "metaphor_bridges · 0 paths", live: false },
-        { word: "spreadsheet", role: "pier faded", relation: "unreachable", why: "a spreadsheet is exact, cold and reliable — the opposite of what memory means to a reader.", prov: "vehicle · ungraded", live: false }
-      ]
-    }
-  };
+   Node tuple: [id, word, relType, rarity, pos, definition]
+     relType ∈ central|synonym|hypernym|hyponym|similar  → app colour conventions
+   Thesaurus link tuple: [source, target, relType]
+   Metaphor paths are declared SEPARATELY (PAIRINGS) with per-hop "why" labels.
+   ============================================================================ */
+const C = {
+  central:  '#d4af37',
+  synonym:  '#c4956a',
+  hypernym: '#8b6f47',
+  hyponym:  '#6a8b6f',
+  similar:  '#7a6a8b',
+  bridge:   '#b56ed0',     // metaphor linkage violet
+  vehicle:  '#6fb8e0',     // vehicle-endpoint blue (mf-force-graph GRADE vehicle)
+  rarity: { common: '#8bb89a', unusual: '#c4956a', rare: '#a88bc4' },
+  text: '#e8e0d4',
+};
 
-  // a fourth, weak-but-real example reachable by typing (e.g. memory|courtroom)
-  BRIDGES["memory|courtroom"] = {
-    verdict: "leans", strength: 0.52, weakestHop: 2,
-    composed: "memory is a courtroom — it summons witnesses, but the verdict is never safe",
-    caveat: "The bridge stands, but <b>leans</b> on one strained hop: <b>recall → testimony</b>. Apt and fresh if you lean INTO the unreliability; a stretch if you don't.",
-    hops: [
-      { word: "memory", role: "pier", relation: null, why: "the concept you brought.", prov: "tenor · graded topic", live: true },
-      { word: "recall", relation: "is the act of", why: "memory is summoning the past on demand.", prov: "metaphor_bridges · 7 graded paths", live: true },
-      { word: "testimony", relation: "reframed as", why: "recall as sworn account — fallible, contested, performed for an audience. The strained, interesting hop.", prov: "metaphor_bridges · 2 graded paths", live: true, weak: true },
-      { word: "judgement", relation: "subjected to", why: "testimony is weighed and ruled on — truth decided, not known.", prov: "metaphor_bridges · 5 graded paths", live: true },
-      { word: "courtroom", role: "pier", relation: "is staged in", why: "the courtroom is where contested testimony meets judgement.", prov: "vehicle · graded topic", live: true }
-    ]
-  };
+const NODES = [
+  /* ---------- TOPIC cluster: GRIEF ---------- */
+  ['grief',       'grief',        'central',  'unusual', 'n.', 'Deep sorrow, especially that caused by someone’s death; keen mental suffering over loss.'],
+  ['sorrow',      'sorrow',       'synonym',  'common',  'n.', 'A feeling of deep distress caused by loss or disappointment.'],
+  ['mourning',    'mourning',     'synonym',  'unusual', 'n.', 'The expression of deep sorrow for someone who has died.'],
+  ['anguish',     'anguish',      'synonym',  'unusual', 'n.', 'Severe mental or physical pain or suffering.'],
+  ['woe',         'woe',          'synonym',  'rare',    'n.', 'Great sorrow or distress; an affliction.'],
+  ['heartache',   'heartache',    'synonym',  'unusual', 'n.', 'Emotional anguish or grief, typically caused by loss.'],
+  ['sadness',     'sadness',      'hypernym', 'common',  'n.', 'The condition or quality of being sad.'],
+  ['suffering',   'suffering',    'hypernym', 'common',  'n.', 'The state of undergoing pain, distress, or hardship.'],
+  ['bereavement', 'bereavement',  'hyponym',  'rare',    'n.', 'The state of having been deprived of a loved one through death.'],
+  ['lamentation', 'lamentation',  'hyponym',  'rare',    'n.', 'The passionate expression of grief or sorrow; weeping.'],
+  ['melancholy',  'melancholy',   'similar',  'unusual', 'n.', 'A pensive, lingering sadness with no obvious cause.'],
+  ['despair',     'despair',      'similar',  'unusual', 'n.', 'The complete loss or absence of hope.'],
+  ['desolation',  'desolation',   'hyponym',  'rare',    'n.', 'A state of complete emptiness, ruin, or anguished loneliness.'],
 
-  const $ = (s, r) => (r || document).querySelector(s);
-  const el = (tag, cls) => { const n = document.createElement(tag); if (cls) n.className = cls; return n; };
+  /* ---------- VEHICLE cluster A: OCEAN ---------- */
+  ['ocean',       'ocean',        'central',  'common',  'n.', 'A very large expanse of sea; the body of salt water covering most of the earth.'],
+  ['sea',         'sea',          'synonym',  'common',  'n.', 'The expanse of salt water that covers most of the earth.'],
+  ['tide',        'tide',         'hyponym',  'common',  'n.', 'The alternate rising and falling of the sea, drawn by moon and sun.'],
+  ['depths',      'the deep',     'hyponym',  'unusual', 'n.', 'The deep parts of the sea, far from light or shore.'],
+  ['abyss',       'abyss',        'hyponym',  'rare',    'n.', 'A deep or seemingly bottomless chasm; the unfathomable deep.'],
+  ['expanse',     'expanse',      'hypernym', 'unusual', 'n.', 'A wide continuous area of something spread out.'],
+  ['water',       'water',        'hypernym', 'common',  'n.', 'The colourless transparent liquid that forms seas, lakes and rain.'],
+  ['wave',        'wave',         'hyponym',  'common',  'n.', 'A ridge of water moving across the surface of the sea.'],
+  ['undertow',    'undertow',     'hyponym',  'rare',    'n.', 'A current below the surface flowing in a different direction to the water above.'],
+  ['vastness',    'vastness',     'similar',  'unusual', 'n.', 'The quality of being immense; immeasurable extent.'],
+  ['brine',       'brine',        'similar',  'rare',    'n.', 'Salty water; the bitter, briny element of the sea.'],
 
-  const src = $("#src"), tgt = $("#tgt"), result = $("#result"), toast = $("#toast");
-  let revealTimers = [];
+  /* ---------- VEHICLE cluster B: STORM ---------- */
+  ['storm',       'storm',        'central',  'common',  'n.', 'A violent disturbance of the atmosphere — strong winds, rain, thunder.'],
+  ['tempest',     'tempest',      'synonym',  'rare',    'n.', 'A violent windy storm.'],
+  ['gale',        'gale',         'hyponym',  'unusual', 'n.', 'A very strong wind.'],
+  ['squall',      'squall',       'hyponym',  'rare',    'n.', 'A sudden violent gust of wind, often with rain or snow.'],
+  ['thunder',     'thunder',      'hyponym',  'common',  'n.', 'The loud rumbling that follows a flash of lightning.'],
+  ['weather',     'weather',      'hypernym', 'common',  'n.', 'The state of the atmosphere at a place and time.'],
+  ['turbulence',  'turbulence',   'similar',  'unusual', 'n.', 'Violent or unsteady movement of air or water.'],
+  ['downpour',    'downpour',     'hyponym',  'unusual', 'n.', 'A heavy fall of rain.'],
 
-  function showToast(msg) {
-    toast.textContent = msg;
-    toast.classList.add("show");
-    clearTimeout(toast._t);
-    toast._t = setTimeout(() => toast.classList.remove("show"), 1900);
-  }
+  /* ---------- VEHICLE cluster C: STAPLER — the NO-BRIDGE pole ---------- */
+  ['stapler',     'stapler',      'central',  'common',  'n.', 'A device for fastening sheets of paper together with metal staples.'],
+  ['staple',      'staple',       'hyponym',  'common',  'n.', 'A small flattened U-shaped piece of wire driven through paper to bind it.'],
+  ['fastener',    'fastener',     'hypernym', 'common',  'n.', 'A device that holds things together.'],
+  ['paperclip',   'paperclip',    'similar',  'common',  'n.', 'A bent loop of wire used to hold sheets of paper together.'],
+  ['desk',        'desk',         'similar',  'common',  'n.', 'A piece of furniture with a flat top for writing or working at.'],
+  ['office',      'office',       'similar',  'common',  'n.', 'A room or building where clerical or professional work is done.'],
 
-  function clearTimers() { revealTimers.forEach(clearTimeout); revealTimers = []; }
+  /* ---------- BRIDGE WAYPOINTS — rare lemmas that carry a metaphor path ---------- */
+  ['drowning',  'drowning',  'similar', 'unusual', 'v.', 'Dying, or being overwhelmed, beneath water — or beneath feeling.'],
+  ['engulf',    'engulfed',  'similar', 'unusual', 'v.', 'Swept over and swallowed whole, as by a wave or a flood of emotion.'],
+  ['weight',    'the weight','similar', 'unusual', 'n.', 'A heavy pressing force — of water overhead, or of sorrow.'],
+  ['surge',     'surge',     'similar', 'unusual', 'n.', 'A sudden powerful forward or upward movement, like a swell of grief.'],
+  ['breaking',  'breaking',  'similar', 'unusual', 'v.', 'Coming apart under force — a wave on rock, a person under loss.'],
+  ['eye-storm', 'the eye',   'similar', 'rare',    'n.', 'The still centre of a storm — the numb calm at the heart of grief.'],
+];
 
-  function lookup(s, t) {
-    const key = (s + "|" + t).toLowerCase().trim();
-    return { key, data: BRIDGES[key] };
-  }
+// Thesaurus links: [source, target, relType] — every endpoint cluster gets its
+// FULL spokes so endpoints render "just like the thesaurus", not only the path.
+const LINKS = [
+  // GRIEF cluster
+  ['grief','sorrow','synonym'], ['grief','mourning','synonym'], ['grief','anguish','synonym'],
+  ['grief','woe','synonym'], ['grief','heartache','synonym'],
+  ['grief','sadness','hypernym'], ['grief','suffering','hypernym'],
+  ['grief','bereavement','hyponym'], ['grief','lamentation','hyponym'], ['grief','desolation','hyponym'],
+  ['grief','melancholy','similar'], ['grief','despair','similar'],
+  ['anguish','heartache','synonym'], ['despair','desolation','similar'],
 
-  function render(s, t) {
-    clearTimers();
-    const { key, data } = lookup(s, t);
-    result.innerHTML = "";
+  // OCEAN cluster
+  ['ocean','sea','synonym'], ['ocean','tide','hyponym'], ['ocean','depths','hyponym'],
+  ['ocean','abyss','hyponym'], ['ocean','expanse','hypernym'], ['ocean','water','hypernym'],
+  ['ocean','wave','hyponym'], ['ocean','undertow','hyponym'], ['ocean','vastness','similar'],
+  ['ocean','brine','similar'], ['depths','abyss','similar'], ['wave','undertow','similar'],
 
-    if (!data) {
-      const e = el("div", "empty");
-      e.innerHTML = "No mock bridge for <b style='color:var(--gold-dim)'>" + s + " → " + t +
-        "</b>. Try the example chips, or <i>memory → courtroom</i> for a weak-but-real bridge.";
-      result.appendChild(e);
-      return;
-    }
+  // STORM cluster
+  ['storm','tempest','synonym'], ['storm','gale','hyponym'], ['storm','squall','hyponym'],
+  ['storm','thunder','hyponym'], ['storm','weather','hypernym'], ['storm','turbulence','similar'],
+  ['storm','downpour','hyponym'], ['gale','squall','similar'],
 
-    const vClass = data.verdict; // solid | leans | none
-    const vWord = { solid: "Solid bridge", leans: "Leans · one strained hop", none: "No bridge found" }[vClass];
+  // STAPLER cluster (the no-bridge pole — fully formed thesaurus neighbourhood)
+  ['stapler','staple','hyponym'], ['stapler','fastener','hypernym'],
+  ['stapler','paperclip','similar'], ['stapler','desk','similar'], ['stapler','office','similar'],
+];
 
-    // verdict + strength meter
-    const bar = el("div", "verdict-bar");
-    const vw = el("span", "verdict-word " + vClass); vw.textContent = vWord;
-    const meter = el("div", "meter");
-    const fill = el("div", "fill " + vClass); meter.appendChild(fill);
-    const mlbl = el("span", "meter-label");
-    mlbl.textContent = "weakest hop · " + Math.round(data.strength * 100) + "%";
-    bar.appendChild(vw); bar.appendChild(meter); bar.appendChild(mlbl);
-    result.appendChild(bar);
+/* ============================================================================
+   METAPHOR BRIDGE PAIRINGS. Each names a topic + vehicle endpoint and a set of
+   PATHS between them; each path is a list of HOPS, each hop carrying a "why"
+   justification that renders as an EDGE LABEL (spec: justification lives on the
+   edge, never the panel). A pairing with paths:[] is a NO/WEAK bridge.
+   ============================================================================ */
+const PAIRINGS = {
+  // —— grief → ocean : TWO paths (multi-path render) ——
+  'grief|ocean': {
+    topic: 'grief', vehicle: 'ocean',
+    paths: [
+      { hops: [   // path 1 — the "engulfed" route
+          ['grief',   'engulf',   'it rises and engulfs you'],
+          ['engulf',  'drowning', 'until you are drowning in it'],
+          ['drowning','depths',   'sinking toward the depths'],
+          ['depths',  'ocean',    'the deep IS the ocean'],
+      ]},
+      { hops: [   // path 2 — the "undertow" route
+          ['grief',   'weight',   'grief presses like a weight'],
+          ['weight',  'undertow', 'an unseen pull beneath the surface'],
+          ['undertow','ocean',    'dragged out into the ocean'],
+      ]},
+    ],
+  },
+  // —— grief → storm : ONE path ——
+  'grief|storm': {
+    topic: 'grief', vehicle: 'storm',
+    paths: [
+      { hops: [
+          ['grief',    'surge',     'grief comes in surges'],
+          ['surge',    'breaking',  'breaking over you in gusts'],
+          ['breaking', 'eye-storm', 'then the numb, still eye'],
+          ['eye-storm','storm',     'at the centre of the storm'],
+      ]},
+    ],
+  },
+  // —— grief → stapler : NO / WEAK bridge ——
+  'grief|stapler': {
+    topic: 'grief', vehicle: 'stapler',
+    paths: [],   // empty → endpoints stay unconnected + status line explains
+  },
+};
 
-    // the bridge
-    const bridge = el("div", "bridge");
-    const deck = el("div", "deck-line"); bridge.appendChild(deck);
+const EXAMPLES = [
+  { key: 'grief|ocean',   label: 'grief', vehicle: 'ocean'   },
+  { key: 'grief|storm',   label: 'grief', vehicle: 'storm'   },
+  { key: 'grief|stapler', label: 'grief', vehicle: 'stapler', nobridge: true },
+];
 
-    data.hops.forEach((hop, i) => {
-      const cls = ["hop"];
-      if (hop.role && hop.role.indexOf("pier") > -1) cls.push("pier");
-      if (hop.role === "pier faded" || hop.role === "gap") cls.push("faded");
-      if (hop.role === "gap") cls.push("gap");
-      if (hop.weak) cls.push("weak");
-      const h = el("div", cls.join(" "));
+// index by id for O(1) panel lookups
+const byId = {};
+for (const [id, word, rel, rarity, pos, def] of NODES) {
+  byId[id] = { id, word, rel, rarity, pos, def };
+}
 
-      if (hop.relation) {
-        const rel = el("div", "relation"); rel.textContent = "— " + hop.relation + " —";
-        h.appendChild(rel);
-      }
-      const stone = el("div", "stone");
-      const dot = el("div", "dot"); stone.appendChild(dot);
-      h.appendChild(stone);
+/* ============================================================================
+   The metaphor (bridge) LINKS for the ACTIVE pairing, with per-hop "why" labels.
+   A bridge link carries: { source, target, kind:'bridge', why, pathIdx }.
+   ============================================================================ */
+let bridgeLinks = [];        // active metaphor edges
+let activePairing = null;    // {topic, vehicle, paths}
 
-      const w = el("div", "hop-word"); w.textContent = hop.word; h.appendChild(w);
-
-      const j = el("div", "justify");
-      const why = el("span", "why"); why.textContent = hop.why; j.appendChild(why);
-      const prov = el("span", "prov");
-      prov.innerHTML = "↳ " + hop.prov + " · <span class='" + (hop.live ? "live'>live" : "dead'>dead") + "</span>";
-      j.appendChild(prov);
-      h.appendChild(j);
-
-      // toggle justification on click
-      stone.addEventListener("click", () => h.classList.toggle("open"));
-
-      bridge.appendChild(h);
-    });
-    result.appendChild(bridge);
-
-    // outcome line + actions
-    const outcome = el("div", "outcome " + (vClass === "none" ? "cold" : vClass === "leans" ? "warn" : ""));
-    if (data.composed) {
-      const c = el("div", "composed"); c.textContent = "“" + data.composed + "”";
-      outcome.appendChild(c);
-    }
-    const cav = el("div", "caveat"); cav.innerHTML = data.caveat; outcome.appendChild(cav);
-
-    const actions = el("div", "actions");
-    if (data.composed) {
-      const copy = el("button", "act primary"); copy.textContent = "Copy line";
-      copy.addEventListener("click", () => {
-        const text = data.composed;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).then(
-            () => showToast("Copied: “" + text.slice(0, 42) + (text.length > 42 ? "…" : "") + "”"),
-            () => showToast("Copy blocked (needs https) — select and copy manually")
-          );
-        } else { showToast("Copy unavailable in this context"); }
-      });
-      actions.appendChild(copy);
-
-      const send = el("button", "act"); send.textContent = "Send to draft";
-      send.addEventListener("click", () => showToast("Sent to draft scratchpad (mock)"));
-      actions.appendChild(send);
-    } else {
-      const seek = el("button", "act"); seek.textContent = "Suggest a vehicle instead";
-      seek.addEventListener("click", () => showToast("→ hand off to the Forge (mock)"));
-      actions.appendChild(seek);
-    }
-
-    // covert grading hook — the inapt/apt label for the judge
-    const grade = el("div", "act grade");
-    grade.innerHTML = "Did this land? <span class='tu'>👍</span> <span class='tu'>👎</span>";
-    grade.title = "Writes an apt/inapt label to the eval cohort (mock)";
-    grade.querySelectorAll(".tu").forEach((b, idx) => {
-      b.style.cursor = "pointer";
-      b.addEventListener("click", (e) => {
-        e.stopPropagation();
-        showToast(idx === 0 ? "Marked apt — added to gold cohort (mock)" : "Marked inapt — feeds the inapt-cohort (mock)");
-      });
-    });
-    actions.appendChild(grade);
-
-    outcome.appendChild(actions);
-    result.appendChild(outcome);
-
-    // staggered reveal: light stones left→right, then meter, then outcome
-    const hops = bridge.querySelectorAll(".hop");
-    hops.forEach((h, i) => {
-      revealTimers.push(setTimeout(() => h.classList.add("shown"), 120 + i * 280));
-    });
-    const after = 120 + hops.length * 280;
-    revealTimers.push(setTimeout(() => { fill.style.width = Math.round(data.strength * 100) + "%"; }, after - 200));
-    outcome.style.opacity = "0"; outcome.style.transition = "opacity 0.5s ease"; outcome.style.transform = "translateY(8px)";
-    revealTimers.push(setTimeout(() => {
-      outcome.style.opacity = "1"; outcome.style.transform = "translateY(0)";
-      // auto-open the load-bearing / weakest hop's justification so the mechanism is visible
-      if (typeof data.weakestHop === "number" && hops[data.weakestHop]) hops[data.weakestHop].classList.add("open");
-    }, after + 120));
-  }
-
-  $("#cross").addEventListener("click", () => render(src.value, tgt.value));
-  [src, tgt].forEach((inp) => inp.addEventListener("keydown", (e) => { if (e.key === "Enter") render(src.value, tgt.value); }));
-
-  document.querySelectorAll(".chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      const [s, t] = chip.dataset.ex.split("|");
-      src.value = s; tgt.value = t;
-      render(s, t);
+function bridgeLinksFor(pairing) {
+  const out = [];
+  pairing.paths.forEach((path, pathIdx) => {
+    path.hops.forEach(([s, t, why], hopIdx) => {
+      out.push({ source: s, target: t, kind: 'bridge', why, pathIdx, hopIdx, hopCount: path.hops.length });
     });
   });
+  return out;
+}
 
-  // render the default pair on load so the screenshot shows a full result
-  render(src.value, tgt.value);
+/* ============================================================================
+   ENGINE GRAPH DATA. Thesaurus links carry kind:'thesaurus'; bridge links are
+   appended live. The lib mutates link endpoints into node refs, so we hand it
+   fresh objects (never the source tuples).
+   ============================================================================ */
+const graphData = {
+  nodes: NODES.map(([id, word, rel, rarity]) => ({ id, word, rel, rarity })),
+  links: LINKS.map(([source, target, rel]) => ({ source, target, rel, kind: 'thesaurus' })),
+};
+
+/* ---- adjacency for BFS fog-of-war (rebuilt to include active bridge links) ---- */
+let adj = {};
+function rebuildAdjacency() {
+  adj = {};
+  for (const id of Object.keys(byId)) adj[id] = new Set();
+  for (const l of graphData.links) {
+    const s = typeof l.source === 'object' ? l.source.id : l.source;
+    const t = typeof l.target === 'object' ? l.target.id : l.target;
+    if (adj[s] && adj[t]) { adj[s].add(t); adj[t].add(s); }
+  }
+}
+
+function hopDistances(focusArr) {
+  // BFS from a SET of focus nodes (both endpoints anchor the fog when a bridge
+  // is active) so neither endpoint's neighbourhood gets fogged away.
+  const dist = {};
+  for (const id of Object.keys(byId)) dist[id] = Infinity;
+  const queue = [];
+  for (const f of focusArr) { if (dist[f] !== undefined) { dist[f] = 0; queue.push(f); } }
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const nb of adj[cur]) {
+      if (dist[nb] === Infinity) { dist[nb] = dist[cur] + 1; queue.push(nb); }
+    }
+  }
+  return dist;
+}
+
+/* ---- panel relation groups, derived from THESAURUS links only ---- */
+function relationsOf(id) {
+  const broader = [], similar = [], narrower = [];
+  for (const l of graphData.links) {
+    if (l.kind !== 'thesaurus') continue;
+    const s = typeof l.source === 'object' ? l.source.id : l.source;
+    const t = typeof l.target === 'object' ? l.target.id : l.target;
+    let other = null;
+    if (s === id) other = t; else if (t === id) other = s; else continue;
+    const node = byId[other];
+    if (!node) continue;
+    const entry = { id: other, word: node.word, rel: l.rel };
+    if (l.rel === 'hypernym' || l.rel === 'synonym') broader.push(entry);
+    else if (l.rel === 'similar') similar.push(entry);
+    else if (l.rel === 'hyponym') narrower.push(entry);
+  }
+  return { broader, similar, narrower };
+}
+
+/* ============================================================================
+   FOG / BLOOM STATE.
+   ============================================================================ */
+const FOG_MAX_HOP = 3;
+const HOP_ALPHA   = [1, 0.95, 0.62, 0.26];
+
+let topicId   = 'grief';        // primary selection (topic endpoint)
+let vehicleId = null;           // secondary selection (vehicle endpoint)
+let focusId   = 'grief';        // node the panel currently describes
+let dist = {};
+const hiddenRarities = new Set();
+
+function focusArr() {
+  const s = new Set([focusId]);
+  if (topicId)   s.add(topicId);
+  if (vehicleId) s.add(vehicleId);
+  return [...s];
+}
+function recomputeFog() {
+  rebuildAdjacency();
+  dist = hopDistances(focusArr());
+}
+
+function nodeColour(node) {
+  if (node.id === vehicleId) return C.vehicle;     // vehicle endpoint reads blue
+  if (node.rel === 'central') return C.central;
+  return C[node.rel] || C.rarity[node.rarity] || C.text;
+}
+
+function nodeAlpha(node) {
+  const d = dist[node.id];
+  if (d === undefined || d === Infinity || d > FOG_MAX_HOP) return 0;
+  const isEndpoint = node.id === topicId || node.id === vehicleId;
+  if (!isEndpoint && node.rel !== 'central' && hiddenRarities.has(node.rarity)) return 0;
+  return HOP_ALPHA[d] ?? 0;
+}
+
+function fade(hex, a) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${a.toFixed(3)})`;
+}
+
+/* ============================================================================
+   NODE 3D OBJECT — glowing mesh + label. Endpoint nodes (topic / vehicle) carry
+   two LINKAGE OUTLINE rings (gold for topic, blue for vehicle) that applyFog()
+   reveals + pulses when the node is a live endpoint — the "both now selected"
+   read. Built ONCE; focus visuals toggled live (rebuilding mid-flight corrupts
+   the lib's scene graph).
+   ============================================================================ */
+function buildNodeObject(node) {
+  const group = new THREE.Group();
+  const colour = nodeColour(node);
+
+  const r = node.rel === 'central' ? 5.2 : (node.rel === 'hypernym' ? 4.4 : 3.8);
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(r, 20, 20),
+    new THREE.MeshBasicMaterial({ color: colour, transparent: true })
+  );
+  group.add(core);
+  const glow = new THREE.Mesh(
+    new THREE.SphereGeometry(r * 2.0, 20, 20),
+    new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.13 })
+  );
+  group.add(glow);
+
+  // Endpoint linkage rings — hidden until this node is a live topic/vehicle.
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(r * 2.6, 0.6, 10, 48),
+    new THREE.MeshBasicMaterial({ color: C.central, transparent: true, opacity: 0 })
+  );
+  ring.visible = false;
+  group.add(ring);
+  const ring2 = new THREE.Mesh(
+    new THREE.TorusGeometry(r * 3.4, 0.3, 8, 48),
+    new THREE.MeshBasicMaterial({ color: C.central, transparent: true, opacity: 0 })
+  );
+  ring2.visible = false;
+  group.add(ring2);
+
+  group.__core = core; group.__glow = glow; group.__ring = ring; group.__ring2 = ring2;
+  group.__baseR = r;
+
+  const label = new SpriteText(node.word);
+  label.color = node.rel === 'central' ? C.central : C.text;
+  label.fontFace = 'Georgia, serif';
+  label.fontWeight = node.rel === 'central' ? '700' : '400';
+  label.textHeight = node.rel === 'central' ? 4.2 : 3.4;
+  label.backgroundColor = false;
+  label.padding = 1;
+  label.position.set(0, r + 5, 0);
+  group.add(label);
+  group.__label = label;
+  group.__baseLabel = label.textHeight;
+
+  return group;
+}
+
+/* ============================================================================
+   ENGINE.
+   This version of 3d-force-graph has NO linkLineDashed. So we render the bridge
+   edge OURSELVES via linkThreeObject (extend mode): a per-bridge Group holding
+   (1) a CURVED, DASHED, glowing violet line built as a real THREE.Line with
+   computeLineDistances() + an animated dash offset (the "flow"), and (2) the
+   "why this hop" SpriteText label. The library's default straight line is made
+   invisible for bridges (linkColor alpha 0, width 0) so only our curved dashed
+   arc shows. Thesaurus edges keep the default straight, solid lines.
+   Parallel paths curve apart by pathIdx so multiple bridges read separately.
+   ============================================================================ */
+const Graph = ForceGraph3D({ controlType: 'fly' })(document.getElementById('graph'))
+  .backgroundColor('#0d0d18')
+  .showNavInfo(false)
+  .nodeRelSize(1)
+  .nodeThreeObject(buildNodeObject)
+  .linkColor(linkColour)
+  .linkWidth(l => (l.kind === 'bridge' ? 0 : 0.6))   // bridge default line hidden; we draw our own
+  .linkCurvature(l => (l.kind === 'bridge' ? 0 : (l.rel === 'similar' ? 0.12 : 0)))
+  .linkThreeObjectExtend(true)
+  .linkThreeObject(buildLinkObject)
+  .linkPositionUpdate(updateLinkObject)
+  .linkOpacity(0.6)
+  .d3VelocityDecay(0.32)
+  .cooldownTime(8000)
+  .onNodeClick(node => selectAsFocus(node.id, true))
+  .onNodeHover(node => { document.getElementById('graph').style.cursor = node ? 'pointer' : 'default'; });
+
+function linkColour(l) {
+  if (l.kind === 'bridge') return 'rgba(0,0,0,0)';   // default line hidden; arc drawn separately
+  const sId = typeof l.source === 'object' ? l.source.id : l.source;
+  const tId = typeof l.target === 'object' ? l.target.id : l.target;
+  const sa = nodeAlpha(byId[sId]);
+  const ta = nodeAlpha(byId[tId]);
+  const a = Math.min(sa, ta) * 0.85;
+  const base = C[l.rel] || C.text;
+  return fade(base, a);
+}
+
+// How many sampled segments per curved bridge arc.
+const ARC_SAMPLES = 28;
+
+/* ---- bridge edge object: a curved dashed violet arc + a "why" label ---- */
+function buildLinkObject(l) {
+  if (l.kind !== 'bridge') return new THREE.Object3D();   // thesaurus edges use the default line
+
+  const group = new THREE.Group();
+
+  // (1) DASHED curved line — a real THREE.Line + LineDashedMaterial. Geometry is
+  // rebuilt each frame in updateLinkObject (endpoints move), with line distances
+  // recomputed so the dashing holds; dashOffset scrolls for the "flow".
+  const lineGeom = new THREE.BufferGeometry();
+  lineGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array((ARC_SAMPLES + 1) * 3), 3));
+  const lineMat = new THREE.LineDashedMaterial({
+    color: C.bridge, transparent: true, opacity: 0.98, dashSize: 5, gapSize: 3.5,
+  });
+  const line = new THREE.Line(lineGeom, lineMat);
+  line.frustumCulled = false;
+  group.add(line);
+
+  // (2) GLOW TUBE — a translucent violet mesh hugging the same curve, giving the
+  // edge real THICKNESS (GPU line-width is capped at 1px, so a tube is the only
+  // way to read as "thick + glowing"). Rebuilt each frame from the curve.
+  const glowMat = new THREE.MeshBasicMaterial({ color: C.bridge, transparent: true, opacity: 0.22, depthWrite: false });
+  const glowMesh = new THREE.Mesh(new THREE.BufferGeometry(), glowMat);
+  glowMesh.frustumCulled = false;
+  group.add(glowMesh);
+
+  // (3) "why this hop" label sprite at the arc apex.
+  const label = new SpriteText(l.why || '');
+  label.color = '#f0ddf8';
+  label.backgroundColor = 'rgba(38,20,50,0.88)';
+  label.borderColor = 'rgba(181,110,208,0.7)';
+  label.borderWidth = 0.7;
+  label.borderRadius = 2;
+  label.padding = 2.5;
+  label.fontFace = 'Georgia, serif';
+  label.textHeight = 2.7;
+  group.add(label);
+
+  group.__line = line; group.__glowMesh = glowMesh; group.__label = label;
+  group.__pathIdx = l.pathIdx || 0;
+  group.__hopIdx = l.hopIdx || 0;
+  return group;
+}
+
+// Rebuild the curved arc geometry each frame the endpoints move. The arc bows
+// consistently UPWARD (+Y) so it always reads against the 3/4 establishing
+// camera; parallel paths (pathIdx) are lifted by different amounts AND nudged
+// laterally so they separate into distinct arcs rather than overlapping.
+function updateLinkObject(obj, { start, end }) {
+  if (!obj || !obj.__line) return false;   // thesaurus link → leave default line
+
+  const s = new THREE.Vector3(start.x, start.y, start.z);
+  const e = new THREE.Vector3(end.x, end.y, end.z);
+  const mid = s.clone().add(e).multiplyScalar(0.5);
+  const chord = e.clone().sub(s);
+  const len = chord.length() || 1;
+  const idx = obj.__pathIdx;
+
+  // lateral separation for parallel paths (perpendicular to chord, in the XZ plane)
+  const lateral = new THREE.Vector3(-chord.z, 0, chord.x).normalize()
+    .multiplyScalar(len * 0.16 * (idx % 2 === 0 ? 1 : -1) * (idx === 0 ? 0 : 1));
+  const lift = len * (0.34 + 0.14 * idx);                 // bow height grows per path
+  const ctrl = mid.clone().add(lateral).add(new THREE.Vector3(0, lift, 0));
+
+  const curve = new THREE.QuadraticBezierCurve3(s, ctrl, e);
+
+  // dashed line geometry
+  const pts = curve.getPoints(ARC_SAMPLES);
+  const arr = obj.__line.geometry.attributes.position.array;
+  for (let i = 0; i <= ARC_SAMPLES; i++) {
+    arr[i * 3] = pts[i].x; arr[i * 3 + 1] = pts[i].y; arr[i * 3 + 2] = pts[i].z;
+  }
+  obj.__line.geometry.attributes.position.needsUpdate = true;
+  obj.__line.computeLineDistances();                   // REQUIRED for dashing (Line method)
+  obj.__line.geometry.computeBoundingSphere();
+
+  // glow tube hugging the same curve (dispose the old geometry to avoid leaks)
+  const old = obj.__glowMesh.geometry;
+  obj.__glowMesh.geometry = new THREE.TubeGeometry(curve, ARC_SAMPLES, 1.1, 6, false);
+  if (old) old.dispose();
+
+  // Label at the arc apex, staggered up/down by hop parity so consecutive hop
+  // labels along a path don't pile on the same line. The apex already sits high
+  // off the chord, so we read the "why" sentence floating over each hop.
+  const apex = curve.getPoint(0.5);
+  const stagger = (obj.__hopIdx % 2 === 0) ? 4 : 9;
+  obj.__label.position.set(apex.x, apex.y + stagger, apex.z);
+  return true;
+}
+
+Graph.graphData(graphData);
+
+// Cosmic exponential fog — distant stars dissolve into the void.
+Graph.scene().fog = new THREE.FogExp2(0x0d0d18, 0.0015);
+
+// Starfield backdrop for depth.
+(function starfield() {
+  const n = 1400, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const R = 1200 + Math.random() * 2600;
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    pos[i*3]   = R * Math.sin(ph) * Math.cos(th);
+    pos[i*3+1] = R * Math.sin(ph) * Math.sin(th);
+    pos[i*3+2] = R * Math.cos(ph);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const m = new THREE.PointsMaterial({ color: 0x6b6fa0, size: 2.2, transparent: true, opacity: 0.55, sizeAttenuation: false });
+  Graph.scene().add(new THREE.Points(g, m));
 })();
+
+/* ============================================================================
+   FOG-OF-WAR — every frame. Endpoint linkage rings pulse; the metaphor edge is
+   the only thing connecting clusters, so it stays bright.
+   ============================================================================ */
+let tick = 0;
+function applyFog() {
+  tick++;
+  const pulse = 0.55 + 0.45 * Math.abs(Math.sin(tick * 0.05));
+  for (const node of Graph.graphData().nodes) {
+    const a = nodeAlpha(node);
+    const obj = node.__threeObj;
+    if (!obj) continue;
+    obj.visible = a > 0.001;
+    if (!obj.visible) continue;
+
+    const isTopic   = node.id === topicId;
+    const isVehicle = node.id === vehicleId;
+    const isEndpoint = isTopic || isVehicle;
+    const isFocus = node.id === focusId;
+
+    if (obj.__core) {
+      obj.__core.material.color.set(nodeColour(node));   // vehicle may have flipped to blue
+      obj.__core.material.opacity = a;
+      const s = isEndpoint ? 1.5 : (isFocus ? 1.25 : 1);
+      obj.__core.scale.setScalar(s);
+      if (obj.__glow) obj.__glow.scale.setScalar(s);
+    }
+    if (obj.__glow) {
+      obj.__glow.material.color.set(nodeColour(node));
+      obj.__glow.material.opacity = a * (isEndpoint ? 0.3 : 0.13);
+    }
+    // Endpoint linkage rings — gold for topic, blue for vehicle. Gentle pulse.
+    [obj.__ring, obj.__ring2].forEach((ring, i) => {
+      if (!ring) return;
+      ring.visible = isEndpoint;
+      if (isEndpoint) {
+        ring.material.color.set(isVehicle ? C.vehicle : C.central);
+        ring.material.opacity = (i === 0 ? 0.9 : 0.45) * pulse * a;
+        ring.rotation.x += 0.004 * (i === 0 ? 1 : -1);
+        ring.rotation.y += 0.003;
+      } else {
+        ring.material.opacity = 0;
+      }
+    });
+    if (obj.__label) {
+      obj.__label.material.opacity = a;
+      obj.__label.textHeight = isEndpoint ? obj.__baseLabel * 1.45 : (isFocus ? obj.__baseLabel * 1.2 : obj.__baseLabel);
+      if (isVehicle) obj.__label.color = C.vehicle;
+      else if (node.rel === 'central') obj.__label.color = C.central;
+      else obj.__label.color = C.text;
+    }
+  }
+
+  // ---- bridge arcs: animate the dash "flow" + fade with endpoint fog ----
+  // The dashed LineDashedMaterial scrolls its dashOffset so the violet edge reads
+  // as ALIVE — energy moving topic → vehicle along the metaphor.
+  const dashOffset = -(tick * 0.5);
+  for (const link of Graph.graphData().links) {
+    if (link.kind !== 'bridge') continue;
+    const lo = link.__lineObj;     // extend-mode object from buildLinkObject
+    if (!lo || !lo.__line) continue;
+    const sId = typeof link.source === 'object' ? link.source.id : link.source;
+    const tId = typeof link.target === 'object' ? link.target.id : link.target;
+    const a = Math.max(0.55, Math.min(nodeAlpha(byId[sId]), nodeAlpha(byId[tId])));
+    const visible = nodeAlpha(byId[sId]) > 0.001 && nodeAlpha(byId[tId]) > 0.001;
+    lo.visible = visible;
+    if (!visible) continue;
+    lo.__line.material.opacity = a;
+    lo.__line.material.dashOffset = dashOffset;
+    lo.__glowMesh.material.opacity = a * 0.28 * (0.8 + 0.2 * Math.sin(tick * 0.06));
+    if (lo.__label) lo.__label.material.opacity = a * 0.95;
+  }
+}
+Graph.onEngineTick(applyFog);
+
+/* ============================================================================
+   SELECTION MODEL.
+   - selectAsFocus(id): click / panel-term → make `id` the focused node (panel
+     follows), fly to it. Does NOT change which nodes are the bridge endpoints.
+   - commitTopic / commitVehicle: the dual-search commits. Sets the endpoint,
+     pans to it, and (when both endpoints set) computes + renders the bridge.
+   ============================================================================ */
+let flyTimer = null;
+
+function selectAsFocus(id, fly) {
+  if (!byId[id]) return;
+  focusId = id;
+  recomputeFog();
+  refreshLinks();
+  updatePanel(id);
+  if (fly) flyTo(id);
+}
+
+function flyTo(id) {
+  const node = Graph.graphData().nodes.find(n => n.id === id);
+  if (!node || node.x === undefined) {
+    if (flyTimer) clearTimeout(flyTimer);
+    flyTimer = setTimeout(() => flyTo(id), 200);
+    return;
+  }
+  Graph.cameraPosition(
+    { x: node.x + 40, y: node.y + 70, z: node.z + 150 },
+    node,
+    1500
+  );
+}
+
+// Frame BOTH endpoints in one shot — the dual-selection establishing move. The
+// camera sits back from the pair's midpoint, far enough to see the whole bridge.
+function flyToPair(aId, bId) {
+  const a = Graph.graphData().nodes.find(n => n.id === aId);
+  const b = Graph.graphData().nodes.find(n => n.id === bId);
+  if (!a || !b || a.x === undefined || b.x === undefined) {
+    if (flyTimer) clearTimeout(flyTimer);
+    flyTimer = setTimeout(() => flyToPair(aId, bId), 220);
+    return;
+  }
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
+  const span = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) || 120;
+  const standoff = Math.max(260, span * 1.4);
+  Graph.cameraPosition(
+    { x: mid.x + standoff * 0.16, y: mid.y + standoff * 0.4, z: mid.z + standoff },
+    mid,
+    1800
+  );
+}
+
+/* ============================================================================
+   THE BRIDGE — invoke a pairing. Sets both endpoints, recomputes the metaphor
+   edges, re-feeds the graph (bridge links are part of the link set so the lib
+   draws them + their labels), and (optionally) choreographs the camera.
+   ============================================================================ */
+function applyBridgeLinks() {
+  // Strip any previous bridge links, append the active ones. Node refs stay
+  // stable (no node churn) so positions persist; only links change.
+  graphData.links = graphData.links.filter(l => l.kind !== 'bridge');
+  for (const bl of bridgeLinks) graphData.links.push({ ...bl });
+  Graph.graphData(graphData);   // re-feed: lib re-derives link objects + labels
+}
+
+function invokePairing(key, choreograph = true) {
+  const p = PAIRINGS[key];
+  if (!p) return;
+  activePairing = p;
+  topicId = p.topic;
+  vehicleId = p.vehicle;
+  focusId = p.topic;
+
+  bridgeLinks = bridgeLinksFor(p);
+  applyBridgeLinks();
+  recomputeFog();
+  refreshLinks();
+
+  updatePanel(topicId);
+  setFieldState('topic', byId[topicId].word);
+  setFieldState('vehicle', byId[vehicleId].word);
+  updateBridgeStatus(p);
+  highlightExample(key);
+
+  if (!choreograph) { flyToPair(topicId, vehicleId); return; }
+
+  // CHOREOGRAPHY: pan to topic → pan to vehicle (panel flips) → frame the pair.
+  flyTo(topicId);
+  setTimeout(() => {
+    focusId = vehicleId;
+    recomputeFog(); refreshLinks();
+    updatePanel(vehicleId);
+    flyTo(vehicleId);
+  }, 1700);
+  setTimeout(() => {
+    focusId = topicId;     // settle the panel on the topic, but frame both
+    recomputeFog(); refreshLinks();
+    updatePanel(topicId);
+    flyToPair(topicId, vehicleId);
+  }, 3500);
+}
+
+function refreshLinks() {
+  Graph.linkColor(linkColour);
+}
+
+/* ---- bridge status line ---- */
+function updateBridgeStatus(p) {
+  const box = document.getElementById('bridge-status');
+  const head = box.querySelector('.st-head');
+  const body = box.querySelector('.st-body');
+  box.classList.add('show');
+  const tw = byId[p.topic].word, vw = byId[p.vehicle].word;
+  if (p.paths.length === 0) {
+    box.classList.remove('found'); box.classList.add('none');
+    head.textContent = 'No strong bridge';
+    body.innerHTML = `Nothing apt links <b>${tw}</b> to <b>${vw}</b> — the two stay unconnected. ` +
+                     `Both constellations are lit, but no metaphor path holds. Try a vehicle that shares some weather with the topic.`;
+  } else {
+    box.classList.remove('none'); box.classList.add('found');
+    head.textContent = p.paths.length > 1 ? `${p.paths.length} bridges found` : 'Bridge found';
+    const hopCount = p.paths.reduce((m, path) => Math.min(m, path.hops.length), Infinity);
+    body.innerHTML = `<b>${tw}</b> ⤳ <b>${vw}</b> — ${p.paths.length > 1 ? 'multiple metaphor paths' : 'a metaphor path'} ` +
+                     `(shortest ${hopCount} hops). Follow the glowing dashed edges; each hop's reason rides the edge.`;
+  }
+}
+
+/* ============================================================================
+   PANEL.
+   ============================================================================ */
+const panel = document.getElementById('panel');
+const elWord = document.getElementById('panel-word');
+const elRole = document.getElementById('panel-role');
+const elBadge = document.getElementById('panel-badge');
+const elPos = document.getElementById('panel-pos');
+const elDef = document.getElementById('panel-def');
+
+function updatePanel(id) {
+  const node = byId[id];
+  if (!node) return;
+  elWord.textContent = node.word;
+  elBadge.textContent = node.rarity;
+  elBadge.className = 'badge ' + node.rarity;
+  elPos.textContent = node.pos;
+  elDef.textContent = node.def;
+
+  // endpoint tag + accent
+  panel.classList.toggle('is-vehicle', id === vehicleId);
+  if (id === topicId)        { elRole.className = 'topic';   elRole.textContent = 'topic';   elRole.style.display = 'inline-block'; }
+  else if (id === vehicleId) { elRole.className = 'vehicle'; elRole.textContent = 'vehicle'; elRole.style.display = 'inline-block'; }
+  else                       { elRole.className = '';        elRole.style.display = 'none'; }
+
+  const rel = relationsOf(id);
+  fillGroup('rel-broader',  rel.broader);
+  fillGroup('rel-similar',  rel.similar);
+  fillGroup('rel-narrower', rel.narrower);
+}
+
+function fillGroup(groupId, entries) {
+  const wrap = document.getElementById(groupId);
+  const terms = wrap.querySelector('.rel-terms');
+  wrap.style.display = entries.length ? 'block' : 'none';
+  terms.innerHTML = '';
+  for (const e of entries) {
+    const span = document.createElement('span');
+    span.className = 'term';
+    span.dataset.rel = e.rel;
+    span.dataset.id = e.id;
+    span.textContent = e.word;
+    span.addEventListener('click', () => selectAsFocus(e.id, true));
+    terms.appendChild(span);
+  }
+}
+
+document.getElementById('panel-header').addEventListener('click', () => {
+  panel.classList.toggle('collapsed');
+});
+
+/* ============================================================================
+   DUAL-SEARCH — two fields, each its own autocomplete. Completing TOPIC pans +
+   selects it; completing VEHICLE pans + selects it; if both are set we invoke
+   the matching pairing (or report no bridge).
+   ============================================================================ */
+function makeField(inputId, sugId, role) {
+  const input = document.getElementById(inputId);
+  const sug = document.getElementById(sugId);
+  let list = [], active = -1;
+
+  function build(q) {
+    q = q.trim().toLowerCase();
+    if (!q) { sug.classList.remove('open'); sug.innerHTML = ''; list = []; return; }
+    // suggest CENTRAL words first (they're the real endpoints), then any node
+    const centrals = NODES.filter(([id, w, rel]) => rel === 'central' && w.toLowerCase().includes(q));
+    const others   = NODES.filter(([id, w, rel]) => rel !== 'central' && w.toLowerCase().includes(q));
+    list = [...centrals, ...others].slice(0, 7).map(([id, w, rel, rarity]) => ({ id, word: w, rarity, rel }));
+    sug.innerHTML = ''; active = -1;
+    for (const s of list) {
+      const div = document.createElement('div');
+      div.className = 'suggestion';
+      div.innerHTML = `<span>${s.word}</span><small>${s.rel === 'central' ? 'word' : s.rarity}</small>`;
+      div.addEventListener('click', () => commit(s.id));
+      sug.appendChild(div);
+    }
+    sug.classList.toggle('open', list.length > 0);
+  }
+  function paint() { [...sug.children].forEach((c, i) => c.classList.toggle('active', i === active)); }
+  function commit(id) {
+    sug.classList.remove('open');
+    input.value = byId[id].word;
+    input.blur();
+    if (role === 'topic') commitTopic(id); else commitVehicle(id);
+  }
+
+  input.addEventListener('input', e => build(e.target.value));
+  input.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, list.length - 1); paint(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, 0); paint(); }
+    else if (e.key === 'Enter') { e.preventDefault(); const pick = active >= 0 ? list[active] : list[0]; if (pick) commit(pick.id); }
+    else if (e.key === 'Escape') { input.blur(); sug.classList.remove('open'); }
+  });
+  return { input, focus: () => { input.focus(); input.select(); } };
+}
+
+function setFieldState(role, word) {
+  const st = document.getElementById(role === 'topic' ? 'state-topic' : 'state-vehicle');
+  const input = document.getElementById(role === 'topic' ? 'search-topic' : 'search-vehicle');
+  if (word) { st.textContent = '● set'; st.classList.add('set'); input.value = word; }
+  else { st.textContent = ''; st.classList.remove('set'); }
+}
+
+// Commit a TOPIC: select + pan it in. If a vehicle is already chosen, (re)bridge.
+function commitTopic(id) {
+  topicId = id;
+  focusId = id;
+  setFieldState('topic', byId[id].word);
+  recomputeFog(); refreshLinks(); updatePanel(id);
+  flyTo(id);
+  maybeBridge();
+}
+// Commit a VEHICLE: select + pan it in. If a topic is set, bridge the pair.
+function commitVehicle(id) {
+  vehicleId = id;
+  focusId = id;
+  setFieldState('vehicle', byId[id].word);
+  recomputeFog(); refreshLinks(); updatePanel(id);
+  flyTo(id);
+  maybeBridge();
+}
+
+// When both endpoints are chosen, look for a declared pairing; if none exists,
+// synthesise a "no bridge" status (endpoints stay unconnected).
+function maybeBridge() {
+  if (!topicId || !vehicleId) return;
+  const key = `${topicId}|${vehicleId}`;
+  const keyRev = `${vehicleId}|${topicId}`;
+  if (PAIRINGS[key] || PAIRINGS[keyRev]) {
+    // both set → bridge. The user drove the pans field-by-field, so just frame
+    // the pair + draw the edges (no full re-choreography).
+    invokePairing(PAIRINGS[key] ? key : keyRev, false);
+  } else {
+    // unknown pair → no declared bridge: stay unconnected + status
+    bridgeLinks = []; applyBridgeLinks();
+    activePairing = { topic: topicId, vehicle: vehicleId, paths: [] };
+    recomputeFog(); refreshLinks();
+    updateBridgeStatus(activePairing);
+    setTimeout(() => flyToPair(topicId, vehicleId), 250);
+  }
+}
+
+const fieldTopic   = makeField('search-topic', 'sug-topic', 'topic');
+const fieldVehicle = makeField('search-vehicle', 'sug-vehicle', 'vehicle');
+
+// '/' focuses the topic field
+window.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== fieldTopic.input && document.activeElement !== fieldVehicle.input) {
+    e.preventDefault(); fieldTopic.focus();
+  }
+});
+
+/* ============================================================================
+   EXAMPLE CHIPS — discoverable bridges incl. a no-bridge pair.
+   ============================================================================ */
+const exWrap = document.getElementById('examples');
+for (const ex of EXAMPLES) {
+  const chip = document.createElement('span');
+  chip.className = 'ex-chip' + (ex.nobridge ? ' nobridge' : '');
+  chip.dataset.key = ex.key;
+  chip.innerHTML = `${ex.label}<span class="arrow">→</span>${ex.vehicle}`;
+  chip.title = ex.nobridge ? 'no strong bridge' : 'render the bridge';
+  chip.addEventListener('click', () => invokePairing(ex.key, true));
+  exWrap.appendChild(chip);
+}
+function highlightExample(key) {
+  document.querySelectorAll('.ex-chip').forEach(c => {
+    c.style.outline = c.dataset.key === key ? '1px solid var(--gold-dim)' : 'none';
+  });
+}
+
+/* ============================================================================
+   RARITY FILTER.
+   ============================================================================ */
+document.querySelectorAll('.rchip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const r = chip.dataset.rarity;
+    if (hiddenRarities.has(r)) hiddenRarities.delete(r); else hiddenRarities.add(r);
+    chip.classList.toggle('off', hiddenRarities.has(r));
+    refreshLinks();
+  });
+});
+
+/* ============================================================================
+   BOOT — frame the topic cluster, then auto-invoke the grief→ocean bridge with
+   full choreography so the establishing shot SHOWS the dual-selection + pan.
+   ============================================================================ */
+recomputeFog();
+refreshLinks();
+updatePanel('grief');
+setFieldState('topic', 'grief');
+
+setTimeout(() => Graph.zoomToFit(800, 110), 900);
+setTimeout(() => invokePairing('grief|ocean', true), 2200);
+
+// expose for the screenshot harness to frame deterministically
+window.__mf = {
+  Graph,
+  invokePairing,
+  commitTopic, commitVehicle,
+  flyToPair,
+  PAIRINGS,
+  get state() { return { topicId, vehicleId, focusId, bridgeLinks: bridgeLinks.length }; },
+};
 </script>
 </body>
 </html>
