@@ -1,0 +1,20 @@
+[
+  {
+    "name": "glm-5.2",
+    "model": "z-ai/glm-4.6",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY"
+  },
+  {
+    "name": "qwen-72b",
+    "model": "qwen/qwen-2.5-72b-instruct",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY"
+  },
+  {
+    "name": "deepseek",
+    "model": "deepseek/deepseek-chat",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY"
+  }
+]
