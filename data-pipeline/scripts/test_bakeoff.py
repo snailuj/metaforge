@@ -27,6 +27,20 @@ def test_build_candidate_cmd_claude_baseline():
     assert "--base-url" not in cmd  # claude path needs no endpoint
 
 
+def test_build_candidate_cmd_reasoning_off_adds_flag():
+    cand = {"name": "x", "model": "m", "base_url": "u", "reasoning": False}
+    cmd = bakeoff.build_candidate_cmd(cand, topics="t", db="d", out="o", summary="s",
+                                      python="py", runner="r", max_topics=10)
+    assert "--reasoning-off" in cmd
+
+
+def test_build_candidate_cmd_reasoning_on_omits_flag():
+    cand = {"name": "x", "model": "m", "base_url": "u"}  # default = reasoning on
+    cmd = bakeoff.build_candidate_cmd(cand, topics="t", db="d", out="o", summary="s",
+                                      python="py", runner="r", max_topics=10)
+    assert "--reasoning-off" not in cmd
+
+
 def test_summarise_model_metrics():
     rows = [
         {"topic_synset_id": "1", "vehicle_synset_id": "9", "vehicle": "a",

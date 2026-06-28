@@ -625,6 +625,9 @@ def main() -> int:
                          "https://openrouter.ai/api/v1 or https://api.deepinfra.com/v1/openai.")
     ap.add_argument("--api-key-env", default="OPENROUTER_API_KEY",
                     help="Env var holding the provider API key (with --provider openai).")
+    ap.add_argument("--reasoning-off", action="store_true",
+                    help="(openai) run reasoning models in fast mode (reasoning:{enabled:false}) — "
+                         "halves latency + output cost. A bake-off variable, not a default.")
     ap.add_argument("--judge-model", default="claude-haiku-4-5-20251001")
     ap.add_argument("--judge-sample", type=int, default=3, help="topics sample-judged per batch (brake density).")
     ap.add_argument("--no-tripwire", action="store_true", help="Disable the live-rate tripwire.")
@@ -668,9 +671,11 @@ def main() -> int:
                 raise SystemExit(f"--provider openai: env {args.api_key_env} is empty/unset")
             if not args.base_url:
                 raise SystemExit("--provider openai: --base-url is required")
-            provider_pj = functools.partial(_oai_prompt_json, base_url=args.base_url, api_key=api_key)
-            log.info("provider=openai base_url=%s haiku=%s sonnet=%s",
-                     args.base_url, args.haiku_model, args.sonnet_model)
+            reasoning = {"enabled": False} if args.reasoning_off else None
+            provider_pj = functools.partial(_oai_prompt_json, base_url=args.base_url,
+                                             api_key=api_key, reasoning=reasoning)
+            log.info("provider=openai base_url=%s reasoning_off=%s haiku=%s sonnet=%s",
+                     args.base_url, args.reasoning_off, args.haiku_model, args.sonnet_model)
         if args.haiku_jsonl:
             # Stored Haiku reuse: the Haiku proposal prompt is never built, so the
             # AVOID nudge can only reach the Sonnet substitution prompt. WARN so the

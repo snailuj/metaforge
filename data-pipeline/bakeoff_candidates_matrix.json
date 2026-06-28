@@ -1,0 +1,86 @@
+[
+  {
+    "name": "glm-5.2-on",
+    "model": "z-ai/glm-5.2",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": true
+  },
+  {
+    "name": "glm-5.2-off",
+    "model": "z-ai/glm-5.2",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": false
+  },
+  {
+    "name": "deepseek-v4-pro-on",
+    "model": "deepseek/deepseek-v4-pro",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": true
+  },
+  {
+    "name": "deepseek-v4-pro-off",
+    "model": "deepseek/deepseek-v4-pro",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": false
+  },
+  {
+    "name": "kimi-k2.6-on",
+    "model": "moonshotai/kimi-k2.6",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": true
+  },
+  {
+    "name": "kimi-k2.6-off",
+    "model": "moonshotai/kimi-k2.6",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": false
+  },
+  {
+    "name": "deepseek-v4-flash-on",
+    "model": "deepseek/deepseek-v4-flash",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": true
+  },
+  {
+    "name": "deepseek-v4-flash-off",
+    "model": "deepseek/deepseek-v4-flash",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": false
+  },
+  {
+    "name": "qwen3.7-plus-on",
+    "model": "qwen/qwen3.7-plus",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": true
+  },
+  {
+    "name": "qwen3.7-plus-off",
+    "model": "qwen/qwen3.7-plus",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": false
+  },
+  {
+    "name": "minimax-m3-on",
+    "model": "minimax/minimax-m3",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": true
+  },
+  {
+    "name": "minimax-m3-off",
+    "model": "minimax/minimax-m3",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning": false
+  }
+]

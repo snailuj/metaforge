@@ -68,6 +68,29 @@ def test_request_shape_and_auth_and_url_join():
     assert seen["api_key"] == "KEY"
 
 
+def test_prompt_json_passes_reasoning_into_body():
+    seen = {}
+
+    def capture(url, body, api_key, timeout):
+        seen.update(body=body)
+        return _resp("{}")
+
+    oc.prompt_json("hi", model="m", base_url="http://x", api_key="k",
+                   reasoning={"enabled": False}, _post=capture)
+    assert seen["body"]["reasoning"] == {"enabled": False}
+
+
+def test_prompt_json_omits_reasoning_when_none():
+    seen = {}
+
+    def capture(url, body, api_key, timeout):
+        seen.update(body=body)
+        return _resp("{}")
+
+    oc.prompt_json("hi", model="m", base_url="http://x", api_key="k", _post=capture)
+    assert "reasoning" not in seen["body"]
+
+
 def test_prompt_json_retries_on_unparseable_then_succeeds():
     calls = {"n": 0}
 

@@ -89,16 +89,21 @@ def _resolve(base_url, api_key):
     return base_url.rstrip("/"), api_key
 
 
-def _call_once(prompt, model, base_url, api_key, temperature, timeout, post):
+def _call_once(prompt, model, base_url, api_key, temperature, timeout, post, reasoning=None):
     body = {"model": model, "messages": [{"role": "user", "content": prompt}]}
     if temperature is not None:
         body["temperature"] = temperature
+    if reasoning is not None:
+        # OpenRouter's unified reasoning control, e.g. {"enabled": False} to run a
+        # reasoning model in fast mode (no hidden CoT) — halves latency + output cost.
+        body["reasoning"] = reasoning
     resp = post(f"{base_url}/chat/completions", body, api_key, timeout)
     return _extract_content(resp)
 
 
 def prompt_text(prompt, *, model, base_url=None, api_key=None, max_retries=5,
-                temperature=None, timeout=120, verbose=False, _post=None, _sleep=None):
+                temperature=None, timeout=120, verbose=False, reasoning=None,
+                _post=None, _sleep=None):
     """Return the assistant message text; retries transient throttling."""
     base_url, api_key = _resolve(base_url, api_key)
     post = _post or _http_post
@@ -106,20 +111,21 @@ def prompt_text(prompt, *, model, base_url=None, api_key=None, max_retries=5,
     if verbose:
         print(f"[openai_client] {model} <- {prompt[:200]}")
     return _with_retries(
-        lambda: _call_once(prompt, model, base_url, api_key, temperature, timeout, post),
+        lambda: _call_once(prompt, model, base_url, api_key, temperature, timeout, post, reasoning),
         max_retries, sleep, retry_on=(RateLimitError,),
     )
 
 
 def prompt_json(prompt, *, model, base_url=None, api_key=None, max_retries=5,
-                temperature=None, timeout=120, verbose=False, _post=None, _sleep=None):
+                temperature=None, timeout=120, verbose=False, reasoning=None,
+                _post=None, _sleep=None):
     """Return parsed JSON (object or array); retries throttling AND unparseable output."""
     base_url, api_key = _resolve(base_url, api_key)
     post = _post or _http_post
     sleep = _sleep or time.sleep
 
     def attempt():
-        text = _call_once(prompt, model, base_url, api_key, temperature, timeout, post)
+        text = _call_once(prompt, model, base_url, api_key, temperature, timeout, post, reasoning)
         try:
             return json.loads(_strip_fences(text))
         except (json.JSONDecodeError, TypeError) as exc:

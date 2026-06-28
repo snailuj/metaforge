@@ -43,6 +43,8 @@ def build_candidate_cmd(cand, *, topics, db, out, summary, python, runner, max_t
     if provider == "openai":
         cmd += ["--base-url", cand["base_url"],
                 "--api-key-env", cand.get("api_key_env", "OPENROUTER_API_KEY")]
+        if cand.get("reasoning") is False:   # run the reasoning model in fast mode
+            cmd += ["--reasoning-off"]
     return cmd
 
 
@@ -173,20 +175,38 @@ def cmd_run(args):
     topic_ids = [str(t["topic_synset_id"]) for t in json.loads(Path(args.topics).read_text())["topics"]]
     manifest = {"topics": args.topics, "outputs": {}, "wall_clock_s": {}}
 
-    for cand in candidates:
+    # Run candidates concurrently but CAPPED — each process is ~164MB and this can
+    # share an underpowered, live-serving box, so a bounded queue protects the host
+    # (and the OOM killer protects the live site) while still collapsing wall-clock.
+    queue = list(candidates)
+    running = {}  # name -> (out, t0, proc, logf)
+
+    def launch(cand):
         name = cand["name"]
         out = str(out_dir / f"{name}.jsonl")
         summ = str(out_dir / f"{name}.summary.json")
         cmd = build_candidate_cmd(cand, topics=args.topics, db=args.db, out=out, summary=summ,
                                   python=sys.executable, runner=str(HERE / "generate_metaphor_edges.py"),
                                   max_topics=args.max_topics)
-        print(f"[bakeoff] running {name}: {' '.join(cmd)}", flush=True)
-        t0 = time.monotonic()
-        rc = subprocess.run(cmd).returncode
-        manifest["wall_clock_s"][name] = round(time.monotonic() - t0, 1)
-        manifest["outputs"][name] = out
-        if rc != 0:
-            print(f"[bakeoff] WARN {name} exited rc={rc}", file=sys.stderr)
+        print(f"[bakeoff] launching {name}: {cand['model']} ({len(running) + 1} running)", flush=True)
+        logf = open(out_dir / f"{name}.run.log", "w")
+        running[name] = (out, time.monotonic(), subprocess.Popen(cmd, stdout=logf, stderr=subprocess.STDOUT), logf)
+
+    while queue or running:
+        while queue and len(running) < args.max_parallel:
+            launch(queue.pop(0))
+        for name in list(running):
+            out, t0, proc, logf = running[name]
+            if proc.poll() is None:
+                continue
+            logf.close()
+            manifest["wall_clock_s"][name] = round(time.monotonic() - t0, 1)
+            manifest["outputs"][name] = out
+            print(f"[bakeoff] {name} done rc={proc.returncode} chains={len(load_rows(out))} "
+                  f"({manifest['wall_clock_s'][name]}s)", file=sys.stderr, flush=True)
+            del running[name]
+        if queue or running:
+            time.sleep(3)
 
     if args.baseline_chains:
         base_rows = subset_baseline(load_rows(args.baseline_chains), topic_ids)
@@ -224,6 +244,9 @@ def main() -> int:
     r.add_argument("--db", required=True)
     r.add_argument("--out-dir", required=True)
     r.add_argument("--max-topics", type=int, default=50)
+    r.add_argument("--max-parallel", type=int, default=3,
+                   help="Max concurrent candidate processes (~164MB each) — keep low on a "
+                        "small/live-serving host to avoid OOM.")
     r.add_argument("--baseline-chains", default=None, help="Existing Claude chains to reuse as baseline.")
     r.add_argument("--baseline-name", default="claude")
     r.add_argument("--liveness", type=int, default=0, help="Sample N chains for proxy live-rate (costs Claude calls).")
