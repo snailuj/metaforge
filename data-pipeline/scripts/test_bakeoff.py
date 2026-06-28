@@ -59,3 +59,29 @@ def test_summarise_model_metrics():
 def test_summarise_model_empty():
     s = bakeoff.summarise_model([])
     assert s["chains"] == 0 and s["gloss_coverage"] == 0
+
+
+def test_chain_gloss_accuracy_pools_nodes_and_resumes(tmp_path):
+    rows = [
+        {"chain_signature": "a", "chain": [{"head": "x", "phrase": "x", "gloss": "g"},
+                                           {"head": "y", "phrase": "y", "gloss": "g"}]},
+        {"chain_signature": "b", "chain": [{"head": "z", "phrase": "z", "gloss": "g"}]},
+    ]
+
+    def judge(prompt, model, max_retries=2):
+        n = prompt.count("(head:")
+        return {"nodes": [{"accurate": i == 0} for i in range(n)]}  # first node ok, rest wrong
+
+    cp = str(tmp_path / "cp.jsonl")
+    # chain a: 1/2 ok; chain b: 1/1 ok -> pooled 2/3
+    acc1 = bakeoff.gloss_accuracy(rows, 10, judge, "m", label="L", checkpoint_path=cp)
+    assert acc1 == round(2 / 3, 3)
+
+    calls = {"n": 0}
+
+    def judge2(prompt, model, max_retries=2):
+        calls["n"] += 1
+        return {"nodes": [{"accurate": True}]}
+
+    acc2 = bakeoff.gloss_accuracy(rows, 10, judge2, "m", label="L", checkpoint_path=cp)
+    assert acc2 == round(2 / 3, 3) and calls["n"] == 0  # resumed from checkpoint, no new calls

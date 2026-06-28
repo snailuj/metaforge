@@ -112,32 +112,50 @@ def proxy_live_rate(rows, sample_n, model="claude-haiku-4-5-20251001"):
     return round(live / len(sample), 3) if sample else 0.0
 
 
-_GLOSS_JUDGE = (
-    "You are auditing word-sense glosses. For the head word '{head}' as used in the "
-    "phrase '{phrase}', is this gloss an ACCURATE definition of a real sense of that "
-    "word that fits the phrase?\nGloss: {gloss}\n"
-    "Answer STRICT JSON: {{\"accurate\": true|false}}"
+_CHAIN_GLOSS_JUDGE = (
+    "A metaphor chain moves step by step from a TOPIC to a VEHICLE. Each hop must be "
+    "coherent, so every node's word is meant in ONE specific sense — the sense that makes "
+    "the step from the previous node work. Each node lists a `gloss` stating its intended sense.\n\n"
+    "Judge whether each node's gloss captures the sense the chain ACTUALLY INTENDS at that "
+    "position, read in the context of the surrounding nodes. Mark `accurate:false` if the gloss "
+    "describes a real but DIFFERENT sense of the word than the chain uses here, or is vague or "
+    "incorrect. A gloss that fits some OTHER meaning of a polysemous word — but not the one this "
+    "chain needs — is WRONG. Only `accurate:true` when it matches the intended, in-context sense.\n\n"
+    "Chain (TOPIC → VEHICLE):\n{chain_block}\n\n"
+    "Respond with STRICT JSON only, one entry per node in order:\n"
+    '{{"nodes": [{{"head": "<head>", "accurate": true|false}}]}}'
 )
 
 
-def _node_key(label, s):
+def _chain_key(label, r):
     import hashlib
-    raw = f"{label}|{s.get('head', '')}|{s.get('phrase', '')}|{s.get('gloss', '')}"
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+    basis = r.get("chain_signature") or "|".join(
+        f"{n.get('head', '')}:{n.get('gloss', '')}" for n in r["chain"])
+    return hashlib.sha1(f"{label}|{basis}".encode("utf-8")).hexdigest()[:16]
 
 
-def gloss_accuracy(rows, sample_n, prompt_json, judge_model, label="", checkpoint_path=None):
-    """Fraction of sampled nodes whose emitted gloss is a real, fitting sense.
+def _render_chain(r):
+    head = f"TOPIC={r.get('topic', '?')}  VEHICLE={r.get('vehicle', '?')}"
+    lines = [f"  {i+1}. \"{n.get('phrase', '')}\" (head: {n.get('head', '')}) — gloss: {n.get('gloss', '')}"
+             for i, n in enumerate(r["chain"])]
+    return head + "\n" + "\n".join(lines)
 
-    `prompt_json` is injected so the judge runs over fast HTTP (openai_client →
-    OpenRouter) instead of the heavyweight `claude -p` CLI (~1.8GB/call → hours).
-    CHECKPOINTED + RESUMABLE: every verdict is appended to `checkpoint_path` keyed
-    by node, and a re-run skips nodes already judged — a kill/crash/fix never wastes
-    a completed call. Sampling is deterministic (sorted by node key) so resume hits
-    the same nodes. Skips (call failures) are NOT counted, so transient errors don't
-    deflate the score. Logs progress every 10 nodes."""
-    nodes = [s for r in rows for s in r["chain"] if s.get("gloss")]
-    sample = sorted(nodes, key=lambda s: _node_key(label, s))[:sample_n]
+
+def gloss_accuracy(rows, sample_chains, prompt_json, judge_model, label="", checkpoint_path=None):
+    """Fraction of nodes whose gloss matches the IN-CONTEXT intended sense.
+
+    Judges each gloss inside its WHOLE chain, not in isolation: a polysemous
+    single-lemma node passes a node-only check as long as the gloss matches any
+    meaning ("not garbage"), but the chain fixes which sense is intended, so the
+    gloss must match THAT one. We sample whole chains (one judge call per chain →
+    per-node verdicts) and pool nodes across chains.
+
+    `prompt_json` is injected for fast HTTP judging. CHECKPOINTED + RESUMABLE per
+    chain (keyed by chain_signature): a kill/crash/fix never re-judges a done chain.
+    Deterministic sampling so resume hits the same chains. Skipped (failed) chains
+    don't count. Logs progress per chain."""
+    usable = [r for r in rows if r.get("chain")]
+    sample = sorted(usable, key=lambda r: _chain_key(label, r))[:sample_chains]
 
     done = {}
     cp = Path(checkpoint_path) if checkpoint_path else None
@@ -145,38 +163,40 @@ def gloss_accuracy(rows, sample_n, prompt_json, judge_model, label="", checkpoin
         for line in cp.read_text().splitlines():
             try:
                 rec = json.loads(line)
-                done[rec["key"]] = bool(rec["accurate"])
+                done[rec["key"]] = (rec["acc"], rec["tot"])
             except (json.JSONDecodeError, KeyError, TypeError):
                 pass
 
     fh = cp.open("a") if cp else None
-    ok = judged = 0
+    ok = total = 0
     try:
-        for i, s in enumerate(sample, 1):
-            k = _node_key(label, s)
+        for i, r in enumerate(sample, 1):
+            k = _chain_key(label, r)
             if k in done:
-                v = done[k]
+                a, t = done[k]
             else:
                 try:
-                    resp = prompt_json(_GLOSS_JUDGE.format(head=s.get("head", ""),
-                                       phrase=s.get("phrase", ""), gloss=s["gloss"]),
+                    resp = prompt_json(_CHAIN_GLOSS_JUDGE.format(chain_block=_render_chain(r)),
                                        model=judge_model, max_retries=2)
-                    v = bool(isinstance(resp, dict) and resp.get("accurate"))
+                    verdicts = resp.get("nodes", []) if isinstance(resp, dict) else []
+                    t = len(r["chain"])
+                    a = sum(1 for v in verdicts[:t] if isinstance(v, dict) and v.get("accurate"))
                 except Exception as exc:  # noqa: BLE001 — a skip must not abort or deflate
-                    print(f"[bakeoff] {label} gloss-judge call failed (skipped): {exc}", file=sys.stderr)
+                    print(f"[bakeoff] {label} chain-gloss-judge failed (skipped): {exc}", file=sys.stderr)
                     continue
                 if fh:
-                    fh.write(json.dumps({"key": k, "accurate": v}) + "\n")
+                    fh.write(json.dumps({"key": k, "acc": a, "tot": t}) + "\n")
                     fh.flush()
-                done[k] = v
-            ok += 1 if v else 0
-            judged += 1
-            if i % 10 == 0 or i == len(sample):
-                print(f"[bakeoff] {label} gloss-judge {i}/{len(sample)} judged={judged} ok={ok}", flush=True)
+                done[k] = (a, t)
+            ok += a
+            total += t
+            if i % 5 == 0 or i == len(sample):
+                print(f"[bakeoff] {label} chain-gloss {i}/{len(sample)} chains, "
+                      f"nodes ok={ok}/{total}", flush=True)
     finally:
         if fh:
             fh.close()
-    return round(ok / judged, 3) if judged else 0.0
+    return round(ok / total, 3) if total else 0.0
 
 
 def build_judge_pj(args):
