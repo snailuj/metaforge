@@ -39,6 +39,23 @@ def _strip_fences(text: str) -> str:
     return _FENCE.sub("", text).strip()
 
 
+def _loads_lenient(text: str):
+    """Parse the first JSON value in `text`, tolerating fences and trailing prose.
+
+    Some models (e.g. Haiku via OpenRouter) emit valid JSON then keep talking
+    (`{"accurate": false}\\n\\nIn the phrase...`). Strict json.loads fails on the
+    trailing text, so fall back to raw_decode from the first `{`/`[`."""
+    stripped = _strip_fences(text)
+    try:
+        return json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    start = min((i for i in (stripped.find("{"), stripped.find("[")) if i >= 0), default=-1)
+    if start < 0:
+        raise ValueError(f"no JSON value found in: {stripped[:200]!r}")
+    return json.JSONDecoder().raw_decode(stripped, start)[0]
+
+
 def _http_post(url: str, body: dict, api_key: str, timeout: float) -> dict:
     """Default transport: POST JSON, return parsed JSON. 429/5xx -> RateLimitError."""
     data = json.dumps(body).encode("utf-8")
@@ -127,8 +144,8 @@ def prompt_json(prompt, *, model, base_url=None, api_key=None, max_retries=5,
     def attempt():
         text = _call_once(prompt, model, base_url, api_key, temperature, timeout, post, reasoning)
         try:
-            return json.loads(_strip_fences(text))
-        except (json.JSONDecodeError, TypeError) as exc:
+            return _loads_lenient(text)
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
             raise ParseError(f"non-JSON content: {str(text)[:200]!r}") from exc
 
     if verbose:

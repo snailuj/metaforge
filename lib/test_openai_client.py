@@ -68,6 +68,20 @@ def test_request_shape_and_auth_and_url_join():
     assert seen["api_key"] == "KEY"
 
 
+def test_prompt_json_tolerates_trailing_prose_after_json():
+    # Some models (e.g. Haiku via OpenRouter) append commentary after the JSON.
+    # Extract the first JSON value rather than failing the whole call.
+    out = oc.prompt_json("hi", model="m", base_url="http://x", api_key="k",
+                         _post=lambda *a, **k: _resp('{"accurate": false}\n\nIn the phrase "x", the word...'))
+    assert out == {"accurate": False}
+
+
+def test_prompt_json_tolerates_fenced_json_with_trailing_prose():
+    out = oc.prompt_json("hi", model="m", base_url="http://x", api_key="k",
+                         _post=lambda *a, **k: _resp('```json\n{"accurate": true}\n```\n\nThis gloss is accurate because...'))
+    assert out == {"accurate": True}
+
+
 def test_prompt_json_passes_reasoning_into_body():
     seen = {}
 

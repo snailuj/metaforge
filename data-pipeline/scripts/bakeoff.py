@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -119,21 +120,78 @@ _GLOSS_JUDGE = (
 )
 
 
-def gloss_accuracy(rows, sample_n, judge_model="claude-haiku-4-5-20251001"):
-    """Fraction of sampled nodes whose emitted gloss is a real, fitting sense."""
-    import random
-    from claude_client import prompt_json
+def _node_key(label, s):
+    import hashlib
+    raw = f"{label}|{s.get('head', '')}|{s.get('phrase', '')}|{s.get('gloss', '')}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def gloss_accuracy(rows, sample_n, prompt_json, judge_model, label="", checkpoint_path=None):
+    """Fraction of sampled nodes whose emitted gloss is a real, fitting sense.
+
+    `prompt_json` is injected so the judge runs over fast HTTP (openai_client →
+    OpenRouter) instead of the heavyweight `claude -p` CLI (~1.8GB/call → hours).
+    CHECKPOINTED + RESUMABLE: every verdict is appended to `checkpoint_path` keyed
+    by node, and a re-run skips nodes already judged — a kill/crash/fix never wastes
+    a completed call. Sampling is deterministic (sorted by node key) so resume hits
+    the same nodes. Skips (call failures) are NOT counted, so transient errors don't
+    deflate the score. Logs progress every 10 nodes."""
     nodes = [s for r in rows for s in r["chain"] if s.get("gloss")]
-    sample = nodes if len(nodes) <= sample_n else random.sample(nodes, sample_n)
-    ok = 0
-    for s in sample:
-        try:
-            v = prompt_json(_GLOSS_JUDGE.format(head=s.get("head", ""), phrase=s.get("phrase", ""),
-                                                gloss=s["gloss"]), model=judge_model, max_retries=2)
-            ok += 1 if isinstance(v, dict) and v.get("accurate") else 0
-        except Exception as exc:  # noqa: BLE001
-            print(f"[bakeoff] gloss-judge failed (skipped): {exc}", file=sys.stderr)
-    return round(ok / len(sample), 3) if sample else 0.0
+    sample = sorted(nodes, key=lambda s: _node_key(label, s))[:sample_n]
+
+    done = {}
+    cp = Path(checkpoint_path) if checkpoint_path else None
+    if cp and cp.exists():
+        for line in cp.read_text().splitlines():
+            try:
+                rec = json.loads(line)
+                done[rec["key"]] = bool(rec["accurate"])
+            except (json.JSONDecodeError, KeyError, TypeError):
+                pass
+
+    fh = cp.open("a") if cp else None
+    ok = judged = 0
+    try:
+        for i, s in enumerate(sample, 1):
+            k = _node_key(label, s)
+            if k in done:
+                v = done[k]
+            else:
+                try:
+                    resp = prompt_json(_GLOSS_JUDGE.format(head=s.get("head", ""),
+                                       phrase=s.get("phrase", ""), gloss=s["gloss"]),
+                                       model=judge_model, max_retries=2)
+                    v = bool(isinstance(resp, dict) and resp.get("accurate"))
+                except Exception as exc:  # noqa: BLE001 — a skip must not abort or deflate
+                    print(f"[bakeoff] {label} gloss-judge call failed (skipped): {exc}", file=sys.stderr)
+                    continue
+                if fh:
+                    fh.write(json.dumps({"key": k, "accurate": v}) + "\n")
+                    fh.flush()
+                done[k] = v
+            ok += 1 if v else 0
+            judged += 1
+            if i % 10 == 0 or i == len(sample):
+                print(f"[bakeoff] {label} gloss-judge {i}/{len(sample)} judged={judged} ok={ok}", flush=True)
+    finally:
+        if fh:
+            fh.close()
+    return round(ok / judged, 3) if judged else 0.0
+
+
+def build_judge_pj(args):
+    """The prompt_json the judge uses. openai → fast HTTP (OpenRouter), off the
+    Claude subscription; claude → the heavyweight CLI (slow, only if no key)."""
+    if getattr(args, "judge_provider", "openai") == "openai":
+        import functools
+        from openai_client import prompt_json as oai
+        key = os.environ.get(args.judge_api_key_env)
+        if not key:
+            raise SystemExit(f"judge: env {args.judge_api_key_env} unset (needed for openai judge)")
+        return functools.partial(oai, base_url=args.judge_base_url, api_key=key,
+                                 reasoning={"enabled": False})
+    from claude_client import prompt_json as cc
+    return cc
 
 
 # --- orchestration (glue) ----------------------------------------------------
@@ -158,13 +216,15 @@ def render_scorecard(results):
     return "\n".join(lines)
 
 
-def _score_one(name, path, wall, args):
+def _score_one(name, path, wall, args, judge_pj=None, out_dir=None):
     rows = load_rows(path)
     res = {"name": name, "path": str(path), "wall_clock_s": wall, "metrics": summarise_model(rows)}
     if args.liveness:
         res["live_rate"] = proxy_live_rate(rows, args.liveness)
     if args.gloss_judge:
-        res["gloss_accuracy"] = gloss_accuracy(rows, args.gloss_judge)
+        cp = str(Path(out_dir) / f"{name}.glossjudge.jsonl") if out_dir else None
+        res["gloss_accuracy"] = gloss_accuracy(rows, args.gloss_judge, judge_pj,
+                                               args.judge_model, label=name, checkpoint_path=cp)
     return res
 
 
@@ -225,13 +285,24 @@ def cmd_score(args):
 
 
 def _emit_scorecard(manifest, out_dir, args):
-    results = [_score_one(name, path, manifest.get("wall_clock_s", {}).get(name, "-"), args)
+    judge_pj = build_judge_pj(args) if args.gloss_judge else None
+    results = [_score_one(name, path, manifest.get("wall_clock_s", {}).get(name, "-"),
+                          args, judge_pj, out_dir=out_dir)
                for name, path in manifest["outputs"].items()]
     card = render_scorecard(results)
     (Path(out_dir) / "scorecard.md").write_text(card + "\n")
     (Path(out_dir) / "scorecard.json").write_text(json.dumps(results, indent=2))
     print("\n" + card + "\n")
     print(f"[bakeoff] scorecard -> {out_dir}/scorecard.md")
+
+
+def _add_judge_args(p):
+    """Judge transport — defaults to fast HTTP Haiku via OpenRouter (off the Claude
+    subscription, ~1-2s/call) rather than the heavyweight `claude -p` CLI."""
+    p.add_argument("--judge-provider", choices=["openai", "claude"], default="openai")
+    p.add_argument("--judge-base-url", default="https://openrouter.ai/api/v1")
+    p.add_argument("--judge-model", default="anthropic/claude-haiku-4.5")
+    p.add_argument("--judge-api-key-env", default="OPENROUTER_API_KEY")
 
 
 def main() -> int:
@@ -250,13 +321,15 @@ def main() -> int:
     r.add_argument("--baseline-chains", default=None, help="Existing Claude chains to reuse as baseline.")
     r.add_argument("--baseline-name", default="claude")
     r.add_argument("--liveness", type=int, default=0, help="Sample N chains for proxy live-rate (costs Claude calls).")
-    r.add_argument("--gloss-judge", type=int, default=0, help="Sample N nodes for gloss accuracy (costs Claude calls).")
+    r.add_argument("--gloss-judge", type=int, default=0, help="Sample N nodes for gloss accuracy.")
+    _add_judge_args(r)
     r.set_defaults(func=cmd_run)
 
     s = sub.add_parser("score", help="(re)score from a manifest")
     s.add_argument("--manifest", required=True)
     s.add_argument("--liveness", type=int, default=0)
     s.add_argument("--gloss-judge", type=int, default=0)
+    _add_judge_args(s)
     s.set_defaults(func=cmd_score)
 
     args = ap.parse_args()
