@@ -85,3 +85,59 @@ def test_chain_gloss_accuracy_pools_nodes_and_resumes(tmp_path):
 
     acc2 = bakeoff.gloss_accuracy(rows, 10, judge2, "m", label="L", checkpoint_path=cp)
     assert acc2 == round(2 / 3, 3) and calls["n"] == 0  # resumed from checkpoint, no new calls
+
+
+def test_judge_slug_safe_for_filename():
+    # slashes (and other path-hostile chars) collapse to underscores; dots/dashes kept
+    assert bakeoff.judge_slug("anthropic/claude-sonnet-4.6") == "anthropic_claude-sonnet-4.6"
+    assert bakeoff.judge_slug("anthropic/claude-haiku-4.5") == "anthropic_claude-haiku-4.5"
+
+
+def _live_rows(n):
+    return [{"chain_signature": chr(ord("a") + i), "topic": "t", "vehicle": "v",
+             "chain": [{"phrase": "p"}]} for i in range(n)]
+
+
+def test_proxy_live_rate_counts_live_not_dict_truthiness(tmp_path):
+    rows = _live_rows(4)
+    verdicts = iter(["live", "dead", "live", "irrelevant"])  # exactly 2 of 4 live
+
+    def fake(prompt, model):
+        return {"verdict": next(verdicts)}
+
+    # old code did `if judge_chain(...)` on a dict (always truthy) -> ~1.0; correct is 0.5
+    rate = bakeoff.proxy_live_rate(rows, 10, prompt_fn=fake, model="m",
+                                   label="L", checkpoint_path=str(tmp_path / "cp.jsonl"))
+    assert rate == 0.5
+
+
+def test_proxy_live_rate_skips_failed_judge_no_deflate(tmp_path):
+    rows = _live_rows(2)
+    seq = iter(["boom", "live"])
+
+    def fake(prompt, model):
+        if next(seq) == "boom":
+            raise RuntimeError("judge down")  # judge_chain catches -> ok=False
+        return {"verdict": "live"}
+
+    # one judge call fails (skipped, not counted dead); 1 live / 1 counted -> 1.0, not 0.5
+    rate = bakeoff.proxy_live_rate(rows, 10, prompt_fn=fake, model="m",
+                                   label="L", checkpoint_path=str(tmp_path / "cp.jsonl"))
+    assert rate == 1.0
+
+
+def test_proxy_live_rate_resumes_from_checkpoint(tmp_path):
+    rows = _live_rows(2)
+    cp = str(tmp_path / "cp.jsonl")
+    rate1 = bakeoff.proxy_live_rate(rows, 10, prompt_fn=lambda p, model: {"verdict": "live"},
+                                    model="m", label="L", checkpoint_path=cp)
+    assert rate1 == 1.0
+
+    calls = {"n": 0}
+
+    def fake2(prompt, model):
+        calls["n"] += 1
+        return {"verdict": "dead"}
+
+    rate2 = bakeoff.proxy_live_rate(rows, 10, prompt_fn=fake2, model="m", label="L", checkpoint_path=cp)
+    assert rate2 == 1.0 and calls["n"] == 0  # resumed, no new judge calls

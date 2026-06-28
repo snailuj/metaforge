@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -97,19 +98,73 @@ def subset_baseline(baseline_rows, topic_ids):
 
 # --- optional, spend-gated deep metrics -------------------------------------
 
-def proxy_live_rate(rows, sample_n, model="claude-haiku-4-5-20251001"):
-    """Conservative zero-FP proxy live-rate over a sample (reuses mlr judge)."""
+def judge_slug(model):
+    """Filesystem-safe slug of a judge model id, so different judges keep separate
+    checkpoint files and never silently return each other's cached verdicts."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", model)
+
+
+def _load_checkpoint(path):
+    """Map of chain-key -> checkpoint record, for resumable judging. Tolerates a
+    truncated final line (process killed mid-flush) by skipping unparseable rows."""
+    done = {}
+    if not path:
+        return done
+    p = Path(path)
+    if p.exists():
+        for line in p.read_text().splitlines():
+            try:
+                rec = json.loads(line)
+                done[rec["key"]] = rec
+            except (json.JSONDecodeError, KeyError, TypeError):
+                pass
+    return done
+
+
+def proxy_live_rate(rows, sample_chains, prompt_fn=None, model="anthropic/claude-haiku-4.5",
+                    label="", checkpoint_path=None):
+    """Conservative zero-FP proxy live-rate over a deterministic chain sample.
+
+    Reuses the calibrated `metaphor_live_rate` Haiku proxy judge — it UNDER-calls
+    `live`, so a `live` signal is trustworthy (a healthy run sits low, ~0.08-0.14).
+    `prompt_fn(prompt, model=...)` is injected so the judge runs over fast,
+    off-subscription HTTP (OpenRouter) and is unit-testable; a None prompt_fn falls
+    back to the claude_client CLI inside judge_chain. CHECKPOINTED + RESUMABLE per
+    chain (keyed by chain_signature): a kill/crash never re-judges a done chain.
+    A judge that errors returns ok=False and is SKIPPED (never counted as dead) so
+    transient API failures cannot deflate the rate. Same deterministic sample as the
+    gloss judge, so liveness and gloss-accuracy score the SAME chains."""
     import metaphor_live_rate as mlr
-    import random
-    sample = rows if len(rows) <= sample_n else random.sample(rows, sample_n)
-    live = 0
-    for rec in sample:
-        try:
-            if mlr.judge_chain(rec, model=model):
-                live += 1
-        except Exception as exc:  # noqa: BLE001 — a judge failure must not abort scoring
-            print(f"[bakeoff] live-judge failed (skipped): {exc}", file=sys.stderr)
-    return round(live / len(sample), 3) if sample else 0.0
+    usable = [r for r in rows if r.get("chain")]
+    sample = sorted(usable, key=lambda r: _chain_key(label, r))[:sample_chains]
+
+    done = _load_checkpoint(checkpoint_path)
+    cp = Path(checkpoint_path) if checkpoint_path else None
+    fh = cp.open("a") if cp else None
+    live = total = 0
+    try:
+        for i, r in enumerate(sample, 1):
+            k = _chain_key(label, r)
+            if k in done:
+                v = done[k]["live"]
+            else:
+                res = mlr.judge_chain(r, prompt_fn=prompt_fn, model=model)
+                if not res.get("ok"):
+                    print(f"[bakeoff] {label} live-judge skipped: {res.get('error')}", file=sys.stderr)
+                    continue
+                v = 1 if res.get("verdict") == "live" else 0
+                if fh:
+                    fh.write(json.dumps({"key": k, "live": v}) + "\n")
+                    fh.flush()
+                done[k] = {"live": v}
+            live += v
+            total += 1
+            if i % 5 == 0 or i == len(sample):
+                print(f"[bakeoff] {label} live {i}/{len(sample)} chains, live={live}/{total}", flush=True)
+    finally:
+        if fh:
+            fh.close()
+    return round(live / total, 3) if total else 0.0
 
 
 _CHAIN_GLOSS_JUDGE = (
@@ -157,15 +212,8 @@ def gloss_accuracy(rows, sample_chains, prompt_json, judge_model, label="", chec
     usable = [r for r in rows if r.get("chain")]
     sample = sorted(usable, key=lambda r: _chain_key(label, r))[:sample_chains]
 
-    done = {}
+    done = _load_checkpoint(checkpoint_path)
     cp = Path(checkpoint_path) if checkpoint_path else None
-    if cp and cp.exists():
-        for line in cp.read_text().splitlines():
-            try:
-                rec = json.loads(line)
-                done[rec["key"]] = (rec["acc"], rec["tot"])
-            except (json.JSONDecodeError, KeyError, TypeError):
-                pass
 
     fh = cp.open("a") if cp else None
     ok = total = 0
@@ -173,7 +221,7 @@ def gloss_accuracy(rows, sample_chains, prompt_json, judge_model, label="", chec
         for i, r in enumerate(sample, 1):
             k = _chain_key(label, r)
             if k in done:
-                a, t = done[k]
+                a, t = done[k]["acc"], done[k]["tot"]
             else:
                 try:
                     resp = prompt_json(_CHAIN_GLOSS_JUDGE.format(chain_block=_render_chain(r)),
@@ -187,7 +235,7 @@ def gloss_accuracy(rows, sample_chains, prompt_json, judge_model, label="", chec
                 if fh:
                     fh.write(json.dumps({"key": k, "acc": a, "tot": t}) + "\n")
                     fh.flush()
-                done[k] = (a, t)
+                done[k] = {"acc": a, "tot": t}
             ok += a
             total += t
             if i % 5 == 0 or i == len(sample):
@@ -214,6 +262,20 @@ def build_judge_pj(args):
     return cc
 
 
+def build_liveness_pj(args):
+    """A `(prompt, model)` judge callable for the liveness proxy — same fast
+    OpenRouter transport as the gloss judge (reasoning off, conservative retries),
+    off the Claude subscription. judge_chain calls it as prompt_fn(prompt, model=…)."""
+    import functools
+    from openai_client import prompt_json as oai
+    key = os.environ.get(args.judge_api_key_env)
+    if not key:
+        raise SystemExit(f"liveness: env {args.judge_api_key_env} unset (needed for the live judge)")
+    call = functools.partial(oai, base_url=args.judge_base_url, api_key=key,
+                             reasoning={"enabled": False}, max_retries=2)
+    return lambda prompt, model: call(prompt, model=model)
+
+
 # --- orchestration (glue) ----------------------------------------------------
 
 def render_scorecard(results):
@@ -236,13 +298,17 @@ def render_scorecard(results):
     return "\n".join(lines)
 
 
-def _score_one(name, path, wall, args, judge_pj=None, out_dir=None):
+def _score_one(name, path, wall, args, judge_pj=None, live_pj=None, out_dir=None):
     rows = load_rows(path)
     res = {"name": name, "path": str(path), "wall_clock_s": wall, "metrics": summarise_model(rows)}
     if args.liveness:
-        res["live_rate"] = proxy_live_rate(rows, args.liveness)
+        # checkpoint keyed by the LIVENESS model (separate from the gloss judge) so the
+        # two judges never share a cache and a model swap re-judges instead of resuming.
+        cp = str(Path(out_dir) / f"{name}.{judge_slug(args.liveness_model)}.liverate.jsonl") if out_dir else None
+        res["live_rate"] = proxy_live_rate(rows, args.liveness, prompt_fn=live_pj,
+                                           model=args.liveness_model, label=name, checkpoint_path=cp)
     if args.gloss_judge:
-        cp = str(Path(out_dir) / f"{name}.glossjudge.jsonl") if out_dir else None
+        cp = str(Path(out_dir) / f"{name}.{judge_slug(args.judge_model)}.glossjudge.jsonl") if out_dir else None
         res["gloss_accuracy"] = gloss_accuracy(rows, args.gloss_judge, judge_pj,
                                                args.judge_model, label=name, checkpoint_path=cp)
     return res
@@ -306,8 +372,9 @@ def cmd_score(args):
 
 def _emit_scorecard(manifest, out_dir, args):
     judge_pj = build_judge_pj(args) if args.gloss_judge else None
+    live_pj = build_liveness_pj(args) if args.liveness else None
     results = [_score_one(name, path, manifest.get("wall_clock_s", {}).get(name, "-"),
-                          args, judge_pj, out_dir=out_dir)
+                          args, judge_pj, live_pj, out_dir=out_dir)
                for name, path in manifest["outputs"].items()]
     card = render_scorecard(results)
     (Path(out_dir) / "scorecard.md").write_text(card + "\n")
@@ -323,6 +390,9 @@ def _add_judge_args(p):
     p.add_argument("--judge-base-url", default="https://openrouter.ai/api/v1")
     p.add_argument("--judge-model", default="anthropic/claude-haiku-4.5")
     p.add_argument("--judge-api-key-env", default="OPENROUTER_API_KEY")
+    # The liveness proxy is a SEPARATE judge from --judge-model: it's the calibrated
+    # conservative Haiku live/dead monitor, so keep it on Haiku unless re-calibrated.
+    p.add_argument("--liveness-model", default="anthropic/claude-haiku-4.5")
 
 
 def main() -> int:
