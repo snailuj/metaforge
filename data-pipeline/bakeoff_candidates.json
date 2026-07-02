@@ -26,5 +26,19 @@
     "base_url": "https://openrouter.ai/api/v1",
     "api_key_env": "OPENROUTER_API_KEY",
     "_note": "Cheapest-tier probe: is the floor good enough? $0.09/$0.18."
+  },
+  {
+    "name": "qwen3.7-plus",
+    "model": "qwen/qwen3.7-plus",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "_note": "Cheap + strong, Apache-licensed. $0.32/$1.28."
+  },
+  {
+    "name": "minimax-m3",
+    "model": "minimax/minimax-m3",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "_note": "#2 open on AA Intelligence Index. $0.30/$1.20."
   }
 ]
