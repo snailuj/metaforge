@@ -256,8 +256,10 @@ def build_judge_pj(args):
         key = os.environ.get(args.judge_api_key_env)
         if not key:
             raise SystemExit(f"judge: env {args.judge_api_key_env} unset (needed for openai judge)")
+        # Cap output: a gloss/liveness verdict is tiny, but OpenRouter reserves credit
+        # for the full max_tokens, so an uncapped call 402s once the balance runs low.
         return functools.partial(oai, base_url=args.judge_base_url, api_key=key,
-                                 reasoning={"enabled": False})
+                                 reasoning={"enabled": False}, max_tokens=512)
     from claude_client import prompt_json as cc
     return cc
 
@@ -272,7 +274,7 @@ def build_liveness_pj(args):
     if not key:
         raise SystemExit(f"liveness: env {args.judge_api_key_env} unset (needed for the live judge)")
     call = functools.partial(oai, base_url=args.judge_base_url, api_key=key,
-                             reasoning={"enabled": False}, max_retries=2)
+                             reasoning={"enabled": False}, max_retries=2, max_tokens=256)
     return lambda prompt, model: call(prompt, model=model)
 
 

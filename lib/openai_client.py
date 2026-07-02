@@ -106,10 +106,18 @@ def _resolve(base_url, api_key):
     return base_url.rstrip("/"), api_key
 
 
-def _call_once(prompt, model, base_url, api_key, temperature, timeout, post, reasoning=None):
+def _call_once(prompt, model, base_url, api_key, temperature, timeout, post, reasoning=None,
+               max_tokens=None):
     body = {"model": model, "messages": [{"role": "user", "content": prompt}]}
     if temperature is not None:
         body["temperature"] = temperature
+    if max_tokens is not None:
+        # OpenRouter RESERVES credit for the full max_tokens up front, so an
+        # uncapped short-output call (judge verdict ~50 tokens) needlessly reserves
+        # the model default (~65536) and 402s once the balance runs low. Callers
+        # doing bounded-output work (judges) should pass a small cap; generation
+        # callers leave it None to keep the model's full budget.
+        body["max_tokens"] = max_tokens
     if reasoning is not None:
         # OpenRouter's unified reasoning control, e.g. {"enabled": False} to run a
         # reasoning model in fast mode (no hidden CoT) — halves latency + output cost.
@@ -120,7 +128,7 @@ def _call_once(prompt, model, base_url, api_key, temperature, timeout, post, rea
 
 def prompt_text(prompt, *, model, base_url=None, api_key=None, max_retries=5,
                 temperature=None, timeout=120, verbose=False, reasoning=None,
-                _post=None, _sleep=None):
+                max_tokens=None, _post=None, _sleep=None):
     """Return the assistant message text; retries transient throttling."""
     base_url, api_key = _resolve(base_url, api_key)
     post = _post or _http_post
@@ -128,21 +136,23 @@ def prompt_text(prompt, *, model, base_url=None, api_key=None, max_retries=5,
     if verbose:
         print(f"[openai_client] {model} <- {prompt[:200]}")
     return _with_retries(
-        lambda: _call_once(prompt, model, base_url, api_key, temperature, timeout, post, reasoning),
+        lambda: _call_once(prompt, model, base_url, api_key, temperature, timeout, post,
+                           reasoning, max_tokens),
         max_retries, sleep, retry_on=(RateLimitError,),
     )
 
 
 def prompt_json(prompt, *, model, base_url=None, api_key=None, max_retries=5,
                 temperature=None, timeout=120, verbose=False, reasoning=None,
-                _post=None, _sleep=None):
+                max_tokens=None, _post=None, _sleep=None):
     """Return parsed JSON (object or array); retries throttling AND unparseable output."""
     base_url, api_key = _resolve(base_url, api_key)
     post = _post or _http_post
     sleep = _sleep or time.sleep
 
     def attempt():
-        text = _call_once(prompt, model, base_url, api_key, temperature, timeout, post, reasoning)
+        text = _call_once(prompt, model, base_url, api_key, temperature, timeout, post,
+                          reasoning, max_tokens)
         try:
             return _loads_lenient(text)
         except (json.JSONDecodeError, ValueError, TypeError) as exc:

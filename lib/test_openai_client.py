@@ -30,6 +30,33 @@ def test_prompt_json_parses_bare_array():
     assert out == [{"word": "x", "keep": True}]
 
 
+def test_prompt_json_sends_max_tokens_when_set():
+    # Capping max_tokens matters for OpenRouter: it RESERVES credit for the full
+    # max_tokens up front, so an uncapped judge call (model default 65536) 402s
+    # when the balance is low even though the verdict is only ~50 tokens.
+    captured = {}
+
+    def capture(url, body, api_key, timeout):
+        captured.update(body)
+        return _resp("{}")
+
+    oc.prompt_json("hi", model="m", base_url="http://x", api_key="k",
+                   max_tokens=256, _post=capture)
+    assert captured["max_tokens"] == 256
+
+
+def test_prompt_json_omits_max_tokens_by_default():
+    captured = {}
+
+    def capture(url, body, api_key, timeout):
+        captured.update(body)
+        return _resp("{}")
+
+    # default (None) must NOT send the field — generation calls need the model's full budget
+    oc.prompt_json("hi", model="m", base_url="http://x", api_key="k", _post=capture)
+    assert "max_tokens" not in captured
+
+
 def test_prompt_json_retries_transient_then_succeeds():
     calls = {"n": 0}
 
