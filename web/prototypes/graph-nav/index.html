@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Metaforge · 3D Graph Navigation (cinematic base)</title>
+<!--
+  GRAPH-NATIVE prototype, built on the REAL engine (three.js + 3d-force-graph),
+  per docs/designs/2026-06-25-graph-native-feature-specs.md (section B).
+  Single self-contained no-build file, opens via file://, CDN globals only.
+
+  This is the CINEMATIC BASE — the shared 3D world the Bridge / Forge / Phrase
+  features extend. Realises spec B:
+    - mock thesaurus constellation (~32 nodes / 3 hops) centred on a gold word
+    - relation groups coloured per the app conventions (tokens.css / colours.ts)
+    - a relationship-as-a-node BRIDGE node (the "gravity well (JOY)" violet lozenge)
+    - fog-of-war: fade nodes + edges + labels with hop-distance; hidden beyond ~3 hops
+    - bloom on approach/focus: focusing a node fades its further neighbours IN
+    - select a node = fly-to-it + bloom, the current world persists (no scene reset)
+    - camera = free flight (controlType:'fly', WASD/QE) + click-to-fly
+    - the tuned HTML overlay: collapsible info panel, search bar (/), rarity filter,
+      flight hint — styled from tokens.css.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Playfair+Display:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<!-- Engine globals. Order matters: THREE first (3d-force-graph reads window.THREE),
+     then the graph, then the crisp text-sprite label helper. Pinned to versions
+     that expose the global-UMD build (three 0.149 still ships build/three.min.js). -->
+<script src="https://unpkg.com/three@0.149.0/build/three.min.js"
+        integrity="sha384-RRHfJ6w1mTlKUBMYT/hvnRiOzEB/vyRV3DrQOseb6oYfvaZSfdd0byS4bHps0k2R"
+        crossorigin="anonymous"></script>
+<script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"
+        integrity="sha384-GNPicn8pBA2/PGSyPTpxIlPurgLUYcNYJ2zskIq782dE9+gp5E32WSyuxZqA7J+u"
+        crossorigin="anonymous"></script>
+<script src="https://unpkg.com/three-spritetext@1.8.2/dist/three-spritetext.min.js"
+        integrity="sha384-8hX0id4j/d/+9ukCS+LZDb9WpPp63OqiuZ5bpPPnixibnP01z1avvWuQD3xdEIQX"
+        crossorigin="anonymous"></script>
+
+<style>
+  :root {
+    /* mirrored verbatim from web/src/styles/tokens.css */
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-hud: rgba(22, 33, 62, 0.6);
+    --text-primary: #e8e0d4;
+    --text-secondary: #a89f94;
+    --text-muted: #6b6560;
+    --gold: #d4af37;
+    --gold-dim: rgba(212, 175, 55, 0.5);
+    /* node colours (colours.ts NODE_COLOURS) */
+    --node-central: #d4af37;
+    --node-synonym: #c4956a;
+    --node-hypernym: #8b6f47;
+    --node-hyponym: #6a8b6f;
+    --node-similar: #7a6a8b;
+    /* rarity colours (colours.ts RARITY_COLOURS) — drive the rarity filter chips */
+    --rarity-common: #8bb89a;
+    --rarity-unusual: #c4956a;
+    --rarity-rare: #a88bc4;
+    --edge-default: rgba(232, 224, 212, 0.15);
+    --edge-highlight: rgba(212, 175, 55, 0.4);
+    --bridge: #b56ed0;            /* gravity-well violet lozenge */
+    --font-heading: 'Playfair Display', Georgia, serif;
+    --font-body: 'Crimson Text', 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --hud-border: 1px solid rgba(212, 175, 55, 0.2);
+    --hud-radius: 4px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg-primary);
+    overflow: hidden;
+    font-family: var(--font-body);
+    color: var(--text-primary);
+  }
+  #graph { position: fixed; inset: 0; z-index: 0; }
+
+  .hud { position: fixed; z-index: 10; }
+
+  /* Top-left collapsible info panel ("collapso") */
+  #panel {
+    top: 1rem; left: 1rem; width: 20rem; max-width: calc(100vw - 2rem);
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    overflow: hidden;
+  }
+  #panel-header {
+    display: flex; align-items: baseline; gap: 0.6rem;
+    padding: 0.85rem 1rem 0.6rem;
+    cursor: pointer; user-select: none;
+  }
+  #panel-word {
+    font-family: var(--font-heading);
+    font-size: 1.6rem; font-weight: 700;
+    color: var(--gold);
+    letter-spacing: 0.01em;
+    line-height: 1;
+  }
+  .badge {
+    font-family: var(--font-mono);
+    font-size: 0.6rem; letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.18rem 0.45rem; border-radius: 2px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .badge.common  { color: var(--rarity-common); }
+  .badge.unusual { color: var(--rarity-unusual); }
+  .badge.rare    { color: var(--rarity-rare); }
+  #panel-pos {
+    font-family: var(--font-body); font-style: italic;
+    color: var(--text-secondary); font-size: 0.95rem;
+  }
+  #panel-collapse {
+    margin-left: auto; color: var(--text-muted);
+    font-family: var(--font-mono); font-size: 0.85rem;
+    transition: transform 200ms ease;
+  }
+  #panel.collapsed #panel-collapse { transform: rotate(-90deg); }
+  #panel.collapsed #panel-body { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+  #panel-body {
+    padding: 0 1rem 1rem; max-height: 72vh; opacity: 1;
+    overflow-y: auto;
+    transition: max-height 260ms ease, opacity 200ms ease, padding 260ms ease;
+  }
+  #panel-def {
+    font-size: 1rem; line-height: 1.5;
+    color: var(--text-primary);
+    margin: 0.1rem 0 0.9rem;
+  }
+  .rel-group { margin-top: 0.85rem; }
+  .rel-group h4 {
+    margin: 0 0 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.62rem; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--text-muted);
+    border-bottom: 1px solid rgba(212,175,55,0.12);
+    padding-bottom: 0.25rem;
+  }
+  .rel-terms { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .term {
+    font-size: 0.95rem;
+    padding: 0.18rem 0.5rem; border-radius: 2px;
+    background: rgba(232,224,212,0.05);
+    border: 1px solid transparent;
+    cursor: pointer; transition: all 140ms ease;
+    color: var(--text-primary);
+  }
+  .term:hover {
+    border-color: var(--gold-dim);
+    background: rgba(212,175,55,0.1);
+    color: var(--gold);
+  }
+  .term[data-rel="synonym"]  { border-left: 3px solid var(--node-synonym); }
+  .term[data-rel="hypernym"] { border-left: 3px solid var(--node-hypernym); }
+  .term[data-rel="hyponym"]  { border-left: 3px solid var(--node-hyponym); }
+  .term[data-rel="similar"]  { border-left: 3px solid var(--node-similar); }
+  .term[data-rel="bridge"]   { border-left: 3px solid var(--bridge); color: #d9b3ec; }
+
+  /* Centre-top search bar */
+  #searchwrap {
+    top: 1rem; left: 50%; transform: translateX(-50%);
+    width: min(30rem, calc(100vw - 24rem));
+  }
+  #search {
+    width: 100%;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 1.05rem;
+    padding: 0.7rem 2.6rem 0.7rem 1rem;
+    outline: none;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+  #search::placeholder { color: var(--text-muted); }
+  #search:focus {
+    border-color: var(--gold-dim);
+    box-shadow: 0 0 0 1px var(--gold-dim), 0 8px 30px rgba(0,0,0,0.4);
+  }
+  #search-hint {
+    position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%);
+    font-family: var(--font-mono); font-size: 0.7rem;
+    color: var(--text-muted);
+    border: 1px solid rgba(232,224,212,0.18);
+    border-radius: 3px; padding: 0.05rem 0.35rem;
+    pointer-events: none;
+  }
+  #suggestions {
+    margin-top: 0.35rem;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    overflow: hidden;
+    display: none;
+  }
+  #suggestions.open { display: block; }
+  .suggestion {
+    padding: 0.5rem 0.85rem; cursor: pointer;
+    font-size: 1rem; color: var(--text-primary);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .suggestion:hover, .suggestion.active { background: rgba(212,175,55,0.12); color: var(--gold); }
+  .suggestion small { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; }
+
+  /* Rarity filter — bottom-left */
+  #rarity {
+    bottom: 1rem; left: 1rem;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    padding: 0.55rem 0.7rem;
+    display: flex; gap: 0.4rem; align-items: center;
+  }
+  #rarity .label {
+    font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-muted); margin-right: 0.2rem;
+  }
+  .rchip {
+    font-size: 0.8rem; cursor: pointer; user-select: none;
+    padding: 0.22rem 0.55rem; border-radius: 2px;
+    border: 1px solid currentColor;
+    opacity: 1; transition: opacity 140ms ease, background 140ms ease;
+  }
+  .rchip.common  { color: var(--rarity-common); }
+  .rchip.unusual { color: var(--rarity-unusual); }
+  .rchip.rare    { color: var(--rarity-rare); }
+  .rchip.off { opacity: 0.32; text-decoration: line-through; }
+
+  /* Flight hint — bottom-centre */
+  #flight-hint {
+    bottom: 1.1rem; left: 50%; transform: translateX(-50%);
+    font-family: var(--font-mono); font-size: 0.72rem;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-align: center;
+    background: rgba(22,33,62,0.4);
+    padding: 0.3rem 0.8rem; border-radius: var(--hud-radius);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #flight-hint b { color: var(--text-secondary); font-weight: 600; }
+
+  /* Title wisp — bottom-right */
+  #wisp {
+    bottom: 1rem; right: 1rem;
+    font-family: var(--font-heading); font-size: 0.8rem;
+    color: var(--text-muted); letter-spacing: 0.04em;
+    opacity: 0.7; pointer-events: none;
+  }
+
+  #panel-body::-webkit-scrollbar { width: 6px; }
+  #panel-body::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.25); border-radius: 3px; }
+</style>
+</head>
+<body>
+  <div id="graph"></div>
+
+  <!-- Top-left collapsible info panel -->
+  <aside id="panel" class="hud">
+    <div id="panel-header">
+      <span id="panel-word">grief</span>
+      <span id="panel-badge" class="badge unusual">unusual</span>
+      <span id="panel-pos">n.</span>
+      <span id="panel-collapse">▾</span>
+    </div>
+    <div id="panel-body">
+      <p id="panel-def"></p>
+      <div id="rel-broader" class="rel-group">
+        <h4>Broader Terms</h4>
+        <div class="rel-terms"></div>
+      </div>
+      <div id="rel-similar" class="rel-group">
+        <h4>Similar</h4>
+        <div class="rel-terms"></div>
+      </div>
+      <div id="rel-narrower" class="rel-group">
+        <h4>Narrower</h4>
+        <div class="rel-terms"></div>
+      </div>
+      <div id="rel-bridge" class="rel-group">
+        <h4>Gravity Wells</h4>
+        <div class="rel-terms"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Centre-top search -->
+  <div id="searchwrap" class="hud">
+    <div style="position:relative;">
+      <input id="search" type="text" placeholder="Search the constellation…" autocomplete="off" spellcheck="false" />
+      <span id="search-hint">/</span>
+    </div>
+    <div id="suggestions"></div>
+  </div>
+
+  <!-- Rarity filter -->
+  <div id="rarity" class="hud">
+    <span class="label">Show</span>
+    <span class="rchip common"  data-rarity="common">Common</span>
+    <span class="rchip unusual" data-rarity="unusual">Unusual</span>
+    <span class="rchip rare"    data-rarity="rare">Rare</span>
+  </div>
+
+  <!-- Flight hint -->
+  <div id="flight-hint" class="hud">
+    <b>WASD</b> move · <b>R/F</b> up/down · <b>Q/E</b> roll · drag to look · <b>click</b> a star to fly there
+  </div>
+  <div id="wisp" class="hud">Metaforge — a visual thesaurus</div>
+
+<script>
+/* ============================================================================
+   MOCK CONSTELLATION — centred on "grief". ~32 nodes across 3 hops.
+   Each node: [id, word, relType, rarity, pos, definition].
+   relType drives the app colour conventions; 'bridge' = relationship-as-a-node.
+   ============================================================================ */
+const C = {
+  central:  '#d4af37',
+  synonym:  '#c4956a',
+  hypernym: '#8b6f47',
+  hyponym:  '#6a8b6f',
+  similar:  '#7a6a8b',
+  bridge:   '#b56ed0',
+  rarity: { common: '#8bb89a', unusual: '#c4956a', rare: '#a88bc4' },
+  text: '#e8e0d4',
+};
+
+const NODES = [
+  ['grief',       'grief',        'central',  'unusual', 'n.', 'Deep sorrow, especially that caused by someone’s death; keen mental suffering over loss.'],
+
+  // hop 1 — synonyms (copper)
+  ['sorrow',      'sorrow',       'synonym',  'common',  'n.', 'A feeling of deep distress caused by loss or disappointment.'],
+  ['mourning',    'mourning',     'synonym',  'unusual', 'n.', 'The expression of deep sorrow for someone who has died.'],
+  ['anguish',     'anguish',      'synonym',  'unusual', 'n.', 'Severe mental or physical pain or suffering.'],
+  ['woe',         'woe',          'synonym',  'rare',    'n.', 'Great sorrow or distress; an affliction.'],
+  ['heartache',   'heartache',    'synonym',  'unusual', 'n.', 'Emotional anguish or grief, typically caused by loss.'],
+
+  // hop 1 — hypernyms (russet, BROADER)
+  ['sadness',     'sadness',      'hypernym', 'common',  'n.', 'The condition or quality of being sad.'],
+  ['suffering',   'suffering',    'hypernym', 'common',  'n.', 'The state of undergoing pain, distress, or hardship.'],
+  ['emotion',     'emotion',      'hypernym', 'common',  'n.', 'A strong feeling deriving from circumstance, mood, or relationships.'],
+
+  // hop 1 — hyponyms (green, NARROWER)
+  ['bereavement', 'bereavement',  'hyponym',  'rare',    'n.', 'The state of having been deprived of a loved one through death.'],
+  ['lamentation', 'lamentation',  'hyponym',  'rare',    'n.', 'The passionate expression of grief or sorrow; weeping.'],
+  ['desolation',  'desolation',   'hyponym',  'rare',    'n.', 'A state of complete emptiness, ruin, or anguished loneliness.'],
+
+  // hop 1 — similar (violet-grey, SIMILAR)
+  ['melancholy',  'melancholy',   'similar',  'unusual', 'n.', 'A pensive, lingering sadness with no obvious cause.'],
+  ['regret',      'regret',       'similar',  'common',  'n.', 'A feeling of sadness or disappointment over what has happened.'],
+  ['despair',     'despair',      'similar',  'unusual', 'n.', 'The complete loss or absence of hope.'],
+
+  // BRIDGE NODE — gravity well: grief <-> joy. A relationship-as-a-node lozenge.
+  ['gw-joy',      'gravity well (JOY)', 'bridge', 'rare', 'rel.', 'A metaphor bridge: grief and JOY orbit one gravity well — each defines the other by its absence.'],
+  ['joy',         'joy',          'similar',  'common',  'n.', 'A feeling of great pleasure and happiness; the far pole of grief.'],
+
+  // hop 2
+  ['heartbreak',  'heartbreak',   'hyponym',  'unusual', 'n.', 'Overwhelming distress, especially from the loss of love.'],
+  ['gloom',       'gloom',        'similar',  'unusual', 'n.', 'Partial or total darkness; a state of depression or despondency.'],
+  ['lament',      'lament',       'hyponym',  'unusual', 'n.', 'A passionate expression of grief, often in song or poem.'],
+  ['dirge',       'dirge',        'hyponym',  'rare',    'n.', 'A lament for the dead, especially one forming part of a funeral rite.'],
+  ['elegy',       'elegy',        'similar',  'rare',    'n.', 'A poem of serious reflection, typically a lament for the dead.'],
+  ['torment',     'torment',      'synonym',  'unusual', 'n.', 'Severe physical or mental suffering.'],
+  ['agony',       'agony',        'synonym',  'unusual', 'n.', 'Extreme physical or mental suffering.'],
+  ['wistful',     'wistfulness',  'similar',  'rare',    'n.', 'A vague, gentle longing tinged with sadness.'],
+  ['nostalgia',   'nostalgia',    'similar',  'common',  'n.', 'A sentimental longing for the past.'],
+  ['grievance',   'grievance',    'similar',  'unusual', 'n.', 'A real or imagined wrong giving grounds for complaint.'],
+  ['pathos',      'pathos',       'similar',  'rare',    'n.', 'A quality that evokes pity or sadness.'],
+  ['hopelessness','hopelessness', 'hyponym',  'unusual', 'n.', 'The feeling or state of having no hope.'],
+  ['void',        'void',         'similar',  'unusual', 'n.', 'A completely empty space; an unfilled absence.'],
+
+  // hop 3 — distant whisper (fades out under fog)
+  ['threnody',    'threnody',     'hyponym',  'rare',    'n.', 'A lament or song of mourning.'],
+  ['requiem',     'requiem',      'hyponym',  'rare',    'n.', 'A mass or act for the repose of the dead.'],
+];
+
+// links: [source, target, relType]
+const LINKS = [
+  // hop-1 spokes from grief
+  ['grief','sorrow','synonym'], ['grief','mourning','synonym'], ['grief','anguish','synonym'],
+  ['grief','woe','synonym'], ['grief','heartache','synonym'],
+  ['grief','sadness','hypernym'], ['grief','suffering','hypernym'], ['grief','emotion','hypernym'],
+  ['grief','bereavement','hyponym'], ['grief','lamentation','hyponym'], ['grief','desolation','hyponym'],
+  ['grief','melancholy','similar'], ['grief','regret','similar'], ['grief','despair','similar'],
+
+  // BRIDGE: grief — gravity well — joy
+  ['grief','gw-joy','bridge'], ['gw-joy','joy','bridge'],
+
+  // hop 2
+  ['sorrow','heartbreak','hyponym'], ['sorrow','gloom','similar'],
+  ['mourning','lament','hyponym'], ['mourning','dirge','hyponym'], ['mourning','elegy','similar'],
+  ['anguish','torment','synonym'], ['anguish','agony','synonym'],
+  ['melancholy','wistful','similar'], ['melancholy','nostalgia','similar'],
+  ['sadness','grievance','similar'], ['emotion','pathos','similar'],
+  ['despair','hopelessness','hyponym'], ['desolation','void','similar'],
+
+  // hop 3
+  ['lament','threnody','hyponym'], ['dirge','requiem','hyponym'],
+
+  // cross-links so it reads as a web, not a tree
+  ['despair','desolation','similar'], ['heartache','heartbreak','synonym'],
+  ['joy','nostalgia','similar'],
+];
+
+// index by id for O(1) panel lookups
+const byId = {};
+for (const [id, word, rel, rarity, pos, def] of NODES) {
+  byId[id] = { id, word, rel, rarity, pos, def };
+}
+
+// adjacency for BFS fog-of-war
+const adj = {};
+for (const id of Object.keys(byId)) adj[id] = new Set();
+for (const [s, t] of LINKS) { adj[s].add(t); adj[t].add(s); }
+
+function hopDistances(focus) {
+  const dist = {};
+  for (const id of Object.keys(byId)) dist[id] = Infinity;
+  dist[focus] = 0;
+  const queue = [focus];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const nb of adj[cur]) {
+      if (dist[nb] === Infinity) { dist[nb] = dist[cur] + 1; queue.push(nb); }
+    }
+  }
+  return dist;
+}
+
+// panel relation groups, derived from LINKS
+function relationsOf(id) {
+  const broader = [], similar = [], narrower = [], bridge = [];
+  for (const [s, t, r] of LINKS) {
+    let other = null;
+    if (s === id) other = t; else if (t === id) other = s; else continue;
+    const node = byId[other];
+    if (!node) continue;
+    const entry = { id: other, word: node.word, rel: r };
+    if (r === 'hypernym' || r === 'synonym') broader.push(entry);
+    else if (r === 'similar') similar.push(entry);
+    else if (r === 'hyponym') narrower.push(entry);
+    else if (r === 'bridge') bridge.push(entry);
+  }
+  return { broader, similar, narrower, bridge };
+}
+
+/* ============================================================================
+   ENGINE — 3d-force-graph with FLY controls. Fresh node/link arrays (the lib
+   mutates link endpoints into node refs, so we don't reuse the source tables).
+   ============================================================================ */
+const graphData = {
+  nodes: NODES.map(([id, word, rel, rarity]) => ({ id, word, rel, rarity, isBridge: rel === 'bridge' })),
+  links: LINKS.map(([source, target, rel]) => ({ source, target, rel })),
+};
+
+const FOG_MAX_HOP = 3;                 // invisible beyond this many hops
+const HOP_ALPHA   = [1, 0.95, 0.6, 0.22];  // bloom gradient by hop distance
+
+let focusId = 'grief';
+let dist = hopDistances(focusId);
+const hiddenRarities = new Set();
+
+function nodeColour(node) {
+  if (node.rel === 'central') return C.central;
+  if (node.isBridge) return C.bridge;
+  return C[node.rel] || C.rarity[node.rarity] || C.text;
+}
+
+function nodeAlpha(node) {
+  const d = dist[node.id];
+  if (d === undefined || d === Infinity || d > FOG_MAX_HOP) return 0;
+  if (node.rel !== 'central' && hiddenRarities.has(node.rarity)) return 0;
+  return HOP_ALPHA[d] ?? 0;
+}
+
+function fade(hex, a) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${a.toFixed(3)})`;
+}
+
+/* ---- node 3D object: glowing mesh (or violet lozenge for bridges) + label ---- */
+function buildNodeObject(node) {
+  // Built ONCE per node. Focus visuals (gold ring, scale-up, brighter label) are
+  // NOT baked in — they are toggled live in applyFog() so focus can move between
+  // nodes without rebuilding any 3D object (rebuilding mid-flight corrupts the
+  // lib's scene graph). Every node therefore carries a hidden focus ring.
+  const group = new THREE.Group();
+  const colour = nodeColour(node);
+
+  if (node.isBridge) {
+    const geo = THREE.CapsuleGeometry
+      ? new THREE.CapsuleGeometry(2.6, 7, 6, 16)
+      : new THREE.CylinderGeometry(2.6, 2.6, 9, 16);
+    const lozenge = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: colour, transparent: true }));
+    lozenge.rotation.z = Math.PI / 2;                 // lie flat along the edge
+    group.add(lozenge);
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(8, 16, 16),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.12 })
+    );
+    group.add(halo);
+    group.__core = lozenge; group.__halo = halo;
+    group.__baseLabel = 3.2;
+  } else {
+    const r = node.rel === 'hypernym' ? 4.6 : 4.0;       // base (unfocused) radius
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(r, 20, 20),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true })
+    );
+    group.add(core);
+    const glow = new THREE.Mesh(
+      new THREE.SphereGeometry(r * 2.0, 20, 20),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.13 })
+    );
+    group.add(glow);
+    // Hidden focus ring — shown + sized in applyFog when this node is the focus.
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(r * 2.4, 0.5, 8, 40),
+      new THREE.MeshBasicMaterial({ color: C.central, transparent: true, opacity: 0 })
+    );
+    ring.visible = false;
+    group.add(ring);
+    group.__core = core; group.__halo = glow; group.__ring = ring;
+    group.__baseR = r;
+    group.__baseLabel = 3.6;
+  }
+
+  const label = new SpriteText(node.word);
+  label.color = node.rel === 'central' ? C.central : C.text;
+  label.fontFace = 'Georgia, serif';
+  label.fontWeight = node.rel === 'central' ? '700' : '400';
+  label.textHeight = group.__baseLabel;
+  label.backgroundColor = false;
+  label.padding = 1;
+  label.position.set(0, node.isBridge ? 6 : 9, 0);
+  group.add(label);
+  group.__label = label;
+
+  return group;
+}
+
+const Graph = ForceGraph3D({ controlType: 'fly' })(document.getElementById('graph'))
+  .backgroundColor('#0d0d18')
+  .showNavInfo(false)
+  .nodeRelSize(1)
+  .nodeThreeObject(buildNodeObject)
+  .linkColor(linkColour)
+  .linkWidth(l => (l.rel === 'bridge' ? 1.4 : 0.6))
+  .linkCurvature(l => (l.rel === 'bridge' ? 0.35 : (l.rel === 'similar' ? 0.16 : 0)))
+  .linkDirectionalParticles(l => (l.rel === 'bridge' ? 3 : 0))
+  .linkDirectionalParticleWidth(1.4)
+  .linkDirectionalParticleColor(() => C.bridge)
+  .linkOpacity(0.55)
+  .d3VelocityDecay(0.32)
+  .cooldownTime(6000)
+  .onNodeClick(node => selectNode(node.id, true))
+  .onNodeHover(node => { document.getElementById('graph').style.cursor = node ? 'pointer' : 'default'; });
+
+function linkColour(l) {
+  const sa = nodeAlpha(typeof l.source === 'object' ? l.source : byId[l.source]);
+  const ta = nodeAlpha(typeof l.target === 'object' ? l.target : byId[l.target]);
+  const a = Math.min(sa, ta) * 0.9;
+  const base = l.rel === 'bridge' ? C.bridge : (C[l.rel] || C.text);
+  return fade(base, a);
+}
+
+Graph.graphData(graphData);
+
+// Cosmic exponential fog — distant stars dissolve into the void.
+Graph.scene().fog = new THREE.FogExp2(0x0d0d18, 0.0016);
+
+// Starfield backdrop for depth.
+(function starfield() {
+  const n = 1400, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const R = 1200 + Math.random() * 2600;
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    pos[i*3]   = R * Math.sin(ph) * Math.cos(th);
+    pos[i*3+1] = R * Math.sin(ph) * Math.sin(th);
+    pos[i*3+2] = R * Math.cos(ph);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const m = new THREE.PointsMaterial({ color: 0x6b6fa0, size: 2.2, transparent: true, opacity: 0.55, sizeAttenuation: false });
+  Graph.scene().add(new THREE.Points(g, m));
+})();
+
+/* ============================================================================
+   FOG-OF-WAR — applied every frame: opacities track the live focus + filters.
+   Cheap: a few material.opacity writes per node. Beyond FOG_MAX_HOP hops a
+   node's group is hidden outright (legibility); inside it the bloom gradient
+   fades neighbours in.
+   ============================================================================ */
+function applyFog() {
+  for (const node of Graph.graphData().nodes) {
+    const a = nodeAlpha(node);
+    const obj = node.__threeObj;
+    if (!obj) continue;
+    obj.visible = a > 0.001;
+    if (!obj.visible) continue;
+
+    const focused = node.id === focusId;
+    if (obj.__core) {
+      obj.__core.material.opacity = a;
+      // Focused node swells slightly + brightens its glow — the "bloom" centre.
+      const s = focused ? 1.55 : 1;
+      obj.__core.scale.setScalar(s);
+      if (obj.__halo) obj.__halo.scale.setScalar(s);
+    }
+    if (obj.__halo) obj.__halo.material.opacity = a * (focused ? 0.28 : 0.13);
+    if (obj.__ring) {
+      obj.__ring.visible = focused;
+      obj.__ring.material.opacity = focused ? a * 0.8 : 0;
+      obj.__ring.scale.setScalar(1.6);
+    }
+    if (obj.__label) {
+      obj.__label.material.opacity = a;
+      obj.__label.textHeight = focused ? obj.__baseLabel * 1.5 : obj.__baseLabel;
+    }
+  }
+}
+Graph.onEngineTick(applyFog);
+
+/* ============================================================================
+   SELECT / FLY-TO + BLOOM. Recompute hop distances from the new focus (the
+   bloom: further neighbours fade IN), refresh link colours, fly the camera.
+   Focus visuals (ring/scale/label) ride applyFog, so NO 3D object is rebuilt —
+   the world PERSISTS, no graphData() reset, the thesaurus keeps functioning.
+   ============================================================================ */
+let flyTimer = null;
+
+function selectNode(id, fly) {
+  if (!byId[id]) return;
+  focusId = id;
+  dist = hopDistances(focusId);   // bloom: neighbours of the new focus fade IN
+  refreshLinks();
+
+  updatePanel(id);
+  resetSearchUI();
+
+  if (fly) flyTo(id);
+}
+
+function refreshLinks() {
+  Graph.linkColor(linkColour);  // re-evaluate per-link alpha against new focus
+}
+
+function flyTo(id) {
+  const node = Graph.graphData().nodes.find(n => n.id === id);
+  if (!node || node.x === undefined) {
+    if (flyTimer) clearTimeout(flyTimer);
+    flyTimer = setTimeout(() => flyTo(id), 200);   // positions not settled yet
+    return;
+  }
+  // Place the camera a FIXED comfortable standoff from the node along the
+  // origin→node ray (so we approach from "outside" the cluster), lifted for a
+  // cinematic 3/4 angle. A fixed standoff frames the node + its bloomed
+  // neighbours regardless of how far the node sits from the origin — scaling the
+  // node's position by a ratio (the earlier approach) collapsed to almost no
+  // standoff for distant nodes and flew the camera past them into empty space.
+  // Approach every node from a CONSISTENT world-space angle (slightly above and
+  // out along +z) so each fly reads the same way the establishing shot does.
+  // A node-position-relative offset (origin-ray + lift) skewed framing for nodes
+  // far from the origin; a fixed offset vector keeps the node centred via lookAt
+  // and frames its bloomed neighbours the same regardless of where it sits.
+  Graph.cameraPosition(
+    { x: node.x + 40, y: node.y + 70, z: node.z + 150 },
+    node,    // lookAt — centres the node on screen
+    1500     // ms transition
+  );
+}
+
+/* ============================================================================
+   PANEL — focused word, badge, POS, definition, relation groups (clickable).
+   ============================================================================ */
+const panel = document.getElementById('panel');
+const elWord = document.getElementById('panel-word');
+const elBadge = document.getElementById('panel-badge');
+const elPos = document.getElementById('panel-pos');
+const elDef = document.getElementById('panel-def');
+
+function updatePanel(id) {
+  const node = byId[id];
+  if (!node) return;
+  elWord.textContent = node.word;
+  elBadge.textContent = node.rarity;
+  elBadge.className = 'badge ' + node.rarity;
+  elPos.textContent = node.pos;
+  elDef.textContent = node.def;
+
+  const rel = relationsOf(id);
+  fillGroup('rel-broader',  rel.broader);
+  fillGroup('rel-similar',  rel.similar);
+  fillGroup('rel-narrower', rel.narrower);
+  fillGroup('rel-bridge',   rel.bridge);
+}
+
+function fillGroup(groupId, entries) {
+  const wrap = document.getElementById(groupId);
+  const terms = wrap.querySelector('.rel-terms');
+  wrap.style.display = entries.length ? 'block' : 'none';
+  terms.innerHTML = '';
+  for (const e of entries) {
+    const span = document.createElement('span');
+    span.className = 'term';
+    span.dataset.rel = e.rel;
+    span.dataset.id = e.id;
+    span.textContent = e.word;
+    span.addEventListener('click', () => selectNode(e.id, true));
+    terms.appendChild(span);
+  }
+}
+
+document.getElementById('panel-header').addEventListener('click', () => {
+  panel.classList.toggle('collapsed');
+});
+
+/* ============================================================================
+   SEARCH — substring match over node words; '/' to focus; click/enter to fly.
+   ============================================================================ */
+const elSearch = document.getElementById('search');
+const elSug = document.getElementById('suggestions');
+let sugActive = -1, sugList = [];
+
+function buildSuggestions(q) {
+  q = q.trim().toLowerCase();
+  if (!q) { elSug.classList.remove('open'); elSug.innerHTML = ''; sugList = []; return; }
+  sugList = NODES
+    .map(([id, word, rel, rarity]) => ({ id, word, rarity }))
+    .filter(n => n.word.toLowerCase().includes(q))
+    .slice(0, 7);
+  elSug.innerHTML = '';
+  sugActive = -1;
+  for (const s of sugList) {
+    const div = document.createElement('div');
+    div.className = 'suggestion';
+    div.innerHTML = `<span>${s.word}</span><small>${s.rarity}</small>`;
+    div.addEventListener('click', () => commitSearch(s.id));
+    elSug.appendChild(div);
+  }
+  elSug.classList.toggle('open', sugList.length > 0);
+}
+function commitSearch(id) {
+  elSug.classList.remove('open');
+  elSearch.value = byId[id].word;
+  elSearch.blur();
+  selectNode(id, true);
+}
+function resetSearchUI() { elSearch.value = ''; elSug.classList.remove('open'); }
+
+elSearch.addEventListener('input', e => buildSuggestions(e.target.value));
+elSearch.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); sugActive = Math.min(sugActive + 1, sugList.length - 1); paintActive(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); sugActive = Math.max(sugActive - 1, 0); paintActive(); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    const pick = sugActive >= 0 ? sugList[sugActive] : sugList[0];
+    if (pick) commitSearch(pick.id);
+  } else if (e.key === 'Escape') { elSearch.blur(); elSug.classList.remove('open'); }
+});
+function paintActive() {
+  [...elSug.children].forEach((c, i) => c.classList.toggle('active', i === sugActive));
+}
+window.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== elSearch) {
+    e.preventDefault(); elSearch.focus(); elSearch.select();
+  }
+});
+
+/* ============================================================================
+   RARITY FILTER — toggling a chip hides/shows that tier (fog re-evaluates).
+   ============================================================================ */
+document.querySelectorAll('.rchip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const r = chip.dataset.rarity;
+    if (hiddenRarities.has(r)) hiddenRarities.delete(r); else hiddenRarities.add(r);
+    chip.classList.toggle('off', hiddenRarities.has(r));
+    refreshLinks();
+  });
+});
+
+/* ============================================================================
+   BOOT — frame the cluster, then an establishing fly-in to grief.
+   ============================================================================ */
+refreshLinks();
+updatePanel(focusId);
+
+setTimeout(() => Graph.zoomToFit(800, 90), 900);
+setTimeout(() => selectNode('grief', true), 2200);
+
+// expose for the screenshot harness to frame deterministically
+window.__mf = { Graph, selectNode, zoomToFit: (ms, p) => Graph.zoomToFit(ms, p) };
+</script>
+</body>
+</html>

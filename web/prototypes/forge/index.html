@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Metaforge · Forge (graph-native, cinematic)</title>
+<!--
+  GRAPH-NATIVE Forge prototype, built on the REAL engine (three.js + 3d-force-graph),
+  per docs/designs/2026-06-25-graph-native-feature-specs.md (cross-cutting + section C).
+  Single self-contained no-build file, opens via file://, CDN globals only.
+
+  COPIED from the cinematic base (web/prototypes/graph-nav/index.html), then the
+  FORGE layered ON TOP. The thesaurus base stays fully functional underneath:
+  search, collapsible info panel, rarity filter, fog-of-war, fly-to + bloom,
+  WASD/QE flight, the gravity-well bridge node — all unchanged.
+
+  Realises spec C (Forge UI — session-conditioned generation):
+    - Forged VEHICLE NODES bloom off the topic node in the graph, distinctly
+      styled (forge-tier-coloured diamonds, dashed curved "forge" edges that
+      behave obviously differently from synonym/hyponym edges).
+    - A RANKED CANDIDATE LIST shows in the collapsible panel — each row is a
+      topic→vehicle image + a one-line "Forge Reader" read + an aptness cue.
+    - A collapsible KNOBS panel with three sliders — Register · Darkness ·
+      Surprise — that visibly RE-RANK / RE-WEIGHT the candidates live (mocked:
+      each candidate carries axis affinities; the knobs reshape its score, the
+      list re-sorts, the graph re-blooms, aptness cues re-fill).
+    - A discoverable "+ blend" affordance to add a SECOND topic (single-topic
+      primary). Blending rewrites the candidate field (blend-only vehicles
+      surface) and shows the blend as faint provenance on each image.
+
+  Palette + conventions mirrored verbatim from web/src/styles/tokens.css and
+  web/src/graph/colours.ts (NODE_COLOURS, RARITY_COLOURS, FORGE_TIER_COLOURS).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Playfair+Display:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<!-- Engine globals. Order matters: THREE first (3d-force-graph reads window.THREE),
+     then the graph, then the crisp text-sprite label helper. -->
+<script src="https://unpkg.com/three@0.149.0/build/three.min.js"
+        integrity="sha384-RRHfJ6w1mTlKUBMYT/hvnRiOzEB/vyRV3DrQOseb6oYfvaZSfdd0byS4bHps0k2R"
+        crossorigin="anonymous"></script>
+<script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"
+        integrity="sha384-GNPicn8pBA2/PGSyPTpxIlPurgLUYcNYJ2zskIq782dE9+gp5E32WSyuxZqA7J+u"
+        crossorigin="anonymous"></script>
+<script src="https://unpkg.com/three-spritetext@1.8.2/dist/three-spritetext.min.js"
+        integrity="sha384-8hX0id4j/d/+9ukCS+LZDb9WpPp63OqiuZ5bpPPnixibnP01z1avvWuQD3xdEIQX"
+        crossorigin="anonymous"></script>
+
+<style>
+  :root {
+    /* mirrored verbatim from web/src/styles/tokens.css */
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-hud: rgba(22, 33, 62, 0.6);
+    --text-primary: #e8e0d4;
+    --text-secondary: #a89f94;
+    --text-muted: #6b6560;
+    --gold: #d4af37;
+    --gold-dim: rgba(212, 175, 55, 0.5);
+    /* node colours (colours.ts NODE_COLOURS) */
+    --node-central: #d4af37;
+    --node-synonym: #c4956a;
+    --node-hypernym: #8b6f47;
+    --node-hyponym: #6a8b6f;
+    --node-similar: #7a6a8b;
+    /* rarity colours (colours.ts RARITY_COLOURS) — drive the rarity filter chips */
+    --rarity-common: #8bb89a;
+    --rarity-unusual: #c4956a;
+    --rarity-rare: #a88bc4;
+    /* forge tier colours (colours.ts FORGE_TIER_COLOURS) */
+    --tier-legendary: #d4af37;
+    --tier-complex: #c49a6c;
+    --tier-interesting: #6a8b6f;
+    --tier-ironic: #8b4a6f;
+    --tier-strong: #c4956a;
+    --tier-obvious: #8b6f47;
+    --tier-unlikely: #6b6560;
+    --edge-default: rgba(232, 224, 212, 0.15);
+    --edge-highlight: rgba(212, 175, 55, 0.4);
+    --bridge: #b56ed0;            /* gravity-well violet lozenge */
+    --blend: #6fb8e0;            /* blend topic accent (cool — distinct from gold) */
+    --font-heading: 'Playfair Display', Georgia, serif;
+    --font-body: 'Crimson Text', 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --hud-border: 1px solid rgba(212, 175, 55, 0.2);
+    --hud-radius: 4px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg-primary);
+    overflow: hidden;
+    font-family: var(--font-body);
+    color: var(--text-primary);
+  }
+  #graph { position: fixed; inset: 0; z-index: 0; }
+
+  .hud { position: fixed; z-index: 10; }
+
+  /* ===== Top-left collapsible info panel ("collapso") ===== */
+  #panel {
+    top: 1rem; left: 1rem; width: 22rem; max-width: calc(100vw - 2rem);
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    overflow: hidden;
+  }
+  #panel-header {
+    display: flex; align-items: baseline; gap: 0.6rem;
+    padding: 0.85rem 1rem 0.6rem;
+    cursor: pointer; user-select: none;
+  }
+  #panel-word {
+    font-family: var(--font-heading);
+    font-size: 1.6rem; font-weight: 700;
+    color: var(--gold);
+    letter-spacing: 0.01em;
+    line-height: 1;
+  }
+  .badge {
+    font-family: var(--font-mono);
+    font-size: 0.6rem; letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.18rem 0.45rem; border-radius: 2px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .badge.common  { color: var(--rarity-common); }
+  .badge.unusual { color: var(--rarity-unusual); }
+  .badge.rare    { color: var(--rarity-rare); }
+  #panel-pos {
+    font-family: var(--font-body); font-style: italic;
+    color: var(--text-secondary); font-size: 0.95rem;
+  }
+  #panel-collapse {
+    margin-left: auto; color: var(--text-muted);
+    font-family: var(--font-mono); font-size: 0.85rem;
+    transition: transform 200ms ease;
+  }
+  #panel.collapsed #panel-collapse { transform: rotate(-90deg); }
+  #panel.collapsed #panel-body { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+  #panel-body {
+    padding: 0 1rem 1rem; max-height: 76vh; opacity: 1;
+    overflow-y: auto;
+    transition: max-height 260ms ease, opacity 200ms ease, padding 260ms ease;
+  }
+  #panel-def {
+    font-size: 1rem; line-height: 1.5;
+    color: var(--text-primary);
+    margin: 0.1rem 0 0.9rem;
+  }
+  .rel-group { margin-top: 0.85rem; }
+  .rel-group h4 {
+    margin: 0 0 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.62rem; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--text-muted);
+    border-bottom: 1px solid rgba(212,175,55,0.12);
+    padding-bottom: 0.25rem;
+  }
+  .rel-terms { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .term {
+    font-size: 0.95rem;
+    padding: 0.18rem 0.5rem; border-radius: 2px;
+    background: rgba(232,224,212,0.05);
+    border: 1px solid transparent;
+    cursor: pointer; transition: all 140ms ease;
+    color: var(--text-primary);
+  }
+  .term:hover {
+    border-color: var(--gold-dim);
+    background: rgba(212,175,55,0.1);
+    color: var(--gold);
+  }
+  .term[data-rel="synonym"]  { border-left: 3px solid var(--node-synonym); }
+  .term[data-rel="hypernym"] { border-left: 3px solid var(--node-hypernym); }
+  .term[data-rel="hyponym"]  { border-left: 3px solid var(--node-hyponym); }
+  .term[data-rel="similar"]  { border-left: 3px solid var(--node-similar); }
+  .term[data-rel="bridge"]   { border-left: 3px solid var(--bridge); color: #d9b3ec; }
+
+  /* ===== FORGE candidate list (lives inside the collapsible panel) ===== */
+  #forge-section { margin-top: 1rem; display: none; }
+  body.forge-on #forge-section { display: block; }
+  #forge-section h4 .count {
+    color: var(--text-secondary); margin-left: 0.4rem;
+    -webkit-text-fill-color: initial;
+  }
+  #forge-section h4 {
+    display: flex; align-items: center;
+    color: var(--gold); border-bottom-color: rgba(212,175,55,0.25);
+  }
+  #forge-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.6rem; }
+  .cand {
+    border: 1px solid rgba(232,224,212,0.10);
+    border-left: 3px solid var(--tier-strong);
+    border-radius: 3px;
+    padding: 0.55rem 0.6rem 0.6rem;
+    background: rgba(232,224,212,0.035);
+    cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease, transform 220ms ease;
+    position: relative;
+  }
+  .cand:hover { background: rgba(212,175,55,0.08); border-left-color: var(--gold); }
+  .cand.focused { background: rgba(212,175,55,0.12); border-color: var(--gold-dim); border-left-color: var(--gold); }
+  .cand-rank {
+    position: absolute; top: 0.45rem; right: 0.55rem;
+    font-family: var(--font-mono); font-size: 0.58rem; color: var(--text-muted);
+    letter-spacing: 0.08em;
+  }
+  .cand-image {
+    font-family: var(--font-heading); font-size: 1.08rem; line-height: 1.25;
+    color: var(--text-primary);
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.3rem;
+    padding-right: 1.4rem;
+  }
+  .cand-image .arrow { color: var(--gold); font-weight: 700; }
+  .cand-image .vehicle { color: var(--gold); font-weight: 700; }
+  .cand-image .blendprov {
+    font-family: var(--font-mono); font-size: 0.62rem; color: var(--blend);
+    opacity: 0.85; letter-spacing: 0.03em;
+  }
+  .cand-read {
+    font-family: var(--font-body); font-style: italic;
+    font-size: 0.92rem; line-height: 1.4; color: var(--text-secondary);
+    margin: 0.3rem 0 0.45rem;
+  }
+  .cand-meta { display: flex; align-items: center; gap: 0.5rem; }
+  .tier-ribbon {
+    font-family: var(--font-mono); font-size: 0.54rem; letter-spacing: 0.12em;
+    text-transform: uppercase; padding: 0.12rem 0.4rem; border-radius: 2px;
+    border: 1px solid currentColor; white-space: nowrap;
+  }
+  .tier-legendary  { color: var(--tier-legendary); }
+  .tier-complex    { color: var(--tier-complex); }
+  .tier-interesting{ color: var(--tier-interesting); }
+  .tier-ironic     { color: var(--tier-ironic); }
+  .tier-strong     { color: var(--tier-strong); }
+  /* aptness cue — a thin meter */
+  .aptness {
+    flex: 1; height: 4px; border-radius: 2px;
+    background: rgba(232,224,212,0.10);
+    overflow: hidden; position: relative;
+  }
+  .aptness > i {
+    display: block; height: 100%;
+    background: linear-gradient(90deg, var(--tier-strong), var(--gold));
+    transition: width 280ms ease;
+  }
+  .aptness-val {
+    font-family: var(--font-mono); font-size: 0.58rem; color: var(--text-secondary);
+    min-width: 1.9rem; text-align: right;
+  }
+  #forge-gate {
+    font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted);
+    margin-top: 0.6rem; letter-spacing: 0.04em; line-height: 1.5;
+  }
+
+  /* ===== Centre-top search bar (+ Forge invocation: topic / blend) ===== */
+  #searchwrap {
+    top: 1rem; left: 50%; transform: translateX(-50%);
+    width: min(34rem, calc(100vw - 26rem));
+  }
+  .field-row { position: relative; display: flex; align-items: stretch; }
+  .field-pre {
+    display: flex; align-items: center;
+    font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-muted);
+    background: var(--bg-hud); backdrop-filter: blur(10px);
+    border: var(--hud-border); border-right: none;
+    border-radius: var(--hud-radius) 0 0 var(--hud-radius);
+    padding: 0 0.6rem;
+  }
+  .field-pre.topic { color: var(--gold); }
+  .field-pre.blend { color: var(--blend); border-color: rgba(111,184,224,0.3); }
+  #search, #blend {
+    flex: 1; min-width: 0;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: 0 var(--hud-radius) var(--hud-radius) 0;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 1.05rem;
+    padding: 0.7rem 2.6rem 0.7rem 0.8rem;
+    outline: none;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+  #blend { border-color: rgba(111,184,224,0.3); }
+  #search::placeholder, #blend::placeholder { color: var(--text-muted); }
+  #search:focus {
+    border-color: var(--gold-dim);
+    box-shadow: 0 0 0 1px var(--gold-dim), 0 8px 30px rgba(0,0,0,0.4);
+  }
+  #blend:focus {
+    border-color: rgba(111,184,224,0.7);
+    box-shadow: 0 0 0 1px rgba(111,184,224,0.5), 0 8px 30px rgba(0,0,0,0.4);
+  }
+  #search-hint {
+    position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%);
+    font-family: var(--font-mono); font-size: 0.7rem;
+    color: var(--text-muted);
+    border: 1px solid rgba(232,224,212,0.18);
+    border-radius: 3px; padding: 0.05rem 0.35rem;
+    pointer-events: none;
+  }
+  #suggestions {
+    margin-top: 0.35rem;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    overflow: hidden;
+    display: none;
+  }
+  #suggestions.open { display: block; }
+  .suggestion {
+    padding: 0.5rem 0.85rem; cursor: pointer;
+    font-size: 1rem; color: var(--text-primary);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .suggestion:hover, .suggestion.active { background: rgba(212,175,55,0.12); color: var(--gold); }
+  .suggestion small { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; }
+
+  /* "+ blend" discoverable affordance + blend field row */
+  #blend-row { margin-top: 0.4rem; display: none; }
+  body.blend-on #blend-row { display: flex; }
+  #add-blend {
+    margin-top: 0.4rem;
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.06em;
+    color: var(--blend);
+    background: rgba(111,184,224,0.08);
+    border: 1px dashed rgba(111,184,224,0.45);
+    border-radius: var(--hud-radius);
+    padding: 0.34rem 0.7rem; cursor: pointer; user-select: none;
+    transition: background 140ms ease, border-color 140ms ease;
+  }
+  #add-blend:hover { background: rgba(111,184,224,0.16); border-color: rgba(111,184,224,0.8); }
+  #add-blend .plus { font-size: 0.9rem; line-height: 0; }
+  body.blend-on #add-blend { display: none; }
+  #blend-clear {
+    display: flex; align-items: center; padding: 0 0.55rem;
+    font-family: var(--font-mono); font-size: 0.9rem; color: var(--text-muted);
+    background: var(--bg-hud); border: 1px solid rgba(111,184,224,0.3); border-left: none;
+    border-radius: 0 var(--hud-radius) var(--hud-radius) 0;
+    cursor: pointer;
+  }
+  #blend-clear:hover { color: var(--blend); }
+  #blend { border-radius: 0; }
+
+  /* Forge action button (under the search rows) */
+  #forge-btn {
+    margin-top: 0.5rem; width: 100%;
+    font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #1a1a2e; background: var(--gold);
+    border: none; border-radius: var(--hud-radius);
+    padding: 0.6rem; cursor: pointer; font-weight: 600;
+    box-shadow: 0 4px 18px rgba(212,175,55,0.3);
+    transition: filter 140ms ease, transform 80ms ease;
+  }
+  #forge-btn:hover { filter: brightness(1.08); }
+  #forge-btn:active { transform: translateY(1px); }
+  #forge-btn.recast { background: transparent; color: var(--gold); border: 1px solid var(--gold-dim); box-shadow: none; }
+
+  /* ===== Knobs panel — collapsible, top-right ===== */
+  #knobs {
+    top: 1rem; right: 1rem; width: 17rem; max-width: calc(100vw - 2rem);
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border: var(--hud-border); border-radius: var(--hud-radius);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    overflow: hidden;
+    display: none;
+  }
+  body.forge-on #knobs { display: block; }
+  #knobs-header {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.7rem 0.9rem; cursor: pointer; user-select: none;
+  }
+  #knobs-title {
+    font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--gold);
+  }
+  #knobs-sub {
+    font-family: var(--font-body); font-style: italic; font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+  #knobs-collapse { margin-left: auto; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.85rem; transition: transform 200ms ease; }
+  #knobs.collapsed #knobs-collapse { transform: rotate(-90deg); }
+  #knobs.collapsed #knobs-body { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+  #knobs-body {
+    padding: 0.2rem 0.9rem 0.9rem; max-height: 40rem; opacity: 1;
+    transition: max-height 260ms ease, opacity 200ms ease, padding 260ms ease;
+  }
+  .knob { margin-top: 0.85rem; }
+  .knob-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.28rem; }
+  .knob-name {
+    font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--text-secondary);
+  }
+  .knob-readout {
+    font-family: var(--font-body); font-style: italic; font-size: 0.9rem; color: var(--gold);
+  }
+  .knob input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 3px; border-radius: 2px;
+    background: linear-gradient(90deg, rgba(232,224,212,0.18), rgba(212,175,55,0.5));
+    outline: none; margin: 0.1rem 0 0.2rem;
+  }
+  .knob input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--gold); border: 2px solid #1a1a2e;
+    box-shadow: 0 0 0 1px var(--gold-dim), 0 2px 6px rgba(0,0,0,0.5);
+    cursor: pointer;
+  }
+  .knob input[type=range]::-moz-range-thumb {
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--gold); border: 2px solid #1a1a2e; cursor: pointer;
+  }
+  .knob-poles {
+    display: flex; justify-content: space-between;
+    font-family: var(--font-mono); font-size: 0.54rem; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+
+  /* ===== Rarity filter — bottom-left ===== */
+  #rarity {
+    bottom: 1rem; left: 1rem;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    padding: 0.55rem 0.7rem;
+    display: flex; gap: 0.4rem; align-items: center;
+  }
+  #rarity .label {
+    font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-muted); margin-right: 0.2rem;
+  }
+  .rchip {
+    font-size: 0.8rem; cursor: pointer; user-select: none;
+    padding: 0.22rem 0.55rem; border-radius: 2px;
+    border: 1px solid currentColor;
+    opacity: 1; transition: opacity 140ms ease, background 140ms ease;
+  }
+  .rchip.common  { color: var(--rarity-common); }
+  .rchip.unusual { color: var(--rarity-unusual); }
+  .rchip.rare    { color: var(--rarity-rare); }
+  .rchip.off { opacity: 0.32; text-decoration: line-through; }
+
+  /* ===== Flight hint — bottom-centre ===== */
+  #flight-hint {
+    bottom: 1.1rem; left: 50%; transform: translateX(-50%);
+    font-family: var(--font-mono); font-size: 0.72rem;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-align: center;
+    background: rgba(22,33,62,0.4);
+    padding: 0.3rem 0.8rem; border-radius: var(--hud-radius);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #flight-hint b { color: var(--text-secondary); font-weight: 600; }
+
+  /* ===== Mode wisp — bottom-right ===== */
+  #wisp {
+    bottom: 1rem; right: 1rem;
+    font-family: var(--font-heading); font-size: 0.8rem;
+    color: var(--text-muted); letter-spacing: 0.04em;
+    opacity: 0.7; pointer-events: none;
+  }
+
+  #panel-body::-webkit-scrollbar, #knobs-body::-webkit-scrollbar { width: 6px; }
+  #panel-body::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.25); border-radius: 3px; }
+</style>
+</head>
+<body>
+  <div id="graph"></div>
+
+  <!-- ===== Top-left collapsible info panel ===== -->
+  <aside id="panel" class="hud">
+    <div id="panel-header">
+      <span id="panel-word">grief</span>
+      <span id="panel-badge" class="badge unusual">unusual</span>
+      <span id="panel-pos">n.</span>
+      <span id="panel-collapse">▾</span>
+    </div>
+    <div id="panel-body">
+      <p id="panel-def"></p>
+
+      <!-- FORGE: ranked candidate list (shown only in forge mode) -->
+      <div id="forge-section">
+        <h4>Forged Vehicles <span class="count" id="forge-count"></span></h4>
+        <div id="forge-list"></div>
+        <div id="forge-gate"></div>
+      </div>
+
+      <div id="rel-broader" class="rel-group">
+        <h4>Broader Terms</h4>
+        <div class="rel-terms"></div>
+      </div>
+      <div id="rel-similar" class="rel-group">
+        <h4>Similar</h4>
+        <div class="rel-terms"></div>
+      </div>
+      <div id="rel-narrower" class="rel-group">
+        <h4>Narrower</h4>
+        <div class="rel-terms"></div>
+      </div>
+      <div id="rel-bridge" class="rel-group">
+        <h4>Gravity Wells</h4>
+        <div class="rel-terms"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===== Centre-top search + Forge invocation ===== -->
+  <div id="searchwrap" class="hud">
+    <div class="field-row">
+      <span class="field-pre topic">topic</span>
+      <input id="search" type="text" placeholder="Forge from a word…" autocomplete="off" spellcheck="false" />
+      <span id="search-hint">/</span>
+    </div>
+    <!-- "+ blend" discoverable affordance (single-topic primary) -->
+    <div id="add-blend"><span class="plus">+</span> blend a second topic</div>
+    <div id="blend-row" class="field-row">
+      <span class="field-pre blend">blend</span>
+      <input id="blend" type="text" placeholder="…with a second topic" autocomplete="off" spellcheck="false" />
+      <span id="blend-clear" title="remove blend">✕</span>
+    </div>
+    <button id="forge-btn">⚒ Forge</button>
+    <div id="suggestions"></div>
+  </div>
+
+  <!-- ===== Knobs panel (collapsible) ===== -->
+  <aside id="knobs" class="hud">
+    <div id="knobs-header">
+      <span id="knobs-title">Sensibility</span>
+      <span id="knobs-sub">play the instrument</span>
+      <span id="knobs-collapse">▾</span>
+    </div>
+    <div id="knobs-body">
+      <div class="knob" data-knob="register">
+        <div class="knob-top"><span class="knob-name">Register</span><span class="knob-readout">balanced</span></div>
+        <input type="range" min="0" max="100" value="50" />
+        <div class="knob-poles"><span>plain</span><span>ornate</span></div>
+      </div>
+      <div class="knob" data-knob="darkness">
+        <div class="knob-top"><span class="knob-name">Darkness</span><span class="knob-readout">even</span></div>
+        <input type="range" min="0" max="100" value="55" />
+        <div class="knob-poles"><span>luminous</span><span>shadowed</span></div>
+      </div>
+      <div class="knob" data-knob="surprise">
+        <div class="knob-top"><span class="knob-name">Surprise</span><span class="knob-readout">apt</span></div>
+        <input type="range" min="0" max="100" value="60" />
+        <div class="knob-poles"><span>expected</span><span>uncanny</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===== Rarity filter ===== -->
+  <div id="rarity" class="hud">
+    <span class="label">Show</span>
+    <span class="rchip common"  data-rarity="common">Common</span>
+    <span class="rchip unusual" data-rarity="unusual">Unusual</span>
+    <span class="rchip rare"    data-rarity="rare">Rare</span>
+  </div>
+
+  <!-- ===== Flight hint ===== -->
+  <div id="flight-hint" class="hud">
+    <b>WASD</b> move · <b>R/F</b> up/down · <b>Q/E</b> roll · drag to look · <b>click</b> a star to fly there
+  </div>
+  <div id="wisp" class="hud">Metaforge — Forge</div>
+
+<script>
+/* ============================================================================
+   MOCK CONSTELLATION — centred on "grief". (BASE, unchanged from graph-nav.)
+   Each node: [id, word, relType, rarity, pos, definition].
+   ============================================================================ */
+const C = {
+  central:  '#d4af37',
+  synonym:  '#c4956a',
+  hypernym: '#8b6f47',
+  hyponym:  '#6a8b6f',
+  similar:  '#7a6a8b',
+  bridge:   '#b56ed0',
+  rarity: { common: '#8bb89a', unusual: '#c4956a', rare: '#a88bc4' },
+  text: '#e8e0d4',
+};
+
+// FORGE_TIER_COLOURS (colours.ts) — drive forged vehicle nodes + tier ribbons.
+const TIER = {
+  legendary:   '#d4af37',
+  complex:     '#c49a6c',
+  interesting: '#6a8b6f',
+  ironic:      '#8b4a6f',
+  strong:      '#c4956a',
+  obvious:     '#8b6f47',
+  unlikely:    '#6b6560',
+};
+
+const NODES = [
+  ['grief',       'grief',        'central',  'unusual', 'n.', 'Deep sorrow, especially that caused by someone’s death; keen mental suffering over loss.'],
+
+  // hop 1 — synonyms (copper)
+  ['sorrow',      'sorrow',       'synonym',  'common',  'n.', 'A feeling of deep distress caused by loss or disappointment.'],
+  ['mourning',    'mourning',     'synonym',  'unusual', 'n.', 'The expression of deep sorrow for someone who has died.'],
+  ['anguish',     'anguish',      'synonym',  'unusual', 'n.', 'Severe mental or physical pain or suffering.'],
+  ['woe',         'woe',          'synonym',  'rare',    'n.', 'Great sorrow or distress; an affliction.'],
+  ['heartache',   'heartache',    'synonym',  'unusual', 'n.', 'Emotional anguish or grief, typically caused by loss.'],
+
+  // hop 1 — hypernyms (russet, BROADER)
+  ['sadness',     'sadness',      'hypernym', 'common',  'n.', 'The condition or quality of being sad.'],
+  ['suffering',   'suffering',    'hypernym', 'common',  'n.', 'The state of undergoing pain, distress, or hardship.'],
+  ['emotion',     'emotion',      'hypernym', 'common',  'n.', 'A strong feeling deriving from circumstance, mood, or relationships.'],
+
+  // hop 1 — hyponyms (green, NARROWER)
+  ['bereavement', 'bereavement',  'hyponym',  'rare',    'n.', 'The state of having been deprived of a loved one through death.'],
+  ['lamentation', 'lamentation',  'hyponym',  'rare',    'n.', 'The passionate expression of grief or sorrow; weeping.'],
+  ['desolation',  'desolation',   'hyponym',  'rare',    'n.', 'A state of complete emptiness, ruin, or anguished loneliness.'],
+
+  // hop 1 — similar (violet-grey, SIMILAR)
+  ['melancholy',  'melancholy',   'similar',  'unusual', 'n.', 'A pensive, lingering sadness with no obvious cause.'],
+  ['regret',      'regret',       'similar',  'common',  'n.', 'A feeling of sadness or disappointment over what has happened.'],
+  ['despair',     'despair',      'similar',  'unusual', 'n.', 'The complete loss or absence of hope.'],
+
+  // BRIDGE NODE — gravity well: grief <-> joy.
+  ['gw-joy',      'gravity well (JOY)', 'bridge', 'rare', 'rel.', 'A metaphor bridge: grief and JOY orbit one gravity well — each defines the other by its absence.'],
+  ['joy',         'joy',          'similar',  'common',  'n.', 'A feeling of great pleasure and happiness; the far pole of grief.'],
+
+  // hop 2
+  ['heartbreak',  'heartbreak',   'hyponym',  'unusual', 'n.', 'Overwhelming distress, especially from the loss of love.'],
+  ['gloom',       'gloom',        'similar',  'unusual', 'n.', 'Partial or total darkness; a state of depression or despondency.'],
+  ['lament',      'lament',       'hyponym',  'unusual', 'n.', 'A passionate expression of grief, often in song or poem.'],
+  ['dirge',       'dirge',        'hyponym',  'rare',    'n.', 'A lament for the dead, especially one forming part of a funeral rite.'],
+  ['elegy',       'elegy',        'similar',  'rare',    'n.', 'A poem of serious reflection, typically a lament for the dead.'],
+  ['torment',     'torment',      'synonym',  'unusual', 'n.', 'Severe physical or mental suffering.'],
+  ['agony',       'agony',        'synonym',  'unusual', 'n.', 'Extreme physical or mental suffering.'],
+  ['wistful',     'wistfulness',  'similar',  'rare',    'n.', 'A vague, gentle longing tinged with sadness.'],
+  ['nostalgia',   'nostalgia',    'similar',  'common',  'n.', 'A sentimental longing for the past.'],
+  ['grievance',   'grievance',    'similar',  'unusual', 'n.', 'A real or imagined wrong giving grounds for complaint.'],
+  ['pathos',      'pathos',       'similar',  'rare',    'n.', 'A quality that evokes pity or sadness.'],
+  ['hopelessness','hopelessness', 'hyponym',  'unusual', 'n.', 'The feeling or state of having no hope.'],
+  ['void',        'void',         'similar',  'unusual', 'n.', 'A completely empty space; an unfilled absence.'],
+
+  // hop 3 — distant whisper (fades out under fog)
+  ['threnody',    'threnody',     'hyponym',  'rare',    'n.', 'A lament or song of mourning.'],
+  ['requiem',     'requiem',      'hyponym',  'rare',    'n.', 'A mass or act for the repose of the dead.'],
+];
+
+// links: [source, target, relType]
+const LINKS = [
+  ['grief','sorrow','synonym'], ['grief','mourning','synonym'], ['grief','anguish','synonym'],
+  ['grief','woe','synonym'], ['grief','heartache','synonym'],
+  ['grief','sadness','hypernym'], ['grief','suffering','hypernym'], ['grief','emotion','hypernym'],
+  ['grief','bereavement','hyponym'], ['grief','lamentation','hyponym'], ['grief','desolation','hyponym'],
+  ['grief','melancholy','similar'], ['grief','regret','similar'], ['grief','despair','similar'],
+
+  ['grief','gw-joy','bridge'], ['gw-joy','joy','bridge'],
+
+  ['sorrow','heartbreak','hyponym'], ['sorrow','gloom','similar'],
+  ['mourning','lament','hyponym'], ['mourning','dirge','hyponym'], ['mourning','elegy','similar'],
+  ['anguish','torment','synonym'], ['anguish','agony','synonym'],
+  ['melancholy','wistful','similar'], ['melancholy','nostalgia','similar'],
+  ['sadness','grievance','similar'], ['emotion','pathos','similar'],
+  ['despair','hopelessness','hyponym'], ['desolation','void','similar'],
+
+  ['lament','threnody','hyponym'], ['dirge','requiem','hyponym'],
+
+  ['despair','desolation','similar'], ['heartache','heartbreak','synonym'],
+  ['joy','nostalgia','similar'],
+];
+
+/* ============================================================================
+   FORGE CANDIDATES — mock session-conditioned generation.
+
+   Each candidate is a topic→vehicle IMAGE with a one-line "Forge Reader" read
+   and an aptness base. Crucially it carries AXIS AFFINITIES (register / darkness
+   / surprise, each -1..1): the knobs shift the aptness toward candidates whose
+   affinity matches where the writer set each slider — so turning a knob visibly
+   RE-RANKS / RE-WEIGHTS the field (mocked, but legible).
+
+   `blend` candidates only surface when a second topic is folded in.
+   ============================================================================ */
+// vehicle: graph word the bloom node carries; image: the line shown in the panel
+// tier: forge classifier tier; base: base aptness 0..1; read: Forge-Reader voice
+// axis: { register, darkness, surprise } each -1 (low pole) .. +1 (high pole)
+// blend: null = single-topic; otherwise the blend word that conjures it
+const SOLO_CANDIDATES = [
+  { vehicle: 'undertow',   tier: 'legendary',   base: 0.82, read: 'the pull that takes you out past your depth without a sound', axis: { register: 0.2,  darkness: 0.7,  surprise: 0.6 } },
+  { vehicle: 'ash',        tier: 'strong',      base: 0.74, read: 'what is left when the fire of a life has gone cold', axis: { register: -0.1, darkness: 0.6,  surprise: 0.1 } },
+  { vehicle: 'ballast',    tier: 'complex',     base: 0.71, read: 'a dead weight you carry low so the rest of you stays upright', axis: { register: 0.4,  darkness: 0.3,  surprise: 0.7 } },
+  { vehicle: 'low tide',   tier: 'strong',      base: 0.69, read: 'the sea drawn back, leaving everything it touched exposed', axis: { register: 0.1,  darkness: 0.2,  surprise: 0.4 } },
+  { vehicle: 'frost',      tier: 'interesting', base: 0.64, read: 'a quiet white that stops the green where it stands', axis: { register: 0.3,  darkness: 0.1,  surprise: 0.5 } },
+  { vehicle: 'old debt',   tier: 'ironic',      base: 0.61, read: 'something owed that the years only compound', axis: { register: -0.2, darkness: 0.4,  surprise: 0.3 } },
+  { vehicle: 'gravity',    tier: 'complex',     base: 0.58, read: 'a mass that bends the path of everything near it', axis: { register: 0.6,  darkness: 0.2,  surprise: 0.8 } },
+  { vehicle: 'broken glass',tier: 'obvious',    base: 0.34, read: 'shards underfoot — vivid, but you have stepped here before', axis: { register: -0.4, darkness: 0.4,  surprise: -0.7 } },
+  { vehicle: 'heavy heart',tier: 'unlikely',    base: 0.22, read: 'a dead-metaphor the eye slides right off', axis: { register: -0.6, darkness: 0.2,  surprise: -0.9 } },
+];
+// blend candidates: grief × <blend word>. Only one blend wired (tide) for the demo;
+// any other blend word falls back to a generic "drift" of the solo field.
+const BLEND_CANDIDATES = {
+  tide: [
+    { vehicle: 'undertow',   tier: 'legendary', base: 0.88, read: 'grief as the tide’s hidden pull — out past your depth, silent', axis: { register: 0.2, darkness: 0.7, surprise: 0.7 }, blend: 'tide' },
+    { vehicle: 'wrack line', tier: 'complex',   base: 0.79, read: 'the high-water mark of loss, drawn in salt and weed', axis: { register: 0.5, darkness: 0.4, surprise: 0.8 }, blend: 'tide' },
+    { vehicle: 'neap',       tier: 'interesting',base: 0.72,read: 'the slack low weeks when even the sea can’t be bothered to rise', axis: { register: 0.3, darkness: 0.5, surprise: 0.6 }, blend: 'tide' },
+    { vehicle: 'spring flood',tier:'ironic',    base: 0.66, read: 'the day it all comes back at once, over the wall', axis: { register: 0.1, darkness: 0.6, surprise: 0.5 }, blend: 'tide' },
+  ],
+};
+
+// index by id for O(1) panel lookups (base nodes only; vehicles indexed live)
+const byId = {};
+for (const [id, word, rel, rarity, pos, def] of NODES) {
+  byId[id] = { id, word, rel, rarity, pos, def };
+}
+
+// adjacency for BFS fog-of-war — rebuilt whenever forge edges are added/removed.
+let adj = {};
+function rebuildAdjacency(links) {
+  adj = {};
+  for (const n of graphData.nodes) adj[n.id] = new Set();
+  for (const l of links) {
+    const s = typeof l.source === 'object' ? l.source.id : l.source;
+    const t = typeof l.target === 'object' ? l.target.id : l.target;
+    if (!adj[s]) adj[s] = new Set();
+    if (!adj[t]) adj[t] = new Set();
+    adj[s].add(t); adj[t].add(s);
+  }
+}
+
+function hopDistances(focus) {
+  const dist = {};
+  for (const id of Object.keys(adj)) dist[id] = Infinity;
+  dist[focus] = 0;
+  const queue = [focus];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const nb of adj[cur] || []) {
+      if (dist[nb] === Infinity) { dist[nb] = dist[cur] + 1; queue.push(nb); }
+    }
+  }
+  return dist;
+}
+
+// panel relation groups, derived from base LINKS (forge edges excluded — they
+// surface in the dedicated Forged-Vehicles list, not the thesaurus rel-groups).
+function relationsOf(id) {
+  const broader = [], similar = [], narrower = [], bridge = [];
+  for (const [s, t, r] of LINKS) {
+    let other = null;
+    if (s === id) other = t; else if (t === id) other = s; else continue;
+    const node = byId[other];
+    if (!node) continue;
+    const entry = { id: other, word: node.word, rel: r };
+    if (r === 'hypernym' || r === 'synonym') broader.push(entry);
+    else if (r === 'similar') similar.push(entry);
+    else if (r === 'hyponym') narrower.push(entry);
+    else if (r === 'bridge') bridge.push(entry);
+  }
+  return { broader, similar, narrower, bridge };
+}
+
+/* ============================================================================
+   ENGINE — 3d-force-graph with FLY controls. Same as the base; forge vehicle
+   nodes + edges are appended into graphData live (no scene reset).
+   ============================================================================ */
+const graphData = {
+  nodes: NODES.map(([id, word, rel, rarity]) => ({ id, word, rel, rarity, isBridge: rel === 'bridge' })),
+  links: LINKS.map(([source, target, rel]) => ({ source, target, rel })),
+};
+
+const FOG_MAX_HOP = 3;
+const HOP_ALPHA   = [1, 0.95, 0.6, 0.22];
+
+let focusId = 'grief';
+let dist;
+const hiddenRarities = new Set();
+
+// Forge state
+let forgeTopic = null;          // topic id the forge bloomed off (a base node)
+let forgeBlend = null;          // second topic word, or null
+let forgeCandidates = [];       // live, ranked candidate objects (with .id, .score)
+const knob = { register: 0.5, darkness: 0.55, surprise: 0.60 };  // 0..1 slider positions
+
+function nodeColour(node) {
+  if (node.isForge) return TIER[node.tier] || C.text;
+  if (node.rel === 'central') return C.central;
+  if (node.isBridge) return C.bridge;
+  return C[node.rel] || C.rarity[node.rarity] || C.text;
+}
+
+function nodeAlpha(node) {
+  const d = dist[node.id];
+  if (d === undefined || d === Infinity || d > FOG_MAX_HOP) return 0;
+  // Forge vehicles ignore the rarity filter (they're generated, not lexicon tiers).
+  if (!node.isForge && node.rel !== 'central' && hiddenRarities.has(node.rarity)) return 0;
+  return HOP_ALPHA[d] ?? 0;
+}
+
+function fade(hex, a) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${a.toFixed(3)})`;
+}
+
+/* ---- node 3D object: sphere (lexicon) / lozenge (bridge) / DIAMOND (forge) ---- */
+function buildNodeObject(node) {
+  const group = new THREE.Group();
+  const colour = nodeColour(node);
+
+  if (node.isForge) {
+    // Forged vehicle: an octahedral "gem" — distinctly NOT a lexicon sphere.
+    const gem = new THREE.Mesh(
+      new THREE.OctahedronGeometry(4.4, 0),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true })
+    );
+    group.add(gem);
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(8.5, 18, 18),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.16 })
+    );
+    group.add(halo);
+    // slow spin so the gem reads as freshly-forged / alive
+    group.__spin = gem;
+    group.__core = gem; group.__halo = halo;
+    group.__baseLabel = 3.6;
+  } else if (node.isBridge) {
+    const geo = THREE.CapsuleGeometry
+      ? new THREE.CapsuleGeometry(2.6, 7, 6, 16)
+      : new THREE.CylinderGeometry(2.6, 2.6, 9, 16);
+    const lozenge = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: colour, transparent: true }));
+    lozenge.rotation.z = Math.PI / 2;
+    group.add(lozenge);
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(8, 16, 16),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.12 })
+    );
+    group.add(halo);
+    group.__core = lozenge; group.__halo = halo;
+    group.__baseLabel = 3.2;
+  } else {
+    const r = node.rel === 'hypernym' ? 4.6 : 4.0;
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(r, 20, 20),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true })
+    );
+    group.add(core);
+    const glow = new THREE.Mesh(
+      new THREE.SphereGeometry(r * 2.0, 20, 20),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.13 })
+    );
+    group.add(glow);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(r * 2.4, 0.5, 8, 40),
+      new THREE.MeshBasicMaterial({ color: C.central, transparent: true, opacity: 0 })
+    );
+    ring.visible = false;
+    group.add(ring);
+    group.__core = core; group.__halo = glow; group.__ring = ring;
+    group.__baseR = r;
+    group.__baseLabel = 3.6;
+  }
+
+  const label = new SpriteText(node.word);
+  label.color = node.isForge ? (TIER[node.tier] || C.text)
+              : node.rel === 'central' ? C.central : C.text;
+  label.fontFace = 'Georgia, serif';
+  label.fontWeight = (node.rel === 'central' || node.isForge) ? '700' : '400';
+  label.textHeight = group.__baseLabel;
+  label.backgroundColor = false;
+  label.padding = 1;
+  label.position.set(0, node.isBridge ? 6 : 9, 0);
+  group.add(label);
+  group.__label = label;
+
+  return group;
+}
+
+const Graph = ForceGraph3D({ controlType: 'fly' })(document.getElementById('graph'))
+  .backgroundColor('#0d0d18')
+  .showNavInfo(false)
+  .nodeRelSize(1)
+  .nodeThreeObject(buildNodeObject)
+  .linkColor(linkColour)
+  .linkWidth(l => (l.rel === 'forge' ? 1.2 : l.rel === 'bridge' ? 1.4 : 0.6))
+  // forge edges curve HARD and the other special edge (bridge) curves too — both
+  // behave obviously differently from straight synonym/hyponym spokes.
+  .linkCurvature(l => (l.rel === 'forge' ? 0.5 : l.rel === 'bridge' ? 0.35 : (l.rel === 'similar' ? 0.16 : 0)))
+  // dashed forge edges: a fast dash cycle reads as "this is generated, not lexical"
+  .linkDirectionalParticles(l => (l.rel === 'forge' ? 4 : l.rel === 'bridge' ? 3 : 0))
+  .linkDirectionalParticleWidth(1.6)
+  .linkDirectionalParticleColor(l => (l.rel === 'forge' ? '#d4af37' : C.bridge))
+  .linkOpacity(0.55)
+  .d3VelocityDecay(0.32)
+  .cooldownTime(7000)
+  .onNodeClick(node => onNodeClick(node))
+  .onNodeHover(node => { document.getElementById('graph').style.cursor = node ? 'pointer' : 'default'; });
+
+function linkColour(l) {
+  const sn = typeof l.source === 'object' ? l.source : byId[l.source];
+  const tn = typeof l.target === 'object' ? l.target : byId[l.target];
+  const sa = sn ? nodeAlpha(sn) : 0;
+  const ta = tn ? nodeAlpha(tn) : 0;
+  const a = Math.min(sa, ta) * 0.9;
+  const base = l.rel === 'forge' ? '#d4af37'
+             : l.rel === 'bridge' ? C.bridge
+             : (C[l.rel] || C.text);
+  return fade(base, a);
+}
+
+Graph.graphData(graphData);
+rebuildAdjacency(graphData.links);
+dist = hopDistances(focusId);
+
+Graph.scene().fog = new THREE.FogExp2(0x0d0d18, 0.0016);
+
+// Starfield backdrop for depth.
+(function starfield() {
+  const n = 1400, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const R = 1200 + Math.random() * 2600;
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    pos[i*3]   = R * Math.sin(ph) * Math.cos(th);
+    pos[i*3+1] = R * Math.sin(ph) * Math.sin(th);
+    pos[i*3+2] = R * Math.cos(ph);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const m = new THREE.PointsMaterial({ color: 0x6b6fa0, size: 2.2, transparent: true, opacity: 0.55, sizeAttenuation: false });
+  Graph.scene().add(new THREE.Points(g, m));
+})();
+
+/* ============================================================================
+   FOG-OF-WAR — per-frame opacities track live focus + filters. Forge gems also
+   slowly spin (a small "alive" tell) and pulse their halo.
+   ============================================================================ */
+let frame = 0;
+function applyFog() {
+  frame++;
+  for (const node of Graph.graphData().nodes) {
+    const a = nodeAlpha(node);
+    const obj = node.__threeObj;
+    if (!obj) continue;
+    obj.visible = a > 0.001;
+    if (!obj.visible) continue;
+
+    const focused = node.id === focusId;
+    if (obj.__spin) obj.__spin.rotation.y += 0.012;   // forge gem turns slowly
+    if (obj.__core) {
+      obj.__core.material.opacity = a;
+      const s = focused ? 1.55 : 1;
+      obj.__core.scale.setScalar(s);
+      if (obj.__halo && !node.isForge) obj.__halo.scale.setScalar(s);
+    }
+    if (obj.__halo) {
+      const pulse = node.isForge ? (0.16 + 0.06 * Math.sin(frame * 0.05 + (node.__phase || 0))) : (focused ? 0.28 : 0.13);
+      obj.__halo.material.opacity = a * pulse;
+    }
+    if (obj.__ring) {
+      obj.__ring.visible = focused;
+      obj.__ring.material.opacity = focused ? a * 0.8 : 0;
+      obj.__ring.scale.setScalar(1.6);
+    }
+    if (obj.__label) {
+      obj.__label.material.opacity = a;
+      obj.__label.textHeight = focused ? obj.__baseLabel * 1.5 : obj.__baseLabel;
+    }
+  }
+}
+Graph.onEngineTick(applyFog);
+
+/* ============================================================================
+   SELECT / FLY-TO + BLOOM. (BASE — unchanged.)
+   ============================================================================ */
+let flyTimer = null;
+
+function selectNode(id, fly) {
+  if (!byId[id]) return;
+  focusId = id;
+  dist = hopDistances(focusId);
+  refreshLinks();
+  updatePanel(id);
+  resetSearchUI();
+  highlightCandidate(null);
+  if (fly) flyTo(id);
+}
+
+function refreshLinks() {
+  Graph.linkColor(linkColour);
+}
+
+function flyTo(id) {
+  const node = Graph.graphData().nodes.find(n => n.id === id);
+  if (!node || node.x === undefined) {
+    if (flyTimer) clearTimeout(flyTimer);
+    flyTimer = setTimeout(() => flyTo(id), 200);
+    return;
+  }
+  Graph.cameraPosition(
+    { x: node.x + 40, y: node.y + 70, z: node.z + 150 },
+    node,
+    1500
+  );
+}
+
+/* ============================================================================
+   PANEL — focused word, badge, POS, definition, relation groups (clickable),
+   AND (forge mode) the ranked Forged-Vehicles list.
+   ============================================================================ */
+const panel = document.getElementById('panel');
+const elWord = document.getElementById('panel-word');
+const elBadge = document.getElementById('panel-badge');
+const elPos = document.getElementById('panel-pos');
+const elDef = document.getElementById('panel-def');
+
+function updatePanel(id) {
+  const node = byId[id];
+  if (!node) return;
+  elWord.textContent = node.word;
+  elBadge.textContent = node.rarity;
+  elBadge.className = 'badge ' + node.rarity;
+  elPos.textContent = node.pos;
+  elDef.textContent = node.def;
+
+  const rel = relationsOf(id);
+  fillGroup('rel-broader',  rel.broader);
+  fillGroup('rel-similar',  rel.similar);
+  fillGroup('rel-narrower', rel.narrower);
+  fillGroup('rel-bridge',   rel.bridge);
+}
+
+function fillGroup(groupId, entries) {
+  const wrap = document.getElementById(groupId);
+  const terms = wrap.querySelector('.rel-terms');
+  wrap.style.display = entries.length ? 'block' : 'none';
+  terms.innerHTML = '';
+  for (const e of entries) {
+    const span = document.createElement('span');
+    span.className = 'term';
+    span.dataset.rel = e.rel;
+    span.dataset.id = e.id;
+    span.textContent = e.word;
+    span.addEventListener('click', () => selectNode(e.id, true));
+    terms.appendChild(span);
+  }
+}
+
+document.getElementById('panel-header').addEventListener('click', () => {
+  panel.classList.toggle('collapsed');
+});
+
+/* ============================================================================
+   FORGE — invoke, bloom vehicle nodes, render ranked list, live re-rank.
+   ============================================================================ */
+
+// Score a candidate against the current knob positions. The base aptness is
+// nudged by how well the candidate's axis affinity matches each knob: a knob at
+// the high pole (1.0) rewards positive affinity, at the low pole (0.0) rewards
+// negative affinity, neutral (0.5) is a no-op. Clamped to 0..1.
+function scoreCandidate(c) {
+  let s = c.base;
+  for (const ax of ['register', 'darkness', 'surprise']) {
+    const knobBias = (knob[ax] - 0.5) * 2;       // -1..1 (low pole .. high pole)
+    s += knobBias * c.axis[ax] * 0.22;           // match → up, mismatch → down
+  }
+  return Math.max(0.02, Math.min(0.99, s));
+}
+
+function tierClass(t) {
+  return ['legendary','complex','interesting','ironic','strong'].includes(t) ? t : 'strong';
+}
+
+// (Re)compute candidate list from current topic + blend + knobs, then sort.
+function computeCandidates() {
+  let pool;
+  if (forgeBlend && BLEND_CANDIDATES[forgeBlend]) {
+    // blended: blend-specific vehicles lead, plus the still-apt solo ones folded in
+    pool = [...BLEND_CANDIDATES[forgeBlend], ...SOLO_CANDIDATES.filter(c => c.base >= 0.55)
+      .map(c => ({ ...c, blend: forgeBlend }))];
+  } else if (forgeBlend) {
+    // any other blend word: generic "drift" — surprise-leaning solo field, marked blended
+    pool = SOLO_CANDIDATES.map(c => ({ ...c, blend: forgeBlend, base: Math.min(0.95, c.base + c.axis.surprise * 0.06) }));
+  } else {
+    pool = SOLO_CANDIDATES.map(c => ({ ...c }));
+  }
+  // stable vehicle id (graph node) per candidate
+  forgeCandidates = pool.map((c, i) => ({
+    ...c,
+    id: 'fv:' + c.vehicle.replace(/\s+/g, '_'),
+    score: scoreCandidate(c),
+  }));
+  forgeCandidates.sort((a, b) => b.score - a.score);
+}
+
+// Bloom the forged vehicle nodes off the topic node, with curved dashed edges.
+function bloomVehicles() {
+  // strip any prior forge nodes/edges
+  graphData.nodes = graphData.nodes.filter(n => !n.isForge);
+  graphData.links = graphData.links.filter(l => l.rel !== 'forge');
+
+  const topic = graphData.nodes.find(n => n.id === forgeTopic);
+  // Only the top vehicles bloom as nodes (keep the scene legible); the full
+  // ranked set still shows in the panel.
+  const bloomN = Math.min(6, forgeCandidates.length);
+  for (let i = 0; i < bloomN; i++) {
+    const c = forgeCandidates[i];
+    // seed forge node positions in a ring around the topic so they "bloom" outward
+    const ang = (i / bloomN) * Math.PI * 2;
+    const rad = 70;
+    const fn = {
+      id: c.id, word: c.vehicle, isForge: true, tier: c.tier, rarity: 'rare',
+      __phase: i * 1.3,
+      x: (topic?.x ?? 0) + Math.cos(ang) * rad,
+      y: (topic?.y ?? 0) + Math.sin(ang) * rad * 0.6,
+      z: (topic?.z ?? 0) + Math.sin(ang * 1.7) * rad * 0.5,
+    };
+    graphData.nodes.push(fn);
+    graphData.links.push({ source: forgeTopic, target: c.id, rel: 'forge' });
+  }
+
+  Graph.graphData(graphData);
+  rebuildAdjacency(graphData.links);
+  dist = hopDistances(focusId);
+  refreshLinks();
+}
+
+function runForge(fly) {
+  const topic = (document.getElementById('search').value || forgeTopic || 'grief').trim().toLowerCase();
+  // map typed topic onto a base node (demo lexicon centres on grief)
+  forgeTopic = byId[topic] ? topic : 'grief';
+  forgeBlend = document.body.classList.contains('blend-on')
+    ? (document.getElementById('blend').value || '').trim().toLowerCase() || null
+    : null;
+
+  document.body.classList.add('forge-on');
+  document.getElementById('forge-btn').textContent = '⚒ Recast';
+  document.getElementById('forge-btn').classList.add('recast');
+
+  computeCandidates();
+  bloomVehicles();
+
+  // focus the topic, render its panel (which now includes the forge list)
+  focusId = forgeTopic;
+  dist = hopDistances(focusId);
+  refreshLinks();
+  updatePanel(forgeTopic);
+  renderForgeList();
+  if (!panel.classList.contains('collapsed')) { /* keep open */ } else panel.classList.remove('collapsed');
+
+  if (fly) flyTo(forgeTopic);
+}
+
+// Re-rank only (knob moved): re-score, re-sort, re-render list + re-bloom nodes.
+// This is the "instrument responds" beat — the field visibly reshapes.
+function reForge() {
+  if (!forgeTopic) return;
+  computeCandidates();
+  bloomVehicles();
+  renderForgeList();
+}
+
+function renderForgeList() {
+  const list = document.getElementById('forge-list');
+  const count = document.getElementById('forge-count');
+  const gate = document.getElementById('forge-gate');
+  list.innerHTML = '';
+  count.textContent = `${forgeCandidates.length} candidates`;
+
+  const topicWord = byId[forgeTopic]?.word ?? forgeTopic;
+  let gated = 0;
+  for (let i = 0; i < forgeCandidates.length; i++) {
+    const c = forgeCandidates[i];
+    // the distilled taste-judge gates the dim ones below threshold
+    if (c.score < 0.30) { gated++; continue; }
+
+    const card = document.createElement('div');
+    card.className = 'cand';
+    card.dataset.id = c.id;
+    card.style.borderLeftColor = TIER[c.tier] || TIER.strong;
+
+    const blendProv = c.blend
+      ? `<span class="blendprov">×${c.blend}</span>` : '';
+    const pct = Math.round(c.score * 100);
+
+    card.innerHTML = `
+      <span class="cand-rank">#${i + 1}</span>
+      <div class="cand-image">
+        <span class="topic">${topicWord}</span>${blendProv}
+        <span class="arrow">→</span>
+        <span class="vehicle">${c.vehicle}</span>
+      </div>
+      <div class="cand-read">“${c.read}”</div>
+      <div class="cand-meta">
+        <span class="tier-ribbon tier-${tierClass(c.tier)}">${c.tier}</span>
+        <span class="aptness"><i style="width:${pct}%"></i></span>
+        <span class="aptness-val">${pct}%</span>
+      </div>`;
+    card.addEventListener('click', () => {
+      // clicking a candidate flies to its bloomed gem (if it bloomed) + focuses it
+      highlightCandidate(c.id);
+      if (Graph.graphData().nodes.some(n => n.id === c.id)) flyTo(c.id);
+    });
+    list.appendChild(card);
+  }
+  gate.textContent = gated
+    ? `⌁ the judge gated ${gated} dim ${gated === 1 ? 'one' : 'ones'} below threshold`
+    : '⌁ the judge passed every candidate this cast';
+}
+
+function highlightCandidate(id) {
+  document.querySelectorAll('.cand').forEach(el => {
+    el.classList.toggle('focused', el.dataset.id === id);
+  });
+}
+
+// clicking a bloomed gem in the graph highlights its panel card
+function onNodeClick(node) {
+  if (node.isForge) {
+    highlightCandidate(node.id);
+    focusId = node.id;
+    dist = hopDistances(focusId);
+    refreshLinks();
+    flyTo(node.id);
+    // scroll its card into view
+    const card = document.querySelector(`.cand[data-id="${CSS.escape(node.id)}"]`);
+    if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return;
+  }
+  selectNode(node.id, true);
+}
+
+document.getElementById('forge-btn').addEventListener('click', () => runForge(true));
+
+/* ---- "+ blend" affordance + blend field ---- */
+document.getElementById('add-blend').addEventListener('click', () => {
+  document.body.classList.add('blend-on');
+  document.getElementById('blend').focus();
+});
+document.getElementById('blend-clear').addEventListener('click', () => {
+  document.body.classList.remove('blend-on');
+  document.getElementById('blend').value = '';
+  if (forgeTopic) { forgeBlend = null; computeCandidates(); bloomVehicles(); renderForgeList(); }
+});
+document.getElementById('blend').addEventListener('input', () => { if (forgeTopic) reForgeBlend(); });
+function reForgeBlend() {
+  forgeBlend = (document.getElementById('blend').value || '').trim().toLowerCase() || null;
+  computeCandidates(); bloomVehicles(); renderForgeList();
+}
+document.getElementById('blend').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); runForge(true); }
+});
+
+/* ---- knobs: live re-rank ---- */
+const READOUTS = {
+  register: ['plain', 'spare', 'balanced', 'measured', 'ornate'],
+  darkness: ['luminous', 'lit', 'even', 'dim', 'shadowed'],
+  surprise: ['expected', 'apt', 'apt', 'striking', 'uncanny'],
+};
+function readoutFor(ax, v) {
+  const i = Math.min(4, Math.floor(v * 5));
+  return READOUTS[ax][i];
+}
+document.querySelectorAll('#knobs .knob').forEach(k => {
+  const ax = k.dataset.knob;
+  const input = k.querySelector('input');
+  const readout = k.querySelector('.knob-readout');
+  input.value = Math.round(knob[ax] * 100);
+  readout.textContent = readoutFor(ax, knob[ax]);
+  input.addEventListener('input', () => {
+    knob[ax] = input.value / 100;
+    readout.textContent = readoutFor(ax, knob[ax]);
+    reForge();   // the instrument responds — candidates re-weight + re-bloom live
+  });
+});
+document.getElementById('knobs-header').addEventListener('click', () => {
+  document.getElementById('knobs').classList.toggle('collapsed');
+});
+
+/* ============================================================================
+   SEARCH — substring match over node words; '/' to focus; click/enter to fly.
+   In forge mode, Enter on the topic field re-forges from the new topic.
+   ============================================================================ */
+const elSearch = document.getElementById('search');
+const elSug = document.getElementById('suggestions');
+let sugActive = -1, sugList = [];
+
+function buildSuggestions(q) {
+  q = q.trim().toLowerCase();
+  if (!q) { elSug.classList.remove('open'); elSug.innerHTML = ''; sugList = []; return; }
+  sugList = NODES
+    .map(([id, word, rel, rarity]) => ({ id, word, rarity }))
+    .filter(n => n.word.toLowerCase().includes(q))
+    .slice(0, 7);
+  elSug.innerHTML = '';
+  sugActive = -1;
+  for (const s of sugList) {
+    const div = document.createElement('div');
+    div.className = 'suggestion';
+    div.innerHTML = `<span>${s.word}</span><small>${s.rarity}</small>`;
+    div.addEventListener('click', () => { elSearch.value = s.word; runForge(true); });
+    elSug.appendChild(div);
+  }
+  elSug.classList.toggle('open', sugList.length > 0);
+}
+function resetSearchUI() { elSug.classList.remove('open'); }
+
+elSearch.addEventListener('input', e => buildSuggestions(e.target.value));
+elSearch.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); sugActive = Math.min(sugActive + 1, sugList.length - 1); paintActive(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); sugActive = Math.max(sugActive - 1, 0); paintActive(); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    const pick = sugActive >= 0 ? sugList[sugActive] : sugList[0];
+    if (pick) elSearch.value = pick.word;
+    runForge(true);
+  } else if (e.key === 'Escape') { elSearch.blur(); elSug.classList.remove('open'); }
+});
+function paintActive() {
+  [...elSug.children].forEach((c, i) => c.classList.toggle('active', i === sugActive));
+}
+window.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== elSearch && document.activeElement !== document.getElementById('blend')) {
+    e.preventDefault(); elSearch.focus(); elSearch.select();
+  }
+});
+
+/* ============================================================================
+   RARITY FILTER — toggling a chip hides/shows that tier (forge gems unaffected).
+   ============================================================================ */
+document.querySelectorAll('.rchip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const r = chip.dataset.rarity;
+    if (hiddenRarities.has(r)) hiddenRarities.delete(r); else hiddenRarities.add(r);
+    chip.classList.toggle('off', hiddenRarities.has(r));
+    refreshLinks();
+  });
+});
+
+/* ============================================================================
+   BOOT — frame the cluster, establishing fly-in to grief, then auto-forge so
+   the prototype lands on the populated Forge state (vehicles bloomed + ranked).
+   ============================================================================ */
+refreshLinks();
+updatePanel(focusId);
+
+setTimeout(() => Graph.zoomToFit(800, 90), 900);
+setTimeout(() => {
+  // establishing: forge straight off grief, with the demo blend pre-filled so a
+  // screenshot lands on the richest state (vehicles + ranked list + knobs).
+  document.getElementById('search').value = 'grief';
+  runForge(true);
+}, 2200);
+
+// expose for the screenshot harness to frame deterministically
+window.__mf = {
+  Graph, selectNode, runForge, reForge,
+  setKnob: (ax, v) => { knob[ax] = v; reForge(); },
+  setBlend: (w) => { document.body.classList.add('blend-on'); document.getElementById('blend').value = w; reForgeBlend(); },
+  zoomToFit: (ms, p) => Graph.zoomToFit(ms, p),
+  flyTo,
+};
+</script>
+</body>
+</html>

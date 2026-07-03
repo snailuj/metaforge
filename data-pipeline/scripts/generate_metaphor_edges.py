@@ -485,13 +485,15 @@ def run(
 # Production wiring (thin; exercised by the small validation run, not unit tests)
 # ---------------------------------------------------------------------------
 
-def make_live_sonnet_fn(model: str):
-    from claude_client import prompt_json
+def make_live_sonnet_fn(model: str, prompt_json=None):
+    if prompt_json is None:
+        from claude_client import prompt_json
     return lambda prompt: prompt_json(prompt, model=model)
 
 
-def make_live_haiku_fn(model: str, avoid_vehicles: list[str] | None = None):
-    from claude_client import prompt_json
+def make_live_haiku_fn(model: str, avoid_vehicles: list[str] | None = None, prompt_json=None):
+    if prompt_json is None:
+        from claude_client import prompt_json
     from metaphor_spike_1a import build_apt_prompt
     return lambda word, gloss: prompt_json(
         build_apt_prompt(word, gloss, avoid_vehicles or None), model=model)
@@ -614,6 +616,18 @@ def main() -> int:
     ap.add_argument("--max-cost-usd", type=float, default=None, help="Soft guard on estimated spend.")
     ap.add_argument("--sonnet-model", default="claude-sonnet-4-6")
     ap.add_argument("--haiku-model", default="claude-haiku-4-5-20251001")
+    ap.add_argument("--provider", choices=["claude", "openai"], default="claude",
+                    help="LLM backend. 'claude' = the claude CLI (default, unchanged); "
+                         "'openai' = any OpenAI-compatible endpoint (OpenRouter/DeepInfra/GLM/local) "
+                         "for the bulk haiku+sonnet calls — keeps generation off the Claude quota.")
+    ap.add_argument("--base-url", default=None,
+                    help="OpenAI-compatible base URL (with --provider openai), e.g. "
+                         "https://openrouter.ai/api/v1 or https://api.deepinfra.com/v1/openai.")
+    ap.add_argument("--api-key-env", default="OPENROUTER_API_KEY",
+                    help="Env var holding the provider API key (with --provider openai).")
+    ap.add_argument("--reasoning-off", action="store_true",
+                    help="(openai) run reasoning models in fast mode (reasoning:{enabled:false}) — "
+                         "halves latency + output cost. A bake-off variable, not a default.")
     ap.add_argument("--judge-model", default="claude-haiku-4-5-20251001")
     ap.add_argument("--judge-sample", type=int, default=3, help="topics sample-judged per batch (brake density).")
     ap.add_argument("--no-tripwire", action="store_true", help="Disable the live-rate tripwire.")
@@ -645,6 +659,23 @@ def main() -> int:
         avoid_vehicles = load_avoid_vehicles(args.avoid_vehicles)
         if avoid_vehicles:
             log.info("vehicle AVOID nudge ON: %d over-used vehicles", len(avoid_vehicles))
+        # Provider selection: 'claude' (default) leaves the factories on the claude
+        # CLI; 'openai' binds an OpenAI-compatible prompt_json (base_url+key) that
+        # drives the bulk haiku+sonnet calls off the Claude quota.
+        provider_pj = None
+        if args.provider == "openai":
+            import functools
+            from openai_client import prompt_json as _oai_prompt_json
+            api_key = os.environ.get(args.api_key_env)
+            if not api_key:
+                raise SystemExit(f"--provider openai: env {args.api_key_env} is empty/unset")
+            if not args.base_url:
+                raise SystemExit("--provider openai: --base-url is required")
+            reasoning = {"enabled": False} if args.reasoning_off else None
+            provider_pj = functools.partial(_oai_prompt_json, base_url=args.base_url,
+                                             api_key=api_key, reasoning=reasoning)
+            log.info("provider=openai base_url=%s reasoning_off=%s haiku=%s sonnet=%s",
+                     args.base_url, args.reasoning_off, args.haiku_model, args.sonnet_model)
         if args.haiku_jsonl:
             # Stored Haiku reuse: the Haiku proposal prompt is never built, so the
             # AVOID nudge can only reach the Sonnet substitution prompt. WARN so the
@@ -655,9 +686,9 @@ def main() -> int:
             haiku_fn = make_stored_haiku_fn(args.haiku_jsonl)
             haiku_cost = 0.0
         else:
-            haiku_fn = make_live_haiku_fn(args.haiku_model, avoid_vehicles)
+            haiku_fn = make_live_haiku_fn(args.haiku_model, avoid_vehicles, prompt_json=provider_pj)
             haiku_cost = HAIKU_COST_PER_TOPIC
-        sonnet_fn = make_live_sonnet_fn(args.sonnet_model)
+        sonnet_fn = make_live_sonnet_fn(args.sonnet_model, prompt_json=provider_pj)
 
         tripwire = None if args.no_tripwire else mlr.new_tripwire(
             window=args.tw_window, min_judged=args.tw_min_judged, abs_floor=args.tw_abs_floor,

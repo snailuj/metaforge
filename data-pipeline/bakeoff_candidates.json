@@ -1,0 +1,44 @@
+[
+  {
+    "name": "glm-5.2",
+    "model": "z-ai/glm-5.2",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "_note": "Open intelligence leader (AA Index 51, ~Sonnet-class). $0.95/$3.00. Also the flat-rate Coding Plan production option."
+  },
+  {
+    "name": "deepseek-v4-pro",
+    "model": "deepseek/deepseek-v4-pro",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "_note": "Quality/value pick. 1.6T MoE, 1M ctx. $0.435/$0.87."
+  },
+  {
+    "name": "kimi-k2.6",
+    "model": "moonshotai/kimi-k2.6",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "_note": "Creative-writing wildcard (strongest open on EQ-Bench writing per leaderboards, despite coding-framed page). $0.66/$3.41."
+  },
+  {
+    "name": "deepseek-v4-flash",
+    "model": "deepseek/deepseek-v4-flash",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "_note": "Cheapest-tier probe: is the floor good enough? $0.09/$0.18."
+  },
+  {
+    "name": "qwen3.7-plus",
+    "model": "qwen/qwen3.7-plus",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "_note": "Cheap + strong, Apache-licensed. $0.32/$1.28."
+  },
+  {
+    "name": "minimax-m3",
+    "model": "minimax/minimax-m3",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "_note": "#2 open on AA Intelligence Index. $0.30/$1.20."
+  }
+]
