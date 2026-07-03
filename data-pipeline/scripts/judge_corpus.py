@@ -18,8 +18,8 @@ Two judge axes, deliberately orthogonal:
     corpus would couple the axes the harness exists to measure separately.
 
 Loaders take explicit paths (no import-time path constants of our own): the
-gold lives on the grading-live worktree, not this checkout, so the caller must
-say where. grading_sidecar.chain_store.load_chains is import-time-bound to the
+gold lives on the grading-data worktree (post round-1 branch split), not this
+checkout, so the caller must say where. grading_sidecar.chain_store.load_chains is import-time-bound to the
 repo grading dir, hence load_chains here mirrors its union/dedup semantics
 over an explicit directory instead.
 """
@@ -37,9 +37,17 @@ from grading_sidecar.signal_report import resolve_verdicts  # noqa: E402
 
 log = logging.getLogger(__name__)
 
-# Mirrors grading_sidecar.chain_store: round-file glob + the keys a chain
-# record must carry to be joinable (schema-drift lines are skipped, not 500ed).
-CHAINS_GLOB = "sonnet_chains_provisional_r*.jsonl"
+# Mirrors grading_sidecar.chain_store post branch-split: the grading-view
+# cohorts (spike then curated) in cohort-then-filename order, so a later
+# cohort's re-emission of a signature wins. New chain-topics_* names first-class,
+# legacy sonnet_chains_provisional_* kept transitionally (same as paths.CHAIN_COHORTS).
+CHAINS_GLOBS = (
+    "chain-topics_spike*.jsonl",           # spike cohort
+    "sonnet_chains_provisional_r1*.jsonl",
+    "sonnet_chains_provisional_r2.jsonl",
+    "chain-topics_curated*.jsonl",         # curated cohort
+    "sonnet_chains_provisional_r2_handpicked*.jsonl",
+)
 _REQUIRED_CHAIN_KEYS = ("chain_signature", "topic", "vehicle")
 
 
@@ -142,11 +150,12 @@ def load_chains(source) -> list[dict]:
         if not directory.is_dir():
             raise FileNotFoundError(f"chains directory not found: {directory}")
         records: list[dict] = []
-        for p in sorted(directory.glob(CHAINS_GLOB)):
-            recs, skipped = read_jsonl_skip_malformed(p)
-            if skipped:
-                log.warning("load_chains: skipped %d malformed line(s) in %s", skipped, p)
-            records.extend(recs)
+        for pattern in CHAINS_GLOBS:
+            for p in sorted(directory.glob(pattern)):
+                recs, skipped = read_jsonl_skip_malformed(p)
+                if skipped:
+                    log.warning("load_chains: skipped %d malformed line(s) in %s", skipped, p)
+                records.extend(recs)
     else:
         records = list(source)
 

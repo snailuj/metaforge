@@ -27,8 +27,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import judge_corpus as jc
 
+# Post round-1 branch split the gold lives on the grading-data worktree —
+# .worktrees/next (grading-code) holds only a stub.
 LIVE_VERDICTS = Path(
-    "/home/agent/projects/metaforge/.worktrees/next/data-pipeline/grading/judgements_provisional.jsonl"
+    "/home/agent/projects/metaforge/.worktrees/grading-data/data-pipeline/grading/judgements_provisional.jsonl"
 )
 
 
@@ -238,6 +240,21 @@ def test_load_glosses_missing_file_degrades_to_empty(tmp_path, caplog):
         glosses = jc.load_glosses(tmp_path / "absent.jsonl")
     assert glosses == {}
     assert "gloss" in caplog.text.lower()
+
+
+def test_load_chains_matches_post_split_chain_topics_names(tmp_path):
+    """Round-1 reconciliation renamed the round files sonnet_chains_provisional_r*
+    -> chain-topics_* (spike/curated cohorts). The harness must read BOTH the new
+    and the legacy names — cohort order then filename order, last file wins."""
+    _write_jsonl(tmp_path / "chain-topics_spike_r1.jsonl",
+                 [_chain("a"), _chain("b", vehicle="kettle", vsid="52164")])
+    _write_jsonl(tmp_path / "chain-topics_curated.jsonl",
+                 [_chain("a", middle=("steam", "61000"))])
+    chains = jc.load_chains(tmp_path)
+    by_sig = {c["chain_signature"]: c for c in chains}
+    assert set(by_sig) == {"a", "b"}
+    # curated is the later cohort -> its re-emission of "a" wins
+    assert [s["phrase"] for s in by_sig["a"]["chain"]] == ["anxiety", "steam", "swarm"]
 
 
 # --- sense-suspect quarantine (operator finding 2026-07-03: two gold rows were
