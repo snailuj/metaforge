@@ -326,6 +326,7 @@ def test_committed_suspects_carry_the_operator_flagged_rows():
     assert "e19b265b5b22bb6a92f6e2951c5ae1cc0651113bc6fa4a2da96568c0e83f5000" in sigs  # ambush->fault (sports sense)
     assert "0ee96dd420bcebd7ae6a5379fce3d841eaf2b9719e4e2dcfcd654a9aca04ff05" in sigs  # longing->heliotrope (mineral sense)
     assert "829f7b4ee9978b9cf79258971d8f19ded06aad97dca602699e2a19455096b0c8" in sigs  # euphoria->flight (escape sense)
+    assert "5a1c9b8a5f0e5421f4301757543c6389d32e561a443d62fcb72ac484a5350964" in sigs  # optics->eye (central-area sense)
     assert all(r.get("reason") for r in recs)  # every quarantine states its why
 
 
