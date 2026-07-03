@@ -74,6 +74,42 @@ def load_resolved(path: Path | str) -> list[dict]:
     return rows
 
 
+def drop_before(rows: list[dict], since_ts) -> list[dict]:
+    """Gold vintage floor: drop resolved verdicts whose SURVIVING ts predates
+    `since_ts` (ISO string; lexicographic compare is safe on the uniform
+    +00:00 timestamps).
+
+    Operator decision 2026-07-03: gradings before the Jun-11 "final form" era
+    carry verdict drift (the tool and his grading practice were still forming)
+    and are invalid as gold. Latest-wins resolution makes this self-healing —
+    re-grading an old chain stamps a fresh ts and the row re-enters the gold
+    automatically, so the floor defines a re-grade queue, not a deletion.
+
+    A falsy floor disables the filter. A row with no ts cannot prove its
+    vintage and is dropped + logged.
+    """
+    if not since_ts:
+        return rows
+    kept, dropped = [], 0
+    for row in rows:
+        ts = row.get("ts")
+        if not ts:
+            dropped += 1
+            log.warning("drop_before: no ts on %s (%s -> %s) — cannot prove "
+                        "vintage, dropped", row.get("chain_signature"),
+                        row.get("topic"), row.get("vehicle"))
+            continue
+        if ts < since_ts:
+            dropped += 1
+            continue
+        kept.append(row)
+    if dropped:
+        log.warning("drop_before: dropped %d/%d pre-%s verdict(s) — "
+                    "re-grade through the tool to restore them",
+                    dropped, len(rows), since_ts)
+    return kept
+
+
 def drop_sense_suspect(rows: list[dict], suspects) -> list[dict]:
     """Quarantine gold rows whose operator grade assumed a different word
     sense than the recorded synset — the verdict is about another pairing

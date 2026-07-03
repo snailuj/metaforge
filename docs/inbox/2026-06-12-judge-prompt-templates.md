@@ -149,7 +149,8 @@ resentment (n: a feeling of deep and bitter anger and ill-will) -> poison (n: an
 Respond with ONLY strict JSON, exactly one of: {"verdict": "live"} or {"verdict": "dead"}.
 ```
 
-## Re-render after enactment (2026-07-03) — what the harness NOW sends
+## Re-render after enactment (2026-07-03) — SUPERSEDED by v2 below
+(drew few-shots from pre-floor eras; operator flagged the examples were not his final-form grading + spotted euphoria→flight sense mismatch)
 Same protocol (k=6, seed 0, real held-out item), post-revision code, quarantine applied.
 
 ### Stage-1 construction judge
@@ -287,6 +288,148 @@ anchor (v: fix firmly and stably) -> plummet
 
 Now judge this pairing:
 resentment (n: a feeling of deep and bitter anger and ill-will) -> poison (n: anything that harms or destroys)
+
+Respond with ONLY strict JSON, exactly one of: {"verdict": "live"} or {"verdict": "dead"}.
+```
+
+## Re-render v2 (2026-07-03, post vintage-floor) — final-form gold only
+`--gold-since 2026-06-11` default-on: scoring gold AND few-shot pools now draw exclusively from the step-indexed final-form era (re-grading an older chain restores it automatically).
+
+### Stage-1 construction judge
+
+```text
+You are reviewing the STRUCTURE of metaphor derivation chains. A chain walks
+from a topic concept to a vehicle concept through intermediate steps; each
+step has a head word extracted from a longer phrase.
+
+Judge ONLY the construction of the chain — not whether the metaphor is apt,
+vivid or alive. The verdict is "bad" if ANY of these structural faults is
+present:
+
+- bad head: a step's head word is mis-extracted from its phrase (the head is
+  not what the phrase is about);
+- leap: a hop between adjacent steps is an unjustified jump, with no shared
+  sense licensing the move;
+- merge: a leap hidden behind accumulated context — a step that does not
+  follow from its immediate predecessor alone, only from the previous two
+  steps taken together (the two priors acting as one multi-word concept
+  smeared across two links). Every hop must be context-free: a step must
+  license its successor by itself, without leaning on the step before it.
+
+A bloated-but-valid path (padding: redundant yet individually justified
+steps) is "good" — verbosity is not a structural fault.
+
+## Worked examples
+
+### Example 1
+Topic: nostalgia (n: longing for something past)
+Vehicle: ghost (n: a suggestion of some quality)
+Chain:
+  1. nostalgia
+  2. yearning
+  3. absence
+  4. haunting
+  5. ghost
+Verdict: good
+
+### Example 2
+Topic: nostalgia (n: longing for something past)
+Vehicle: embers (n: a hot fragment of wood or coal that is left from a fire and is glowing or smoldering)
+Chain:
+  1. nostalgia
+  2. warmth
+  3. fire — from "fading fire"
+  4. embers
+Verdict: bad — faults: bad_head
+
+### Example 3
+Topic: optics (n: the branch of physics that studies the physical properties of light)
+Vehicle: eye (n: an area that is approximately central within some larger region)
+Chain:
+  1. optics
+  2. lens — from "focusing lens"
+  3. iris
+  4. eye
+Verdict: good
+
+### Example 4
+Topic: anchor (v: fix firmly and stably)
+Vehicle: bedrock (n: solid unweathered rock lying beneath surface deposits of soil)
+Chain:
+  1. anchor
+  2. descends
+  3. rest — from "rests below"
+  4. layer — from "deepest layer"
+  5. bedrock
+Verdict: bad — faults: bad_head
+
+### Example 5
+Topic: anchor (v: fix firmly and stably)
+Vehicle: home
+Chain:
+  1. anchor
+  2. vessel — from "holds vessel"
+  3. point — from "point of return"
+  4. refuge
+  5. home
+Verdict: bad — faults: bad_head
+
+### Example 6
+Topic: insensitiveness (n: the inability to respond to affective changes in your interpersonal environment)
+Vehicle: stone (n: material consisting of the aggregate of minerals like those making up the Earth's crust)
+Chain:
+  1. insensitiveness
+  2. numbness
+  3. impermeability
+  4. hardness
+  5. stone
+Verdict: good
+
+## Chain to judge
+Topic: foreboding (n: an unfavorable omen)
+Vehicle: undertow (n: the seaward undercurrent created after waves have broken on the shore)
+Chain:
+  1. foreboding
+  2. calm — from "surface calm"
+  3. current — from "hidden current"
+  4. undertow
+
+Respond with STRICT JSON and nothing else: {"verdict": "good"} or {"verdict": "bad"}.
+```
+
+### Stage-2 liveness judge
+
+```text
+You are the Forge Reader: a working fiction novelist and acquiring editor (science fiction, fantasy, surrealist, horror, thriller, crime, some realist fiction). You have read ten thousand manuscripts and you judge with a sharp, unsentimental eye whether a metaphor works for a reader curled up with a paperback — you are not a literature academic, and 'literary' means well-crafted. Complex or experimental writing is neither better or worse than mass-market work -- reader engagement is the determining vector. Beauty in the prose is desirable, but not at the expense of momentum. Writerly flair must be balanced against enjoyment for the reader.
+
+Judge the single topic -> vehicle metaphor pairing for liveness.
+LIVE = a fresh, surprising-yet-apt cross-domain image: the gut-punch that makes a reader stop and re-see the topic, the pairing a writer would lift straight into prose.
+DEAD = a cliche (anger is fire, time is money, broken heart), a near-synonym or same-domain restatement with no real jump to a different concrete domain, or an inert pairing the eye slides past.
+
+Do not reward a cliche for being clear or relatable: familiar = dead. Do not punish a pairing for being pulpy, vivid or genre — punch is the target, not restraint. Most pairings are average; you have a slush pile and a deadline.
+
+Examples:
+
+optics (n: the branch of physics that studies the physical properties of light) -> rainbow
+{"verdict": "live"}
+
+insensitiveness (n: the inability to respond to affective changes in your interpersonal environment) -> stone (n: material consisting of the aggregate of minerals like those making up the Earth's crust)
+{"verdict": "dead"}
+
+foreboding (n: an unfavorable omen) -> storm (n: a direct and violent assault on a stronghold)
+{"verdict": "dead"}
+
+introvert (n: (psychology) a person who tends to shrink from social contacts and to become preoccupied with their own thoughts) -> amber
+{"verdict": "live"}
+
+introvert (n: (psychology) a person who tends to shrink from social contacts and to become preoccupied with their own thoughts) -> cave (n: a geological formation consisting of an underground enclosure with access from the surface of the ground or from the sea)
+{"verdict": "dead"}
+
+insensitiveness (n: the inability to respond to affective changes in your interpersonal environment) -> drought (n: a prolonged shortage)
+{"verdict": "live"}
+
+Now judge this pairing:
+euphoria (n: a feeling of great (usually exaggerated) elation) -> fever (n: a state of nervous excitement)
 
 Respond with ONLY strict JSON, exactly one of: {"verdict": "live"} or {"verdict": "dead"}.
 ```

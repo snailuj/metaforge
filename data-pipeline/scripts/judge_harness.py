@@ -356,9 +356,14 @@ def _make_judge(name: str, axis_key: str, args: argparse.Namespace):
 
 
 def _load_rows(axis: str, gold: str, grading_dir: str | None,
-               sense_suspects: str | None = None) -> list[dict]:
+               sense_suspects: str | None = None,
+               gold_since: str | None = None) -> list[dict]:
     import judge_corpus  # lazy: the harness itself has no corpus dependency
     records = judge_corpus.load_resolved(gold)
+    if gold_since:
+        # Vintage floor before everything else: pre-final-form verdicts are
+        # not gold for ANY purpose (scoring or few-shot) until re-graded.
+        records = judge_corpus.drop_before(records, gold_since)
     if sense_suspects:
         # Before the axis split: a sense-mismatched grade corrupts BOTH the
         # liveness label and the structural read, and the few-shot pools draw
@@ -390,6 +395,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                    help="quarantine JSONL of gold rows graded under a mismatched "
                         "sense assumption (committed beside the harness); point at "
                         "an empty file to disable")
+    p.add_argument("--gold-since", default="2026-06-11",
+                   help="gold vintage floor (ISO date/ts): verdicts whose surviving "
+                        "ts predates this are invalid — operator decision 2026-07-03, "
+                        "final-form era only; re-grading restores a row; pass '' to disable")
     p.add_argument("--judge", required=True,
                    choices=["stub-perfect", "stub-random", "stage1", "stage2"])
     p.add_argument("--model", default=None, help="LLM model for stage judges (their default if unset)")
@@ -410,7 +419,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(levelname)s: %(message)s")
     axis_key = AXIS_KEYS[args.axis]
-    rows = _load_rows(args.axis, args.gold, args.grading_dir, args.sense_suspects)
+    rows = _load_rows(args.axis, args.gold, args.grading_dir, args.sense_suspects,
+                      args.gold_since)
     judge_fn = _make_judge(args.judge, axis_key, args)
 
     from utils import get_git_commit  # sibling import; evidence for committed reports

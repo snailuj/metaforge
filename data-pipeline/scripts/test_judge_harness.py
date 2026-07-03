@@ -292,6 +292,18 @@ def test_load_rows_attaches_context_from_grading_dir(tmp_path):
     assert rows[0]["topic_gloss"] == {"pos": "n", "definition": "a worried state"}
 
 
+def test_load_rows_applies_gold_vintage_floor(tmp_path):
+    import json as _json
+    gold = tmp_path / "judgements.jsonl"
+    gold.write_text(
+        _json.dumps(_v2_gold("2026-06-08T10:00:00+00:00", "a" * 64, "live",
+                             "time", "72810")) + "\n" +
+        _json.dumps(_v2_gold("2026-06-11T13:00:00+00:00", "b" * 64, "dead",
+                             "euphoria", "72598")) + "\n")
+    rows = jh._load_rows("liveness", str(gold), None, gold_since="2026-06-11")
+    assert [r["chain_signature"] for r in rows] == ["b" * 64]
+
+
 def test_load_rows_applies_sense_suspect_quarantine(tmp_path):
     import json as _json
     gold = tmp_path / "judgements.jsonl"

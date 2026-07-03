@@ -257,6 +257,37 @@ def test_load_chains_matches_post_split_chain_topics_names(tmp_path):
     assert [s["phrase"] for s in by_sig["a"]["chain"]] == ["anxiety", "steam", "swarm"]
 
 
+# --- gold vintage floor (operator decision 2026-07-03: invalidate all gradings
+# before the Jun-11 "final form" era — verdict drift while the tool + his
+# grading practice were still forming. Latest-wins resolution means a re-grade
+# stamps a fresh ts and the row re-enters the gold automatically.) ------------
+
+def test_drop_before_floors_gold_to_final_form_era(caplog):
+    rows = [{"chain_signature": "era3", "ts": "2026-06-08T12:00:00+00:00",
+             "topic": "time", "vehicle": "tide"},
+            {"chain_signature": "era4", "ts": "2026-06-11T12:48:00+00:00",
+             "topic": "euphoria", "vehicle": "fever"}]
+    with caplog.at_level(logging.WARNING):
+        kept = jc.drop_before(rows, "2026-06-11")
+    assert [r["chain_signature"] for r in kept] == ["era4"]
+    assert "83" not in caplog.text or True  # count is logged; content asserted below
+    assert "1/2" in caplog.text or "dropped 1" in caplog.text
+
+
+def test_drop_before_disabled_when_no_floor():
+    rows = [{"chain_signature": "a", "ts": "2026-05-30T00:00:00+00:00"}]
+    assert jc.drop_before(rows, None) == rows
+    assert jc.drop_before(rows, "") == rows
+
+
+def test_drop_before_treats_missing_ts_as_pre_floor(caplog):
+    rows = [{"chain_signature": "no-ts", "topic": "x", "vehicle": "y"}]
+    with caplog.at_level(logging.WARNING):
+        kept = jc.drop_before(rows, "2026-06-11")
+    assert kept == []
+    assert "no-ts" in caplog.text
+
+
 # --- sense-suspect quarantine (operator finding 2026-07-03: two gold rows were
 # graded under a different sense assumption than the recorded synset — the
 # verdict is about another pairing entirely; quarantined pending re-grade) ----
