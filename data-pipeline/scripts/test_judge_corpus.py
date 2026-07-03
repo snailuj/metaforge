@@ -329,6 +329,7 @@ def test_committed_suspects_carry_the_operator_flagged_rows():
     assert "5a1c9b8a5f0e5421f4301757543c6389d32e561a443d62fcb72ac484a5350964" in sigs  # optics->eye (central-area sense)
     assert "2a85df821f3724423ea983d2b3268157e25d1c60ede62f6016ae875adebf0e9c" in sigs  # outset->overture (diplomatic sense)
     assert "8137fc8402637d65a2445df0234d58648f84bf7330450e409e360a36e78d4fe1" in sigs  # outset->threshold (abstract-start sense)
+    assert "f24d0306bf29a3325a4f716cb3345b870a3e94cff77fd91fd3521f9ae76ba2dc" in sigs  # foreboding->smoke (figurative-indication sense)
     assert all(r.get("reason") for r in recs)  # every quarantine states its why
 
 
