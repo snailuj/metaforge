@@ -289,11 +289,12 @@ def test_drop_sense_suspect_missing_file_escalates(tmp_path):
         jc.drop_sense_suspect([], tmp_path / "absent.jsonl")
 
 
-def test_committed_suspects_carry_the_fault_and_heliotrope_rows():
+def test_committed_suspects_carry_the_operator_flagged_rows():
     recs = [json.loads(l) for l in SUSPECTS_FILE.read_text().splitlines() if l.strip()]
     sigs = {r["chain_signature"] for r in recs}
     assert "e19b265b5b22bb6a92f6e2951c5ae1cc0651113bc6fa4a2da96568c0e83f5000" in sigs  # ambush->fault (sports sense)
     assert "0ee96dd420bcebd7ae6a5379fce3d841eaf2b9719e4e2dcfcd654a9aca04ff05" in sigs  # longing->heliotrope (mineral sense)
+    assert "829f7b4ee9978b9cf79258971d8f19ded06aad97dca602699e2a19455096b0c8" in sigs  # euphoria->flight (escape sense)
     assert all(r.get("reason") for r in recs)  # every quarantine states its why
 
 
