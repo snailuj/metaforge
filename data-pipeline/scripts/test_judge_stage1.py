@@ -143,6 +143,37 @@ def test_rubric_merge_is_context_licensing_not_restatement():
 
 # --- build_prompt: few-shot fidelity ----------------------------------------------
 
+def _examples_block(prompt: str) -> str:
+    return prompt.split(js1.EXAMPLES_HEADER)[1].split(js1.ITEM_HEADER)[0]
+
+
+def test_bad_examples_render_their_structural_fault_tags():
+    """Operator request: worked examples must show HOW a bad chain is bad, not
+    just that it is — the model needs the fault pattern, not the bare label."""
+    few = [_row("ex-bad", "T0", 1), _row("ex-good", "T1", 0)]
+    prompt = js1.build_prompt(few, _row("item", "T-held-out", 0))
+    assert "Verdict: bad — faults: leap" in prompt
+    assert "Verdict: good —" not in prompt  # good rows stay unannotated
+
+
+def test_fault_suffix_lists_only_linkage_forcing_tags_in_record_order():
+    row = _row("ex-bad", "T0", 1)
+    row["tags"] = ["padding", "bad_head", "merge", "strong"]
+    prompt = js1.build_prompt([row], _row("item", "T-held-out", 0))
+    block = _examples_block(prompt)
+    assert "Verdict: bad — faults: bad_head, merge" in block
+    assert "padding" not in block   # padding is not a structural fault
+    assert "strong" not in block    # tiers/free tags never leak into the prompt
+
+
+def test_bad_example_without_structural_tags_renders_plain_verdict():
+    row = _row("ex-bad", "T0", 1)
+    row["tags"] = []  # linkage explicitly bad, no forcing tag recorded
+    prompt = js1.build_prompt([row], _row("item", "T-held-out", 0))
+    assert "Verdict: bad\n" in prompt or _examples_block(prompt).rstrip().endswith("Verdict: bad")
+    assert "faults:" not in prompt
+
+
 def test_prompt_contains_exactly_k_class_balanced_examples():
     train = _train_corpus()
     few = jh.select_few_shot(train, k=4, seed=3, balance_key="y_link")

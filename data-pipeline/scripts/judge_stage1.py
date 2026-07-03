@@ -26,8 +26,10 @@ from pathlib import Path
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPTS_DIR))  # sibling judge_llm
+sys.path.insert(0, str(_SCRIPTS_DIR.parent))  # -> grading_sidecar package
 
 import judge_llm  # noqa: E402
+from grading_sidecar.models import LINKAGE_FORCING_TAGS  # noqa: E402
 
 EXAMPLES_HEADER = "## Worked examples"
 ITEM_HEADER = "## Chain to judge"
@@ -93,6 +95,16 @@ def _render_chain_block(row: dict) -> str:
     ])
 
 
+def _fault_suffix(ex: dict) -> str:
+    """The operator's structural fault tags, rendered beside a bad verdict so
+    the model sees HOW the chain is bad, not just that it is. Only the
+    linkage-forcing tags qualify — padding is not a fault, and tiers/free tags
+    must never leak into the prompt. Chain-scoped (verdicts don't record which
+    step a tag applies to), hence the verdict line, not a step annotation."""
+    faults = [t for t in (ex.get("tags") or []) if t in LINKAGE_FORCING_TAGS]
+    return f" — faults: {', '.join(faults)}" if faults else ""
+
+
 def build_prompt(few_shot: list[dict], item: dict) -> str:
     """Rubric, k worked examples (chain + gold verdict), then the item LAST and
     verdict-free — the prompt must be byte-identical whatever the item's gold
@@ -103,7 +115,8 @@ def build_prompt(few_shot: list[dict], item: dict) -> str:
         for i, ex in enumerate(few_shot, start=1):
             # Index y_link directly: a non-construction row here is a
             # programming error and must surface, not render a blank verdict.
-            verdict = "bad" if int(ex["y_link"]) else "good"
+            bad = bool(int(ex["y_link"]))
+            verdict = ("bad" + _fault_suffix(ex)) if bad else "good"
             examples.append(f"### Example {i}\n{_render_chain_block(ex)}\n"
                             f"Verdict: {verdict}")
         parts.extend(examples)
