@@ -129,6 +129,18 @@ def test_prompt_contains_structural_rubric_and_strict_json_demand():
     assert "STRICT JSON" in prompt
 
 
+def test_rubric_merge_is_context_licensing_not_restatement():
+    """Operator correction (2026-07-03): a merge is a leap hidden behind
+    accumulated context — the step follows from the two priors TAKEN TOGETHER
+    but not from its immediate predecessor alone — NOT 'two adjacent steps
+    restating one concept'. Every hop must be context-free."""
+    prompt = js1.build_prompt([], _row("a", "T0", 0))
+    assert "restate one concept" not in prompt
+    lowered = prompt.lower()
+    assert "taken together" in lowered
+    assert "context-free" in lowered
+
+
 # --- build_prompt: few-shot fidelity ----------------------------------------------
 
 def test_prompt_contains_exactly_k_class_balanced_examples():

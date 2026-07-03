@@ -4,9 +4,11 @@ persona (plan §4).
 Builds the prompt for one chain-construction verdict and parses the model's
 reply back to the y_link convention (1 = bad linkage). The rubric forces "bad"
 on the three structural faults the operator tags — bad_head (head mis-extracted
-from its phrase), leap (unjustified jump between adjacent steps) and merge (two
-adjacent steps restating one concept; currently inert in live data, kept for
-forward-compat) — while padding (a bloated-but-valid path) stays "good".
+from its phrase), leap (unjustified jump between adjacent steps) and merge (a
+leap hidden behind accumulated context: the step is licensed only by the two
+priors taken together, breaking the context-free-hop requirement; currently
+inert in live data, kept for forward-compat) — while padding (a
+bloated-but-valid path) stays "good".
 Liveness, aptness and vividness are explicitly out of scope: Stage-2 owns the
 pairing judgement and Stage-1 must not import it.
 
@@ -44,7 +46,11 @@ present:
   not what the phrase is about);
 - leap: a hop between adjacent steps is an unjustified jump, with no shared
   sense licensing the move;
-- merge: two adjacent steps restate one concept, so the hop adds no movement.
+- merge: a leap hidden behind accumulated context — a step that does not
+  follow from its immediate predecessor alone, only from the previous two
+  steps taken together (the two priors acting as one multi-word concept
+  smeared across two links). Every hop must be context-free: a step must
+  license its successor by itself, without leaning on the step before it.
 
 A bloated-but-valid path (padding: redundant yet individually justified
 steps) is "good" — verbosity is not a structural fault."""
