@@ -292,6 +292,21 @@ def test_load_rows_attaches_context_from_grading_dir(tmp_path):
     assert rows[0]["topic_gloss"] == {"pos": "n", "definition": "a worried state"}
 
 
+def test_load_rows_applies_sense_suspect_quarantine(tmp_path):
+    import json as _json
+    gold = tmp_path / "judgements.jsonl"
+    gold.write_text(
+        _json.dumps(_v2_gold("2026-06-01T10:00:00+00:00", "a" * 64, "live",
+                             "anxiety", "72810")) + "\n" +
+        _json.dumps(_v2_gold("2026-06-01T11:00:00+00:00", "b" * 64, "dead",
+                             "longing", "72598")) + "\n")
+    suspects = tmp_path / "suspects.jsonl"
+    suspects.write_text(_json.dumps({"chain_signature": "b" * 64,
+                                     "reason": "sense mismatch"}) + "\n")
+    rows = jh._load_rows("liveness", str(gold), None, sense_suspects=str(suspects))
+    assert [r["chain_signature"] for r in rows] == ["a" * 64]
+
+
 # --- checkpointing + observability (batch practice, 2026-06-12 operator finding:
 # an all-or-nothing -o write threw away a 99%-complete run when the session
 # limit hit; only the call-level cache saved the spend) ------------------------

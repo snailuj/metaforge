@@ -240,6 +240,46 @@ def test_load_glosses_missing_file_degrades_to_empty(tmp_path, caplog):
     assert "gloss" in caplog.text.lower()
 
 
+# --- sense-suspect quarantine (operator finding 2026-07-03: two gold rows were
+# graded under a different sense assumption than the recorded synset — the
+# verdict is about another pairing entirely; quarantined pending re-grade) ----
+
+SUSPECTS_FILE = Path(__file__).resolve().parent.parent / "grading" / "gold_sense_suspect.jsonl"
+
+
+def test_drop_sense_suspect_drops_only_matching_signatures(caplog):
+    rows = [{"chain_signature": "keep-me", "topic": "a", "vehicle": "b"},
+            {"chain_signature": "drop-me", "topic": "c", "vehicle": "d"}]
+    with caplog.at_level(logging.WARNING):
+        kept = jc.drop_sense_suspect(rows, [{"chain_signature": "drop-me",
+                                             "reason": "sense mismatch"}])
+    assert [r["chain_signature"] for r in kept] == ["keep-me"]
+    assert "drop-me" in caplog.text  # a quarantined gold row is never silent
+
+
+def test_drop_sense_suspect_accepts_a_jsonl_path(tmp_path):
+    suspects = tmp_path / "suspects.jsonl"
+    suspects.write_text(json.dumps({"chain_signature": "drop-me", "reason": "r"}) + "\n")
+    rows = [{"chain_signature": "keep-me"}, {"chain_signature": "drop-me"}]
+    kept = jc.drop_sense_suspect(rows, suspects)
+    assert [r["chain_signature"] for r in kept] == ["keep-me"]
+
+
+def test_drop_sense_suspect_missing_file_escalates(tmp_path):
+    # Like the gold file: a silently-absent quarantine list would score
+    # known-corrupt rows as gold.
+    with pytest.raises(FileNotFoundError):
+        jc.drop_sense_suspect([], tmp_path / "absent.jsonl")
+
+
+def test_committed_suspects_carry_the_fault_and_heliotrope_rows():
+    recs = [json.loads(l) for l in SUSPECTS_FILE.read_text().splitlines() if l.strip()]
+    sigs = {r["chain_signature"] for r in recs}
+    assert "e19b265b5b22bb6a92f6e2951c5ae1cc0651113bc6fa4a2da96568c0e83f5000" in sigs  # ambush->fault (sports sense)
+    assert "0ee96dd420bcebd7ae6a5379fce3d841eaf2b9719e4e2dcfcd654a9aca04ff05" in sigs  # longing->heliotrope (mineral sense)
+    assert all(r.get("reason") for r in recs)  # every quarantine states its why
+
+
 # --- integration guard against the live grading-live corpus ---
 
 def test_live_corpus_counts():

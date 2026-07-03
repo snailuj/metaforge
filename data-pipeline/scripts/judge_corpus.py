@@ -66,6 +66,42 @@ def load_resolved(path: Path | str) -> list[dict]:
     return rows
 
 
+def drop_sense_suspect(rows: list[dict], suspects) -> list[dict]:
+    """Quarantine gold rows whose operator grade assumed a different word
+    sense than the recorded synset — the verdict is about another pairing
+    entirely, so scoring a judge against it measures noise, not taste.
+
+    suspects: a list of records or a JSONL path (one record per line, keyed by
+    chain_signature; `reason` documents the mismatch). A missing FILE
+    escalates like the gold file — a silently-absent quarantine list would
+    score known-corrupt rows as gold. Rows are dropped pending operator
+    re-grade, never deleted from the gold itself; every drop is logged.
+    """
+    if isinstance(suspects, (str, Path)):
+        path = Path(suspects)
+        if not path.exists():
+            raise FileNotFoundError(f"sense-suspect quarantine file not found: {path}")
+        records, skipped = read_jsonl_skip_malformed(path)
+        if skipped:
+            log.warning("drop_sense_suspect: skipped %d malformed line(s) in %s",
+                        skipped, path)
+    else:
+        records = list(suspects)
+    by_sig = {r["chain_signature"]: r for r in records if r.get("chain_signature")}
+    kept = []
+    for row in rows:
+        suspect = by_sig.get(row.get("chain_signature"))
+        if suspect is None:
+            kept.append(row)
+            continue
+        log.warning("drop_sense_suspect: quarantined %s (%s -> %s): %s",
+                    row.get("chain_signature"), row.get("topic"),
+                    row.get("vehicle"), suspect.get("reason"))
+    if len(kept) != len(rows):
+        log.info("drop_sense_suspect: %d/%d row(s) kept", len(kept), len(rows))
+    return kept
+
+
 def construction_rows(records: list[dict]) -> list[dict]:
     """Stage-1 (linkage) corpus: y_link=1 = bad linkage.
 
