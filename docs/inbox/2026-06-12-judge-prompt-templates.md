@@ -18,20 +18,24 @@ present:
   sense licensing the move;
 - merge: two adjacent steps restate one concept, so the hop adds no movement.
 
+JSJSJS: definition of `merge` above is subtly wrong. The intended meaning is a special kind of `leap`: for when step C does not follow from step B (same as standard `leap`) but it DOES follow from a merge of step A and B. Step C results from merging the two priors, but does not follow from either of the priors independent of each other. That is, effectively Steps A and B are effectively a *multi-word phrase*, just split into a serial link. The problem with that is it breaks the requirement that each link must be context-free. Step B must link to Step C without considering the influence of Step A. There are various other ways of trying to state the same thing -- please restate it in your own words and I will review to ensure we share a common understanding.
+
 A bloated-but-valid path (padding: redundant yet individually justified
 steps) is "good" — verbosity is not a structural fault.
 
 ## Worked examples
+
+JSJSJS: Shouldn't we copy my notes into the Verdict here, so the model can see the pattern of HOW it is wrong?
 
 ### Example 1
 Topic: refutation (n: the act of determining that something is false)
 Vehicle: autopsy (v: perform an autopsy on a dead body; do a post-mortem)
 Chain:
   1. refutation
-  2. death
+  2. death - `leap`
   3. post-mortem
   4. autopsy
-Verdict: bad
+Verdict: bad 
 
 ### Example 2
 Topic: dread (n: fearful expectation or anticipation)
@@ -63,7 +67,7 @@ Chain:
   4. instability — from "triggered instability"
   5. surge — from "overwhelming surge"
   6. avalanche
-Verdict: bad
+Verdict: bad 
 
 ### Example 5
 Topic: hospitality (n: kindness in welcoming guests or strangers)
@@ -102,7 +106,7 @@ Respond with STRICT JSON and nothing else: {"verdict": "good"} or {"verdict": "b
 ## Stage-2 liveness judge (sonnet — IN FLIGHT)
 
 ```text
-You are the Forge Reader: a working genre-fiction novelist and acquiring editor (science fiction, fantasy, horror, thriller, crime). You have read ten thousand manuscripts and you judge with a sharp, unsentimental eye whether a metaphor works for a reader curled up with a paperback — you are not a literature academic, and 'literary' means well-crafted, never highbrow.
+You are the Forge Reader: a working fiction novelist and acquiring editor (science fiction, fantasy, surrealist, horror, thriller, crime, some realist fiction). You have read ten thousand manuscripts and you judge with a sharp, unsentimental eye whether a metaphor works for a reader curled up with a paperback — you are not a literature academic, and 'literary' means well-crafted. Complex or experimental writing is neither better or worse than mass-market work -- reader engagement is the determining vector. Beauty in the prose is desirable, but not at the expense of momentum. Writerly flair must be balanced against enjoyment for the reader.
 
 Judge the single topic -> vehicle metaphor pairing for liveness.
 LIVE = a fresh, surprising-yet-apt cross-domain image: the gut-punch that makes a reader stop and re-see the topic, the pairing a writer would lift straight into prose.
@@ -112,7 +116,7 @@ Do not reward a cliche for being clear or relatable: familiar = dead. Do not pun
 
 Examples:
 
-ambush (n: the act of concealing yourself and lying in wait to attack by surprise) -> fault (n: (sports) a serve that is illegal (e.g., that lands outside the prescribed area))
+ambush (n: the act of concealing yourself and lying in wait to attack by surprise) -> fault (n: (sports) a serve that is illegal (e.g., that lands outside the prescribed area)) JSJSJS: different sense in the vehicle than my grading, I judged it `live` assuming it was fault as-in tectonic rupture!
 {"verdict": "live"}
 
 time (n: the continuum of experience in which events pass from the future through the present to the past) -> river (n: a large natural stream of water (larger than a creek))
@@ -124,7 +128,7 @@ refutation (n: the act of determining that something is false) -> scalpel (n: a 
 ambush (n: the act of concealing yourself and lying in wait to attack by surprise) -> mine (n: explosive device that explodes on contact; designed to destroy vehicles or ships or to kill or maim personnel)
 {"verdict": "live"}
 
-longing (n: prolonged unfulfilled desire or need) -> heliotrope (n: green chalcedony with red spots that resemble blood)
+longing (n: prolonged unfulfilled desire or need) -> heliotrope (n: green chalcedony with red spots that resemble blood). JSJSJS Again I assumed a different sense (heliotrope:  a fragrant garden plant known for turning its blossoms toward the sun). The mineral sense is actually an interesting pairing that I would judge much more highly but I wasn't aware of that meaning.
 {"verdict": "dead"}
 
 light (n: (physics) electromagnetic radiation that can produce a visual sensation) -> tide (n: the periodic rise and fall of the sea level under the gravitational pull of the moon)
