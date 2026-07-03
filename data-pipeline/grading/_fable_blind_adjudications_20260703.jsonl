@@ -1,0 +1,21 @@
+{"i": 15, "pairing": "optics->eye", "resolution": "quarantine", "note": "sense mismatch (central-area not organ)"}
+{"i": 12, "pairing": "outset->overture", "gold_was": "live", "resolution": "dead", "note": "agreed dead; diplomatic-opening sense = same territory"}
+{"i": 25, "pairing": "outset->threshold", "resolution": "quarantine", "note": "wrong sense (abstract-start not doorway); recorded-sense = dead"}
+{"i": 12, "pairing": "outset->overture", "resolution": "quarantine", "note": "RECLASSIFIED from dead-flip: wrong sense (diplomatic not musical)"}
+{"i": 2, "pairing": "foreboding->smoke", "resolution": "quarantine", "note": "wrong sense (concrete not figurative-indication); concrete re-grade = live/not-surprising"}
+{"i": 3, "pairing": "outset->fuse", "gold_was": "live", "resolution": "dead", "note": "taste flip; agreed stock idiom. correct sense. needs re-grade"}
+{"i": 6, "pairing": "nostalgia->ruin", "resolution": "quarantine", "note": "wrong POS (verb-to-ruin not noun-building); noun sense = dead"}
+{"i": 8, "pairing": "nostalgia->embers", "gold_was": "live", "resolution": "dead", "note": "taste flip; correct sense; agreed worn family. needs re-grade"}
+{"i": 14, "pairing": "euphoria->vertigo", "gold_was": "live", "resolution": "live", "note": "HELD LIVE; my dead was too strict. lesson: vehicle's affective shadow (impending-doom) recolours topic = the leap, even when surface mapping is near-synonym. marginal/hair"}
+{"i": 16, "pairing": "anxiety->pendulum", "gold_was": "live", "resolution": "live", "note": "HELD LIVE; my dead too strict. lesson: mapping is recurrence/inevitable-return not oscillation-per-se; anxiety recurs"}
+{"i": 17, "pairing": "introvert->lake", "gold_was": "live", "resolution": "dead", "note": "taste flip; correct sense; conceded still-waters-run-deep proverb gravity. needs re-grade"}
+{"i": 21, "pairing": "nostalgia->photograph", "gold_was": "live", "resolution": "live", "note": "HELD LIVE; my dead was metonymy-objection (literal artefact). operator holds live; metonymy/metaphor boundary calibration"}
+{"i": 22, "pairing": "publicity->floodlight", "gold_was": "live", "resolution": "dead", "note": "taste flip; operator suspects an outright grading slip (misclick), not taste. correct sense. needs re-grade"}
+{"i": 27, "pairing": "publicity->aperture", "resolution": "quarantine", "note": "wrong sense (camera-iris/exposure not generic opening)"}
+{"i": 30, "pairing": "euphoria->combustion", "gold_was": "live", "resolution": "live", "note": "HELD LIVE; my dead too strict (fire-for-emotion prior). lesson (matches vertigo): vehicle imports darker/self-consuming edge euphoria lacks = the leap. PATTERN: affective shadow"}
+{"i": 32, "pairing": "introvert->chrysalis", "gold_was": "live", "resolution": "dead", "note": "taste flip; own note already hedged (cliche in many circles). correct sense. needs re-grade"}
+{"i": 33, "pairing": "anchor->tendon", "resolution": "quarantine", "note": "operator confirms misread sense (verb-fix topic)"}
+{"i": 41, "pairing": "optics->kaleidoscope", "gold_was": "live", "resolution": "dead", "note": "taste flip; same-domain (kaleidoscope IS optical). correct sense. needs re-grade"}
+{"i": 0, "pairing": "META-OBSERVATION", "resolution": "note", "note": "operator: 'optics' (a branch of physics) is near-un-metaphorable — abstract academic-domain topics lack experiential handholds AND are off-target (Metaforge = emotional/experiential concepts). TOPIC-SELECTION filter needed, separate from judge. All 3 optics->X pairings troubled."}
+{"i": 4, "pairing": "anxiety->quicksand", "gold_was": "dead", "resolution": "dead", "note": "HELD DEAD; my false-positive. lesson: familiar=dead even when mechanism is apt. I over-weighted mechanistic aptness vs overuse"}
+{"i": 36, "pairing": "anxiety->quicksand(2)", "gold_was": "dead", "resolution": "dead", "note": "HELD DEAD; same as #4"}
