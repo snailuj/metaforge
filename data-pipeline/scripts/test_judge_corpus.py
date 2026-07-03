@@ -332,6 +332,7 @@ def test_committed_suspects_carry_the_operator_flagged_rows():
     assert "f24d0306bf29a3325a4f716cb3345b870a3e94cff77fd91fd3521f9ae76ba2dc" in sigs  # foreboding->smoke (figurative-indication sense)
     assert "313d46d63fafb90c2d111066a2f3086b36978314e8cff78123ff5dd56183ff5a" in sigs  # nostalgia->ruin (noun not verb)
     assert "68da2dd6971871e335194b91e096aedbea22025fa4821ec7ff3c9f67b644d847" in sigs  # publicity->aperture (generic opening not camera)
+    assert "2daf43351cbe24f24002e2a20bdf73c03a075181f793c3cca15191f8e76da05f" in sigs  # anchor->tendon (verb-fix sense misread)
     assert all(r.get("reason") for r in recs)  # every quarantine states its why
 
 
