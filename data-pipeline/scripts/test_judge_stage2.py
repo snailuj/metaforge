@@ -113,6 +113,17 @@ def test_persona_preamble_present():
     assert '{"verdict": "dead"}' in prompt
 
 
+def test_persona_carries_operator_revision_2026_07():
+    """Julian's preamble revision: wider span (surrealist, some realist
+    fiction), reader engagement as the determining vector, beauty subordinate
+    to momentum. The old 'never highbrow' framing is superseded."""
+    prompt = js2.build_prompt([], _row("it0", "T0", 1))
+    assert "surrealist" in prompt
+    assert "reader engagement is the determining vector" in prompt
+    assert "not at the expense of momentum" in prompt
+    assert "never highbrow" not in prompt
+
+
 def test_pairing_renders_topic_then_vehicle_with_glosses():
     item = _row("it0", "T0", 1, topic="grief", vehicle="anchor",
                 topic_gloss=_gloss("intense sorrow"),
