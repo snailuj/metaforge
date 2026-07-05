@@ -66,6 +66,10 @@ export class MfGradeWalk extends LitElement {
     @property({ type: Boolean }) graded = false
     // Ungraded chains still remaining in the whole walk — queue-progress readout.
     @property({ type: Number }) ungradedLeft = 0
+    // Guided mode: the list is an exact prefilled candidate order (not signal-ranked),
+    // so the dwell sub-indicator and skip-graded toggle — both signal-walk affordances —
+    // are hidden. Navigation, position, and the graded badge stay.
+    @property({ type: Boolean }) guided = false
 
     private boundKey = (e: KeyboardEvent) => this.onKeydown(e)
 
@@ -105,10 +109,13 @@ export class MfGradeWalk extends LitElement {
                 <button data-testid="walk-next" ?disabled=${!this.canNext}
                         @click=${() => this.emit('walk-next')}>Next ›</button>
                 ${this.graded ? html`<span class="graded" data-testid="walk-graded" title="already graded — your verdict is pre-filled">✓ graded</span>` : ''}
-                <span class="dwell" data-testid="walk-dwell">${this.topic} · ${this.dwellIndex + 1}/${this.dwellN}</span>
-                <button class="skip ${this.skipGraded ? 'on' : ''}" data-testid="walk-skip"
-                        aria-pressed=${this.skipGraded}
-                        @click=${() => this.emit('walk-skip-toggle')}>Skip graded</button>
+                ${this.guided
+                    ? html`<span class="dwell" data-testid="walk-topic">${this.topic}</span>`
+                    : html`
+                        <span class="dwell" data-testid="walk-dwell">${this.topic} · ${this.dwellIndex + 1}/${this.dwellN}</span>
+                        <button class="skip ${this.skipGraded ? 'on' : ''}" data-testid="walk-skip"
+                                aria-pressed=${this.skipGraded}
+                                @click=${() => this.emit('walk-skip-toggle')}>Skip graded</button>`}
             </div>
             <mf-grade-panel
                 .chain=${this.chain}

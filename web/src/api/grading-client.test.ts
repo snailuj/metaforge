@@ -70,6 +70,29 @@ describe('GradingClient', () => {
         await expect(client.getWalk()).rejects.toThrow('getWalk: 500');
     });
 
+    it('getGuidedWalk fetches the guided-walk endpoint (latest batch)', async () => {
+        const payload = { count: 1, batch: 'r1', entries: [{ chain_signature: 's1', topic: 'anger', vehicle: 'venom', order: 0, record: { chain_signature: 's1' } }] };
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => payload });
+        const client = new GradingClient();
+        const res = await client.getGuidedWalk();
+        expect(fetchMock).toHaveBeenCalledWith('/api/grading/guided-walk');
+        expect(res.batch).toBe('r1');
+        expect(res.entries[0].order).toBe(0);
+    });
+
+    it('getGuidedWalk passes an explicit batch as a query param', async () => {
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ count: 0, batch: 'r2', entries: [] }) });
+        const client = new GradingClient();
+        await client.getGuidedWalk('2026-07-05-r2');
+        expect(fetchMock).toHaveBeenCalledWith('/api/grading/guided-walk?batch=2026-07-05-r2');
+    });
+
+    it('getGuidedWalk throws on non-200', async () => {
+        fetchMock.mockResolvedValue({ ok: false, status: 500 });
+        const client = new GradingClient();
+        await expect(client.getGuidedWalk()).rejects.toThrow('getGuidedWalk: 500');
+    });
+
     it('getSignalReport fetches the signal endpoint and returns the report', async () => {
         const payload = { n: 72, n_live: 44, n_dead: 28, n_topics: 15, n_both_class_topics: 12,
             n_powered_topics: 6, base_rate_live: 0.611, per_topic: [],

@@ -49,6 +49,23 @@ describe('mf-grade-walk', () => {
     expect(dwell).toContain('2/4')
   })
 
+  it('guided mode hides the signal-only dwell and skip-graded controls', async () => {
+    el = await mount({ guided: true })
+    // dwell + skip are signal-walk affordances; a prefilled guided list has neither
+    expect(el.shadowRoot!.querySelector('[data-testid="walk-dwell"]')).toBeNull()
+    expect(el.shadowRoot!.querySelector('[data-testid="walk-skip"]')).toBeNull()
+    // navigation + position + graded badge remain
+    expect(el.shadowRoot!.querySelector('[data-testid="walk-prev"]')).not.toBeNull()
+    expect(el.shadowRoot!.querySelector('[data-testid="walk-next"]')).not.toBeNull()
+    expect(el.shadowRoot!.querySelector('[data-testid="walk-pos"]')).not.toBeNull()
+  })
+
+  it('signal mode (default) keeps the dwell and skip-graded controls', async () => {
+    el = await mount()
+    expect(el.shadowRoot!.querySelector('[data-testid="walk-dwell"]')).not.toBeNull()
+    expect(el.shadowRoot!.querySelector('[data-testid="walk-skip"]')).not.toBeNull()
+  })
+
   it('disables prev/next from explicit canPrev/canNext flags', async () => {
     const first = await mount({ canPrev: false, canNext: true })
     expect((first.shadowRoot!.querySelector('[data-testid="walk-prev"]') as HTMLButtonElement).disabled).toBe(true)

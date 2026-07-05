@@ -101,6 +101,23 @@ export interface WalkResponse {
     entries: WalkEntry[];
 }
 
+// Guided walk (GET /api/grading/guided-walk): an exact prefilled candidate order.
+// No dwell/triage priors — the server withholds the stored judge_verdict + cohort
+// (anchoring guard), so the client only ever sees the chain + its list position.
+export interface GuidedEntry {
+    chain_signature: string;
+    topic: string;
+    vehicle: string;
+    order: number;
+    record: ChainRecord;
+}
+
+export interface GuidedWalkResponse {
+    count: number;
+    batch: string | null;
+    entries: GuidedEntry[];
+}
+
 // On-demand signal/coverage report (GET /api/grading/signal). Re-read after a
 // grading batch: coverage = the binding breadth constraint; geometry = the
 // within-topic "one big leap" concordance (max_hop_cos etc.).
