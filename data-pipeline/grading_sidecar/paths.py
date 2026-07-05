@@ -45,6 +45,12 @@ SENSE_FLAGS_NAME = "sense_flags_provisional.jsonl"
 SENSE_CANDIDATES_NAME = "sense_candidates_provisional.jsonl"
 SENSE_LABELS_PATH = GRADING_DIR / "sense_labels_provisional.jsonl"
 
+# Operator-prefilled guided-walk candidate list (chain_signature, order, cohort,
+# judge_verdict, batch) — an EXACT ordered subset teed up offline for a blind
+# grading round. The stored judge_verdict + eval/train cohort are server-side
+# only (never served to the client): showing them would anchor the blind grade.
+GUIDED_WALK_NAME = "guided_walk_provisional.jsonl"
+
 # --- Chain cohorts (source-by-location) ---
 # Grading views (walk/topic/stats/chains/regrade) read GRADING_COHORTS. The
 # sense-check context reads SENSECHECK_COHORTS (adds `stock`). `stock` lives under a
