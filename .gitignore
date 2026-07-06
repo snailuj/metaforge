@@ -4,6 +4,7 @@
 # Data pipeline outputs (generated, large)
 data-pipeline/output/*.db
 data-pipeline/output/*.db.*-backup
+data-pipeline/output/*.db.bak*
 data-pipeline/output/*.db.pre-*
 data-pipeline/output/*.sql
 data-pipeline/output/sweep_*.json
@@ -54,6 +55,10 @@ __pycache__/
 # Node
 node_modules/
 dist/
+# Timestamped dist backups (e.g. dist._pre_cinematic_20260702T054525Z) — the bare
+# `dist/` pattern doesn't catch the suffixed sibling dirs.
+dist._*/
+web/dist._*/
 
 # Coverage
 coverage/
