@@ -1,6 +1,6 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { ChainRecord, GlossMap, Linkage, MetaphorVerdict, Tier, Tag, Confidence, VerdictSubmitDetail } from '../types/grading';
+import type { ChainRecord, ChainStep, GlossMap, Linkage, MetaphorVerdict, Tier, Tag, Confidence, VerdictSubmitDetail } from '../types/grading';
 import { TAGS } from '../types/grading';
 
 // WordNet POS code → grader-readable label. 's' is an adjective satellite.
@@ -42,6 +42,22 @@ export class MfGradePanel extends LitElement {
         :host { display: block; padding: 0.5rem; }
         .chain { font-size: 1rem; line-height: 1.6; margin: 0.5rem 0; }
         .arrow { color: #4d5260; margin: 0 0.3rem; }
+        /* Each node is tappable/hoverable to read its snapped-sense gloss. The dotted
+           underline signals the affordance; active node is boxed. */
+        button.step-node {
+            font: inherit; color: #e6e6e6; background: transparent;
+            border: none; border-bottom: 1px dotted #4d5260;
+            padding: 0 0.15rem; cursor: pointer; border-radius: 2px;
+        }
+        button.step-node:hover { color: #fff; border-bottom-color: #9ec4ff; }
+        button.step-node.active { background: #222836; border-bottom-color: #9ec4ff; }
+        .link-gloss { margin: 0.1rem 0 0.5rem; font-size: 0.82rem; color: #b8bfca; line-height: 1.4; }
+        .link-gloss .pos {
+            font-size: 0.7rem; color: #9ec4ff; border: 1px solid #2f3a4d; border-radius: 3px;
+            padding: 0 0.3rem; margin: 0 0.35rem; vertical-align: middle;
+        }
+        .link-gloss .gloss { color: #97a0ae; }
+        .link-gloss .gloss.muted { font-style: italic; color: #6f7684; }
         /* Original prose phrase, shown muted beside its snapped head only when
            the two differ — so a mis-snapped head (bad_head) is judgeable. */
         .phrase-sub { color: #7a8190; font-size: 0.8em; font-style: italic; margin-left: 0.3rem; }
@@ -118,6 +134,11 @@ export class MfGradePanel extends LitElement {
     @state() private selectedTiers: Tier[] = [];
     // Multi-select issue tags — orthogonal to verdict axes, always available.
     @state() private selectedTags: Tag[] = [];
+    // Which chain node's gloss is revealed. Hover (transient) takes precedence over
+    // a pinned tap so the mouse can preview any node then fall back to the pin; both
+    // null = no gloss shown. Indices, so 0 is valid — read via `hover ?? pin`, never `||`.
+    @state() private _hoverStepIdx: number | null = null;
+    @state() private _pinnedStepIdx: number | null = null;
     // Stable identity of what we last prefilled for: the selected chain's
     // signature plus the prior record's ts. Keying on the chain too means a
     // switch to a different chain — even another ungraded one (same null prior)
@@ -148,6 +169,9 @@ export class MfGradePanel extends LitElement {
         const key = `${this.chain?.chain_signature ?? ''}|${pv?.ts ?? ''}`;
         if (key === this._prefilledForKey) return;
         this._prefilledForKey = key;
+        // A pinned/hovered node index is meaningless on a different chain — clear it.
+        this._hoverStepIdx = null;
+        this._pinnedStepIdx = null;
         if (pv) {
             this.pendingLinkage = pv.linkage;
             this.confidence = pv.confidence;
@@ -190,6 +214,38 @@ export class MfGradePanel extends LitElement {
     // ISO-8601 → "YYYY-MM-DD HH:MM" by slice (deterministic; no Date/locale).
     private _fmtTs(ts: string): string {
         return ts.slice(0, 16).replace('T', ' ');
+    }
+
+    // Node whose gloss to show: a live hover wins over the pinned tap, so the mouse
+    // can preview any node and fall back to the pin on leave. `??` (not `||`) keeps
+    // index 0 selectable.
+    private _activeStepIdx(): number | null {
+        return this._hoverStepIdx ?? this._pinnedStepIdx;
+    }
+
+    private _toggleStepGloss(i: number) {
+        this._pinnedStepIdx = this._pinnedStepIdx === i ? null : i;
+    }
+
+    // The gloss of the currently hovered/tapped node — the WordNet definition of the
+    // synset it snapped to. Reveals a wrong-sense snap at ANY hop (e.g. livery),
+    // where the sense block only covers the topic/vehicle endpoints. Degrades to a
+    // muted note when that synset has no precomputed gloss (unexported / null snap).
+    private _renderLinkGloss(steps: ChainStep[]) {
+        const i = this._activeStepIdx();
+        if (i === null) return '';
+        const step = steps[i];
+        if (!step) return '';
+        const g = step.synset_id ? this.glosses[step.synset_id] : undefined;
+        return html`
+            <div class="link-gloss" data-testid="link-gloss">
+                <strong>${step.head}</strong>
+                ${g?.pos ? html`<span class="pos" data-testid="link-gloss-pos">${POS_LABEL[g.pos] ?? g.pos}</span>` : ''}
+                ${g?.definition
+                    ? html`<span class="gloss">${g.definition}</span>`
+                    : html`<span class="gloss muted">no gloss for this sense</span>`}
+            </div>
+        `;
     }
 
     private _onKeydown(e: KeyboardEvent) {
@@ -304,11 +360,15 @@ export class MfGradePanel extends LitElement {
                 </div>
             ` : ''}
             <div class="chain">
-                ${steps.map((s, i) => html`
-                    <span class="step">${s.head}${s.phrase !== s.head
-                        ? html`<span class="phrase-sub">${s.phrase}</span>` : ''}</span>${i < steps.length - 1 ? html`<span class="arrow">→</span>` : ''}
-                `)}
+                ${steps.map((s, i) => html`<button type="button"
+                        class="step-node ${this._activeStepIdx() === i ? 'active' : ''}"
+                        data-testid="step-node-${i}"
+                        @click=${() => this._toggleStepGloss(i)}
+                        @mouseenter=${() => { this._hoverStepIdx = i; }}
+                        @mouseleave=${() => { this._hoverStepIdx = null; }}>${s.head}${s.phrase !== s.head
+                        ? html`<span class="phrase-sub">${s.phrase}</span>` : ''}</button>${i < steps.length - 1 ? html`<span class="arrow">→</span>` : ''}`)}
             </div>
+            ${this._renderLinkGloss(steps)}
             ${this._renderSenses(this.chain)}
             <div class="verdict-row">
                 <span class="group-label">Metaphor:</span>

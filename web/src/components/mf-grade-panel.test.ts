@@ -256,6 +256,29 @@ describe('mf-grade-panel', () => {
         expect(el.shadowRoot!.querySelector('[data-testid="chip-bad_head"]')).toBeTruthy();
     });
 
+    it('exposes bad_sense as a tag chip', () => {
+        expect(el.shadowRoot!.querySelector('[data-testid="chip-bad_sense"]')).toBeTruthy();
+    });
+
+    it('selecting bad_sense does NOT force linkage bad (grader reads the intended sense)', async () => {
+        await clickTag('bad_sense');
+        expect(tagSelected('bad_sense')).toBe(true);
+        expect(linkageBad()).toBe(false);
+    });
+
+    it('bad_sense scaffolds a space-normalised "bad sense: " prefix', async () => {
+        await clickTag('bad_sense');
+        expect(notesValue()).toBe('bad sense: ');
+    });
+
+    it('a submit carries the bad_sense tag', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
+        await clickTag('bad_sense');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        expect(d.tags).toEqual(['bad_sense']);
+    });
+
     it('clicking tag chips multi-selects (toggle on/off)', async () => {
         await clickTag('padding');
         await clickTag('bad_head');
@@ -425,5 +448,95 @@ describe('mf-grade-panel', () => {
     it('renders no senses block when no glosses are available', async () => {
         // default: el.glosses is {} (beforeEach sets no glosses)
         expect(el.shadowRoot!.querySelector('[data-testid="senses"]')).toBeNull();
+    });
+
+    // --- Per-link glosses: hover or tap any chain node to read its snapped-synset
+    // gloss. Lets the grader spot a wrong-sense snap (e.g. livery) at any hop, not
+    // just the topic/vehicle endpoints. Reuses the glosses map keyed by synset_id. ---
+    const node = (i: number) =>
+        el.shadowRoot!.querySelector(`[data-testid="step-node-${i}"]`) as HTMLElement | null;
+    const linkGloss = () =>
+        el.shadowRoot!.querySelector('[data-testid="link-gloss"]');
+    const CHAIN_GLOSSES = {
+        '1': { pos: 'n', definition: 'a strong feeling of displeasure' },
+        '2': { pos: 'n', definition: 'violent unfriendly feelings' },
+        '3': { pos: 'n', definition: 'a poison secreted by some animals' },
+    };
+
+    it('renders each chain step as an interactive node', () => {
+        expect(node(0)).toBeTruthy();
+        expect(node(1)).toBeTruthy();
+        expect(node(2)).toBeTruthy();
+        expect(node(3)).toBeNull(); // only 3 steps
+    });
+
+    it('no link gloss is shown until a node is hovered or tapped', () => {
+        el.glosses = CHAIN_GLOSSES;
+        expect(linkGloss()).toBeNull();
+    });
+
+    it('tapping a chain node reveals its snapped-synset gloss below the chain', async () => {
+        el.glosses = CHAIN_GLOSSES;
+        await el.updateComplete;
+        node(1)!.click();               // hostility, synset '2'
+        await el.updateComplete;
+        const text = linkGloss()!.textContent || '';
+        expect(text).toContain('hostility');                 // node head
+        expect(text).toContain('violent unfriendly feelings'); // its gloss
+        expect(text).toContain('noun');                       // POS label
+    });
+
+    it('tapping the active node again hides its gloss (toggle)', async () => {
+        el.glosses = CHAIN_GLOSSES;
+        await el.updateComplete;
+        node(1)!.click(); await el.updateComplete;
+        expect(linkGloss()).toBeTruthy();
+        node(1)!.click(); await el.updateComplete;
+        expect(linkGloss()).toBeNull();
+    });
+
+    it('hovering a chain node reveals its gloss; leaving reverts', async () => {
+        el.glosses = CHAIN_GLOSSES;
+        await el.updateComplete;
+        node(2)!.dispatchEvent(new MouseEvent('mouseenter'));
+        await el.updateComplete;
+        expect(linkGloss()!.textContent).toContain('a poison secreted');
+        node(2)!.dispatchEvent(new MouseEvent('mouseleave'));
+        await el.updateComplete;
+        expect(linkGloss()).toBeNull();
+    });
+
+    it('hover transiently overrides a pinned node, then reverts to the pin on leave', async () => {
+        el.glosses = CHAIN_GLOSSES;
+        await el.updateComplete;
+        node(0)!.click();               // pin step 0 (index 0 — must survive ?? )
+        await el.updateComplete;
+        node(2)!.dispatchEvent(new MouseEvent('mouseenter'));
+        await el.updateComplete;
+        expect(linkGloss()!.textContent).toContain('a poison secreted'); // hovered step 2
+        node(2)!.dispatchEvent(new MouseEvent('mouseleave'));
+        await el.updateComplete;
+        expect(linkGloss()!.textContent).toContain('a strong feeling'); // reverts to pinned step 0
+    });
+
+    it('degrades gracefully when the node has no gloss (still shows the head)', async () => {
+        // default glosses {} — no synset resolves
+        node(1)!.click();
+        await el.updateComplete;
+        const g = linkGloss();
+        expect(g).toBeTruthy();
+        expect(g!.textContent).toContain('hostility');   // head still shown
+        expect(g!.textContent!.toLowerCase()).toContain('no gloss');
+    });
+
+    it('switching to a different chain clears the pinned gloss', async () => {
+        el.glosses = CHAIN_GLOSSES;
+        await el.updateComplete;
+        node(1)!.click();
+        await el.updateComplete;
+        expect(linkGloss()).toBeTruthy();
+        el.chain = { ...CHAIN, chain_signature: 'f'.repeat(64) };
+        await el.updateComplete;
+        expect(linkGloss()).toBeNull();
     });
 });
