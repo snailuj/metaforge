@@ -14,12 +14,16 @@ checks whether the AVOID list is tuned for the broad lexicon and re-tunes it.
 
 **Two findings.** (1) The stock corpus is **healthily diverse overall** — 1,468
 distinct vehicles, Gini 0.424, 61% of vehicles used exactly once — with a
-concentrated head of ~20 crutches, same shape as the June audit. (2) **The
-existing AVOID list is aimed at the wrong regime**: all 16 pre-palimpsest entries
-(fermentation, tide, undertow, river, …) have **zero** chains in the stock corpus.
-They were tuned on Phase B's *emotional* topics; the broad noun lexicon reaches
-for an entirely different vehicle set. The AVOID list needed re-tuning, not just
-one addition.
+concentrated head of ~20 crutches, same shape as the June audit. (2) **AVOID is
+whack-a-mole.** The stock run WAS launched with the 16-vehicle AVOID list applied
+(confirmed: memory `stock_run_emit_launched`, and the 2026-06-27 pause QA —
+"AVOID working: top vehicles palimpsest/loom/mycelium, no banned clichés"). All
+16 have **zero** chains in the corpus — they were successfully *suppressed*, not
+regime-mismatched (an earlier draft of this doc wrongly attributed the zero
+footprint to regime). With the top crutches banned, the model's mode-collapse
+pressure **redirected to the next tier** — palimpsest surged from June's #7 (22
+chains) to #1 (50), and amber/avalanche/etc. rose behind it. Adding these to
+AVOID will suppress *this* tier and almost certainly surface a *third*.
 
 ## Corpus totals
 
@@ -69,10 +73,25 @@ the 2026-07-03 blind experiment — they are reaches.)
 **Added** (13 stock crutches, chains ≥ 15 & breadth ≥ 15, not already listed):
 `amber, avalanche, ratchet, gangrene, patina, mycelium, quicksand, taxidermy,
 murmuration, stampede, keystone, chrysalis, suture` — plus `palimpsest` (added
-earlier). **Kept** the 16 emotional-topic entries (zero stock footprint, but
-harmless and relevant if a future run targets emotional topics — the list now
-covers both regimes). Watch-list, just below the cut (chains 11–14): `scar,
-blight, tourniquet, lacquer, static, mosaic, reliquary, counterpoint`.
+earlier). **Kept** the 16 original entries — they are *actively suppressing* their
+crutches (that's why they're at zero); dropping them would let those clichés
+return. The list now bans both tiers. Watch-list, just below the cut (chains
+11–14): `scar, blight, tourniquet, lacquer, static, mosaic, reliquary,
+counterpoint` — likely the third tier next run.
+
+## Strategic implication: AVOID is a treadmill, the judge is the real filter
+
+Because banning a tier redirects collapse to the next, AVOID tuning has
+**diminishing returns** — you can't ban your way to diversity; each round buys one
+tier of suppression and surfaces another. AVOID is worth keeping as a cheap
+diversity nudge, but it is NOT the fix for mode-collapse. Two better levers: (a)
+generation-side — sampling temperature / prompt-diversity / per-topic vehicle
+variety, attacking the *cause* not the symptom; (b) the **live/dead judge** —
+which gates crutch-reaches at harvest regardless of how the model over-reaches
+(the past/memory palimpsest lives, the bureaucracy→palimpsest reach dies). The
+judge makes the whack-a-mole moot for the *product*: over-reached vehicles that
+don't fit simply don't become edges. So do NOT over-invest in AVOID tuning — one
+audit per corpus to knock down the worst tier, then rely on the judge.
 
 **Operator vetoes to consider:** the sparse live signal makes `amber` (2/2),
 `patina` (1/1), `taxidermy` (1/1), `scar` (1/1) look apt-though-overused. AVOID
