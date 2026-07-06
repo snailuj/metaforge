@@ -266,6 +266,22 @@ def test_judgement_rejects_unknown_tag():
             proposer="p", chain_signature="a"*64, linkage="good", metaphor="live",
             tags=["bogus"])
 
+# bad_sense flags a wrong-sense snap (the head lemma is right but pinned to the
+# wrong synset). Like bad_head it is a data-quality flag — the operator grades the
+# INTENDED sense, so it must NOT force linkage:bad (the pairing on the read sense
+# may bridge fine). It only marks the row sense-suspect for later re-snap/quarantine.
+
+def test_judgement_accepts_bad_sense_tag():
+    r = JudgementRecord(schema_version="judgement.v2", judged_by="op", round=1,
+        topic="facade", topic_synset_id="1", vehicle="livery", vehicle_synset_id="2",
+        proposer="sonnet_v1", chain_signature="a"*64, linkage="good", metaphor="live",
+        tags=["bad_sense"])
+    assert r.tags == ["bad_sense"]
+
+def test_effective_linkage_bad_sense_alone_stays_good():
+    # A wrong-sense snap does not condemn the linkage — unlike bad_head/leap/merge.
+    assert effective_linkage({"linkage": "good", "tags": ["bad_sense"]}) == "good"
+
 def test_normalise_judgement_v2_returns_tags_list():
     assert normalise_judgement({"linkage": "good", "metaphor": "live", "tags": ["bad_head"]})["tags"] == ["bad_head"]
     assert normalise_judgement({"linkage": "good", "metaphor": "dead"})["tags"] == []

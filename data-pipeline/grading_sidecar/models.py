@@ -23,7 +23,10 @@ Tier = Literal["strong", "ironic", "surprising"]
 # Structured issue tags — orthogonal to the verdict axes. `bad_head` flags a
 # mis-extracted head concept (a data-prep error), kept distinct from a `bad`
 # linkage verdict so head-extraction noise stays out of the metaphor signal.
-Tag = Literal["merge", "padding", "leap", "bad_head", "other"]
+# `bad_sense` flags a wrong-sense snap (head lemma right, synset wrong) — a
+# data-quality flag that marks the row sense-suspect for re-snap; like bad_head it
+# is NOT linkage-forcing (the operator grades the intended sense).
+Tag = Literal["merge", "padding", "leap", "bad_head", "bad_sense", "other"]
 Confidence = Literal["high", "med", "low"]
 
 
