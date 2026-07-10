@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "grading_sidecar
 
 import metaphor_live_rate as mlr  # noqa: E402
 from run_chain_spike import build_prompt  # noqa: E402  (Sonnet chain prompt + clauses)
-from models import ChainRecord, compute_chain_signature  # noqa: E402
+from models import ChainRecord, compute_chain_signature, vec_ref  # noqa: E402
 from claude_client import SessionLimitError, SessionLimitFormatError  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -64,16 +64,24 @@ def chain_records_from_sonnet(
     generated_at: str,
     resolve_synset,
     resolve_by_gloss=None,
+    vec_gate_fn=None,
 ) -> list[dict]:
-    """Explode a Sonnet response into validated chain.v1 records.
+    """Explode a Sonnet response into validated chain records.
 
-    Endpoints are FORCED canonical — chain[0] := (topic, topic, topic_synset_id)
-    and chain[-1] := (vehicle, vehicle, vehicle_synset_id) — so the records
-    satisfy ChainRecord's endpoint-canonicalisation invariant regardless of how
-    the model phrased its first/last step. The signature is computed over the
-    FINAL phrases (what a grader sees), so it matches across runs that produce
-    the same walk. A vehicle whose lemma does not resolve to a synset is
-    skipped (a chain.v1 record requires a vehicle_synset_id).
+    Without `vec_gate_fn` (default): chain.v1 behaviour — endpoints are FORCED
+    canonical (chain[0] := (topic, topic, topic_synset_id) and chain[-1] :=
+    (vehicle, vehicle, vehicle_synset_id)); a vehicle whose lemma does not
+    resolve to a synset is skipped.
+
+    With `vec_gate_fn` (callable `(phrase, head) -> bool`): emits chain.v2
+    records.  Per-step `node_ref` and `apt_senses` are set; vehicles that fail
+    synset resolution are admitted as vec: nodes when `vec_gate_fn` approves
+    (OOV multi-word phrases with no noun senses in the lexicon), and the
+    record carries `topic_node_ref` / `vehicle_node_ref`.  A vehicle that fails
+    both the resolver and the vec: gate is still skipped.
+
+    The signature is computed over the FINAL phrases (what a grader sees), so
+    it matches across runs that produce the same walk.
 
     emit-the-sense: when `resolve_by_gloss(lemma, gloss) -> synset_id | None` is
     supplied and the model emitted a per-step `gloss`, each node is snapped by
@@ -110,17 +118,39 @@ def chain_records_from_sonnet(
                          if raw_chain and isinstance(raw_chain[-1], dict) else None)
         vehicle_gloss = vehicle_gloss if isinstance(vehicle_gloss, str) else None
         vehicle_synset_id = _snap(vehicle_gloss, vehicle)
+
+        # vec: vehicle admission (chain.v2 mode only): when the resolver returns
+        # None, consult vec_gate_fn instead of unconditionally skipping.  A
+        # vehicle that fails both resolver and gate is still dropped.
+        vehicle_node_ref: str | None = None
         if not vehicle_synset_id:
-            log.info("skip vehicle %r for topic %r: no synset", vehicle, topic)
-            continue
-        if vehicle_synset_id == topic_synset_id:
+            if vec_gate_fn is not None and vec_gate_fn(vehicle, vehicle):
+                # OOV multi-word or otherwise lexicon-absent vehicle — admit as a
+                # vector node.  Logged via the gate itself (sense_inventory.vec_gate).
+                log.info("admit vec: vehicle %r for topic %r", vehicle, topic)
+                vehicle_node_ref = f"vec:{vec_ref(vehicle)}"
+                # vehicle_synset_id stays None — the ChainRecord validator
+                # requires vehicle_node_ref to match in this case.
+            else:
+                log.info("skip vehicle %r for topic %r: no synset", vehicle, topic)
+                continue
+        else:
+            vehicle_node_ref = f"syn:{vehicle_synset_id}" if vec_gate_fn is not None else None
+
+        if vehicle_synset_id == topic_synset_id and topic_synset_id is not None:
             # self-metaphor (topic echoed as vehicle, or a lemma resolving back to
             # the topic synset) is not a metaphor — drop it, don't grade it.
             log.info("skip self-metaphor %r for topic %r", vehicle, topic)
             continue
 
-        steps = [{"phrase": topic, "head": topic,
-                  "synset_id": topic_synset_id, "gloss": gloss or None}]
+        # Build steps.  In chain.v2 mode each step carries node_ref + apt_senses.
+        topic_step: dict = {"phrase": topic, "head": topic,
+                            "synset_id": topic_synset_id, "gloss": gloss or None}
+        if vec_gate_fn is not None:
+            topic_step["node_ref"]   = f"syn:{topic_synset_id}"
+            topic_step["apt_senses"] = [{"synset_id": topic_synset_id, "source": "intended"}]
+
+        steps = [topic_step]
         for s in raw_chain[1:-1]:  # intermediates only; endpoints are forced
             if not isinstance(s, dict):
                 continue
@@ -132,10 +162,26 @@ def chain_records_from_sonnet(
             head = head.strip() if isinstance(head, str) and head.strip() else phrase
             s_gloss = s.get("gloss") if isinstance(s.get("gloss"), str) else None
             sid = _snap(s_gloss, head, phrase)
-            steps.append({"phrase": phrase, "head": head,
-                          "synset_id": sid, "gloss": s_gloss})
-        steps.append({"phrase": vehicle, "head": vehicle,
-                      "synset_id": vehicle_synset_id, "gloss": vehicle_gloss})
+            step_d: dict = {"phrase": phrase, "head": head,
+                            "synset_id": sid, "gloss": s_gloss}
+            if vec_gate_fn is not None:
+                if sid is not None:
+                    step_d["node_ref"]   = f"syn:{sid}"
+                    step_d["apt_senses"] = [{"synset_id": sid, "source": "intended"}]
+                else:
+                    step_d["node_ref"]   = f"vec:{vec_ref(phrase)}"
+                    step_d["apt_senses"] = []
+            steps.append(step_d)
+
+        vehicle_step: dict = {"phrase": vehicle, "head": vehicle,
+                              "synset_id": vehicle_synset_id, "gloss": vehicle_gloss}
+        if vec_gate_fn is not None:
+            vehicle_step["node_ref"]   = vehicle_node_ref
+            vehicle_step["apt_senses"] = (
+                [{"synset_id": vehicle_synset_id, "source": "intended"}]
+                if vehicle_synset_id is not None else []
+            )
+        steps.append(vehicle_step)
 
         phrases = [s["phrase"] for s in steps]
         signature = compute_chain_signature(proposer, phrases)
@@ -143,18 +189,36 @@ def chain_records_from_sonnet(
             # identical walk emitted twice in one response -> one card, not two
             # (chain_signature is the grading dedup/verdict key).
             continue
-        rec = {
-            "schema_version": "chain.v1",
-            "topic": topic,
-            "topic_synset_id": topic_synset_id,
-            "vehicle": vehicle,
-            "vehicle_synset_id": vehicle_synset_id,
-            "proposer": proposer,
-            "round": round_num,
-            "chain": steps,
-            "chain_signature": signature,
-            "generated_at": generated_at,
-        }
+
+        if vec_gate_fn is not None:
+            # chain.v2: include node-ref endpoint fields; vehicle_synset_id may be None
+            rec = {
+                "schema_version": "chain.v2",
+                "topic": topic,
+                "topic_synset_id": topic_synset_id,
+                "topic_node_ref": f"syn:{topic_synset_id}",
+                "vehicle": vehicle,
+                "vehicle_synset_id": vehicle_synset_id,
+                "vehicle_node_ref": vehicle_node_ref,
+                "proposer": proposer,
+                "round": round_num,
+                "chain": steps,
+                "chain_signature": signature,
+                "generated_at": generated_at,
+            }
+        else:
+            rec = {
+                "schema_version": "chain.v1",
+                "topic": topic,
+                "topic_synset_id": topic_synset_id,
+                "vehicle": vehicle,
+                "vehicle_synset_id": vehicle_synset_id,
+                "proposer": proposer,
+                "round": round_num,
+                "chain": steps,
+                "chain_signature": signature,
+                "generated_at": generated_at,
+            }
         try:
             ChainRecord(**rec)  # guarantee grading-ingestible; skip otherwise
         except Exception as exc:  # noqa: BLE001 — invalid record is a skip, not a crash
@@ -286,6 +350,7 @@ def run(
     sonnet_fn,
     resolve_synset,
     resolve_by_gloss=None,
+    vec_gate_fn=None,
     proposer: str = "sonnet_v1",
     round_num: int = 2,
     batch_size: int = 20,
@@ -362,6 +427,7 @@ def run(
                         topic=word, topic_synset_id=tsid, gloss=gloss, sonnet_resp=sresp,
                         proposer=proposer, round_num=round_num, generated_at=now_fn(),
                         resolve_synset=resolve_synset, resolve_by_gloss=resolve_by_gloss,
+                        vec_gate_fn=vec_gate_fn,
                     )
                 else:
                     log.info("skip %s: no Haiku metaphors", word)
@@ -511,6 +577,14 @@ def make_resolver(conn):
     return lambda w: lookup_primary_synset(conn, w)
 
 
+def make_vec_gate_fn(conn):
+    """Return a (phrase, head) -> bool closure that admits OOV nodes as vec:
+    nodes.  True when neither the phrase nor the head has any noun sense in the
+    lexicon — the condition that makes a vec: node the only valid representation."""
+    from sense_inventory import vec_gate
+    return lambda phrase, head: vec_gate(conn, phrase, head)
+
+
 def make_gloss_resolver(conn):
     """emit-the-sense resolver: snap a lemma to the synset whose definition best
     matches the model's emitted one-line gloss; None on no match (caller falls
@@ -656,6 +730,7 @@ def main() -> int:
     try:
         resolve_synset = make_resolver(conn)
         resolve_by_gloss = make_gloss_resolver(conn)  # emit-the-sense gloss-match snap
+        vec_gate_fn = make_vec_gate_fn(conn)           # chain.v2: admit OOV vec: vehicles
         avoid_vehicles = load_avoid_vehicles(args.avoid_vehicles)
         if avoid_vehicles:
             log.info("vehicle AVOID nudge ON: %d over-used vehicles", len(avoid_vehicles))
@@ -710,6 +785,7 @@ def main() -> int:
         summary = run(
             topics=topics, output_jsonl=args.output, haiku_fn=haiku_fn, sonnet_fn=sonnet_fn,
             resolve_synset=resolve_synset, resolve_by_gloss=resolve_by_gloss,
+            vec_gate_fn=vec_gate_fn,
             proposer=args.proposer, round_num=args.round_num,
             batch_size=args.batch_size, max_topics=args.max_topics, max_cost_usd=args.max_cost_usd,
             tripwire=tripwire, judge_fn=judge_fn, judge_sample=args.judge_sample, anti_examples=anti,

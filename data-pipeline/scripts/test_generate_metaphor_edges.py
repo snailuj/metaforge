@@ -636,3 +636,128 @@ def test_write_summary_roundtrips_without_tripwire(tmp_path):
     assert got["pause_reason"] == "session_limit"
     assert got["reset_text"] == "resets 3pm (UTC)"
     assert "tripwire" not in got  # stripped — not JSON-serialisable, not needed downstream
+
+
+# ---------------------------------------------------------------------------
+# Task 4: chain.v2 emission — vec: vehicle gate, per-step node_ref + apt_senses
+# ---------------------------------------------------------------------------
+
+def _oov_vec_gate(phrase, head):
+    """Stub: admits only 'pressed flower' as a vec: node (OOV multi-word)."""
+    return phrase == "pressed flower"
+
+
+def _sonnet_resp_oov_vehicle():
+    """Sonnet response whose vehicle is an OOV multi-word phrase."""
+    return {"topic": "ignored", "vehicles": [
+        {"vehicle": "pressed flower", "chain": [
+            {"phrase": "NOT_TOPIC", "head": "emotion"},
+            {"phrase": "memory", "head": "memory"},
+            {"phrase": "pressed flower", "head": "flower"},
+        ]},
+    ]}
+
+
+def test_transform_v2_oov_vehicle_admitted_as_vec_not_skipped():
+    """An OOV multi-word vehicle that resolver cannot snap is admitted as a
+    vec: node when vec_gate_fn approves — no skip, valid chain.v2 record."""
+    recs = mge.chain_records_from_sonnet(
+        topic="anger", topic_synset_id="1", gloss="g",
+        sonnet_resp=_sonnet_resp_oov_vehicle(),
+        proposer="sonnet_v1", round_num=2,
+        generated_at="2026-06-04T00:00:00+00:00",
+        resolve_synset=_resolver({"anger": "1", "memory": "5"}),
+        vec_gate_fn=_oov_vec_gate,
+    )
+    assert len(recs) == 1
+    r = recs[0]
+    assert r["schema_version"] == "chain.v2"
+    assert r["vehicle"] == "pressed flower"
+    assert r["vehicle_synset_id"] is None
+    assert r["vehicle_node_ref"] == "vec:pressed_flower"
+    ChainRecord(**r)  # must validate as a proper chain.v2 record
+
+
+def test_transform_v2_resolvable_vehicle_produces_syn_node_ref():
+    """With vec_gate_fn provided, a normally-resolvable vehicle still gets
+    schema_version=chain.v2 and syn: node_ref — the resolver path is unchanged."""
+    recs = mge.chain_records_from_sonnet(
+        topic="anger", topic_synset_id="1", gloss="g",
+        sonnet_resp=_sonnet_resp(),
+        proposer="sonnet_v1", round_num=2,
+        generated_at="2026-06-04T00:00:00+00:00",
+        resolve_synset=_resolver({"anger": "1", "volcano": "2", "pressure": "3"}),
+        vec_gate_fn=lambda phrase, head: False,  # gate closed for all
+    )
+    assert len(recs) == 1
+    r = recs[0]
+    assert r["schema_version"] == "chain.v2"
+    assert r["vehicle_synset_id"] == "2"
+    assert r["vehicle_node_ref"] == "syn:2"
+    assert r["topic_node_ref"] == "syn:1"
+    ChainRecord(**r)
+
+
+def test_transform_v2_steps_carry_intended_apt_senses():
+    """chain.v2 steps carry apt_senses with the intended synset; vec: steps
+    carry an empty list (no synset to record)."""
+    recs = mge.chain_records_from_sonnet(
+        topic="anger", topic_synset_id="1", gloss="g",
+        sonnet_resp=_sonnet_resp_oov_vehicle(),
+        proposer="sonnet_v1", round_num=2,
+        generated_at="2026-06-04T00:00:00+00:00",
+        resolve_synset=_resolver({"anger": "1", "memory": "5"}),
+        vec_gate_fn=_oov_vec_gate,
+    )
+    r = recs[0]
+    # Topic step: resolved → apt_senses with intended sense
+    topic_step = r["chain"][0]
+    assert topic_step["apt_senses"] == [{"synset_id": "1", "source": "intended"}]
+    assert topic_step["node_ref"] == "syn:1"
+    # Intermediate step: resolved → apt_senses with intended sense
+    mid_step = r["chain"][1]
+    assert mid_step["apt_senses"] == [{"synset_id": "5", "source": "intended"}]
+    assert mid_step["node_ref"] == "syn:5"
+    # Vec: vehicle step: no synset → empty apt_senses
+    vec_step = r["chain"][-1]
+    assert vec_step["apt_senses"] == []
+    assert vec_step["node_ref"] == "vec:pressed_flower"
+
+
+def test_transform_v2_unresolvable_vehicle_not_vec_eligible_skipped():
+    """An unresolvable vehicle that also fails the vec: gate is still skipped —
+    the gate is the sole admission criterion when a synset is absent."""
+    recs = mge.chain_records_from_sonnet(
+        topic="anger", topic_synset_id="1", gloss="g",
+        sonnet_resp=_sonnet_resp(vehicle="xyzzy"),
+        proposer="sonnet_v1", round_num=2,
+        generated_at="2026-06-04T00:00:00+00:00",
+        resolve_synset=_resolver({"anger": "1", "pressure": "3"}),
+        vec_gate_fn=lambda phrase, head: False,  # gate closed for all
+    )
+    assert recs == []
+
+
+def test_run_v2_vec_vehicle_written_to_jsonl(tmp_path):
+    """run() threads vec_gate_fn so OOV vehicles reach the output file rather
+    than being silently dropped."""
+    out = tmp_path / "chains.jsonl"
+
+    def sonnet(_prompt):
+        return _sonnet_resp_oov_vehicle()
+
+    res = mge.run(
+        topics=[{"word": "anger", "topic_synset_id": "1", "gloss": "g"}],
+        output_jsonl=str(out),
+        haiku_fn=_haiku,
+        sonnet_fn=sonnet,
+        resolve_synset=_resolver({"anger": "1", "memory": "5"}),
+        vec_gate_fn=_oov_vec_gate,
+        now_fn=lambda: "2026-06-04T00:00:00+00:00",
+    )
+    assert res["chains_written"] == 1
+    rec = json.loads(out.read_text().splitlines()[0])
+    assert rec["schema_version"] == "chain.v2"
+    assert rec["vehicle_synset_id"] is None
+    assert rec["vehicle_node_ref"] == "vec:pressed_flower"
+    ChainRecord(**rec)
