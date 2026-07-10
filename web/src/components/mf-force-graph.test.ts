@@ -429,7 +429,10 @@ describe('MfForceGraph', () => {
       expect(heatNodes.length).toBe(1)
     })
 
-    it('grade node label text is the head, not the phrase', async () => {
+    it('grade node label text is the phrase, not the head', async () => {
+      // Phrase-first display (Phrase-as-Node): the graph node shows the model's
+      // original phrase so bad_head display-loss dissolves. `head` is still stored
+      // for dedup keying and backlink sourcing, but it is no longer the label.
       const phrasey: import('../types/grading').ChainRecord[] = [{
         ...CHAINS[0],
         chain: [
@@ -442,7 +445,17 @@ describe('MfForceGraph', () => {
       gradeEl.gradeChains = phrasey
       await gradeEl.updateComplete
       const heat = gradeEl.gradeNodes.find((n: any) => n.id === 'syn:2')!
-      expect(heat.head).toBe('heat')
+      expect(heat.head).toBe('heat')          // retained for dedup + backlinks
+      expect(heat.phrase).toBe('subterranean heat')
+      const style = (gradeEl as any).labelStyleFor(heat)
+      expect(style.text).toBe('subterranean heat')
+    })
+
+    it('grade node label falls back to head when phrase equals head', async () => {
+      gradeEl.mode = 'grade'
+      gradeEl.gradeChains = CHAINS   // fixture chains have phrase === head
+      await gradeEl.updateComplete
+      const heat = gradeEl.gradeNodes.find((n: any) => n.id === 'syn:2')!
       const style = (gradeEl as any).labelStyleFor(heat)
       expect(style.text).toBe('heat')
     })
