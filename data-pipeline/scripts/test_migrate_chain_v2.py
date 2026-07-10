@@ -210,6 +210,30 @@ def test_migrate_record_raises_on_chain_signature_mismatch():
         mcv2.migrate_record(rec, _identity_snap)
 
 
+def test_migrate_record_ignores_phrase_mutations_from_snap_fn():
+    """Invariant lock (spec §4 / signature invariant): a snap_fn is trusted for
+    senses only, never for phrases. `migrate_record` takes each step's `phrase`
+    from the INPUT record, so a malicious snap_fn that returns a mutated `phrase`
+    (or `head`) in its result cannot alter the output phrases or the phrase-based
+    chain_signature. This locks the reason the guard cannot be tripped via snap_fn.
+    """
+    rec = _v1_record()
+
+    def phrase_mutating_snap(phrase, head, gloss):
+        # Adversarial: try to smuggle a rewritten phrase/head through the result.
+        return {
+            "synset_id": "9", "node_ref": "syn:9", "confidence": "ok",
+            "phrase": "HACKED " + phrase, "head": "HACKED " + head,
+        }
+
+    out = mcv2.migrate_record(rec, phrase_mutating_snap)
+    # Phrases and heads are byte-identical to the input — the snap result is ignored.
+    assert [s["phrase"] for s in out["chain"]] == ["grief", "pain", "scar"]
+    assert [s["head"] for s in out["chain"]] == ["grief", "pain", "scar"]
+    # Signature preserved: no mutation reached the phrase-based signature, no raise.
+    assert out["chain_signature"] == rec["chain_signature"]
+
+
 # ---------------------------------------------------------------------------
 # (e) migrate_file — writes _v2 file, second run skips without --force
 # ---------------------------------------------------------------------------
