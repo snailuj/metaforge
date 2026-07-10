@@ -43,7 +43,7 @@ describe('mf-grade-panel', () => {
         expect(text).toContain('→');
     });
 
-    it('shows the snapped head primary, with the prose phrase only when it differs (bad_head judging)', async () => {
+    it('shows phrase as primary label, with the snapped head as subscript when they differ (phrase-as-node)', async () => {
         el.chain = {
             ...CHAIN,
             chain: [
@@ -54,12 +54,12 @@ describe('mf-grade-panel', () => {
         };
         await el.updateComplete;
         const text = el.shadowRoot!.textContent || '';
-        expect(text).toContain('resistance');     // snapped head — primary
-        expect(text).toContain('resists change');  // original phrase shown because head differs
-        // Only the differing step carries a phrase sub-label; equal steps don't duplicate.
+        expect(text).toContain('resists change');  // phrase is now the primary label
+        expect(text).toContain('resistance');      // snapped head appears in the subscript
+        // Only the differing step carries a head sub-label; equal steps don't duplicate.
         const subs = el.shadowRoot!.querySelectorAll('.phrase-sub');
         expect(subs.length).toBe(1);
-        expect(subs[0].textContent).toContain('resists change');
+        expect(subs[0].textContent).toContain('resistance');
     });
 
     it('L submits linkage:good + metaphor:live by default', async () => {
@@ -538,5 +538,58 @@ describe('mf-grade-panel', () => {
         el.chain = { ...CHAIN, chain_signature: 'f'.repeat(64) };
         await el.updateComplete;
         expect(linkGloss()).toBeNull();
+    });
+
+    // --- Phrase-first chain labels (chain.v2 / phrase-as-node) ---
+    // The step button's primary text is now the PHRASE; when phrase !== head the snapped
+    // head moves to the subscript (.phrase-sub). This dissolves the bad_head display-loss
+    // problem: graders see the exact phrase the model wrote, not just the snapped lemma.
+
+    it('renders phrase as primary label and head as subscript when they differ', async () => {
+        el.chain = {
+            ...CHAIN,
+            chain: [
+                { phrase: 'grief', head: 'grief', synset_id: '1' },
+                { phrase: 'buried wound', head: 'wound', synset_id: '200' },
+                { phrase: 'scar', head: 'scar', synset_id: '3' },
+            ],
+        };
+        await el.updateComplete;
+
+        const btn1 = el.shadowRoot!.querySelector('[data-testid="step-node-1"]') as HTMLElement;
+        // Phrase is the primary visible text of the button.
+        expect(btn1.textContent).toContain('buried wound');
+        // Subscript contains the snapped head, not the phrase.
+        const sub = btn1.querySelector('.phrase-sub');
+        expect(sub).toBeTruthy();
+        expect(sub!.textContent).toContain('wound');
+        expect(sub!.textContent).not.toContain('buried wound');
+
+        // Single-word steps where phrase === head must render no subscript.
+        const btn0 = el.shadowRoot!.querySelector('[data-testid="step-node-0"]') as HTMLElement;
+        expect(btn0.querySelector('.phrase-sub')).toBeNull();
+    });
+
+    it('link-gloss shows phrase (not head) as the primary bold label', async () => {
+        el.chain = {
+            ...CHAIN,
+            chain: [
+                { phrase: 'grief', head: 'grief', synset_id: '1' },
+                { phrase: 'buried wound', head: 'wound', synset_id: '2' },
+                { phrase: 'scar', head: 'scar', synset_id: '3' },
+            ],
+        };
+        el.glosses = {
+            '1': { pos: 'n', definition: 'deep sorrow' },
+            '2': { pos: 'n', definition: 'an injury to the body' },
+            '3': { pos: 'n', definition: 'a mark left by a wound' },
+        };
+        await el.updateComplete;
+        // Tap step 1 ("buried wound") to reveal link-gloss.
+        (el.shadowRoot!.querySelector('[data-testid="step-node-1"]') as HTMLElement).click();
+        await el.updateComplete;
+        const text = el.shadowRoot!.querySelector('[data-testid="link-gloss"]')!.textContent || '';
+        expect(text).toContain('buried wound'); // phrase is the bold primary label
+        expect(text).toContain('an injury to the body');
     });
 });

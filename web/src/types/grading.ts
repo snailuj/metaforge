@@ -15,10 +15,30 @@ export type Tag = 'merge' | 'padding' | 'leap' | 'bad_head' | 'bad_sense' | 'oth
 export const TAGS: readonly Tag[] = ['merge', 'padding', 'leap', 'bad_head', 'bad_sense', 'other'] as const;
 export type Confidence = 'high' | 'med' | 'low';
 
+// Per-occurrence sense that has been confirmed as apt at a chain position.
+// `intended` = the emit-the-sense gloss-match recorded by the pipeline.
+// `operator` = a grading tick applied via the sense fan UI.
+export interface AptSense {
+    synset_id: string;
+    source: 'intended' | 'operator';
+}
+
+// Operator-ticked sense at a specific chain step index, carried in the verdict POST body.
+// Only OPERATOR ticks are included; the intended sense is already in ChainStep.apt_senses.
+export interface StepAptSense {
+    step_idx: number;
+    synset_id: string;
+}
+
 export interface ChainStep {
     phrase: string;
     head: string;
     synset_id: string | null;
+    // Phrase-as-Node: explicit graph-node reference. Absent on chain.v1 records;
+    // resolved at read-time via resolved_node_ref() logic in the pipeline.
+    node_ref?: string | null;
+    // Per-occurrence apt sense-set populated by the pipeline / operator.
+    apt_senses?: AptSense[];
 }
 
 export interface ChainRecord {

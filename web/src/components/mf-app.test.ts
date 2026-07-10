@@ -785,7 +785,7 @@ describe('mf-app grade-mode integration', () => {
     expect(mobileLayout).toBeNull()
   })
 
-  it('mobile chain-card label shows snapped heads, not prose phrases (bad_head visibility)', async () => {
+  it('mobile chain-card label shows prose phrases, not snapped heads (phrase-as-node)', async () => {
     ;(el as any).mode = 'grade'
     ;(el as any).viewportWidth = 600
     ;(el as any).pathFilter = 'both'
@@ -804,8 +804,8 @@ describe('mf-app grade-mode integration', () => {
     await el.updateComplete
     const card = el.shadowRoot!.querySelector('[data-testid="chain-card"]')!
     const text = card.textContent || ''
-    expect(text).toContain('resistance')        // the snapped head
-    expect(text).not.toContain('resists change') // not the prose phrase
+    expect(text).toContain('resists change')  // phrase is now the primary label
+    expect(text).not.toContain('resistance')  // snapped head not shown in card label
   })
 
   it('topic-selected event fetches chains and judgements then populates gradeChains', async () => {
