@@ -592,4 +592,154 @@ describe('mf-grade-panel', () => {
         expect(text).toContain('buried wound'); // phrase is the bold primary label
         expect(text).toContain('an injury to the body');
     });
+
+    // --- Sense fan + operator ticks (Task 8 / phrase-as-node) ---
+    // When a chain step node is tapped, a sense fan appears inside the link-gloss
+    // popover. The intended sense (step.synset_id) is pre-lit; the operator may
+    // tap any additional sense to tick it as co-apt. On submit, operator ticks
+    // serialise to `step_apt_senses`; the intended sense is NOT duplicated there.
+
+    const INVENTORIES = {
+        'glance': [
+            { synset_id: '100', sensenum: 1, tagcount: 9, definition: 'a brief look', pos: 'n' },
+            { synset_id: '102', sensenum: 3, tagcount: 0, definition: 'a deflection', pos: 'n' },
+        ],
+    };
+
+    const CHAIN_WITH_FAN = {
+        schema_version: 'chain.v1' as const,
+        topic: 'anger', vehicle: 'scar',
+        topic_synset_id: '1', vehicle_synset_id: '3',
+        chain_signature: 'c'.repeat(64),
+        chain: [
+            { phrase: 'anger', head: 'anger', synset_id: '1' },
+            { phrase: 'glance', head: 'glance', synset_id: '100' },
+            { phrase: 'scar', head: 'scar', synset_id: '3' },
+        ],
+        proposer: 'sonnet_v1', round: 1, generated_at: 'x',
+    };
+
+    const CHAIN_VEC = {
+        schema_version: 'chain.v2' as const,
+        topic: 'grief', vehicle: 'pressed flower',
+        topic_synset_id: '1', vehicle_synset_id: null as unknown as string,
+        vehicle_node_ref: 'vec:pressed_flower',
+        chain_signature: 'd'.repeat(64),
+        chain: [
+            { phrase: 'grief', head: 'grief', synset_id: '1' },
+            { phrase: 'pressed flower', head: 'flower', synset_id: null, node_ref: 'vec:pressed_flower' },
+        ],
+        proposer: 'sonnet_v1', round: 1, generated_at: 'x',
+    };
+
+    const tapNode = async (i: number) => {
+        (el.shadowRoot!.querySelector(`[data-testid="step-node-${i}"]`) as HTMLElement).click();
+        await el.updateComplete;
+    };
+
+    const senseFan = () => el.shadowRoot!.querySelector('[data-testid="sense-fan"]');
+    const senseOption = (synset_id: string) =>
+        el.shadowRoot!.querySelector(`[data-testid="sense-option-${synset_id}"]`) as HTMLElement | null;
+
+    it('sense fan renders inventory senses when step is tapped', async () => {
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        await el.updateComplete;
+        await tapNode(1); // glance
+        const fan = senseFan();
+        expect(fan).toBeTruthy();
+        expect(fan!.textContent).toContain('a brief look');
+        expect(fan!.textContent).toContain('a deflection');
+    });
+
+    it('intended sense is pre-lit in the fan (has intended class/attribute)', async () => {
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        await el.updateComplete;
+        await tapNode(1); // glance, synset_id '100' is the intended sense
+        const opt = senseOption('100');
+        expect(opt).toBeTruthy();
+        expect(opt!.classList.contains('intended')).toBe(true);
+        // Non-intended sense is not pre-lit
+        const opt102 = senseOption('102');
+        expect(opt102!.classList.contains('intended')).toBe(false);
+    });
+
+    it('tapping a non-intended sense in the fan toggles a tick', async () => {
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        await el.updateComplete;
+        await tapNode(1);
+        const opt102 = senseOption('102')!;
+        opt102.click();
+        await el.updateComplete;
+        expect(opt102.classList.contains('ticked')).toBe(true);
+        // Toggle off
+        opt102.click();
+        await el.updateComplete;
+        expect(opt102.classList.contains('ticked')).toBe(false);
+    });
+
+    it('submit payload contains step_apt_senses with only operator ticks (intended excluded)', async () => {
+        let d: any = null;
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        el.addEventListener('verdict-submit', (e: any) => { d = e.detail; });
+        await el.updateComplete;
+        await tapNode(1);
+        senseOption('102')!.click(); // operator tick on synset 102
+        await el.updateComplete;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }));
+        await tick();
+        expect(d).toBeTruthy();
+        // Only operator tick (102), NOT the intended (100)
+        expect(d.step_apt_senses).toEqual([{ step_idx: 1, synset_id: '102' }]);
+    });
+
+    it('a submit with no operator ticks carries an empty step_apt_senses', async () => {
+        let d: any = null;
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        el.addEventListener('verdict-submit', (e: any) => { d = e.detail; });
+        await el.updateComplete;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }));
+        await tick();
+        expect(d.step_apt_senses).toEqual([]);
+    });
+
+    it('ticks reset when switching to a different chain', async () => {
+        let d: any = null;
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        el.addEventListener('verdict-submit', (e: any) => { d = e.detail; });
+        await el.updateComplete;
+        await tapNode(1);
+        senseOption('102')!.click();
+        await el.updateComplete;
+        // Switch to a different chain
+        el.chain = { ...CHAIN_WITH_FAN, chain_signature: 'e'.repeat(64) };
+        await el.updateComplete;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }));
+        await tick();
+        expect(d.step_apt_senses).toEqual([]);
+    });
+
+    it('vec: step shows "vector node — no synset" affordance in the fan', async () => {
+        el.chain = CHAIN_VEC as any;
+        (el as any).senseInventories = {};
+        await el.updateComplete;
+        await tapNode(1); // pressed flower, synset_id null
+        const fan = senseFan();
+        expect(fan).toBeTruthy();
+        expect(fan!.textContent).toContain('vector node');
+        expect(fan!.textContent).toContain('no synset');
+    });
+
+    it('fan does not render when no step is active', async () => {
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        await el.updateComplete;
+        // No node tapped — fan should not appear
+        expect(senseFan()).toBeNull();
+    });
 });

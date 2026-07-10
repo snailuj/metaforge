@@ -77,8 +77,32 @@ export interface JudgementRecord {
     supersedes_ts: string | null;
 }
 
+// One entry in the precomputed sense inventory fan served by GET /api/grading/senses.
+// Ranked by (tagcount DESC, sensenum ASC) in the inventory; intended sense is
+// pre-lit in the UI regardless of rank.
+export interface SenseInventoryItem {
+    synset_id: string;
+    sensenum: number;
+    tagcount: number | null;
+    definition: string | null;
+    pos: string | null;
+}
+
+// Response shape from GET /api/grading/senses?key=<canonical_phrase>.
+export interface SenseInventoryResponse {
+    key: string;
+    senses: SenseInventoryItem[];
+}
+
+// Map from canonical phrase key → ranked sense list (mirrors the JSONL inventory).
+// Passed into mf-grade-panel as `senseInventories`; mf-app is responsible for
+// pre-loading this map so the panel stays fetch-free and testable without mocks.
+export type SenseInventoryMap = Record<string, SenseInventoryItem[]>;
+
 // Emitted by mf-grade-panel on a metaphor submit. Carries both axes, multi-select tiers,
 // confidence and notes — mf-app assembles the v2 JudgementRecord from this.
+// `step_apt_senses` carries OPERATOR ticks only (the intended sense from each step's
+// `synset_id` is excluded — it is already in the ChainStep record).
 export interface VerdictSubmitDetail {
     linkage: Linkage;
     metaphor: MetaphorVerdict;
@@ -86,6 +110,7 @@ export interface VerdictSubmitDetail {
     tags: Tag[];
     confidence: Confidence;
     notes: string;
+    step_apt_senses: StepAptSense[];
 }
 
 export interface TopicSummary {
