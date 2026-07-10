@@ -45,6 +45,22 @@ SENSE_FLAGS_NAME = "sense_flags_provisional.jsonl"
 SENSE_CANDIDATES_NAME = "sense_candidates_provisional.jsonl"
 SENSE_LABELS_PATH = GRADING_DIR / "sense_labels_provisional.jsonl"
 
+# Precomputed per-phrase noun sense inventories (phrase canonical key → ranked noun
+# sense list), served by /senses so the grading panel can display a sense fan
+# without the sidecar touching the lexicon DB. Built offline by
+# build_sense_inventories.py (Task 2 / W1). Absence degrades to {} with a warning.
+SENSE_INVENTORIES_NAME = "sense_inventories_provisional.jsonl"
+
+
+def sense_inventories_path() -> "Path":
+    """Absolute path to the sense inventory file in the current GRADING_DIR.
+
+    Resolved at call time (not import time) so tests can monkeypatch GRADING_DIR
+    and have the path reflect the patched value immediately.
+    """
+    return GRADING_DIR / SENSE_INVENTORIES_NAME
+
+
 # Operator-prefilled guided-walk candidate list (chain_signature, order, cohort,
 # judge_verdict, batch) — an EXACT ordered subset teed up offline for a blind
 # grading round. The stored judge_verdict + eval/train cohort are server-side
