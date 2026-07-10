@@ -38,12 +38,16 @@ const GRADE_EDGE_COLOURS: Record<string, string> = {
 }
 
 // Grade-mode graph node — keyed by synset_id or head to ensure dedup across chains.
-// The label shows the `head` (stable snapped concept). A deduped node is reached by
-// many chains, each with its own phrase, so per-connection phrases live in
-// `backlinks` (surfaced in the label's hover tooltip), not as a single phrase.
+// The label shows the `phrase` (the model's original wording, phrase-first — so
+// bad_head display-loss dissolves), falling back to `head` when they coincide.
+// `head` is retained as the dedup key and backlink source. A deduped node is
+// reached by many chains, each with its own phrase; the originating chain's phrase
+// labels the node, and every per-connection phrase still lives in `backlinks`
+// (surfaced in the label's hover tooltip).
 interface GradeNode {
   id: string
   head: string
+  phrase: string
   role: 'topic' | 'vehicle' | 'step'
   backlinks: BacklinkRow[]
 }
@@ -190,7 +194,7 @@ export class MfForceGraph extends LitElement {
         const role: GradeNode['role'] =
           i === 0 ? 'topic' : (i === chain.chain.length - 1 ? 'vehicle' : 'step')
         if (!nodes.has(id)) {
-          nodes.set(id, { id, head: step.head, role, backlinks: [] })
+          nodes.set(id, { id, head: step.head, phrase: step.phrase, role, backlinks: [] })
           backlinkKeys.set(id, new Set())
         }
         // Accumulate the inbound connection on the TARGET node: source = the
@@ -323,7 +327,7 @@ export class MfForceGraph extends LitElement {
   private labelStyleFor(n: unknown): LabelStyle {
     if (this.mode === 'grade') {
       const gn = n as GradeNode
-      return { text: gn.head, colour: GRADE_NODE_COLOURS[gn.role], role: gn.role, backlinks: gn.backlinks }
+      return { text: gn.phrase || gn.head, colour: GRADE_NODE_COLOURS[gn.role], role: gn.role, backlinks: gn.backlinks }
     }
     const node = n as GraphNode
     const colour = node.relationType === 'central'
