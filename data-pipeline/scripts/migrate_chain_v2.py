@@ -185,6 +185,9 @@ def migrate_file(in_path: str, out_path: str,
 
     def _counting_snap(phrase: str, head: str, gloss):
         result = snap_fn(phrase, head, gloss)
+        # Every step routed through the snapper is a re-snap — this is the
+        # throughput counter the migration audit reports on.
+        counts["resnapped_steps"] += 1
         conf = result.get("confidence")
         if conf == "vec":
             counts["vec_admissions"] += 1

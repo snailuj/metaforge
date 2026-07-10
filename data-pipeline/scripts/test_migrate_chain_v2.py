@@ -289,5 +289,7 @@ def test_migrate_file_summary_counts_steps(tmp_path):
     inp.write_text(json.dumps(_v1_record()) + "\n")
     summary = mcv2.migrate_file(str(inp), str(out), low_snap)
     assert summary["records"] == 1
+    # Every step that passed through the snapper is a re-snap: 3 steps here.
+    assert summary["resnapped_steps"] == 3
     assert summary["low_confidence"] == 1
     assert summary["vec_admissions"] == 0
