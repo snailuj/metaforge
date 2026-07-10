@@ -239,7 +239,7 @@ export class MfGradePanel extends LitElement {
         const g = step.synset_id ? this.glosses[step.synset_id] : undefined;
         return html`
             <div class="link-gloss" data-testid="link-gloss">
-                <strong>${step.head}</strong>
+                <strong>${step.phrase}</strong>
                 ${g?.pos ? html`<span class="pos" data-testid="link-gloss-pos">${POS_LABEL[g.pos] ?? g.pos}</span>` : ''}
                 ${g?.definition
                     ? html`<span class="gloss">${g.definition}</span>`
@@ -365,8 +365,8 @@ export class MfGradePanel extends LitElement {
                         data-testid="step-node-${i}"
                         @click=${() => this._toggleStepGloss(i)}
                         @mouseenter=${() => { this._hoverStepIdx = i; }}
-                        @mouseleave=${() => { this._hoverStepIdx = null; }}>${s.head}${s.phrase !== s.head
-                        ? html`<span class="phrase-sub">${s.phrase}</span>` : ''}</button>${i < steps.length - 1 ? html`<span class="arrow">→</span>` : ''}`)}
+                        @mouseleave=${() => { this._hoverStepIdx = null; }}>${s.phrase}${s.phrase !== s.head
+                        ? html`<span class="phrase-sub">${s.head}</span>` : ''}</button>${i < steps.length - 1 ? html`<span class="arrow">→</span>` : ''}`)}
             </div>
             ${this._renderLinkGloss(steps)}
             ${this._renderSenses(this.chain)}

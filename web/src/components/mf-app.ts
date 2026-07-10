@@ -1057,11 +1057,11 @@ export class MfApp extends LitElement {
     )
   }
 
-  /** Render the flat-text chain label for mobile cards. Shows the snapped
-   *  heads (not the prose phrases) so a mis-snapped head is visible at a glance
-   *  on mobile, matching the desktop graph's head-primary labels. */
+  /** Render the flat-text chain label for mobile cards. Shows the original
+   *  phrases (phrase-as-node) so the grader sees the model's exact output, not
+   *  just the snapped lemma — consistent with the grade-panel phrase-first rule. */
   private chainLabel(chain: ChainRecord): string {
-    return chain.chain.map(s => s.head).join(' → ')
+    return chain.chain.map(s => s.phrase).join(' → ')
   }
 
   private async doLookup(word: string) {
