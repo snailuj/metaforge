@@ -18,7 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from .autocommit import autocommit_loop
 from . import paths as paths_mod
-from .routes import healthz, judgements, chains, topics, stats, calibration, design_notes, walk, signal_report, glosses, regrade, sense_check, guided_walk
+from .routes import healthz, judgements, chains, topics, stats, calibration, design_notes, walk, signal_report, glosses, regrade, sense_check, guided_walk, senses
 
 def autocommit_target() -> tuple[str, str]:
     """(git_root, subdir) the autocommit writes to. In deploy these resolve to the
@@ -99,4 +99,5 @@ def create_app() -> FastAPI:
     app.include_router(glosses.router)
     app.include_router(regrade.router)
     app.include_router(sense_check.router)
+    app.include_router(senses.router)
     return app
