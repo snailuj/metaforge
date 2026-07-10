@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>mf-grade-panel e2e fixture — phrase-as-node</title>
+    <style>
+      html, body { margin: 0; background: #1a1a2e; color: #e6e6e6; font-family: sans-serif; }
+      /* Fixed host so the panel has real dimensions — prevents any CSS that keys
+         on min-width from collapsing the layout before assertions run. */
+      #host { max-width: 480px; margin: 1rem auto; padding: 0 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <script type="module">
+      import '/src/components/mf-grade-panel.ts'
+
+      // Test chain with three deliberately distinct step shapes:
+      //   Step 0 — single-word (phrase === head): "grief" → no subscript expected
+      //   Step 1 — multi-word phrase ≠ head: "buried wound" / head "wound" → phrase-first
+      //   Step 2 — vec: step (synset_id null): "pressed flower" → vec-node affordance
+      const chain = {
+        schema_version: 'chain.v2',
+        topic: 'grief',
+        topic_synset_id: 'syn-grief',
+        vehicle: 'pressed flower',
+        vehicle_synset_id: null,
+        vehicle_node_ref: 'vec:pressed_flower',
+        proposer: 'fixture',
+        round: 1,
+        generated_at: '2026-07-10T00:00:00Z',
+        chain_signature: 'a'.repeat(64),
+        chain: [
+          { phrase: 'grief', head: 'grief', synset_id: 'syn-grief' },
+          { phrase: 'buried wound', head: 'wound', synset_id: '200' },
+          { phrase: 'pressed flower', head: 'flower', synset_id: null,
+            node_ref: 'vec:pressed_flower' },
+        ],
+      }
+
+      // Sense inventory keyed by canonical phrase (phrase.trim().toLowerCase().replace(/ /g, '_')).
+      // "buried wound" → key "buried_wound". synset_id 200 matches the intended sense
+      // (step.synset_id) and will be pre-lit; 201 is an alternative the operator can tick.
+      const senseInventories = {
+        buried_wound: [
+          { synset_id: '200', sensenum: 1, tagcount: 5,
+            definition: 'a brief look', pos: 'n' },
+          { synset_id: '201', sensenum: 2, tagcount: 1,
+            definition: 'a deflection', pos: 'n' },
+        ],
+      }
+
+      const el = document.createElement('mf-grade-panel')
+      el.chain = chain
+      el.senseInventories = senseInventories
+      document.getElementById('host').appendChild(el)
+
+      // Signal readiness after Lit's first render completes; tests wait on this flag.
+      el.updateComplete.then(() => {
+        window.mfPanelEl = el
+        window.mfReady = true
+      })
+    </script>
+  </body>
+</html>
