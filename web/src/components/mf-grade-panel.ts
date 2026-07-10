@@ -1,6 +1,6 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { ChainRecord, ChainStep, GlossMap, Linkage, MetaphorVerdict, Tier, Tag, Confidence, VerdictSubmitDetail } from '../types/grading';
+import type { ChainRecord, ChainStep, GlossMap, Linkage, MetaphorVerdict, Tier, Tag, Confidence, VerdictSubmitDetail, SenseInventoryItem, SenseInventoryMap } from '../types/grading';
 import { TAGS } from '../types/grading';
 
 // WordNet POS code → grader-readable label. 's' is an adjective satellite.
@@ -118,6 +118,25 @@ export class MfGradePanel extends LitElement {
             background: #2a3140; color: #c8c8c8; padding: 0.05rem 0.3rem;
             border-radius: 3px; font-size: 0.75rem; margin-left: 0.3rem;
         }
+        /* Sense fan — per-step noun-inventory displayed inside the link-gloss popover.
+           Each option is tappable; the intended sense is pre-lit; operator ticks gain
+           a distinct border. vec: nodes show a static affordance instead of options. */
+        .sense-fan { margin: 0.3rem 0 0; display: flex; flex-direction: column; gap: 0.2rem; }
+        .vec-node-label { font-size: 0.8rem; color: #6f7684; font-style: italic; }
+        button.sense-option {
+            text-align: left; font: inherit; font-size: 0.8rem; cursor: pointer;
+            background: transparent; color: #b8bfca;
+            border: 1px solid #2a3140; border-radius: 3px;
+            padding: 0.15rem 0.4rem;
+        }
+        button.sense-option:hover { border-color: #9ec4ff; color: #e6e6e6; }
+        /* Intended sense is always pre-lit — the model's snap target for this occurrence. */
+        button.sense-option.intended { border-color: #4a6da7; color: #9ec4ff; background: #1a2535; }
+        /* Operator tick: a co-apt sense confirmed by the grader at this position. */
+        button.sense-option.ticked { border-color: #6db86d; color: #a8dba8; background: #1a2f1a; }
+        button.sense-option.intended.ticked { border-color: #6db86d; background: #1a2f1a; }
+        .sense-sensenum { font-size: 0.7rem; color: #8a93a2; margin-left: 0.35rem; }
+        .sense-tagcount { font-size: 0.68rem; color: #6a7280; margin-left: 0.25rem; }
     `;
 
     @property({ attribute: false }) chain: ChainRecord | null = null;
@@ -125,6 +144,9 @@ export class MfGradePanel extends LitElement {
     // synset_id → {pos, definition}; supplied by mf-app so the grader can see the
     // topic's sense (noun vs adjective). Empty map → no sense block rendered.
     @property({ attribute: false }) glosses: GlossMap = {};
+    // canonical_phrase_key → [ranked noun senses]; supplied by mf-app from the
+    // precomputed inventory JSONL. Empty map → fan degrades to gloss-only popover.
+    @property({ attribute: false }) senseInventories: SenseInventoryMap = {};
 
     @state() private confidence: Confidence = 'high';
     @state() private notes = '';
@@ -139,6 +161,12 @@ export class MfGradePanel extends LitElement {
     // null = no gloss shown. Indices, so 0 is valid — read via `hover ?? pin`, never `||`.
     @state() private _hoverStepIdx: number | null = null;
     @state() private _pinnedStepIdx: number | null = null;
+    // Operator-ticked co-apt senses per chain step position. Only holds OPERATOR
+    // ticks — the intended sense (step.synset_id) is NOT stored here (it is already
+    // in the ChainStep record and excluded from the verdict payload to avoid duplication).
+    // Map<step_idx, Set<synset_id>>. Reset on chain change (same willUpdate hook that
+    // resets _pinnedStepIdx).
+    @state() private _stepTicks: Map<number, Set<string>> = new Map();
     // Stable identity of what we last prefilled for: the selected chain's
     // signature plus the prior record's ts. Keying on the chain too means a
     // switch to a different chain — even another ungraded one (same null prior)
@@ -170,8 +198,10 @@ export class MfGradePanel extends LitElement {
         if (key === this._prefilledForKey) return;
         this._prefilledForKey = key;
         // A pinned/hovered node index is meaningless on a different chain — clear it.
+        // Operator sense ticks are chain-scoped; a different chain starts with a clean slate.
         this._hoverStepIdx = null;
         this._pinnedStepIdx = null;
+        this._stepTicks = new Map();
         if (pv) {
             this.pendingLinkage = pv.linkage;
             this.confidence = pv.confidence;
@@ -227,6 +257,78 @@ export class MfGradePanel extends LitElement {
         this._pinnedStepIdx = this._pinnedStepIdx === i ? null : i;
     }
 
+    // Canonical lookup key for the sense inventory: NFC-normalised, stripped, lowercased,
+    // spaces → underscores. Mirrors vec_ref() in the Python models (one canonicaliser).
+    private _canonicalKey(phrase: string): string {
+        return phrase.trim().toLowerCase().replace(/ /g, '_');
+    }
+
+    // Toggle an operator sense tick at the given step. The intended sense (step.synset_id)
+    // cannot be ticked — it is always pre-lit and excluded from the operator payload.
+    private _toggleSenseTick(stepIdx: number, synsetId: string, intendedSynsetId: string | null | undefined) {
+        if (synsetId === intendedSynsetId) return;  // intended sense is pre-lit, not ticked
+        const current = new Set(this._stepTicks.get(stepIdx) ?? []);
+        if (current.has(synsetId)) {
+            current.delete(synsetId);
+        } else {
+            current.add(synsetId);
+        }
+        // Rebuild the Map to trigger Lit's reactive update (Map mutation is not observable).
+        const next = new Map(this._stepTicks);
+        if (current.size > 0) {
+            next.set(stepIdx, current);
+        } else {
+            next.delete(stepIdx);
+        }
+        this._stepTicks = next;
+    }
+
+    // Render the sense fan inside the link-gloss popover. Shows the ranked noun-sense
+    // inventory for the active step; vec: nodes show a static affordance instead.
+    private _renderSenseFan(step: ChainStep, stepIdx: number) {
+        const key = this._canonicalKey(step.phrase);
+        const senses: SenseInventoryItem[] = this.senseInventories[key] ?? [];
+        const intendedId = step.synset_id ?? null;
+
+        // vec: step — no synset, no ticking affordance.
+        if (intendedId === null) {
+            return html`
+                <div class="sense-fan" data-testid="sense-fan">
+                    <span class="vec-node-label" data-testid="vec-node-label">vector node — no synset</span>
+                </div>
+            `;
+        }
+
+        // No inventory for this phrase — render nothing (graceful degrade).
+        if (senses.length === 0) return '';
+
+        const ticked = this._stepTicks.get(stepIdx) ?? new Set<string>();
+        return html`
+            <div class="sense-fan" data-testid="sense-fan">
+                ${senses.map(s => {
+                    const isIntended = s.synset_id === intendedId;
+                    const isTicked = ticked.has(s.synset_id);
+                    const classes = [
+                        'sense-option',
+                        isIntended ? 'intended' : '',
+                        isTicked ? 'ticked' : '',
+                    ].filter(Boolean).join(' ');
+                    return html`<button type="button"
+                        class="${classes}"
+                        data-testid="sense-option-${s.synset_id}"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();  // don't toggle the gloss pin
+                            this._toggleSenseTick(stepIdx, s.synset_id, intendedId);
+                        }}>
+                        ${s.definition ?? s.synset_id}
+                        <span class="sense-sensenum">n·${s.sensenum}</span>
+                        ${s.tagcount != null ? html`<span class="sense-tagcount">${s.tagcount}</span>` : ''}
+                    </button>`;
+                })}
+            </div>
+        `;
+    }
+
     // The gloss of the currently hovered/tapped node — the WordNet definition of the
     // synset it snapped to. Reveals a wrong-sense snap at ANY hop (e.g. livery),
     // where the sense block only covers the topic/vehicle endpoints. Degrades to a
@@ -237,13 +339,16 @@ export class MfGradePanel extends LitElement {
         const step = steps[i];
         if (!step) return '';
         const g = step.synset_id ? this.glosses[step.synset_id] : undefined;
+        // vec: steps have no synset gloss; the fan renders the vec: affordance instead.
+        const isVec = step.synset_id === null || step.synset_id === undefined;
         return html`
             <div class="link-gloss" data-testid="link-gloss">
                 <strong>${step.phrase}</strong>
                 ${g?.pos ? html`<span class="pos" data-testid="link-gloss-pos">${POS_LABEL[g.pos] ?? g.pos}</span>` : ''}
-                ${g?.definition
+                ${!isVec && (g?.definition
                     ? html`<span class="gloss">${g.definition}</span>`
-                    : html`<span class="gloss muted">no gloss for this sense</span>`}
+                    : html`<span class="gloss muted">no gloss for this sense</span>`)}
+                ${this._renderSenseFan(step, i)}
             </div>
         `;
     }
@@ -278,6 +383,12 @@ export class MfGradePanel extends LitElement {
     private _submit(metaphor: MetaphorVerdict) {
         // Tiers only ride a live metaphor; cleared otherwise so stale chips never leak.
         const tiers = metaphor === 'live' ? this.selectedTiers : [];
+        // Serialise operator ticks to the step_apt_senses payload. Only OPERATOR ticks are
+        // included (the intended sense is already in ChainStep.synset_id; duplicating it
+        // into the verdict would conflate provenance and bloat the record).
+        const step_apt_senses = Array.from(this._stepTicks.entries()).flatMap(
+            ([step_idx, synsets]) => Array.from(synsets).map(synset_id => ({ step_idx, synset_id }))
+        ).sort((a, b) => a.step_idx - b.step_idx || a.synset_id.localeCompare(b.synset_id));
         const detail: VerdictSubmitDetail = {
             linkage: this.pendingLinkage,
             metaphor,
@@ -285,6 +396,7 @@ export class MfGradePanel extends LitElement {
             tags: this.selectedTags,
             confidence: this.confidence,
             notes: this.notes,
+            step_apt_senses,
         };
         this.dispatchEvent(new CustomEvent<VerdictSubmitDetail>('verdict-submit', {
             detail,
