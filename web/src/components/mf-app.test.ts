@@ -1203,6 +1203,26 @@ describe('mf-app grade-mode integration', () => {
       ...overrides,
     })
 
+    it('guided walk is BLIND: priorVerdict stays null even when a judgement exists', async () => {
+      // The guided-walk anchoring guard withholds judge_verdict + cohort server-side,
+      // but the client was re-anchoring from its own judgements store — showing the
+      // operator their prior verdict/notes mid re-grade. Guided must render cold.
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeView = 'guided'
+      ;(el as any).guidedEntries = [{
+        chain_signature: 'sig1', topic: 'fire', vehicle: 'blaze', order: 0, record: chain,
+      }]
+      ;(el as any).guidedPos = 0
+      ;(el as any).guidedJudgements = [
+        judgement({ linkage: 'bad', metaphor: 'live', notes: 'prior pass — must not leak', ts: '2026-06-01T00:00:00Z' }),
+      ]
+      await el.updateComplete
+      const walk = el.shadowRoot!.querySelector('[data-testid=grade-guided]') as any
+      expect(walk).not.toBeNull()
+      expect(walk.priorVerdict).toBeNull()
+    })
+
     it('threads the latest judgement axes, tiers and notes into the priorVerdict prop', async () => {
       ;(el as any).mode = 'grade'
       ;(el as any).viewportWidth = 1200

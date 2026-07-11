@@ -1353,7 +1353,9 @@ export class MfApp extends LitElement {
         data-testid="grade-guided"
         .guided=${true}
         .chain=${entry?.record ?? null}
-        .priorVerdict=${entry ? this.priorVerdict(entry.record) : null}
+        .priorVerdict=${null /* guided is BLIND: the server-side anchoring guard
+          withholds judge_verdict/cohort — leaking the operator's own prior
+          verdict here re-anchors re-grade batches and inflates consistency */}
         .glosses=${this.gradeGlosses}
         .topic=${entry?.topic ?? ''}
         .index=${this.guidedPos}
