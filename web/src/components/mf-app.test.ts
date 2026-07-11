@@ -1246,6 +1246,29 @@ describe('mf-app grade-mode integration', () => {
       expect(walk.senseInventories['blaze']).toEqual([])
     })
 
+    it('fetches the HEAD lemma inventory too for multi-word steps (fan fallback)', async () => {
+      const getSenses = vi.fn(async (key: string) => ({ key, senses: [] }))
+      ;(el as any).gradingClient.getSenses = getSenses
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeView = 'guided'
+      const multiword = {
+        ...chain,
+        chain: [
+          { phrase: 'fire', head: 'fire', synset_id: 's1' },
+          { phrase: 'buried wound', head: 'wound', synset_id: 's9' },
+        ],
+      }
+      ;(el as any).guidedEntries = [{
+        chain_signature: 'sig1', topic: 'fire', vehicle: 'buried wound', order: 0, record: multiword,
+      }]
+      ;(el as any).guidedPos = 0
+      await el.updateComplete
+      await new Promise((r) => setTimeout(r, 0))
+      const keys = getSenses.mock.calls.map((c) => c[0]).sort()
+      expect(keys).toEqual(['buried wound', 'fire', 'wound'])
+    })
+
     it('threads the latest judgement axes, tiers and notes into the priorVerdict prop', async () => {
       ;(el as any).mode = 'grade'
       ;(el as any).viewportWidth = 1200
