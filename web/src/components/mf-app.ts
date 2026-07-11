@@ -20,8 +20,9 @@ import type {
   Tag,
   Confidence,
   GlossMap,
+  SenseInventoryMap,
 } from '@/types/grading'
-import { normaliseJudgement } from '@/types/grading'
+import { normaliseJudgement, senseInventoryKey } from '@/types/grading'
 import type { MfToast } from './mf-toast'
 
 // Import components so they register
@@ -436,6 +437,10 @@ export class MfApp extends LitElement {
   @state() private guidedPos = 0
   @state() private guidedGradedSigs: Set<string> = new Set()
   @state() private guidedJudgements: JudgementRecord[] = []
+  // canonical phrase key -> ranked noun senses, accumulated per viewed chain.
+  // Fetched lazily from /senses (per-key route); the panel's fan is dead without it.
+  @state() private senseInventories: SenseInventoryMap = {}
+  private _sensesRequested = new Set<string>()
   @state() private guidedBatch: string | null = null
   private _guidedGraphSig = ''
   private _guidedGraphChains: ChainRecord[] = []
@@ -457,6 +462,39 @@ export class MfApp extends LitElement {
       if (!this.showRare) hidden.add('rare')
       this.hiddenRarities = hidden
     }
+    // Lazily fetch sense inventories for whichever chain the active grade view
+    // shows (fire-and-forget; results merge into senseInventories as they land).
+    void this.ensureSenseInventories(this.currentGradeChain())
+  }
+
+  /** The chain the active grade view is currently showing, if any. */
+  private currentGradeChain(): ChainRecord | null {
+    if (this.mode !== 'grade') return null
+    if (this.gradeView === 'topic') return this.selectedChain
+    if (this.gradeView === 'walk') return this.walkCurrent?.record ?? null
+    if (this.gradeView === 'guided') return this.guidedCurrent?.record ?? null
+    return null
+  }
+
+  /** Fetch (once per key) the sense inventory for each step phrase of a chain.
+   *  Failures degrade to an empty fan — logged, never thrown into render. */
+  private async ensureSenseInventories(chain: ChainRecord | null): Promise<void> {
+    if (!chain) return
+    const keys = [...new Set((chain.chain ?? []).map(st => senseInventoryKey(st.phrase)))]
+      .filter(k => k && !this._sensesRequested.has(k))
+    if (keys.length === 0) return
+    keys.forEach(k => this._sensesRequested.add(k))
+    const results = await Promise.all(keys.map(async k => {
+      try {
+        return await this.gradingClient.getSenses(k)
+      } catch (err) {
+        console.warn('[mf-app] getSenses failed for', k, err)
+        return { key: k, senses: [] }
+      }
+    }))
+    const merged = { ...this.senseInventories }
+    for (const r of results) merged[r.key] = r.senses
+    this.senseInventories = merged
   }
 
   async connectedCallback(): Promise<void> {
@@ -1196,6 +1234,7 @@ export class MfApp extends LitElement {
                   .chain=${this.selectedChain}
                   .priorVerdict=${this.priorVerdict(this.selectedChain)}
                   .glosses=${this.gradeGlosses}
+                  .senseInventories=${this.senseInventories}
                   @verdict-submit=${this.handleVerdictSubmit}
                 ></mf-grade-panel>
               </div>`
@@ -1261,6 +1300,7 @@ export class MfApp extends LitElement {
                 .chain=${this.selectedChain}
                 .priorVerdict=${this.priorVerdict(this.selectedChain)}
                 .glosses=${this.gradeGlosses}
+                .senseInventories=${this.senseInventories}
                 @verdict-submit=${this.handleVerdictSubmit}
               ></mf-grade-panel>
             </div>`
@@ -1300,6 +1340,7 @@ export class MfApp extends LitElement {
         .chain=${entry?.record ?? null}
         .priorVerdict=${entry ? this.priorVerdict(entry.record) : null}
         .glosses=${this.gradeGlosses}
+        .senseInventories=${this.senseInventories}
         .topic=${entry?.topic ?? ''}
         .index=${this.walkPos}
         .total=${this.walkEntries.length}
@@ -1357,6 +1398,7 @@ export class MfApp extends LitElement {
           withholds judge_verdict/cohort — leaking the operator's own prior
           verdict here re-anchors re-grade batches and inflates consistency */}
         .glosses=${this.gradeGlosses}
+        .senseInventories=${this.senseInventories}
         .topic=${entry?.topic ?? ''}
         .index=${this.guidedPos}
         .total=${this.guidedEntries.length}

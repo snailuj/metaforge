@@ -1,4 +1,4 @@
-import type { ChainRecord, GlossMap, GuidedWalkResponse, JudgementRecord, RegradeAgreement, SenseCheckSample, SenseLabel, SignalReport, TopicSummary, WalkResponse } from '../types/grading';
+import type { ChainRecord, GlossMap, GuidedWalkResponse, JudgementRecord, RegradeAgreement, SenseCheckSample, SenseInventoryResponse, SenseLabel, SignalReport, TopicSummary, WalkResponse } from '../types/grading';
 
 const BASE = '/api/grading';
 const RETRY_DELAYS_MS = [1000, 3000, 9000];
@@ -43,6 +43,12 @@ export class GradingClient {
     async getGlosses(): Promise<{ glosses: GlossMap }> {
         const r = await fetch(`${BASE}/glosses`);
         if (!r.ok) throw new Error(`getGlosses: ${r.status}`);
+        return r.json();
+    }
+
+    async getSenses(key: string): Promise<SenseInventoryResponse> {
+        const r = await fetch(`${BASE}/senses?key=${encodeURIComponent(key)}`);
+        if (!r.ok) throw new Error(`getSenses: ${r.status}`);
         return r.json();
     }
 

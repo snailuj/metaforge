@@ -112,6 +112,21 @@ describe('GradingClient', () => {
         await expect(client.getSignalReport()).rejects.toThrow('getSignalReport: 500');
     });
 
+    it('getSenses fetches the per-key senses endpoint with the key URL-encoded', async () => {
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ key: 'pressed flower', senses: [] }) });
+        const client = new GradingClient();
+        const res = await client.getSenses('pressed flower');
+        expect(fetchMock).toHaveBeenCalledWith('/api/grading/senses?key=pressed%20flower');
+        expect(res.key).toBe('pressed flower');
+        expect(res.senses).toEqual([]);
+    });
+
+    it('getSenses throws on non-200', async () => {
+        fetchMock.mockResolvedValue({ ok: false, status: 500 });
+        const client = new GradingClient();
+        await expect(client.getSenses('grief')).rejects.toThrow('getSenses: 500');
+    });
+
     it('getGlosses fetches the glosses endpoint and returns the map', async () => {
         fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ glosses: { '1': { pos: 'n', definition: 'an antique' } } }) });
         const client = new GradingClient();

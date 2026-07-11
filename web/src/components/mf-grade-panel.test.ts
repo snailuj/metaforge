@@ -641,6 +641,27 @@ describe('mf-grade-panel', () => {
     const senseOption = (synset_id: string) =>
         el.shadowRoot!.querySelector(`[data-testid="sense-option-${synset_id}"]`) as HTMLElement | null;
 
+    it('multi-word phrases look up inventories by their SPACED key (one canonicaliser)', async () => {
+        // The inventory file keys via normalise_phrase (spaces KEPT); underscoring
+        // here (vec_ref style) silently orphans every multi-word phrase's fan.
+        const multiword = {
+            ...CHAIN_WITH_FAN,
+            chain: [
+                CHAIN_WITH_FAN.chain[0],
+                { phrase: 'Red  Tape', head: 'tape', synset_id: '200' },
+                CHAIN_WITH_FAN.chain[2],
+            ],
+        };
+        el.chain = multiword as any;
+        (el as any).senseInventories = {
+            'red  tape': [{ synset_id: '200', sensenum: 1, tagcount: 2, definition: 'needless bureaucracy', pos: 'n' }],
+        };
+        await el.updateComplete;
+        await tapNode(1);
+        expect(senseFan()).toBeTruthy();
+        expect(senseOption('200')).toBeTruthy();
+    });
+
     it('sense fan renders inventory senses when step is tapped', async () => {
         el.chain = CHAIN_WITH_FAN;
         (el as any).senseInventories = INVENTORIES;
