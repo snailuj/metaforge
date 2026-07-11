@@ -480,7 +480,10 @@ export class MfApp extends LitElement {
    *  Failures degrade to an empty fan — logged, never thrown into render. */
   private async ensureSenseInventories(chain: ChainRecord | null): Promise<void> {
     if (!chain) return
-    const keys = [...new Set((chain.chain ?? []).map(st => senseInventoryKey(st.phrase)))]
+    // Phrase key + head-lemma key (the fan falls back to the head's senses when a
+    // multi-word phrase has no phrase-level inventory).
+    const keys = [...new Set((chain.chain ?? []).flatMap(st =>
+      [senseInventoryKey(st.phrase), st.head ? senseInventoryKey(st.head) : '']))]
       .filter(k => k && !this._sensesRequested.has(k))
     if (keys.length === 0) return
     keys.forEach(k => this._sensesRequested.add(k))

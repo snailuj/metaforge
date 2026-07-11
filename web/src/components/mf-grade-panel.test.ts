@@ -641,6 +641,49 @@ describe('mf-grade-panel', () => {
     const senseOption = (synset_id: string) =>
         el.shadowRoot!.querySelector(`[data-testid="sense-option-${synset_id}"]`) as HTMLElement | null;
 
+    it('the snapped sense renders as explicitly SELECTED (✓ + snapped badge, aria-pressed)', async () => {
+        // The intended sense is always part of the judged reading; the fan must SAY so
+        // or the operator is left unsure whether the snap is being included.
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        await el.updateComplete;
+        await tapNode(1);
+        const intended = senseOption('100')!;
+        expect(intended.getAttribute('aria-pressed')).toBe('true');
+        expect(intended.textContent).toContain('✓');
+        expect(intended.textContent).toContain('snapped');
+        const other = senseOption('102')!;
+        expect(other.getAttribute('aria-pressed')).toBe('false');
+        expect(other.textContent).not.toContain('snapped');
+    });
+
+    it('multi-word steps fall back to the HEAD lemma inventory, labelled', async () => {
+        const multiword = {
+            ...CHAIN_WITH_FAN,
+            chain: [
+                CHAIN_WITH_FAN.chain[0],
+                { phrase: 'buried wound', head: 'wound', synset_id: '300' },
+                CHAIN_WITH_FAN.chain[2],
+            ],
+        };
+        el.chain = multiword as any;
+        (el as any).senseInventories = {
+            // no 'buried wound' entry — phrase inventory empty
+            'wound': [
+                { synset_id: '300', sensenum: 1, tagcount: 5, definition: 'an injury to living tissue', pos: 'n' },
+                { synset_id: '301', sensenum: 2, tagcount: 1, definition: 'a casualty to military personnel', pos: 'n' },
+            ],
+        };
+        await el.updateComplete;
+        await tapNode(1);
+        expect(senseFan()).toBeTruthy();
+        expect(senseOption('300')).toBeTruthy();     // head senses shown
+        expect(senseOption('300')!.textContent).toContain('snapped');  // intended matches within head inventory
+        const label = el.shadowRoot!.querySelector('[data-testid="sense-fan-source"]');
+        expect(label).toBeTruthy();
+        expect(label!.textContent).toContain('wound');  // "senses of 'wound'"
+    });
+
     it('multi-word phrases look up inventories by their SPACED key (one canonicaliser)', async () => {
         // The inventory file keys via normalise_phrase (spaces KEPT); underscoring
         // here (vec_ref style) silently orphans every multi-word phrase's fan.

@@ -131,11 +131,19 @@ export class MfGradePanel extends LitElement {
             padding: 0.15rem 0.4rem;
         }
         button.sense-option:hover { border-color: #9ec4ff; color: #e6e6e6; }
-        /* Intended sense is always pre-lit — the model's snap target for this occurrence. */
+        /* Intended sense renders SELECTED (it is always part of the judged reading) —
+           blue family + ✓ + a 'snapped' badge distinguish it from operator ticks. */
         button.sense-option.intended { border-color: #4a6da7; color: #9ec4ff; background: #1a2535; }
         /* Operator tick: a co-apt sense confirmed by the grader at this position. */
         button.sense-option.ticked { border-color: #6db86d; color: #a8dba8; background: #1a2f1a; }
         button.sense-option.intended.ticked { border-color: #6db86d; background: #1a2f1a; }
+        .sense-check { margin-right: 0.25rem; font-weight: bold; }
+        .sense-snapped-badge {
+            font-size: 0.62rem; letter-spacing: 0.04em; text-transform: uppercase;
+            border: 1px solid #4a6da7; border-radius: 3px; padding: 0 0.25rem;
+            margin-left: 0.35rem; color: #9ec4ff;
+        }
+        .sense-fan-source { font-size: 0.7rem; color: #8a93a2; font-style: italic; }
         .sense-sensenum { font-size: 0.7rem; color: #8a93a2; margin-left: 0.35rem; }
         .sense-tagcount { font-size: 0.68rem; color: #6a7280; margin-left: 0.25rem; }
     `;
@@ -286,10 +294,10 @@ export class MfGradePanel extends LitElement {
     }
 
     // Render the sense fan inside the link-gloss popover. Shows the ranked noun-sense
-    // inventory for the active step; vec: nodes show a static affordance instead.
+    // inventory for the active step; a multi-word phrase with no phrase-level
+    // inventory falls back to its HEAD lemma's senses (labelled, so the operator
+    // knows whose senses they are); vec: nodes show a static affordance instead.
     private _renderSenseFan(step: ChainStep, stepIdx: number) {
-        const key = this._canonicalKey(step.phrase);
-        const senses: SenseInventoryItem[] = this.senseInventories[key] ?? [];
         const intendedId = step.synset_id ?? null;
 
         // vec: step — no synset, no ticking affordance.
@@ -301,12 +309,20 @@ export class MfGradePanel extends LitElement {
             `;
         }
 
-        // No inventory for this phrase — render nothing (graceful degrade).
+        let senses: SenseInventoryItem[] = this.senseInventories[this._canonicalKey(step.phrase)] ?? [];
+        let sourceLemma: string | null = null;
+        if (senses.length === 0 && step.head && step.head !== step.phrase) {
+            senses = this.senseInventories[this._canonicalKey(step.head)] ?? [];
+            sourceLemma = step.head;  // the snap came from the head lemma; say so
+        }
+
+        // No inventory anywhere — render nothing (graceful degrade).
         if (senses.length === 0) return '';
 
         const ticked = this._stepTicks.get(stepIdx) ?? new Set<string>();
         return html`
             <div class="sense-fan" data-testid="sense-fan">
+                ${sourceLemma ? html`<span class="sense-fan-source" data-testid="sense-fan-source">senses of ‘${sourceLemma}’</span>` : ''}
                 ${senses.map(s => {
                     const isIntended = s.synset_id === intendedId;
                     const isTicked = ticked.has(s.synset_id);
@@ -315,16 +331,23 @@ export class MfGradePanel extends LitElement {
                         isIntended ? 'intended' : '',
                         isTicked ? 'ticked' : '',
                     ].filter(Boolean).join(' ');
+                    // The intended (snapped) sense is ALWAYS part of the judged reading —
+                    // render it in the selected state so the operator never wonders
+                    // whether it is being included.
+                    const selected = isIntended || isTicked;
                     return html`<button type="button"
                         class="${classes}"
+                        aria-pressed="${selected}"
                         data-testid="sense-option-${s.synset_id}"
                         @click=${(e: Event) => {
                             e.stopPropagation();  // don't toggle the gloss pin
                             this._toggleSenseTick(stepIdx, s.synset_id, intendedId);
                         }}>
+                        ${selected ? html`<span class="sense-check">✓</span>` : ''}
                         ${s.definition ?? s.synset_id}
                         <span class="sense-sensenum">n·${s.sensenum}</span>
                         ${s.tagcount != null ? html`<span class="sense-tagcount">${s.tagcount}</span>` : ''}
+                        ${isIntended ? html`<span class="sense-snapped-badge">snapped</span>` : ''}
                     </button>`;
                 })}
             </div>
