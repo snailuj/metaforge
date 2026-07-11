@@ -1,6 +1,7 @@
 import { LitElement, html, css, type PropertyValues } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ChainRecord, ChainStep, GlossMap, Linkage, MetaphorVerdict, Tier, Tag, Confidence, VerdictSubmitDetail, SenseInventoryItem, SenseInventoryMap } from '../types/grading';
+import { senseInventoryKey } from '../types/grading';
 import { TAGS } from '../types/grading';
 
 // WordNet POS code → grader-readable label. 's' is an adjective satellite.
@@ -257,10 +258,11 @@ export class MfGradePanel extends LitElement {
         this._pinnedStepIdx = this._pinnedStepIdx === i ? null : i;
     }
 
-    // Canonical lookup key for the sense inventory: NFC-normalised, stripped, lowercased,
-    // spaces → underscores. Mirrors vec_ref() in the Python models (one canonicaliser).
+    // Canonical lookup key for the sense inventory — the shared senseInventoryKey
+    // (mirrors the sidecar's normalise_phrase: NFC/trim/lower, spaces KEPT). The
+    // earlier vec_ref-style underscoring orphaned every multi-word phrase's fan.
     private _canonicalKey(phrase: string): string {
-        return phrase.trim().toLowerCase().replace(/ /g, '_');
+        return senseInventoryKey(phrase);
     }
 
     // Toggle an operator sense tick at the given step. The intended sense (step.synset_id)

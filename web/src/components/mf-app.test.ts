@@ -1223,6 +1223,29 @@ describe('mf-app grade-mode integration', () => {
       expect(walk.priorVerdict).toBeNull()
     })
 
+    it('fetches sense inventories for the current chain steps and threads them to the guided walk', async () => {
+      const getSenses = vi.fn(async (key: string) => ({
+        key, senses: key === 'fire' ? [{ synset_id: 's1', sensenum: 1, tagcount: 4, definition: 'combustion', pos: 'n' }] : [],
+      }))
+      ;(el as any).gradingClient.getSenses = getSenses
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeView = 'guided'
+      ;(el as any).guidedEntries = [{
+        chain_signature: 'sig1', topic: 'fire', vehicle: 'blaze', order: 0, record: chain,
+      }]
+      ;(el as any).guidedPos = 0
+      await el.updateComplete
+      await new Promise((r) => setTimeout(r, 0)) // let the async inventory fetch settle
+      await el.updateComplete
+      // one fetch per unique canonical step phrase (fire, blaze)
+      const keys = getSenses.mock.calls.map((c) => c[0]).sort()
+      expect(keys).toEqual(['blaze', 'fire'])
+      const walk = el.shadowRoot!.querySelector('[data-testid=grade-guided]') as any
+      expect(walk.senseInventories['fire']).toHaveLength(1)
+      expect(walk.senseInventories['blaze']).toEqual([])
+    })
+
     it('threads the latest judgement axes, tiers and notes into the priorVerdict prop', async () => {
       ;(el as any).mode = 'grade'
       ;(el as any).viewportWidth = 1200

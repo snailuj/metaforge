@@ -37,6 +37,13 @@ describe('mf-grade-walk', () => {
     expect(panel.chain.chain_signature).toBe('s1')
   })
 
+  it('threads senseInventories through to the panel (the fan is dead without it)', async () => {
+    const inventories = { anger: [{ synset_id: '1', sensenum: 1, tagcount: 3, definition: 'strong displeasure', pos: 'n' }] }
+    el = await mount({ senseInventories: inventories } as Partial<MfGradeWalk>)
+    const panel = el.shadowRoot!.querySelector('mf-grade-panel') as any
+    expect(panel.senseInventories).toEqual(inventories)
+  })
+
   it('shows the 1-based position indicator', async () => {
     el = await mount({ index: 1, total: 5 })
     expect(el.shadowRoot!.querySelector('[data-testid="walk-pos"]')!.textContent).toContain('2 / 5')

@@ -99,6 +99,13 @@ export interface SenseInventoryResponse {
 // pre-loading this map so the panel stays fetch-free and testable without mocks.
 export type SenseInventoryMap = Record<string, SenseInventoryItem[]>;
 
+// THE canonical inventory key — mirrors the sidecar's normalise_phrase (NFC,
+// trimmed, lowercased, spaces KEPT). One canonicaliser: underscoring here
+// (vec_ref style) would silently orphan every multi-word phrase's fan.
+export function senseInventoryKey(phrase: string): string {
+    return phrase.normalize('NFC').trim().toLowerCase();
+}
+
 // Emitted by mf-grade-panel on a metaphor submit. Carries both axes, multi-select tiers,
 // confidence and notes — mf-app assembles the v2 JudgementRecord from this.
 // `step_apt_senses` carries OPERATOR ticks only (the intended sense from each step's
