@@ -36,8 +36,15 @@ log = logging.getLogger(__name__)
 
 
 def _collect_phrases(chain_globs: list[str]) -> set[str]:
-    """Yield the normalised phrase for every step across all chain files."""
-    phrases: set[str] = set()
+    """Yield the normalised key for every step across all chain files.
+
+    Emits BOTH the phrase key and the head-lemma key. Multi-word phrases rarely
+    have their own synset, so the UI's fan falls back to the head lemma's senses
+    ('senses of "wound"' for the step 'buried wound') — that fallback is dead
+    unless the head lemma is a key in this file, since it may never appear as a
+    standalone single-word step elsewhere in the corpus.
+    """
+    keys: set[str] = set()
     for pattern in chain_globs:
         for path in glob.glob(pattern):
             try:
@@ -52,12 +59,12 @@ def _collect_phrases(chain_globs: list[str]) -> set[str]:
                             log.warning("skipping malformed JSON line in %s", path)
                             continue
                         for step in rec.get("chain", []):
-                            phrase = step.get("phrase")
-                            if phrase:
-                                phrases.add(normalise_phrase(phrase))
+                            for token in (step.get("phrase"), step.get("head")):
+                                if token:
+                                    keys.add(normalise_phrase(token))
             except OSError as exc:
                 log.warning("cannot read chain file %s: %s", path, exc)
-    return phrases
+    return keys
 
 
 def build(db: str, chains: list[str], out: str) -> dict:

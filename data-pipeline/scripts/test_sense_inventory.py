@@ -121,6 +121,28 @@ def test_rank_fan_intended_not_in_list_does_not_raise():
 # build_sense_inventories
 # ---------------------------------------------------------------------------
 
+def test_build_emits_head_lemma_keys_for_multiword_steps(tmp_path):
+    # A multi-word step ("buried wound") whose head ("wound") is the real lemma:
+    # the build must emit a "wound" key so the UI's head-fallback fan has data.
+    # Without it, the phrase key is empty and the fan renders nothing.
+    import build_sense_inventories as bsi
+    chains = tmp_path / "chains.jsonl"
+    chains.write_text(json.dumps({
+        "schema_version": "chain.v2", "chain_signature": "0" * 64,
+        "topic": "grief", "vehicle": "scar",
+        "chain": [{"phrase": "buried wound", "head": "wound", "synset_id": "200"}],
+    }) + "\n")
+    out = tmp_path / "inv.jsonl"
+    db = tmp_path / "d.db"
+    _dump_fixture_to(db)
+    bsi.build(str(db), [str(chains)], str(out))
+    inv = {json.loads(l)["key"]: json.loads(l)["senses"]
+           for l in out.read_text().splitlines()}
+    assert "wound" in inv and len(inv["wound"]) == 1        # head key present + populated
+    assert inv["wound"][0]["synset_id"] == "200"
+    assert "buried wound" in inv and inv["buried wound"] == []  # phrase key kept, empty
+
+
 def test_build_inventories_idempotent(tmp_path):
     import build_sense_inventories as bsi
     chains = tmp_path / "chains.jsonl"
