@@ -74,6 +74,8 @@ export interface JudgementRecord {
     tags: Tag[];
     confidence: Confidence;
     notes: string;
+    // Operator per-hop co-aptness ticks (optional: absent on pre-fan records).
+    step_apt_senses?: StepAptSense[];
     supersedes_ts: string | null;
 }
 

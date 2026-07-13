@@ -1001,6 +1001,9 @@ export class MfApp extends LitElement {
       tags: e.detail.tags,
       confidence: e.detail.confidence,
       notes: e.detail.notes,
+      // Operator per-hop co-aptness ticks — dropping these here silently
+      // destroys careful grading work (it did, once: batch 4, 2026-07-13).
+      step_apt_senses: e.detail.step_apt_senses ?? [],
       supersedes_ts: prior?.ts ?? null,
     }
     try {
