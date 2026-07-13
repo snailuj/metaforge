@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Metaforge · Phrase-as-Node (Forge / Bridge context)</title>
+<!--
+  GRAPH-NATIVE prototype, built on the REAL engine (three.js + 3d-force-graph),
+  per docs/designs/2026-06-25-graph-native-feature-specs.md (section D).
+  Single self-contained no-build file, opens via file://, CDN globals only.
+
+  Copied from the cinematic BASE (web/prototypes/graph-nav/index.html) and layered
+  with the Phrase-as-Node features. This is a FORGE / BRIDGE surface — phrases do
+  not appear in the plain thesaurus, so they surface here. Realises spec D:
+
+    - PHRASE node as a wider PILL fed by its PARTS: subject / object / verb /
+      modifier nodes pointing INTO the pill (compositional, arrowheads in, role
+      labels on the edge). Hero vec: phrase "pressed flower" + a fuller clause
+      "the cold wound drinks light" carrying all four constituent roles.
+    - LEMMA as a central BODY with SENSE sub-nodes ORBITING it like moons — NO
+      edges drawn between senses and the body or each other, EXCEPT the rare case
+      where a real link exists (here: glance-off -> ricochet, a forged bridge).
+    - vec: PHRASE nodes (no WordNet synset, e.g. "pressed flower") shown FIRST-CLASS
+      in this forge/bridge context.
+
+  Inherited from the base: fog-of-war (BFS hop fade, hidden beyond ~3 hops),
+  bloom-on-focus, fly-to + click-to-fly, WASD/QE free flight, cosmic palette +
+  starfield, and the tuned HTML overlay (collapsible info panel, search bar with
+  '/', rarity filter, flight hint) — all styled from web/src/styles/tokens.css.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Playfair+Display:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<!-- Engine globals. Order matters: THREE first (3d-force-graph reads window.THREE),
+     then the graph, then the crisp text-sprite label helper. Same pinned versions
+     as the base (three 0.149 ships the global-UMD build + CapsuleGeometry). -->
+<script src="https://unpkg.com/three@0.149.0/build/three.min.js"
+        integrity="sha384-RRHfJ6w1mTlKUBMYT/hvnRiOzEB/vyRV3DrQOseb6oYfvaZSfdd0byS4bHps0k2R"
+        crossorigin="anonymous"></script>
+<script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"
+        integrity="sha384-GNPicn8pBA2/PGSyPTpxIlPurgLUYcNYJ2zskIq782dE9+gp5E32WSyuxZqA7J+u"
+        crossorigin="anonymous"></script>
+<script src="https://unpkg.com/three-spritetext@1.8.2/dist/three-spritetext.min.js"
+        integrity="sha384-8hX0id4j/d/+9ukCS+LZDb9WpPp63OqiuZ5bpPPnixibnP01z1avvWuQD3xdEIQX"
+        crossorigin="anonymous"></script>
+
+<style>
+  :root {
+    /* mirrored verbatim from web/src/styles/tokens.css */
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-hud: rgba(22, 33, 62, 0.6);
+    --text-primary: #e8e0d4;
+    --text-secondary: #a89f94;
+    --text-muted: #6b6560;
+    --gold: #d4af37;
+    --gold-dim: rgba(212, 175, 55, 0.5);
+    /* node colours (colours.ts NODE_COLOURS) */
+    --node-central: #d4af37;
+    --node-synonym: #c4956a;
+    --node-hypernym: #8b6f47;
+    --node-hyponym: #6a8b6f;
+    --node-similar: #7a6a8b;
+    /* rarity colours (colours.ts RARITY_COLOURS) */
+    --rarity-common: #8bb89a;
+    --rarity-unusual: #c4956a;
+    --rarity-rare: #a88bc4;
+    --edge-default: rgba(232, 224, 212, 0.15);
+    --edge-highlight: rgba(212, 175, 55, 0.4);
+    --bridge: #b56ed0;            /* forge/bridge violet */
+    --vec: #9d86c4;              /* amethyst — vec: phrase (no synset) */
+    --lemma: #8fa3c4;            /* slate-blue — lemma body */
+    --moon: #c8cede;            /* silver — orbiting sense moon */
+    /* constituent-role accents (compose-edge + part stars + role tags) */
+    --role-subj: #6a8b6f;
+    --role-obj:  #c4956a;
+    --role-verb: #d98a3d;
+    --role-mod:  #7a6a8b;
+    --font-heading: 'Playfair Display', Georgia, serif;
+    --font-body: 'Crimson Text', 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --hud-border: 1px solid rgba(212, 175, 55, 0.2);
+    --hud-radius: 4px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg-primary);
+    overflow: hidden;
+    font-family: var(--font-body);
+    color: var(--text-primary);
+  }
+  #graph { position: fixed; inset: 0; z-index: 0; }
+
+  .hud { position: fixed; z-index: 10; }
+
+  /* Top-left collapsible info panel ("collapso") */
+  #panel {
+    top: 1rem; left: 1rem; width: 21rem; max-width: calc(100vw - 2rem);
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    overflow: hidden;
+  }
+  #panel-header {
+    display: flex; align-items: baseline; gap: 0.55rem;
+    padding: 0.85rem 1rem 0.6rem;
+    cursor: pointer; user-select: none;
+  }
+  #panel-word {
+    font-family: var(--font-heading);
+    font-size: 1.5rem; font-weight: 700;
+    color: var(--gold);
+    letter-spacing: 0.01em;
+    line-height: 1.05;
+  }
+  .badge {
+    font-family: var(--font-mono);
+    font-size: 0.58rem; letter-spacing: 0.11em;
+    text-transform: uppercase;
+    padding: 0.18rem 0.45rem; border-radius: 2px;
+    border: 1px solid currentColor;
+    white-space: nowrap; align-self: center;
+  }
+  .badge.common  { color: var(--rarity-common); }
+  .badge.unusual { color: var(--rarity-unusual); }
+  .badge.rare    { color: var(--rarity-rare); }
+  .badge.vec     { color: var(--vec); }
+  .badge.lemma   { color: var(--lemma); }
+  .badge.sense   { color: var(--moon); }
+  #panel-pos {
+    font-family: var(--font-body); font-style: italic;
+    color: var(--text-secondary); font-size: 0.92rem;
+  }
+  #panel-collapse {
+    margin-left: auto; color: var(--text-muted);
+    font-family: var(--font-mono); font-size: 0.85rem;
+    transition: transform 200ms ease; align-self: center;
+  }
+  #panel.collapsed #panel-collapse { transform: rotate(-90deg); }
+  #panel.collapsed #panel-body { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+  #panel-body {
+    padding: 0 1rem 1rem; max-height: 72vh; opacity: 1;
+    overflow-y: auto;
+    transition: max-height 260ms ease, opacity 200ms ease, padding 260ms ease;
+  }
+  #panel-def {
+    font-size: 0.98rem; line-height: 1.5;
+    color: var(--text-primary);
+    margin: 0.1rem 0 0.6rem;
+  }
+  .rel-group { margin-top: 0.8rem; }
+  .rel-group h4 {
+    margin: 0 0 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase;
+    color: var(--text-muted);
+    border-bottom: 1px solid rgba(212,175,55,0.12);
+    padding-bottom: 0.25rem;
+  }
+  .rel-note {
+    font-size: 0.78rem; font-style: italic; line-height: 1.35;
+    color: var(--text-muted);
+    margin: -0.1rem 0 0.45rem;
+  }
+  .rel-terms { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .term {
+    display: inline-flex; align-items: center;
+    font-size: 0.92rem;
+    padding: 0.18rem 0.5rem; border-radius: 2px;
+    background: rgba(232,224,212,0.05);
+    border: 1px solid transparent;
+    cursor: pointer; transition: all 140ms ease;
+    color: var(--text-primary);
+  }
+  .term:hover {
+    border-color: var(--gold-dim);
+    background: rgba(212,175,55,0.1);
+    color: var(--gold);
+  }
+  .term[data-rel="synonym"]  { border-left: 3px solid var(--node-synonym); }
+  .term[data-rel="hypernym"] { border-left: 3px solid var(--node-hypernym); }
+  .term[data-rel="hyponym"]  { border-left: 3px solid var(--node-hyponym); }
+  .term[data-rel="similar"]  { border-left: 3px solid var(--node-similar); }
+  .term[data-rel="forge"]    { border-left: 3px solid var(--bridge); color: #d9b3ec; }
+  .term[data-rel="compose"]  { border-left: 3px solid var(--vec); }
+  .term[data-rel="sense"]    { border-left: 3px solid var(--moon); }
+  .term[data-rel="lemma"]    { border-left: 3px solid var(--lemma); }
+  /* grammatical-role tag prefixing a compositional part */
+  .role-tag {
+    font-family: var(--font-mono); font-size: 0.5rem; letter-spacing: 0.08em;
+    padding: 0.05rem 0.28rem; margin-right: 0.38rem; border-radius: 2px;
+    border: 1px solid currentColor; text-transform: uppercase;
+  }
+  .role-tag.SUBJ { color: var(--role-subj); }
+  .role-tag.OBJ  { color: var(--role-obj); }
+  .role-tag.VERB { color: var(--role-verb); }
+  .role-tag.MOD  { color: var(--role-mod); }
+  /* the little forge "why this hop" annotation on a forged term */
+  .term .edge-why {
+    font-family: var(--font-body); font-style: italic;
+    font-size: 0.78rem; color: var(--text-muted); margin-left: 0.4rem;
+  }
+
+  /* Centre-top search bar */
+  #searchwrap {
+    top: 1rem; left: 50%; transform: translateX(-50%);
+    width: min(30rem, calc(100vw - 24rem));
+  }
+  #search {
+    width: 100%;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 1.05rem;
+    padding: 0.7rem 2.6rem 0.7rem 1rem;
+    outline: none;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+  #search::placeholder { color: var(--text-muted); }
+  #search:focus {
+    border-color: var(--gold-dim);
+    box-shadow: 0 0 0 1px var(--gold-dim), 0 8px 30px rgba(0,0,0,0.4);
+  }
+  #search-hint {
+    position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%);
+    font-family: var(--font-mono); font-size: 0.7rem;
+    color: var(--text-muted);
+    border: 1px solid rgba(232,224,212,0.18);
+    border-radius: 3px; padding: 0.05rem 0.35rem;
+    pointer-events: none;
+  }
+  #suggestions {
+    margin-top: 0.35rem;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    overflow: hidden;
+    display: none;
+  }
+  #suggestions.open { display: block; }
+  .suggestion {
+    padding: 0.5rem 0.85rem; cursor: pointer;
+    font-size: 1rem; color: var(--text-primary);
+    display: flex; justify-content: space-between; align-items: center; gap: 0.6rem;
+  }
+  .suggestion:hover, .suggestion.active { background: rgba(212,175,55,0.12); color: var(--gold); }
+  .suggestion small { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+
+  /* Forge/Bridge context chip — top-right */
+  #modechip {
+    top: 1rem; right: 1rem;
+    background: rgba(157, 134, 196, 0.12);
+    border: 1px solid rgba(157, 134, 196, 0.45);
+    border-radius: 999px;
+    padding: 0.4rem 0.85rem;
+    font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.16em;
+    text-transform: uppercase; color: #cbb8e6;
+    display: flex; align-items: center; gap: 0.45rem;
+  }
+  #modechip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--vec); box-shadow: 0 0 8px var(--vec); }
+
+  /* Rarity filter — bottom-left */
+  #rarity {
+    bottom: 1rem; left: 1rem;
+    background: var(--bg-hud);
+    backdrop-filter: blur(10px);
+    border: var(--hud-border);
+    border-radius: var(--hud-radius);
+    padding: 0.55rem 0.7rem;
+    display: flex; gap: 0.4rem; align-items: center;
+  }
+  #rarity .label {
+    font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-muted); margin-right: 0.2rem;
+  }
+  .rchip {
+    font-size: 0.8rem; cursor: pointer; user-select: none;
+    padding: 0.22rem 0.55rem; border-radius: 2px;
+    border: 1px solid currentColor;
+    opacity: 1; transition: opacity 140ms ease, background 140ms ease;
+  }
+  .rchip.common  { color: var(--rarity-common); }
+  .rchip.unusual { color: var(--rarity-unusual); }
+  .rchip.rare    { color: var(--rarity-rare); }
+  .rchip.off { opacity: 0.32; text-decoration: line-through; }
+
+  /* Flight hint — bottom-centre */
+  #flight-hint {
+    bottom: 1.1rem; left: 50%; transform: translateX(-50%);
+    font-family: var(--font-mono); font-size: 0.72rem;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-align: center;
+    background: rgba(22,33,62,0.4);
+    padding: 0.3rem 0.8rem; border-radius: var(--hud-radius);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #flight-hint b { color: var(--text-secondary); font-weight: 600; }
+
+  /* Legend wisp — bottom-right */
+  #wisp {
+    bottom: 1rem; right: 1rem;
+    font-family: var(--font-mono); font-size: 0.6rem;
+    color: var(--text-muted); letter-spacing: 0.08em;
+    opacity: 0.85; pointer-events: none;
+    display: flex; flex-direction: column; gap: 0.28rem; align-items: flex-end;
+    text-transform: uppercase;
+  }
+  #wisp .row { display: flex; align-items: center; gap: 0.4rem; }
+  #wisp .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  #wisp .sw.pill { border-radius: 5px; width: 16px; }
+
+  #panel-body::-webkit-scrollbar { width: 6px; }
+  #panel-body::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.25); border-radius: 3px; }
+</style>
+</head>
+<body>
+  <div id="graph"></div>
+
+  <!-- Top-left collapsible info panel -->
+  <aside id="panel" class="hud">
+    <div id="panel-header">
+      <span id="panel-word">grief</span>
+      <span id="panel-badge" class="badge unusual">unusual</span>
+      <span id="panel-pos">n.</span>
+      <span id="panel-collapse">▾</span>
+    </div>
+    <div id="panel-body">
+      <p id="panel-def"></p>
+      <div id="rel-groups"></div>
+    </div>
+  </aside>
+
+  <!-- Centre-top search -->
+  <div id="searchwrap" class="hud">
+    <div style="position:relative;">
+      <input id="search" type="text" placeholder="Search · or forge a phrase…" autocomplete="off" spellcheck="false" />
+      <span id="search-hint">/</span>
+    </div>
+    <div id="suggestions"></div>
+  </div>
+
+  <!-- Forge/Bridge context chip -->
+  <div id="modechip" class="hud"><span class="dot"></span>Forge · Bridge context</div>
+
+  <!-- Rarity filter -->
+  <div id="rarity" class="hud">
+    <span class="label">Show</span>
+    <span class="rchip common"  data-rarity="common">Common</span>
+    <span class="rchip unusual" data-rarity="unusual">Unusual</span>
+    <span class="rchip rare"    data-rarity="rare">Rare</span>
+  </div>
+
+  <!-- Flight hint -->
+  <div id="flight-hint" class="hud">
+    <b>WASD</b> move · <b>R/F</b> up/down · <b>Q/E</b> roll · drag to look · <b>click</b> a star to fly there
+  </div>
+
+  <!-- Legend -->
+  <div id="wisp" class="hud">
+    <div class="row"><span class="sw pill" style="background:var(--vec)"></span> vec: phrase</div>
+    <div class="row"><span class="sw" style="background:var(--lemma)"></span> lemma · <span class="sw" style="background:var(--moon)"></span> sense moons</div>
+    <div class="row"><span class="sw" style="background:var(--bridge)"></span> forge bridge</div>
+  </div>
+
+<script>
+/* ============================================================================
+   FORGE / BRIDGE SCENE — Phrase-as-Node.
+   Topic "grief" is being forged. The forge surfaced two phrase vehicles and one
+   ambiguous lemma. Phrases do NOT live in the plain thesaurus; they are first-
+   class HERE. Nodes carry a `kind`: topic | word | phrase | part | lemma | sense.
+   ============================================================================ */
+const C = {
+  gold:     '#d4af37',
+  synonym:  '#c4956a',
+  hypernym: '#8b6f47',
+  hyponym:  '#6a8b6f',
+  similar:  '#7a6a8b',
+  vec:      '#9d86c4',   // vec: phrase pill
+  lemma:    '#8fa3c4',   // lemma body
+  moon:     '#c8cede',   // orbiting sense
+  part:     '#c4956a',
+  bridge:   '#b56ed0',   // forge / bridge edge
+  text:     '#e8e0d4',
+  role: { SUBJ: '#6a8b6f', OBJ: '#c4956a', VERB: '#d98a3d', MOD: '#7a6a8b' },
+  rarity: { common: '#8bb89a', unusual: '#c4956a', rare: '#a88bc4' },
+};
+
+const NODES = [
+  // --- topic (the forge subject) ---
+  { id:'grief', word:'grief', kind:'topic', rel:'central', rarity:'unusual', pos:'n.',
+    def:'Deep sorrow, especially over loss — the topic this forge is bridging from.' },
+
+  // --- the thesaurus still functions: a few real neighbours of grief ---
+  { id:'sorrow',   word:'sorrow',   kind:'word', rel:'synonym',  rarity:'common',  pos:'n.', def:'A feeling of deep distress caused by loss or disappointment.' },
+  { id:'mourning', word:'mourning', kind:'word', rel:'synonym',  rarity:'unusual', pos:'n.', def:'The expression of deep sorrow for someone who has died.' },
+  { id:'loss',     word:'loss',     kind:'word', rel:'hypernym', rarity:'common',  pos:'n.', def:'The fact or process of no longer having something or someone.' },
+
+  // --- HERO vec: phrase (no WordNet synset) + its parts ---
+  { id:'ph_flower', word:'pressed flower', kind:'phrase', vec:true, rarity:'rare', pos:'phrase',
+    def:'A keepsake of something once alive — its colour kept, its scent and life pressed out. A forged vehicle for grief.' },
+  { id:'p_pressed', word:'pressed', kind:'part', role:'MOD', rarity:'common', pos:'adj.', def:'Flattened and dried under steady weight.' },
+  { id:'p_flower',  word:'flower',  kind:'part', role:'OBJ', rarity:'common', pos:'n.',   def:'The seed-bearing, often showy part of a plant.' },
+
+  // --- fuller phrase carrying ALL FOUR constituent roles + its parts ---
+  { id:'ph_wound', word:'the cold wound drinks light', kind:'phrase', vec:true, rarity:'rare', pos:'phrase',
+    def:'A hurt so deep it swallows even brightness. A forged vehicle for grief — subject, verb, object and modifier feeding one node.' },
+  { id:'p_cold',   word:'cold',   kind:'part', role:'MOD',  rarity:'common',  pos:'adj.', def:'Lacking warmth; without comfort.' },
+  { id:'p_wound',  word:'wound',  kind:'part', role:'SUBJ', rarity:'unusual', pos:'n.',   def:'An injury to living tissue.' },
+  { id:'p_drinks', word:'drinks', kind:'part', role:'VERB', rarity:'common',  pos:'v.',   def:'Takes in liquid — here, takes in light.' },
+  { id:'p_light',  word:'light',  kind:'part', role:'OBJ',  rarity:'common',  pos:'n.',   def:'The natural agent that makes things visible.' },
+
+  // --- LEMMA with orbiting senses (moons) ---
+  { id:'lem_glance', word:'glance', kind:'lemma', rarity:'common', pos:'n./v.',
+    def:'One spelling, many lives. Before the forge can bridge it, it must choose a sense — so its senses orbit, unfixed.' },
+  { id:'s_look',  word:'a look',        kind:'sense', sense:'glance¹ · n.',        rarity:'common',  pos:'n.', def:'A brief or hurried look.' },
+  { id:'s_brief', word:'to glance',     kind:'sense', sense:'glance² · v.',        rarity:'common',  pos:'v.', def:'To take a brief or hurried look at something.' },
+  { id:'s_off',   word:'to glance off', kind:'sense', sense:'glance³ · v.',        rarity:'unusual', pos:'v.', def:'To strike a surface obliquely and fly off — the one sense with a real bridge.' },
+  { id:'s_gleam', word:'to glance',     kind:'sense', sense:'glance⁴ · v. (poet.)', rarity:'rare',    pos:'v.', def:'To flash or gleam with sudden light.' },
+
+  // --- the real link that anchors ONE sense (the orbit exception) ---
+  { id:'n_ricochet', word:'ricochet', kind:'word', rel:'similar', rarity:'unusual', pos:'n./v.',
+    def:'A rebound off a surface at an angle — a genuine bridge, so glance-off is tethered while its siblings stay free.' },
+];
+
+// links: drawn edges only. kind = thesaurus | forge | compose.
+const LINKS = [
+  // thesaurus (always functions, even on a forge surface)
+  { source:'grief', target:'sorrow',   kind:'thesaurus', rel:'synonym'  },
+  { source:'grief', target:'mourning', kind:'thesaurus', rel:'synonym'  },
+  { source:'grief', target:'loss',     kind:'thesaurus', rel:'hypernym' },
+
+  // forge bridges: topic -> forged vehicles (curved, particle-flowing, violet)
+  { source:'grief', target:'ph_flower',  kind:'forge', label:'what remains of it' },
+  { source:'grief', target:'ph_wound',   kind:'forge', label:'how it feels' },
+  { source:'grief', target:'lem_glance', kind:'forge', label:'a backward glance' },
+
+  // compositional: PART -> PHRASE pill (arrowhead INTO the pill, role on the edge)
+  { source:'p_pressed', target:'ph_flower', kind:'compose', role:'MOD' },
+  { source:'p_flower',  target:'ph_flower', kind:'compose', role:'OBJ' },
+  { source:'p_cold',    target:'ph_wound',  kind:'compose', role:'MOD'  },
+  { source:'p_wound',   target:'ph_wound',  kind:'compose', role:'SUBJ' },
+  { source:'p_drinks',  target:'ph_wound',  kind:'compose', role:'VERB' },
+  { source:'p_light',   target:'ph_wound',  kind:'compose', role:'OBJ'  },
+
+  // the orbit EXCEPTION — one sense has a genuine forged bridge; siblings have none
+  { source:'s_off', target:'n_ricochet', kind:'forge', label:'strike & fly off' },
+];
+
+// Senses orbit their lemma WITHOUT a drawn edge. We record the relationship so
+// the fog-of-war (BFS) can still reach them — a *virtual* adjacency that is
+// never rendered as a line.
+const ORBIT = { lemma: 'lem_glance', senses: ['s_look', 's_brief', 's_off', 's_gleam'] };
+
+// index by id for O(1) panel/fog lookups
+const byId = {};
+for (const n of NODES) byId[n.id] = n;
+
+/* adjacency for BFS fog-of-war: drawn links + virtual lemma<->sense links. */
+const adj = {};
+for (const id of Object.keys(byId)) adj[id] = new Set();
+for (const { source, target } of LINKS) { adj[source].add(target); adj[target].add(source); }
+for (const s of ORBIT.senses) { adj[ORBIT.lemma].add(s); adj[s].add(ORBIT.lemma); }
+
+function hopDistances(focus) {
+  const dist = {};
+  for (const id of Object.keys(byId)) dist[id] = Infinity;
+  dist[focus] = 0;
+  const queue = [focus];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const nb of adj[cur]) {
+      if (dist[nb] === Infinity) { dist[nb] = dist[cur] + 1; queue.push(nb); }
+    }
+  }
+  return dist;
+}
+
+/* ============================================================================
+   ENGINE — 3d-force-graph with FLY controls (WASD/QE), matching the app.
+   ============================================================================ */
+const graphData = {
+  nodes: NODES.map(n => ({ ...n })),
+  links: LINKS.map(l => ({ ...l })),
+};
+
+const FOG_MAX_HOP = 3;                     // invisible beyond this many hops
+const HOP_ALPHA   = [1, 1, 0.86, 0.5];     // bloom gradient by hop distance (brightened so phrase parts read)
+
+let focusId = 'grief';
+let dist = hopDistances(focusId);
+const hiddenRarities = new Set();
+
+function nodeColour(n) {
+  if (n.kind === 'topic')  return C.gold;
+  if (n.kind === 'phrase') return C.vec;
+  if (n.kind === 'lemma')  return C.lemma;
+  if (n.kind === 'sense')  return C.moon;
+  if (n.kind === 'part')   return C.role[n.role] || C.part;
+  return C[n.rel] || C.part;               // plain word
+}
+
+function nodeAlpha(node) {
+  const d = dist[node.id];
+  if (d === undefined || d === Infinity || d > FOG_MAX_HOP) return 0;
+  if (node.kind !== 'topic' && hiddenRarities.has(node.rarity)) return 0;
+  return HOP_ALPHA[d] ?? 0;
+}
+
+function fade(hex, a) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${a.toFixed(3)})`;
+}
+
+/* orbit geometry constants (used by the lemma guide ring + the moon driver) */
+const ORBIT_R0 = 21;            // base radius
+const ORBIT_DR = 3.0;           // per-moon radius step (keeps moons from overlapping)
+const ORBIT_TILT_X = Math.PI * 0.46;
+const ORBIT_TILT_Y = 0.32;
+
+/* ---- node 3D object per kind. Every group exposes __core / __halo / __label /
+   __ring so applyFog() can drive opacity, bloom-scale and the focus ring
+   generically — no object is ever rebuilt as focus moves. ---- */
+function buildNodeObject(node) {
+  const group = new THREE.Group();
+  const colour = nodeColour(node);
+
+  if (node.kind === 'phrase') {
+    // A wider PILL: a crisp SpriteText with a translucent vec-violet background +
+    // border IS the pill/label; a soft glow body sits behind it for cosmic depth.
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(10, 18, 18),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.12 })
+    );
+    group.add(halo);
+    // a thin invisible anchor mesh — fog scales it but never shows it; the PILL
+    // (the SpriteText) is the visible body.
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(2.4, 12, 12),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0 })
+    );
+    group.add(core);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(13, 0.5, 8, 48),
+      new THREE.MeshBasicMaterial({ color: C.gold, transparent: true, opacity: 0 })
+    );
+    ring.visible = false; group.add(ring);
+
+    const pill = new SpriteText(node.word);
+    pill.color = '#efe9f7';
+    pill.fontFace = 'Georgia, serif';
+    pill.fontWeight = '600';
+    pill.textHeight = 3.9;                         // prominent WIDER pill, trimmed so long phrases don't crowd their parts
+    pill.backgroundColor = 'rgba(157,134,196,0.20)';
+    pill.borderColor = colour;
+    pill.borderWidth = 1.4;
+    pill.borderRadius = 7;
+    pill.padding = 3.2;
+    group.add(pill);
+
+    group.__core = core; group.__halo = halo; group.__ring = ring; group.__label = pill;
+    group.__isPhrase = true;
+    group.__baseLabel = 3.9;
+    return group;
+  }
+
+  if (node.kind === 'lemma') {
+    // A central BODY (planet) with a faint, tilted orbit-path guide (NOT an edge —
+    // it signals "moons orbit here" without joining any two nodes).
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(6.5, 28, 28),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true })
+    );
+    group.add(core);
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(13, 22, 22),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.12 })
+    );
+    group.add(halo);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(11, 0.5, 8, 48),
+      new THREE.MeshBasicMaterial({ color: C.gold, transparent: true, opacity: 0 })
+    );
+    ring.visible = false; group.add(ring);
+
+    const guide = new THREE.Mesh(
+      new THREE.TorusGeometry(ORBIT_R0 + 4, 0.16, 8, 96),
+      new THREE.MeshBasicMaterial({ color: 0x9aa6c8, transparent: true, opacity: 0.16 })
+    );
+    guide.rotation.x = ORBIT_TILT_X;
+    guide.rotation.y = ORBIT_TILT_Y;
+    group.add(guide); group.__guide = guide;
+
+    const label = new SpriteText(node.word);
+    label.color = colour; label.fontFace = 'Georgia, serif'; label.fontWeight = '700';
+    label.textHeight = 5.0; label.backgroundColor = false; label.padding = 1;
+    label.position.set(0, 11, 0);
+    group.add(label);
+    group.__core = core; group.__halo = halo; group.__ring = ring; group.__label = label;
+    group.__baseLabel = 5.0;
+    return group;
+  }
+
+  // sense moon | part | plain word | topic — all small glowing spheres
+  let r, labelH, labelColour, labelWeight;
+  if (node.kind === 'sense') { r = 2.6; labelH = 3.0; labelColour = C.moon; labelWeight = '400'; }
+  else if (node.kind === 'part') { r = 3.0; labelH = 3.4; labelColour = C.text; labelWeight = '600'; }
+  else if (node.kind === 'topic') { r = 5.2; labelH = 4.4; labelColour = C.gold; labelWeight = '700'; }
+  else { r = node.rel === 'hypernym' ? 4.2 : 3.6; labelH = 3.4; labelColour = C.text; labelWeight = '400'; }
+
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(r, 20, 20),
+    new THREE.MeshBasicMaterial({ color: colour, transparent: true })
+  );
+  group.add(core);
+  const glow = new THREE.Mesh(
+    new THREE.SphereGeometry(r * 2.0, 20, 20),
+    new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.13 })
+  );
+  group.add(glow);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(r * 2.4, 0.5, 8, 40),
+    new THREE.MeshBasicMaterial({ color: C.gold, transparent: true, opacity: 0 })
+  );
+  ring.visible = false; group.add(ring);
+
+  const label = new SpriteText(node.kind === 'sense' && node.sense ? node.sense : node.word);
+  label.color = labelColour; label.fontFace = 'Georgia, serif'; label.fontWeight = labelWeight;
+  label.textHeight = labelH; label.backgroundColor = false; label.padding = 1;
+  // topic sits in a bright bloom — lift its label clear of the halo so it reads.
+  label.position.set(0, node.kind === 'topic' ? r + 17 : r + 5, 0);
+  group.add(label);
+
+  group.__core = core; group.__halo = glow; group.__ring = ring; group.__label = label;
+  group.__baseR = r; group.__baseLabel = labelH;
+  return group;
+}
+
+const Graph = ForceGraph3D({ controlType: 'fly' })(document.getElementById('graph'))
+  .backgroundColor('#0d0d18')
+  .showNavInfo(false)
+  .nodeRelSize(1)
+  .nodeThreeObject(buildNodeObject)
+  .linkColor(linkColour)
+  .linkWidth(l => (l.kind === 'forge' ? 1.6 : (l.kind === 'compose' ? 0.85 : 0.5)))
+  .linkCurvature(l => (l.kind === 'forge' ? 0.3 : (l.kind === 'compose' ? 0.12 : 0)))
+  .linkDirectionalParticles(l => (l.kind === 'forge' ? 4 : 0))
+  .linkDirectionalParticleWidth(1.5)
+  .linkDirectionalParticleColor(() => C.bridge)
+  .linkDirectionalArrowLength(l => (l.kind === 'compose' ? 3.4 : 0))
+  .linkDirectionalArrowRelPos(1)
+  .linkDirectionalArrowColor(l => (l.kind === 'compose' ? (C.role[l.role] || C.part) : 'rgba(0,0,0,0)'))
+  .linkThreeObjectExtend(true)
+  .linkThreeObject(roleLabelObject)
+  .linkPositionUpdate(roleLabelPosition)
+  .linkOpacity(0.6)
+  .d3VelocityDecay(0.32)
+  .cooldownTime(7000)
+  .onNodeClick(node => selectNode(node.id, true))
+  .onNodeHover(node => { document.getElementById('graph').style.cursor = node ? 'pointer' : 'default'; });
+
+function linkColour(l) {
+  const sa = nodeAlpha(typeof l.source === 'object' ? l.source : byId[l.source]);
+  const ta = nodeAlpha(typeof l.target === 'object' ? l.target : byId[l.target]);
+  const a = Math.min(sa, ta) * 0.92;
+  let base;
+  if (l.kind === 'forge') base = C.bridge;
+  else if (l.kind === 'compose') base = C.role[l.role] || C.part;
+  else base = C[l.rel] || C.text;
+  return fade(base, a);
+}
+
+/* Role label (SUBJ/VERB/OBJ/MOD) riding the midpoint of each compositional edge.
+   linkThreeObjectExtend(true) ADDS this to the default line+arrow rather than
+   replacing it; non-compose links return null -> just the default line. */
+function roleLabelObject(link) {
+  if (link.kind !== 'compose') return null;
+  const s = new SpriteText(link.role);
+  s.color = C.role[link.role] || C.part;
+  s.fontFace = 'JetBrains Mono, monospace';
+  s.fontWeight = '500';
+  s.textHeight = 2.6;
+  s.backgroundColor = 'rgba(13,13,24,0.62)';
+  s.borderColor = C.role[link.role] || C.part;
+  s.borderWidth = 0.8;
+  s.borderRadius = 2;
+  s.padding = 0.8;
+  return s;
+}
+function roleLabelPosition(obj, { start, end }, link) {
+  if (!obj) return;
+  obj.position.set((start.x + end.x) / 2, (start.y + end.y) / 2, (start.z + end.z) / 2);
+  // fade the role label with its edge's fog alpha
+  const sa = nodeAlpha(typeof link.source === 'object' ? link.source : byId[link.source]);
+  const ta = nodeAlpha(typeof link.target === 'object' ? link.target : byId[link.target]);
+  if (obj.material) obj.material.opacity = Math.min(sa, ta);
+}
+
+Graph.graphData(graphData);
+
+// Layout tuning: keep the constellation COMPACT and legible. Parts hug their
+// pill (short compose distance), forged vehicles sit a comfortable arm's length
+// from the topic, and the leaf thesaurus neighbours spread enough not to pile
+// onto grief. Moderate charge keeps it round rather than sprawling off-frame.
+try {
+  Graph.d3Force('charge').strength(-88);
+  // Compose distance must clear the pill's RENDERED width (much wider than the
+  // sim's point-node), so parts sit OUTSIDE the pill with their arrowheads + role
+  // labels fully visible — the whole point of feature 1. Scale with word length.
+  Graph.d3Force('link')
+    .distance(l => {
+      if (l.kind === 'compose') {
+        // link.target is a node object once the sim runs, an id string before it.
+        const tgt = typeof l.target === 'object' ? l.target : byId[l.target];
+        return 26 + ((tgt && tgt.word ? tgt.word.length : 12)) * 2.2;
+      }
+      if (l.kind === 'forge') return 66;
+      return 50; // thesaurus leaves — spread so grief's own label stands free
+    })
+    .strength(l => (l.kind === 'compose' ? 0.6 : 0.45));
+} catch (e) { console.warn('force tuning skipped', e); }
+
+// live node objects (the lib mutates these in place, adding x/y/z)
+const liveById = {};
+for (const n of graphData.nodes) liveById[n.id] = n;
+
+// Cosmic exponential fog — distant stars dissolve into the void.
+Graph.scene().fog = new THREE.FogExp2(0x0d0d18, 0.0015);
+
+// Starfield backdrop for depth.
+(function starfield() {
+  const n = 1400, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const R = 1100 + Math.random() * 2600;
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    pos[i*3]   = R * Math.sin(ph) * Math.cos(th);
+    pos[i*3+1] = R * Math.sin(ph) * Math.sin(th);
+    pos[i*3+2] = R * Math.cos(ph);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const m = new THREE.PointsMaterial({ color: 0x6b6fa0, size: 2.2, transparent: true, opacity: 0.55, sizeAttenuation: false });
+  Graph.scene().add(new THREE.Points(g, m));
+})();
+
+/* ============================================================================
+   FOG-OF-WAR + BLOOM — opacities track the live focus + filters, every frame.
+   ============================================================================ */
+function applyFog() {
+  for (const node of Graph.graphData().nodes) {
+    const a = nodeAlpha(node);
+    const obj = node.__threeObj;
+    if (!obj) continue;
+    obj.visible = a > 0.001;
+    if (!obj.visible) continue;
+
+    const focused = node.id === focusId;
+    if (obj.__core) {
+      // a phrase's "core" is an invisible glow anchor — its visible body is the pill.
+      obj.__core.material.opacity = obj.__isPhrase ? 0 : a;
+      const s = focused ? 1.5 : 1;
+      obj.__core.scale.setScalar(s);
+      if (obj.__halo) obj.__halo.scale.setScalar(s);
+    }
+    if (obj.__halo) obj.__halo.material.opacity = a * (focused ? 0.26 : 0.12);
+    if (obj.__guide) obj.__guide.material.opacity = a * 0.16;
+    if (obj.__ring) {
+      obj.__ring.visible = focused;
+      obj.__ring.material.opacity = focused ? a * 0.85 : 0;
+      obj.__ring.scale.setScalar(1.5);
+    }
+    if (obj.__label) {
+      obj.__label.material.opacity = a;
+      obj.__label.textHeight = focused ? obj.__baseLabel * 1.4 : obj.__baseLabel;
+    }
+  }
+}
+
+/* ============================================================================
+   ORBITING SENSES — driven manually each frame so they circle the lemma like
+   moons with NO connecting edges. We write node.x/fx (sim) AND the rendered
+   object's position (covers the cooled-sim state), so the orbit persists after
+   the force layout settles. The lemma is pinned once positions settle so the
+   moons circle a stable centre.
+   ============================================================================ */
+let lemmaPinned = false;
+function pinLemma() {
+  const lem = liveById[ORBIT.lemma];
+  if (!lem || lem.x === undefined) return;
+  lem.fx = lem.x; lem.fy = lem.y; lem.fz = lem.z;
+  lemmaPinned = true;
+}
+
+// tilted ring basis (matches the lemma's visual guide ring orientation)
+const U = new THREE.Vector3(1, 0, 0.18).normalize();
+const V = new THREE.Vector3(0.15, 0.92, 0.36).normalize();
+const _p = new THREE.Vector3();
+const _v = new THREE.Vector3();
+
+function orbitMoons(t) {
+  const lem = liveById[ORBIT.lemma];
+  if (!lem || lem.x === undefined) return;
+  if (!lemmaPinned) pinLemma();
+  const spin = t * 0.00016;            // slow, majestic
+  const n = ORBIT.senses.length;
+  for (let i = 0; i < n; i++) {
+    const moon = liveById[ORBIT.senses[i]];
+    if (!moon) continue;
+    const R = ORBIT_R0 + i * ORBIT_DR;  // spread radii so moons don't overlap
+    const a = spin + (i * Math.PI * 2) / n;
+    _p.copy(U).multiplyScalar(Math.cos(a) * R);
+    _v.copy(V).multiplyScalar(Math.sin(a) * R);
+    _p.add(_v);
+    _p.x += lem.x; _p.y += lem.y; _p.z += lem.z;
+    moon.x = moon.fx = _p.x;
+    moon.y = moon.fy = _p.y;
+    moon.z = moon.fz = _p.z;
+    if (moon.__threeObj) moon.__threeObj.position.copy(_p);
+  }
+}
+
+/* single rAF loop: fog + orbit, continuing after the force sim cools. */
+let _t0 = performance.now();
+(function frame() {
+  const t = performance.now() - _t0;
+  applyFog();
+  orbitMoons(t);
+  requestAnimationFrame(frame);
+})();
+
+/* ============================================================================
+   SELECT / FLY-TO + BLOOM. Recompute hop distances from the new focus; the
+   world PERSISTS (no graphData() reset, the thesaurus keeps functioning).
+   ============================================================================ */
+let flyTimer = null;
+
+function selectNode(id, fly) {
+  if (!byId[id]) return;
+  focusId = id;
+  dist = hopDistances(focusId);
+  refreshLinks();
+  updatePanel(id);
+  resetSearchUI();
+  if (fly) flyTo(id);
+}
+
+function refreshLinks() {
+  Graph.linkColor(linkColour);
+}
+
+function flyTo(id) {
+  const node = liveById[id];
+  if (!node || node.x === undefined) {
+    if (flyTimer) clearTimeout(flyTimer);
+    flyTimer = setTimeout(() => flyTo(id), 200);
+    return;
+  }
+  Graph.cameraPosition(
+    { x: node.x + 30, y: node.y + 55, z: node.z + 130 },
+    node,
+    1500
+  );
+}
+
+/* ============================================================================
+   PANEL — kind-aware. Phrase pills show COMPOSED OF (roles); lemmas show their
+   orbiting SENSES (with the no-edge note); words show the thesaurus + forge.
+   ============================================================================ */
+const panel = document.getElementById('panel');
+const elWord = document.getElementById('panel-word');
+const elBadge = document.getElementById('panel-badge');
+const elPos = document.getElementById('panel-pos');
+const elDef = document.getElementById('panel-def');
+const elGroups = document.getElementById('rel-groups');
+
+function setBadge(n) {
+  if (n.kind === 'phrase') { elBadge.textContent = 'vec · phrase'; elBadge.className = 'badge vec'; }
+  else if (n.kind === 'lemma') { elBadge.textContent = 'lemma'; elBadge.className = 'badge lemma'; }
+  else if (n.kind === 'sense') { elBadge.textContent = 'sense'; elBadge.className = 'badge sense'; }
+  else { elBadge.textContent = n.rarity; elBadge.className = 'badge ' + n.rarity; }
+}
+
+// --- relation derivations from the link list + virtual orbit adjacency ---
+function forgedVehicles(id) {
+  return LINKS.filter(l => l.kind === 'forge' && l.source === id)
+    .map(l => ({ id: l.target, word: byId[l.target].word, rel: 'forge', why: l.label }));
+}
+function forgedFrom(id) {
+  return LINKS.filter(l => l.kind === 'forge' && l.target === id)
+    .map(l => ({ id: l.source, word: byId[l.source].word, rel: 'forge', why: l.label }));
+}
+function thesaurusOf(id) {
+  return LINKS.filter(l => l.kind === 'thesaurus' && (l.source === id || l.target === id))
+    .map(l => { const o = l.source === id ? l.target : l.source; return { id: o, word: byId[o].word, rel: l.rel }; });
+}
+function composedOf(id) {
+  return LINKS.filter(l => l.kind === 'compose' && l.target === id)
+    .map(l => ({ id: l.source, word: byId[l.source].word, rel: 'compose', role: l.role }));
+}
+function appearsIn(id) {
+  return LINKS.filter(l => l.kind === 'compose' && l.source === id)
+    .map(l => ({ id: l.target, word: byId[l.target].word, rel: 'compose', role: l.role }));
+}
+function sensesOf(id) {
+  if (id !== ORBIT.lemma) return [];
+  return ORBIT.senses.map(sid => ({ id: sid, word: byId[sid].word, rel: 'sense' }));
+}
+function realLinksOf(id) {
+  // forge / thesaurus links touching this node, other than its lemma
+  return LINKS.filter(l => (l.kind === 'forge' || l.kind === 'thesaurus') && (l.source === id || l.target === id))
+    .map(l => { const o = l.source === id ? l.target : l.source; return { id: o, word: byId[o].word, rel: 'forge', why: l.label }; });
+}
+
+function groupsFor(id) {
+  const n = byId[id];
+  const out = [];
+  if (n.kind === 'topic') {
+    out.push({ title: 'Forged Vehicles', items: forgedVehicles(id), note: 'Phrases & senses the forge bridged to — they live only on this surface.' });
+    out.push({ title: 'In the Thesaurus', items: thesaurusOf(id) });
+  } else if (n.kind === 'phrase') {
+    out.push({ title: 'Composed Of', items: composedOf(id), note: 'Each part points INTO the phrase — the pill aggregates its constituents.' });
+    out.push({ title: 'Forged From', items: forgedFrom(id) });
+  } else if (n.kind === 'lemma') {
+    out.push({ title: 'Senses · orbiting', items: sensesOf(id), note: 'Senses orbit the lemma like moons — no edges drawn between them or to the body, unless a real link exists.' });
+    out.push({ title: 'Forged From', items: forgedFrom(id) });
+  } else if (n.kind === 'sense') {
+    out.push({ title: 'Sense Of', items: [{ id: ORBIT.lemma, word: byId[ORBIT.lemma].word, rel: 'lemma' }] });
+    const real = realLinksOf(id);
+    if (real.length) out.push({ title: 'Real Link', items: real, note: 'A genuine bridge anchors this sense — its siblings stay free to orbit.' });
+  } else if (n.kind === 'part') {
+    out.push({ title: 'Appears In', items: appearsIn(id) });
+  } else { // plain word
+    const ths = thesaurusOf(id);
+    if (ths.length) out.push({ title: 'In the Thesaurus', items: ths });
+    const real = realLinksOf(id);
+    if (real.length) out.push({ title: 'Bridged From', items: real });
+  }
+  return out.filter(g => g.items.length);
+}
+
+function updatePanel(id) {
+  const n = byId[id];
+  if (!n) return;
+  elWord.textContent = n.word;
+  setBadge(n);
+  elPos.textContent = n.pos || '';
+  elDef.textContent = n.def || '';
+
+  elGroups.innerHTML = '';
+  for (const g of groupsFor(id)) {
+    const wrap = document.createElement('div');
+    wrap.className = 'rel-group';
+    const h = document.createElement('h4');
+    h.textContent = g.title;
+    wrap.appendChild(h);
+    if (g.note) {
+      const note = document.createElement('div');
+      note.className = 'rel-note';
+      note.textContent = g.note;
+      wrap.appendChild(note);
+    }
+    const terms = document.createElement('div');
+    terms.className = 'rel-terms';
+    for (const e of g.items) {
+      const span = document.createElement('span');
+      span.className = 'term';
+      span.dataset.rel = e.rel;
+      if (e.role) {
+        const tag = document.createElement('span');
+        tag.className = 'role-tag ' + e.role;
+        tag.textContent = e.role;
+        span.appendChild(tag);
+      }
+      span.appendChild(document.createTextNode(e.word));
+      if (e.why) {
+        const why = document.createElement('span');
+        why.className = 'edge-why';
+        why.textContent = '“' + e.why + '”';
+        span.appendChild(why);
+      }
+      span.addEventListener('click', () => selectNode(e.id, true));
+      terms.appendChild(span);
+    }
+    wrap.appendChild(terms);
+    elGroups.appendChild(wrap);
+  }
+}
+
+document.getElementById('panel-header').addEventListener('click', () => {
+  panel.classList.toggle('collapsed');
+});
+
+/* ============================================================================
+   SEARCH — substring match over node words; '/' to focus; click/enter to fly.
+   ============================================================================ */
+const elSearch = document.getElementById('search');
+const elSug = document.getElementById('suggestions');
+let sugActive = -1, sugList = [];
+
+function kindTag(n) {
+  if (n.kind === 'phrase') return 'vec phrase';
+  if (n.kind === 'lemma') return 'lemma';
+  if (n.kind === 'sense') return 'sense';
+  if (n.kind === 'part') return n.role.toLowerCase();
+  return n.rarity;
+}
+
+function buildSuggestions(q) {
+  q = q.trim().toLowerCase();
+  if (!q) { elSug.classList.remove('open'); elSug.innerHTML = ''; sugList = []; return; }
+  sugList = NODES.filter(n => n.word.toLowerCase().includes(q)).slice(0, 8);
+  elSug.innerHTML = '';
+  sugActive = -1;
+  for (const s of sugList) {
+    const div = document.createElement('div');
+    div.className = 'suggestion';
+    div.innerHTML = `<span>${s.word}</span><small>${kindTag(s)}</small>`;
+    div.addEventListener('click', () => commitSearch(s.id));
+    elSug.appendChild(div);
+  }
+  elSug.classList.toggle('open', sugList.length > 0);
+}
+function commitSearch(id) {
+  elSug.classList.remove('open');
+  elSearch.value = byId[id].word;
+  elSearch.blur();
+  selectNode(id, true);
+}
+function resetSearchUI() { elSearch.value = ''; elSug.classList.remove('open'); }
+
+elSearch.addEventListener('input', e => buildSuggestions(e.target.value));
+elSearch.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); sugActive = Math.min(sugActive + 1, sugList.length - 1); paintActive(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); sugActive = Math.max(sugActive - 1, 0); paintActive(); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    const pick = sugActive >= 0 ? sugList[sugActive] : sugList[0];
+    if (pick) commitSearch(pick.id);
+  } else if (e.key === 'Escape') { elSearch.blur(); elSug.classList.remove('open'); }
+});
+function paintActive() {
+  [...elSug.children].forEach((c, i) => c.classList.toggle('active', i === sugActive));
+}
+window.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== elSearch) {
+    e.preventDefault(); elSearch.focus(); elSearch.select();
+  }
+});
+
+/* ============================================================================
+   RARITY FILTER — toggling a chip hides/shows that tier (fog re-evaluates).
+   ============================================================================ */
+document.querySelectorAll('.rchip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const r = chip.dataset.rarity;
+    if (hiddenRarities.has(r)) hiddenRarities.delete(r); else hiddenRarities.add(r);
+    chip.classList.toggle('off', hiddenRarities.has(r));
+    refreshLinks();
+  });
+});
+
+/* ============================================================================
+   BOOT — frame the constellation, pin the lemma, fly the establishing shot.
+   ============================================================================ */
+refreshLinks();
+updatePanel(focusId);
+
+setTimeout(() => { pinLemma(); Graph.zoomToFit(800, 70); }, 1100);
+setTimeout(() => selectNode('grief', true), 2400);
+
+/* establishing camera helper for the screenshot harness: frame ALL visible
+   stars from a cinematic 3/4 angle. */
+function establishShot(ms = 1200) {
+  const ns = Graph.graphData().nodes.filter(n => nodeAlpha(n) > 0.01 && n.x !== undefined);
+  if (!ns.length) return;
+  let cx = 0, cy = 0, cz = 0;
+  for (const n of ns) { cx += n.x; cy += n.y; cz += n.z; }
+  cx /= ns.length; cy /= ns.length; cz /= ns.length;
+  let R = 0;
+  for (const n of ns) R = Math.max(R, Math.hypot(n.x - cx, n.y - cy, n.z - cz));
+  R = Math.max(R, 60);
+  // Generous standoff so the wide spread (two pills + the moon system) sits fully
+  // inside a 16:10 frame with margin; a gentle 3/4 lift keeps it cinematic. The
+  // look-at is nudged +x a touch so content clears the top-left info panel.
+  Graph.cameraPosition(
+    { x: cx + R * 0.42, y: cy + R * 0.5, z: cz + R * 2.15 },
+    { x: cx + R * 0.16, y: cy, z: cz },
+    ms
+  );
+}
+
+// expose for the screenshot harness to frame deterministically
+window.__mf = { Graph, selectNode, establishShot, zoomToFit: (ms, p) => Graph.zoomToFit(ms, p), nodeAlpha };
+</script>
+</body>
+</html>

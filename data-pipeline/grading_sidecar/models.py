@@ -10,7 +10,7 @@ import unicodedata
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
-ChainSchemaVersion = Literal["chain.v1"]
+ChainSchemaVersion = Literal["chain.v1", "chain.v2"]
 JudgementSchemaVersion = Literal["judgement.v1", "judgement.v2"]
 # Flat v1 verdict — retained only for reading legacy records via normalise_judgement.
 Label = Literal["live", "dead", "bad_path", "irrelevant"]
@@ -31,11 +31,26 @@ def normalise_phrase(s: str) -> str:
     return unicodedata.normalize("NFC", s).strip().lower()
 
 
+def vec_ref(phrase: str) -> str:
+    """Canonical vec-node suffix: the SAME canonicaliser that keys
+    chain_signature (one canonicaliser, never two), spaces to underscores.
+    Callers prepend 'vec:' — this function returns only the suffix."""
+    return normalise_phrase(phrase).replace(" ", "_")
+
+
 def compute_chain_signature(proposer: str, phrases: list[str]) -> str:
     """sha256(":".join([proposer] + [normalise(phrase) for phrase in phrases]))
     Stable across snap drift / head re-extraction (phrase-based, not synset-based)."""
     payload = ":".join([proposer] + [normalise_phrase(p) for p in phrases])
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+class AptSense(BaseModel):
+    """A locally co-apt sense at one chain position. `intended` = the
+    emit-the-sense gloss-match; `operator` = a grading tick. The snapper never
+    writes here — co-aptness it can't validate stays out of the record."""
+    synset_id: str = Field(min_length=1)
+    source: Literal["intended", "operator"]
 
 
 class ChainStep(BaseModel):
@@ -47,14 +62,38 @@ class ChainStep(BaseModel):
     # is gloss-matched (not lowest-id guesswork) and the intent survives re-snaps.
     # Optional + default None keeps every pre-emit-the-sense record valid.
     gloss: Optional[str] = None
+    # Phrase-as-Node: explicit node kind. Absent -> derived from synset_id, so
+    # every chain.v1 record reads as v2 without rewrite.
+    node_ref: Optional[str] = None
+    # Per-occurrence apt sense-set (spec §2.2/§2.4). Optional: an empty list is
+    # a fully valid step that simply yields no derived siblings.
+    apt_senses: list[AptSense] = Field(default_factory=list)
+
+    def resolved_node_ref(self) -> str:
+        """Derive the canonical node reference for this step.
+
+        Priority: explicit node_ref → syn: prefix on synset_id → vec: fallback.
+        vec: is only reached when no synset was snapped — the caller is responsible
+        for ensuring this is legitimate (see vec_gate in sense_inventory)."""
+        if self.node_ref:
+            return self.node_ref
+        if self.synset_id:
+            return f"syn:{self.synset_id}"
+        return f"vec:{vec_ref(self.phrase)}"
 
 
 class ChainRecord(BaseModel):
     schema_version: ChainSchemaVersion
     topic: str
-    topic_synset_id: str
+    # Optional to support vec: topic endpoints (no synset). When present, must
+    # match chain[0].synset_id exactly (v1 behaviour preserved).
+    topic_synset_id: Optional[str] = None
+    topic_node_ref: Optional[str] = None
     vehicle: str
-    vehicle_synset_id: str
+    # Optional to support vec: vehicle endpoints (no synset). When present, must
+    # match chain[-1].synset_id exactly (v1 behaviour preserved).
+    vehicle_synset_id: Optional[str] = None
+    vehicle_node_ref: Optional[str] = None
     proposer: str
     round: int = Field(ge=1)
     chain: list[ChainStep] = Field(min_length=2)
@@ -63,18 +102,46 @@ class ChainRecord(BaseModel):
 
     @model_validator(mode="after")
     def _endpoint_canonicalisation(self) -> "ChainRecord":
-        if (self.chain[0].phrase != self.topic
-                or self.chain[0].head != self.topic
-                or self.chain[0].synset_id != self.topic_synset_id):
-            raise ValueError(
-                "endpoint canonicalisation: chain[0] must equal topic/topic_synset_id"
-            )
-        if (self.chain[-1].phrase != self.vehicle
-                or self.chain[-1].head != self.vehicle
-                or self.chain[-1].synset_id != self.vehicle_synset_id):
-            raise ValueError(
-                "endpoint canonicalisation: chain[-1] must equal vehicle/vehicle_synset_id"
-            )
+        # Topic endpoint
+        if self.topic_synset_id is not None:
+            # v1 behaviour: phrase, head, and synset_id must all match
+            if (self.chain[0].phrase != self.topic
+                    or self.chain[0].head != self.topic
+                    or self.chain[0].synset_id != self.topic_synset_id):
+                raise ValueError(
+                    "endpoint canonicalisation: chain[0] must equal topic/topic_synset_id"
+                )
+        else:
+            # vec: endpoint — phrase must match; node_ref must be present and match
+            if self.chain[0].phrase != self.topic:
+                raise ValueError(
+                    "endpoint canonicalisation: chain[0].phrase must equal topic"
+                )
+            expected = self.chain[0].resolved_node_ref()
+            if not self.topic_node_ref or self.topic_node_ref != expected:
+                raise ValueError(
+                    "endpoint canonicalisation: vec endpoint requires matching node_ref"
+                )
+        # Vehicle endpoint
+        if self.vehicle_synset_id is not None:
+            # v1 behaviour: phrase, head, and synset_id must all match
+            if (self.chain[-1].phrase != self.vehicle
+                    or self.chain[-1].head != self.vehicle
+                    or self.chain[-1].synset_id != self.vehicle_synset_id):
+                raise ValueError(
+                    "endpoint canonicalisation: chain[-1] must equal vehicle/vehicle_synset_id"
+                )
+        else:
+            # vec: endpoint — phrase must match; node_ref must be present and match
+            if self.chain[-1].phrase != self.vehicle:
+                raise ValueError(
+                    "endpoint canonicalisation: chain[-1].phrase must equal vehicle"
+                )
+            expected = self.chain[-1].resolved_node_ref()
+            if not self.vehicle_node_ref or self.vehicle_node_ref != expected:
+                raise ValueError(
+                    "endpoint canonicalisation: vec endpoint requires matching node_ref"
+                )
         return self
 
 

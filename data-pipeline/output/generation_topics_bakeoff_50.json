@@ -1,0 +1,305 @@
+{
+  "n": 50,
+  "topics": [
+    {
+      "word": "language",
+      "topic_synset_id": "66253",
+      "gloss": "a systematic means of communicating by the use of sounds or conventional symbols",
+      "semcor_tagged": true
+    },
+    {
+      "word": "fund",
+      "topic_synset_id": "93875",
+      "gloss": "a reserve of money set aside for some purpose",
+      "semcor_tagged": true
+    },
+    {
+      "word": "court",
+      "topic_synset_id": "77301",
+      "gloss": "an assembly (including one or more judges) to conduct judicial business",
+      "semcor_tagged": true
+    },
+    {
+      "word": "law",
+      "topic_synset_id": "77870",
+      "gloss": "the collection of rules imposed by authority",
+      "semcor_tagged": true
+    },
+    {
+      "word": "condition",
+      "topic_synset_id": "97080",
+      "gloss": "a state at a particular time",
+      "semcor_tagged": true
+    },
+    {
+      "word": "work",
+      "topic_synset_id": "12531",
+      "gloss": "activity directed toward making or doing something",
+      "semcor_tagged": true
+    },
+    {
+      "word": "experience",
+      "topic_synset_id": "63878",
+      "gloss": "the accumulation of knowledge or skill that results from direct participation in events or activities",
+      "semcor_tagged": true
+    },
+    {
+      "word": "idea",
+      "topic_synset_id": "64255",
+      "gloss": "the content of cognition; the main thing you are thinking about",
+      "semcor_tagged": true
+    },
+    {
+      "word": "benefit",
+      "topic_synset_id": "93516",
+      "gloss": "financial assistance in time of need",
+      "semcor_tagged": true
+    },
+    {
+      "word": "city",
+      "topic_synset_id": "78204",
+      "gloss": "a large and densely populated urban area; may include several independent administrative districts",
+      "semcor_tagged": true
+    },
+    {
+      "word": "health",
+      "topic_synset_id": "99901",
+      "gloss": "a healthy state of wellbeing free from disease",
+      "semcor_tagged": true
+    },
+    {
+      "word": "effort",
+      "topic_synset_id": "15755",
+      "gloss": "earnest and conscientious activity intended to do or accomplish something",
+      "semcor_tagged": true
+    },
+    {
+      "word": "provision",
+      "topic_synset_id": "68561",
+      "gloss": "a stipulated condition",
+      "semcor_tagged": true
+    },
+    {
+      "word": "piece",
+      "topic_synset_id": "54025",
+      "gloss": "a separate part of a whole",
+      "semcor_tagged": true
+    },
+    {
+      "word": "user",
+      "topic_synset_id": "86594",
+      "gloss": "a person who makes use of a thing; someone who uses or employs something",
+      "semcor_tagged": true
+    },
+    {
+      "word": "girl",
+      "topic_synset_id": "82973",
+      "gloss": "a young female",
+      "semcor_tagged": true
+    },
+    {
+      "word": "relationship",
+      "topic_synset_id": "96297",
+      "gloss": "a relation between people; (\u2018relationship\u2019 is often used where \u2018relation\u2019 would serve, as in \u2018the relationship between inflation and unemployment\u2019, but the preferred usage of \u2018relationship\u2019 is for human relations or states of relatedness)",
+      "semcor_tagged": true
+    },
+    {
+      "word": "product",
+      "topic_synset_id": "52948",
+      "gloss": "items for sale to the individual consumer",
+      "semcor_tagged": true
+    },
+    {
+      "word": "community",
+      "topic_synset_id": "76730",
+      "gloss": "a group of people living in a particular local area",
+      "semcor_tagged": true
+    },
+    {
+      "word": "society",
+      "topic_synset_id": "75703",
+      "gloss": "an extended social group having a distinctive cultural and economic organization",
+      "semcor_tagged": true
+    },
+    {
+      "word": "practice",
+      "topic_synset_id": "9101",
+      "gloss": "a customary way of operation or behavior",
+      "semcor_tagged": true
+    },
+    {
+      "word": "boy",
+      "topic_synset_id": "83927",
+      "gloss": "a youthful male person",
+      "semcor_tagged": true
+    },
+    {
+      "word": "business",
+      "topic_synset_id": "75971",
+      "gloss": "a commercial or industrial enterprise and the people who constitute it",
+      "semcor_tagged": true
+    },
+    {
+      "word": "market",
+      "topic_synset_id": "20510",
+      "gloss": "the world of commercial activity where goods and services are bought and sold",
+      "semcor_tagged": true
+    },
+    {
+      "word": "space",
+      "topic_synset_id": "453",
+      "gloss": "the unlimited expanse in which everything is located",
+      "semcor_tagged": true
+    },
+    {
+      "word": "bill",
+      "topic_synset_id": "67404",
+      "gloss": "a statute in draft before it becomes law",
+      "semcor_tagged": true
+    },
+    {
+      "word": "account",
+      "topic_synset_id": "67284",
+      "gloss": "a record or narrative description of past events",
+      "semcor_tagged": true
+    },
+    {
+      "word": "size",
+      "topic_synset_id": "60513",
+      "gloss": "the physical magnitude of something (how big it is)",
+      "semcor_tagged": true
+    },
+    {
+      "word": "foot",
+      "topic_synset_id": "62867",
+      "gloss": "the part of the leg of a human being below the ankle joint",
+      "semcor_tagged": true
+    },
+    {
+      "word": "evidence",
+      "topic_synset_id": "64206",
+      "gloss": "your basis for belief or disbelief; knowledge on which to base belief",
+      "semcor_tagged": true
+    },
+    {
+      "word": "lady",
+      "topic_synset_id": "83663",
+      "gloss": "a polite name for any woman",
+      "semcor_tagged": true
+    },
+    {
+      "word": "pattern",
+      "topic_synset_id": "64716",
+      "gloss": "a perceptual structure",
+      "semcor_tagged": true
+    },
+    {
+      "word": "floor",
+      "topic_synset_id": "50690",
+      "gloss": "the inside lower horizontal surface (as of a room, hallway, tent, or other structure)",
+      "semcor_tagged": true
+    },
+    {
+      "word": "decision",
+      "topic_synset_id": "3420",
+      "gloss": "the act of making up your mind about something",
+      "semcor_tagged": true
+    },
+    {
+      "word": "increase",
+      "topic_synset_id": "96133",
+      "gloss": "a quantity that is added",
+      "semcor_tagged": true
+    },
+    {
+      "word": "morning",
+      "topic_synset_id": "103845",
+      "gloss": "the time period between dawn and noon",
+      "semcor_tagged": true
+    },
+    {
+      "word": "activity",
+      "topic_synset_id": "9043",
+      "gloss": "any specific behavior",
+      "semcor_tagged": true
+    },
+    {
+      "word": "cup",
+      "topic_synset_id": "49335",
+      "gloss": "a small open container usually used for drinking; usually has a handle",
+      "semcor_tagged": true
+    },
+    {
+      "word": "teacher",
+      "topic_synset_id": "86294",
+      "gloss": "a person whose occupation is teaching",
+      "semcor_tagged": true
+    },
+    {
+      "word": "production",
+      "topic_synset_id": "17649",
+      "gloss": "the act or process of producing something",
+      "semcor_tagged": true
+    },
+    {
+      "word": "management",
+      "topic_synset_id": "21082",
+      "gloss": "the act of managing something",
+      "semcor_tagged": true
+    },
+    {
+      "word": "class",
+      "topic_synset_id": "75836",
+      "gloss": "a collection of things sharing a common attribute",
+      "semcor_tagged": true
+    },
+    {
+      "word": "attention",
+      "topic_synset_id": "63595",
+      "gloss": "the process whereby a person concentrates on some features of the environment to the (relative) exclusion of others",
+      "semcor_tagged": true
+    },
+    {
+      "word": "land",
+      "topic_synset_id": "93244",
+      "gloss": "the land on which real estate is located",
+      "semcor_tagged": true
+    },
+    {
+      "word": "daughter",
+      "topic_synset_id": "82165",
+      "gloss": "a female human offspring",
+      "semcor_tagged": true
+    },
+    {
+      "word": "note",
+      "topic_synset_id": "67228",
+      "gloss": "a brief written record",
+      "semcor_tagged": true
+    },
+    {
+      "word": "point",
+      "topic_synset_id": "64426",
+      "gloss": "a geometric element that has position but no extension",
+      "semcor_tagged": true
+    },
+    {
+      "word": "type",
+      "topic_synset_id": "64286",
+      "gloss": "a subdivision of a particular kind of thing",
+      "semcor_tagged": true
+    },
+    {
+      "word": "person",
+      "topic_synset_id": "121",
+      "gloss": "a human being; person, singular, assertive existential pronoun; pronoun, person, singular; quantifier: assertive existential",
+      "semcor_tagged": true
+    },
+    {
+      "word": "standard",
+      "topic_synset_id": "64686",
+      "gloss": "the ideal in terms of which something can be judged",
+      "semcor_tagged": true
+    }
+  ]
+}
