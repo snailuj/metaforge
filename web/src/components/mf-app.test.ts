@@ -1130,6 +1130,35 @@ describe('mf-app grade-mode integration', () => {
       getJudgementsSpy.mockRestore()
     })
 
+    it('threads step_apt_senses from the submit detail into the POSTed record', async () => {
+      // The panel serialises operator ticks into the detail; dropping them at
+      // record assembly silently destroys careful per-hop grading work.
+      ;(el as any).mode = 'grade'
+      ;(el as any).selectedChain = CHAIN
+      await el.updateComplete
+      const clientSpy = vi.spyOn((el as any).gradingClient, 'postJudgement').mockResolvedValue({
+        schema_version: 'judgement.v2', ts: '2026-01-01T00:00:00Z',
+      } as any)
+      const getJudgementsSpy = vi.spyOn((el as any).gradingClient, 'getJudgements').mockResolvedValue({ count: 0, records: [] })
+
+      await (el as any).handleVerdictSubmit(
+        new CustomEvent('verdict-submit', {
+          detail: {
+            linkage: 'good', metaphor: 'live', tiers: [], tags: [],
+            confidence: 'high', notes: '',
+            step_apt_senses: [{ step_idx: 1, synset_id: '70002' }, { step_idx: 2, synset_id: '80001' }],
+          },
+          bubbles: true, composed: true,
+        })
+      )
+      const posted = clientSpy.mock.calls[0][0]
+      expect(posted.step_apt_senses).toEqual([
+        { step_idx: 1, synset_id: '70002' }, { step_idx: 2, synset_id: '80001' },
+      ])
+      clientSpy.mockRestore()
+      getJudgementsSpy.mockRestore()
+    })
+
     it('initGradeMode loads pending queue from localStorage', async () => {
       const existing = [{ schema_version: 'judgement.v1', chain_signature: 'queued1' }]
       localStorage.setItem('pending_judgements', JSON.stringify(existing))
