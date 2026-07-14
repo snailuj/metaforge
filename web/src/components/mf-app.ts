@@ -437,6 +437,9 @@ export class MfApp extends LitElement {
   @state() private guidedPos = 0
   @state() private guidedGradedSigs: Set<string> = new Set()
   @state() private guidedJudgements: JudgementRecord[] = []
+  // Guided prefill opt-in (amendment passes over already-graded chains). Blind
+  // is the default and resets whenever guided mode re-initialises.
+  @state() private guidedPrefill = false
   // canonical phrase key -> ranked noun senses, accumulated per viewed chain.
   // Fetched lazily from /senses (per-key route); the panel's fan is dead without it.
   @state() private senseInventories: SenseInventoryMap = {}
@@ -1400,9 +1403,13 @@ export class MfApp extends LitElement {
         data-testid="grade-guided"
         .guided=${true}
         .chain=${entry?.record ?? null}
-        .priorVerdict=${null /* guided is BLIND: the server-side anchoring guard
-          withholds judge_verdict/cohort — leaking the operator's own prior
-          verdict here re-anchors re-grade batches and inflates consistency */}
+        .priorVerdict=${this.guidedPrefill && entry ? this.priorVerdict(entry.record) : null
+          /* BLIND by default: the server-side anchoring guard withholds
+             judge_verdict/cohort — leaking the operator's own prior verdict
+             re-anchors re-grade batches and inflates consistency. The prefill
+             toggle is an explicit opt-in for amendment passes (e.g. re-ticking
+             senses over already-graded chains). */}
+        .prefillOn=${this.guidedPrefill}
         .glosses=${this.gradeGlosses}
         .senseInventories=${this.senseInventories}
         .topic=${entry?.topic ?? ''}
@@ -1414,6 +1421,7 @@ export class MfApp extends LitElement {
         .ungradedLeft=${this.guidedUngradedRemaining}
         @walk-prev=${this.guidedPrev}
         @walk-next=${this.guidedNext}
+        @walk-prefill-toggle=${() => { this.guidedPrefill = !this.guidedPrefill }}
         @verdict-submit=${this.handleGuidedVerdictSubmit}
       ></mf-grade-walk>`
     return html`
