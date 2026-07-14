@@ -53,6 +53,8 @@ export class MfGradeWalk extends LitElement {
     @property({ attribute: false }) priorVerdict: PriorVerdict | null = null
     @property({ attribute: false }) glosses: GlossMap = {}
     @property({ attribute: false }) senseInventories: SenseInventoryMap = {}
+    // Guided-only: whether the host is threading the prior verdict (amendment mode).
+    @property({ type: Boolean }) prefillOn = false
     @property() topic = ''
     @property({ type: Number }) index = 0
     @property({ type: Number }) total = 0
@@ -95,7 +97,7 @@ export class MfGradeWalk extends LitElement {
         this.emit(e.key === 'ArrowLeft' ? 'walk-prev' : 'walk-next')
     }
 
-    private emit(name: 'walk-prev' | 'walk-next' | 'walk-skip-toggle'): void {
+    private emit(name: 'walk-prev' | 'walk-next' | 'walk-skip-toggle' | 'walk-prefill-toggle'): void {
         this.dispatchEvent(new CustomEvent(name, { bubbles: true, composed: true }))
     }
 
@@ -111,7 +113,13 @@ export class MfGradeWalk extends LitElement {
                         @click=${() => this.emit('walk-next')}>Next ›</button>
                 ${this.graded ? html`<span class="graded" data-testid="walk-graded" title="already graded — your verdict is pre-filled">✓ graded</span>` : ''}
                 ${this.guided
-                    ? html`<span class="dwell" data-testid="walk-topic">${this.topic}</span>`
+                    ? html`<span class="dwell" data-testid="walk-topic">${this.topic}</span>
+                        <label class="skip prefill" title="Amendment passes only — shows your saved verdict/notes so you can add sense ticks without re-grading. Leave OFF for blind batches.">
+                            <input type="checkbox" data-testid="walk-prefill"
+                                   .checked=${this.prefillOn}
+                                   @change=${() => this.emit('walk-prefill-toggle')}>
+                            Prefill my verdict
+                        </label>`
                     : html`
                         <span class="dwell" data-testid="walk-dwell">${this.topic} · ${this.dwellIndex + 1}/${this.dwellN}</span>
                         <button class="skip ${this.skipGraded ? 'on' : ''}" data-testid="walk-skip"

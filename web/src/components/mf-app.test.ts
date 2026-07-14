@@ -1250,6 +1250,14 @@ describe('mf-app grade-mode integration', () => {
       const walk = el.shadowRoot!.querySelector('[data-testid=grade-guided]') as any
       expect(walk).not.toBeNull()
       expect(walk.priorVerdict).toBeNull()
+
+      // Opt-in prefill (amendment passes): toggling ON threads the prior verdict.
+      ;(el as any).guidedPrefill = true
+      await el.updateComplete
+      expect(walk.priorVerdict).toMatchObject({ linkage: 'bad', metaphor: 'live' })
+      ;(el as any).guidedPrefill = false
+      await el.updateComplete
+      expect(walk.priorVerdict).toBeNull()
     })
 
     it('fetches sense inventories for the current chain steps and threads them to the guided walk', async () => {

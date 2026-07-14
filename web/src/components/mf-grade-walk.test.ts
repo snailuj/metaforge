@@ -37,6 +37,30 @@ describe('mf-grade-walk', () => {
     expect(panel.chain.chain_signature).toBe('s1')
   })
 
+  it('guided mode shows the prefill toggle (default unchecked) and emits on change', async () => {
+    // Blind stays the DEFAULT: the toggle exists so an amendment pass (re-ticking
+    // senses over already-graded chains) can opt into prior-verdict prefill.
+    el = await mount({ guided: true } as Partial<MfGradeWalk>)
+    const box = el.shadowRoot!.querySelector('[data-testid=walk-prefill]') as HTMLInputElement
+    expect(box).toBeTruthy()
+    expect(box.checked).toBe(false)
+    let emitted = 0
+    el.addEventListener('walk-prefill-toggle', () => { emitted += 1 })
+    box.click()
+    expect(emitted).toBe(1)
+  })
+
+  it('non-guided walk has no prefill toggle', async () => {
+    el = await mount()
+    expect(el.shadowRoot!.querySelector('[data-testid=walk-prefill]')).toBeNull()
+  })
+
+  it('prefill toggle reflects the prefillOn property', async () => {
+    el = await mount({ guided: true, prefillOn: true } as Partial<MfGradeWalk>)
+    const box = el.shadowRoot!.querySelector('[data-testid=walk-prefill]') as HTMLInputElement
+    expect(box.checked).toBe(true)
+  })
+
   it('threads senseInventories through to the panel (the fan is dead without it)', async () => {
     const inventories = { anger: [{ synset_id: '1', sensenum: 1, tagcount: 3, definition: 'strong displeasure', pos: 'n' }] }
     el = await mount({ senseInventories: inventories } as Partial<MfGradeWalk>)
