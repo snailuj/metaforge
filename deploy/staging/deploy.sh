@@ -72,12 +72,16 @@ set +a
 : "${GRADING_SECRET:?not set in ${ENV_FILE}}"
 
 SNIPPET="${CADDY_SNIPPETS}/metaforge-next.caddy"
-sudo cp "${SNIPPET}" "${SNIPPET}.prev" 2>/dev/null || true
-sed -e "s|__WORKTREE__|${WORKTREE}|g" \
-    -e "s|__JULIAN_BCRYPT_HASH__|${JULIAN_BCRYPT_HASH}|g" \
-    -e "s|__GRADING_SECRET__|${GRADING_SECRET}|g" \
-    "${SCRIPT_DIR}/metaforge-staging.caddy" \
-    | sudo tee "${SNIPPET}" > /dev/null
+sudo cp -p "${SNIPPET}" "${SNIPPET}.prev" 2>/dev/null || true
+# Substitute in-shell (printf is a builtin) so secrets never appear in argv,
+# and keep the snippet readable by root and caddy only.
+SNIPPET_BODY="$(<"${SCRIPT_DIR}/metaforge-staging.caddy")"
+SNIPPET_BODY="${SNIPPET_BODY//__WORKTREE__/"${WORKTREE}"}"
+SNIPPET_BODY="${SNIPPET_BODY//__JULIAN_BCRYPT_HASH__/"${JULIAN_BCRYPT_HASH}"}"
+SNIPPET_BODY="${SNIPPET_BODY//__GRADING_SECRET__/"${GRADING_SECRET}"}"
+sudo install -m 640 -o root -g caddy /dev/null "${SNIPPET}"
+printf '%s\n' "${SNIPPET_BODY}" | sudo tee "${SNIPPET}" > /dev/null
+unset SNIPPET_BODY
 if sudo grep -q '__[A-Z_]*__' "${SNIPPET}" \
     || ! sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile > /dev/null 2>&1; then
     echo "ERROR: rendered snippet is invalid; restoring previous" >&2
