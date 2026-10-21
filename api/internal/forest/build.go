@@ -164,3 +164,115 @@ func Screen(source string, maxHops int, paths []Path) (valid []Path, invalid int
 	}
 	return valid, invalid
 }
+
+// Verdict is the judge's assessment of one numbered path.
+type Verdict struct {
+	Index     int    `json:"index"`
+	Score     int    `json:"score"`
+	BrokenHop bool   `json:"broken_hop"`
+	Drift     bool   `json:"drift"`
+	Literal   bool   `json:"literal"`
+	Cliche    bool   `json:"cliche"`
+	Reason    string `json:"reason"`
+}
+
+// ParseVerdicts decodes the judge's JSON text.
+func ParseVerdicts(raw string) ([]Verdict, error) {
+	var out struct {
+		Verdicts []Verdict `json:"verdicts"`
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("decode judge output: %w", err)
+	}
+	return out.Verdicts, nil
+}
+
+// Rejected counts rejected paths by reason. Every field is always
+// serialised, so the client sees zeros rather than missing keys.
+type Rejected struct {
+	Invalid   int `json:"invalid"`
+	LowScore  int `json:"low_score"`
+	BrokenHop int `json:"broken_hop"`
+	Drift     int `json:"drift"`
+	Cliche    int `json:"cliche"`
+	Literal   int `json:"literal"`
+}
+
+// ScoredPath is a path that survived judging.
+type ScoredPath struct {
+	Path
+	Score  int
+	Reason string
+}
+
+const (
+	minVerdictScore = 0
+	maxVerdictScore = 10
+)
+
+// ApplyVerdicts judges paths against verdicts, whose indices are 1-based
+// positions in paths. Kept paths keep their input order. ignored lists the
+// verdict indices that matched no path, or repeated one, for logging.
+//
+// A path is rejected for the first of: no verdict (invalid), then the flags
+// broken_hop, drift, literal, cliche, then a score below minScore. Of kept
+// paths sharing an endpoint, the highest score survives (then the shorter
+// path, then the earlier one) and the rest count as invalid.
+func ApplyVerdicts(paths []Path, verdicts []Verdict, minScore int) (kept []ScoredPath, rej Rejected, ignored []int) {
+	byIndex := make(map[int]Verdict, len(verdicts))
+	for _, v := range verdicts {
+		_, dup := byIndex[v.Index]
+		if v.Index < 1 || v.Index > len(paths) || dup {
+			ignored = append(ignored, v.Index)
+			continue
+		}
+		v.Score = min(max(v.Score, minVerdictScore), maxVerdictScore)
+		byIndex[v.Index] = v
+	}
+
+	var passed []ScoredPath
+	for i, p := range paths {
+		v, ok := byIndex[i+1]
+		switch {
+		case !ok:
+			rej.Invalid++
+		case v.BrokenHop:
+			rej.BrokenHop++
+		case v.Drift:
+			rej.Drift++
+		case v.Literal:
+			rej.Literal++
+		case v.Cliche:
+			rej.Cliche++
+		case v.Score < minScore:
+			rej.LowScore++
+		default:
+			passed = append(passed, ScoredPath{Path: p, Score: v.Score, Reason: v.Reason})
+		}
+	}
+
+	winner := make(map[string]int, len(passed))
+	for i, sp := range passed {
+		end := sp.Words[len(sp.Words)-1]
+		w, seen := winner[end]
+		if !seen || beats(sp, passed[w]) {
+			winner[end] = i
+		}
+	}
+	for i, sp := range passed {
+		if winner[sp.Words[len(sp.Words)-1]] == i {
+			kept = append(kept, sp)
+		} else {
+			rej.Invalid++
+		}
+	}
+	return kept, rej, ignored
+}
+
+// beats orders candidates for one endpoint: higher score, then shorter.
+func beats(a, b ScoredPath) bool {
+	if a.Score != b.Score {
+		return a.Score > b.Score
+	}
+	return len(a.Words) < len(b.Words)
+}

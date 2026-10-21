@@ -2,6 +2,7 @@ package forest
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -171,5 +172,136 @@ func TestScreenPartitionsEveryPath(t *testing.T) {
 	valid, invalid := Screen("src", 3, []Path{good, bad, good, bad, bad})
 	if len(valid) != 2 || invalid != 3 {
 		t.Errorf("valid=%d invalid=%d, want 2 and 3", len(valid), invalid)
+	}
+}
+
+func TestParseVerdictsDecodesSchemaShape(t *testing.T) {
+	raw := `{"verdicts":[{"index":1,"score":7,"broken_hop":false,"drift":true,"literal":false,"cliche":false,"reason":"fresh"}]}`
+	vs, err := ParseVerdicts(raw)
+	if err != nil {
+		t.Fatalf("ParseVerdicts: %v", err)
+	}
+	want := []Verdict{{Index: 1, Score: 7, Drift: true, Reason: "fresh"}}
+	if !reflect.DeepEqual(vs, want) {
+		t.Errorf("got %+v", vs)
+	}
+	if _, err := ParseVerdicts(`{"verdicts":"x"}`); err == nil {
+		t.Error("expected an error for malformed verdicts")
+	}
+}
+
+// testPaths returns n distinct one-hop paths, "w1".."wn".
+func testPaths(n int) []Path {
+	paths := make([]Path, n)
+	for i := range paths {
+		w := fmt.Sprintf("w%d", i+1)
+		paths[i] = Path{Words: []string{w}, Grounds: []string{"g " + w}, Line: "line " + w}
+	}
+	return paths
+}
+
+func rejectedTotal(r Rejected) int {
+	return r.Invalid + r.LowScore + r.BrokenHop + r.Drift + r.Cliche + r.Literal
+}
+
+// Rule: every path lands in exactly one bucket (kept or one rejection
+// reason), and the first matching reason wins.
+func TestApplyVerdictsBuckets(t *testing.T) {
+	paths := testPaths(9)
+	verdicts := []Verdict{
+		{Index: 1, Score: 8},
+		{Index: 2, Score: 6}, // boundary: kept
+		{Index: 3, Score: 5}, // low_score
+		{Index: 4, Score: 9, BrokenHop: true, Drift: true, Cliche: true}, // broken_hop wins
+		{Index: 5, Score: 9, Drift: true, Literal: true, Cliche: true},   // drift wins
+		{Index: 6, Score: 9, Literal: true, Cliche: true},                // literal wins
+		{Index: 7, Score: 1, Cliche: true},                               // cliche, not low_score
+		// index 8 has no verdict: invalid
+		{Index: 9, Score: 7},
+	}
+
+	kept, rej, ignored := ApplyVerdicts(paths, verdicts, 6)
+
+	wantRej := Rejected{Invalid: 1, LowScore: 1, BrokenHop: 1, Drift: 1, Cliche: 1, Literal: 1}
+	if rej != wantRej {
+		t.Errorf("rejected = %+v, want %+v", rej, wantRej)
+	}
+	if len(kept) != 3 || kept[0].Words[0] != "w1" || kept[1].Words[0] != "w2" || kept[2].Words[0] != "w9" {
+		t.Errorf("kept = %+v", kept)
+	}
+	if len(kept)+rejectedTotal(rej) != len(paths) {
+		t.Errorf("buckets do not add up: kept %d + rejected %d != %d", len(kept), rejectedTotal(rej), len(paths))
+	}
+	if len(ignored) != 0 {
+		t.Errorf("ignored = %v", ignored)
+	}
+}
+
+func TestApplyVerdictsClampsScores(t *testing.T) {
+	paths := testPaths(3)
+	verdicts := []Verdict{{Index: 1, Score: 99}, {Index: 2, Score: -4}, {Index: 3, Score: 10}}
+
+	kept, rej, _ := ApplyVerdicts(paths, verdicts, 0)
+
+	if len(kept) != 3 || rej != (Rejected{}) {
+		t.Fatalf("kept %d, rejected %+v", len(kept), rej)
+	}
+	if kept[0].Score != 10 || kept[1].Score != 0 || kept[2].Score != 10 {
+		t.Errorf("scores = %d %d %d, want 10 0 10", kept[0].Score, kept[1].Score, kept[2].Score)
+	}
+}
+
+func TestApplyVerdictsIgnoresUnknownAndDuplicateIndices(t *testing.T) {
+	paths := testPaths(2)
+	verdicts := []Verdict{
+		{Index: 0, Score: 10}, {Index: 3, Score: 10}, {Index: -1, Score: 10},
+		{Index: 1, Score: 7},
+		{Index: 1, Score: 0, Cliche: true}, // duplicate: first verdict stands
+		{Index: 2, Score: 7},
+	}
+
+	kept, rej, ignored := ApplyVerdicts(paths, verdicts, 6)
+
+	if len(kept) != 2 || rej != (Rejected{}) {
+		t.Errorf("kept %d, rejected %+v", len(kept), rej)
+	}
+	if !reflect.DeepEqual(ignored, []int{0, 3, -1, 1}) {
+		t.Errorf("ignored = %v", ignored)
+	}
+}
+
+// Rule: one endpoint is kept once: the higher score, then the shorter
+// path, then the earlier one. The losers count as invalid so the counts
+// still add up.
+func TestApplyVerdictsDeduplicatesEndpoints(t *testing.T) {
+	mk := func(line string, words ...string) Path {
+		return Path{Words: words, Grounds: make([]string, len(words)), Line: line}
+	}
+	paths := []Path{
+		mk("a", "x", "vault"),  // 1: score 7
+		mk("b", "y", "vault"),  // 2: score 9, wins
+		mk("c", "vault"),       // 3: score 9, shorter: beats 2
+		mk("d", "z", "orrery"), // 4: score 7
+		mk("e", "orrery"),      // 5: score 7, shorter: wins
+		mk("f", "q", "anvil"),  // 6: score 8
+		mk("g", "r", "anvil"),  // 7: score 8, same length: first wins
+	}
+	verdicts := []Verdict{
+		{Index: 1, Score: 7}, {Index: 2, Score: 9}, {Index: 3, Score: 9},
+		{Index: 4, Score: 7}, {Index: 5, Score: 7},
+		{Index: 6, Score: 8}, {Index: 7, Score: 8},
+	}
+
+	kept, rej, _ := ApplyVerdicts(paths, verdicts, 6)
+
+	var lines []string
+	for _, k := range kept {
+		lines = append(lines, k.Line)
+	}
+	if !reflect.DeepEqual(lines, []string{"c", "e", "f"}) {
+		t.Errorf("kept lines = %v, want [c e f]", lines)
+	}
+	if rej.Invalid != 4 || len(kept)+rejectedTotal(rej) != len(paths) {
+		t.Errorf("rejected = %+v", rej)
 	}
 }
