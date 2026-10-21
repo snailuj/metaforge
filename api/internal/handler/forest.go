@@ -18,6 +18,9 @@ import (
 const ForestRequestTimeout = 75 * time.Second
 
 const (
+	// statusClientClosed is nginx's 499: the client hung up before we answered.
+	statusClientClosed = 499
+
 	defaultForestHops = 3
 	minForestHops     = 1
 	maxForestHops     = 5
@@ -78,6 +81,11 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 	result, err := h.gen.Generate(ctx, word, maxHops)
 	if err != nil {
 		// forest.Service has already logged the cause with its request context.
+		if errors.Is(err, context.Canceled) {
+			slog.Info("forest: client disconnected", "word", word)
+			w.WriteHeader(statusClientClosed)
+			return
+		}
 		timedOut := errors.Is(err, context.DeadlineExceeded)
 		slog.Warn("forest: request failed", "word", word, "timed_out", timedOut)
 		if timedOut {

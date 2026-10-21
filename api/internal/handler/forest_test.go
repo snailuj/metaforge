@@ -231,6 +231,7 @@ func TestForestMapsUpstreamErrors(t *testing.T) {
 		err  error
 		want int
 	}{
+		{"client disconnect", fmt.Errorf("generate: %w", context.Canceled), statusClientClosed},
 		{"model error", errors.New("generate: anthropic messages: 500"), http.StatusBadGateway},
 		{"refusal", errors.New("generate: model refused the request"), http.StatusBadGateway},
 		{"deadline", fmt.Errorf("judge: %w", context.DeadlineExceeded), http.StatusGatewayTimeout},
@@ -243,6 +244,12 @@ func TestForestMapsUpstreamErrors(t *testing.T) {
 
 			if w.Code != tc.want {
 				t.Errorf("status = %d, want %d", w.Code, tc.want)
+			}
+			if tc.want == statusClientClosed {
+				if w.Body.Len() != 0 {
+					t.Errorf("a gone client gets no body, wrote %q", w.Body)
+				}
+				return
 			}
 			msg := errorBody(t, w)
 			if msg == "" || strings.Contains(msg, "anthropic") {

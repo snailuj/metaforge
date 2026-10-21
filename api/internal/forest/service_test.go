@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -248,5 +249,25 @@ func TestServiceTimesBothCallsThroughObserve(t *testing.T) {
 	}
 	if !reflect.DeepEqual(labels, []any{"forest_generate", "forest_judge"}) {
 		t.Errorf("timing labels = %v", labels)
+	}
+}
+
+// Rule: a client disconnect is not a failure: it logs at Info with
+// outcome=canceled and the error is still returned to the caller.
+func TestServiceLogsCancellationAtInfo(t *testing.T) {
+	f := &fakeLLM{results: []fakeResult{{err: fmt.Errorf("anthropic messages: %w", context.Canceled)}}}
+	s, logs := testService(f)
+
+	_, err := s.Generate(context.Background(), "patience", 3)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	for _, rec := range logRecords(t, logs) {
+		if rec["level"] == "ERROR" {
+			t.Errorf("cancellation logged at Error: %v", rec)
+		}
+		if rec["msg"] == "forest request" && (rec["level"] != "INFO" || rec["outcome"] != "canceled") {
+			t.Errorf("summary = %v, want INFO outcome=canceled", rec)
+		}
 	}
 }

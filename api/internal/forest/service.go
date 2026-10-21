@@ -2,6 +2,7 @@ package forest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -63,6 +64,11 @@ func (s *Service) Generate(ctx context.Context, source string, maxHops int) (for
 		attrs = append(attrs, gen.attrs("gen")...)
 		attrs = append(attrs, judge.attrs("judge")...)
 		attrs = append(attrs, "judge_ran", judgeRan)
+		if errors.Is(err, context.Canceled) {
+			// The client went away; nothing failed on our side.
+			s.Logger.Info("forest request", append(attrs, "outcome", "canceled", "error", err.Error())...)
+			return
+		}
 		if err != nil {
 			s.Logger.Error("forest request", append(attrs, "outcome", "error", "error", err.Error())...)
 			return
