@@ -7,6 +7,7 @@ export const NODE_COLOURS: Record<RelationType, string> = {
   hypernym: '#8b6f47',
   hyponym: '#6a8b6f',
   similar: '#7a6a8b',
+  metaphor: '#5cc8e0',
 }
 
 /** Colour map for rarity tiers — used for 3D graph nodes, edges, and filter UI. */
@@ -28,3 +29,17 @@ export const FORGE_TIER_COLOURS: Record<ForgeTier, string> = {
 }
 
 export const DEFAULT_NODE_COLOUR = '#e8e0d4'
+
+/**
+ * Metaphor forest palette for the WebGL scene (mirrored as --colour-forest-*
+ * tokens in styles/tokens.css for the panel). Cosmic theme: the source keeps the
+ * central gold, branches are cold aether cyan, endpoints are white-hot stars at
+ * the branch tips, hops are the dimmer teal joints between them.
+ */
+export const FOREST_COLOURS = {
+  branch: '#5cc8e0',
+  spark: '#e8fbff',
+  endpoint: '#dff9ff',
+  hop: '#3e9db3',
+  live: '#d4af37',
+} as const
