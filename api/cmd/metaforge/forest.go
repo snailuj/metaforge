@@ -3,6 +3,7 @@ package main
 import (
 	"log/slog"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -23,6 +24,8 @@ const (
 	forestWriteTimeout = 90 * time.Second
 )
 
+var forestEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+
 // forestSettings is the metaphor forest's environment-driven configuration.
 type forestSettings struct {
 	Config        forest.Config
@@ -37,13 +40,24 @@ func loadForestSettings() forestSettings {
 		Config: forest.Config{
 			Model:      model,
 			JudgeModel: envOrDefault("METAFORGE_FOREST_JUDGE_MODEL", model),
-			Effort:     envOrDefault("METAFORGE_FOREST_EFFORT", defaultForestEffort),
+			Effort:     validEffortEnv("METAFORGE_FOREST_EFFORT", defaultForestEffort),
 			MinScore:   boundedEnvInt("METAFORGE_FOREST_MIN_SCORE", defaultForestMinScore, 0, 10),
 		},
 		MaxConcurrent: boundedEnvInt("METAFORGE_FOREST_MAX_CONCURRENT", defaultForestMaxConcurrent, 1, 1<<20),
 		PerMinute:     boundedEnvInt("METAFORGE_FOREST_PER_MINUTE", defaultForestPerMinute, 1, 1<<20),
 		APIKey:        os.Getenv("ANTHROPIC_API_KEY"),
 	}
+}
+
+// validEffortEnv returns the env value if it is a known effort level, else
+// the default, with a warning.
+func validEffortEnv(key, fallback string) string {
+	v := envOrDefault(key, fallback)
+	if !slices.Contains(forestEfforts, v) {
+		slog.Warn("env var is not a known effort, using default", "key", key, "value", v, "allowed", forestEfforts, "default", fallback)
+		return fallback
+	}
+	return v
 }
 
 // boundedEnvInt keeps a value that parses but falls outside [lo, hi] from

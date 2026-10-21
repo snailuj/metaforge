@@ -97,6 +97,25 @@ func TestLoadForestSettingsRejectsBadNumbers(t *testing.T) {
 	}
 }
 
+// Rule: only an effort the API knows can reach it; anything else is
+// replaced by the default rather than turning every request into a 502.
+func TestLoadForestSettingsValidatesEffort(t *testing.T) {
+	for _, good := range []string{"low", "medium", "high", "xhigh", "max"} {
+		clearForestEnv(t)
+		t.Setenv("METAFORGE_FOREST_EFFORT", good)
+		if s := loadForestSettings(); s.Config.Effort != good {
+			t.Errorf("effort %q was changed to %q", good, s.Config.Effort)
+		}
+	}
+	for _, bad := range []string{"turbo", "Medium", "HIGH", "0", " high"} {
+		clearForestEnv(t)
+		t.Setenv("METAFORGE_FOREST_EFFORT", bad)
+		if s := loadForestSettings(); s.Config.Effort != "medium" {
+			t.Errorf("effort %q gave %q, want medium", bad, s.Config.Effort)
+		}
+	}
+}
+
 func TestForestRouteWithoutKeyAnswers503(t *testing.T) {
 	clearForestEnv(t)
 	h := newForestHandler(loadForestSettings())
