@@ -436,11 +436,12 @@ export class MfForceGraph extends LitElement {
       nodes?: Array<{ __threeObj?: { children?: Array<{ isCSS2DObject?: boolean; element: HTMLElement }> } }>
       links?: Array<GraphLink & { __lineObj?: { children?: Array<{ isCSS2DObject?: boolean; element: HTMLElement }> } }>
     }
-    for (const n of data.nodes ?? []) {
+    // graphData() is library-owned and may be unpopulated; same guard as reapplyVisibility.
+    for (const n of Array.isArray(data.nodes) ? data.nodes : []) {
       const label = n.__threeObj?.children?.find(c => c.isCSS2DObject)
       if (label) this.applyLabelFade(label.element, n)
     }
-    for (const l of data.links ?? []) {
+    for (const l of Array.isArray(data.links) ? data.links : []) {
       const ground = l.metaphor && l.__lineObj?.children?.find(c => c?.isCSS2DObject)
       if (ground) ground.element.toggleAttribute('data-lit', !!this.activeForest && this.emphasis(l.metaphor!.endpointIds) === 'lit')
     }

@@ -1655,7 +1655,13 @@ describe('mf-app metaphor forest', () => {
   const otherLookup: LookupResult = { ...patienceLookup, word: 'bureaucracy', senses: [] }
 
   let el: MfApp
-  const settle = async () => { await new Promise(r => setTimeout(r, 20)); await el.updateComplete }
+  // Also waits for the graph's own update, which rejects if updated() threw, so
+  // these tests only pass when the forest props were applied in full.
+  const settle = async () => {
+    await new Promise(r => setTimeout(r, 20))
+    await el.updateComplete
+    await (el.shadowRoot!.querySelector('mf-force-graph') as unknown as { updateComplete?: Promise<boolean> } | null)?.updateComplete
+  }
   const panel = () => el.shadowRoot!.querySelector('mf-forest-panel') as HTMLElement & { state: any; lit: ReadonlySet<string> | null }
   const graph = () => el.shadowRoot!.querySelector('mf-force-graph') as HTMLElement & { graphData: GraphData; forest: any; forestVisible: boolean; forestLit: ReadonlySet<string> | null }
   const panelEvent = (detail: unknown) => panel().dispatchEvent(new CustomEvent('mf-forest-event', { detail, bubbles: true, composed: true }))

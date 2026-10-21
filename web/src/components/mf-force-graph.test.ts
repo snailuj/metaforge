@@ -1226,6 +1226,18 @@ describe('MfForceGraph metaphor forest', () => {
     expect(labelEl.hasAttribute('data-selected')).toBe(false)
   })
 
+  // Rule: graphData() is library-owned; an update must complete whatever it reports.
+  it('completes a forest update when the library reports no node or link arrays', async () => {
+    await mount()
+    mockGraphData = { nodes: (() => []) as unknown as unknown[], links: undefined as unknown as unknown[] }
+    el.forestLit = new Set(['seed vault'])
+    await expect(el.updateComplete).resolves.toBe(true)
+    el.forestSelectedId = 'seed vault'
+    await expect(el.updateComplete).resolves.toBe(true)
+    el.forestVisible = false
+    await expect(el.updateComplete).resolves.toBe(true)
+  })
+
   it('marks lit grounds and lit labels on the label DOM, and clears them when nothing is lit', async () => {
     await mount()
     const groundEl = document.createElement('div')
