@@ -194,7 +194,7 @@ describe('forestDepthForce', () => {
     const thesaurusNode = { x: 3, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
     nodes.push(thesaurusNode)
 
-    const force = forestDepthForce(n => depth.get(n), 40, 0.2)
+    const force = forestDepthForce(n => depth.get(n), { spacing: 40, offset: 20, strength: 0.2 })
     force.initialize(nodes)
     for (let t = 0; t < 300; t++) {
       force(1)
@@ -204,15 +204,31 @@ describe('forestDepthForce', () => {
       const ring = nodes.filter(n => depth.get(n) === d)
       return ring.reduce((s, n) => s + Math.hypot(n.x - root.x, n.y - root.y, n.z - root.z), 0) / ring.length
     }
-    expect(meanDist(1)).toBeCloseTo(40, 0)
-    expect(meanDist(2)).toBeCloseTo(80, 0)
-    expect(meanDist(3)).toBeCloseTo(120, 0)
+    // the first ring clears the thesaurus cloud by the offset
+    expect(meanDist(1)).toBeCloseTo(60, 0)
+    expect(meanDist(2)).toBeCloseTo(100, 0)
+    expect(meanDist(3)).toBeCloseTo(140, 0)
     expect(thesaurusNode.x).toBe(3) // nodes outside the forest are left alone
+  })
+
+  // Rule: from the default camera the forest reads as a flat burst, not a 3D tangle.
+  it('with flatten set, draws forest nodes toward the root plane facing the camera', () => {
+    const root = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }
+    const n = { x: 50, y: 0, z: 60, vx: 0, vy: 0, vz: 0 }
+    const depth = (node: object) => (node === root ? 0 : 1)
+    const force = forestDepthForce(depth, { spacing: 60, flatten: 0.5, strength: 0.2 })
+    force.initialize([root, n])
+    for (let t = 0; t < 300; t++) {
+      force(1)
+      n.x += n.vx; n.y += n.vy; n.z += n.vz; n.vx *= 0.5; n.vy *= 0.5; n.vz *= 0.5
+    }
+    expect(Math.abs(n.z)).toBeLessThan(5)
+    expect(Math.hypot(n.x, n.y, n.z)).toBeCloseTo(60, 0)
   })
 
   it('does nothing when no node has depth 0', () => {
     const n = { x: 1, y: 1, z: 1, vx: 0, vy: 0, vz: 0 }
-    const force = forestDepthForce(() => 2, 40)
+    const force = forestDepthForce(() => 2, { spacing: 40 })
     force.initialize([n])
     force(1)
     expect([n.vx, n.vy, n.vz]).toEqual([0, 0, 0])

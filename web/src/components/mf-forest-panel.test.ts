@@ -266,6 +266,12 @@ describe('MfForestPanel', () => {
     })
   })
 
+  it('is a region landmark named by its heading', () => {
+    const region = $('section[aria-labelledby]')!
+    expect(text($(`#${region.getAttribute('aria-labelledby')}`))).toBe('Metaphor forest')
+    expect(region.contains($('[data-testid="forest-primary"]'))).toBe(true)
+  })
+
   // Floor 2: every interactive element is a semantic control with a name.
   it('uses only named buttons, selects and inputs as controls', async () => {
     for (const s of [start(), loading(), shown()]) {

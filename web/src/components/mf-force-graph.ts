@@ -18,8 +18,14 @@ const EDGE_COLOUR_DIM = 'rgba(232, 224, 212, 0.08)'
 const FOREST_EDGE_THESAURUS = 'rgba(232, 224, 212, 0.05)'
 const FOREST_EDGE_THESAURUS_DIM = 'rgba(232, 224, 212, 0.03)'
 const FOREST_NODE_VAL = { endpoint: 18, hop: 1.5 } as const
-const FOREST_LINK_DISTANCE = 42   // matches the depth-force ring spacing
-const FOREST_RING_SPACING = 46
+// Ring 1 sits at offset + spacing from the source, clear of the thesaurus
+// cloud (link distance 30); later rings follow at the link distance.
+const FOREST_RING = { spacing: 52, offset: 22, strength: 0.08, flatten: 0.6 }
+const FOREST_LINK_DISTANCE = FOREST_RING.spacing
+// Framing after a new forest lands: once the warm-up has spread it, then
+// again as it settles. Padding keeps the burst clear of the side panels.
+const FOREST_FRAME_AT_MS = [900, 3200]
+const FOREST_FRAME_PADDING = { wide: 110, narrow: 30 }
 const LIVE_MARK = '\u2726'
 type Emphasis = 'lit' | 'dim' | 'normal'
 
@@ -162,8 +168,11 @@ export class MfForceGraph extends LitElement {
       font-size: 11px !important;
       font-style: italic;
     }
+    .mf-graph-label[data-recede] {
+      opacity: 0.45;
+    }
     .mf-graph-label[data-dim] {
-      opacity: 0.22;
+      opacity: 0.18;
     }
     .mf-ground-label {
       visibility: hidden;
@@ -209,6 +218,7 @@ export class MfForceGraph extends LitElement {
   // pointerType of the latest pointer on the canvas; a touch never sets hover.
   private lastPointerType = 'mouse'
   private forestHoverActive = false
+  private forestFrameTimers: ReturnType<typeof setTimeout>[] = []
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
   @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
@@ -307,15 +317,33 @@ export class MfForceGraph extends LitElement {
 
   private nodeLabelFn = (n: unknown) => {
     const obj = makeLabelObject(this.labelStyleFor(n), () => this.effectiveLabelSize, () => this.labelRefDist)
-    if (this.labelDimmed(n)) obj.element.setAttribute('data-dim', '')
+    this.applyLabelFade(obj.element, n)
     return obj
   }
 
-  private labelDimmed(n: unknown): boolean {
-    if (!this.activeForest || !this.forestLit) return false
+  /** Thesaurus labels recede while a forest is shown; anything off a lit path dims. */
+  private labelFade(n: unknown): 'recede' | 'dim' | null {
+    if (!this.activeForest) return null
     const info = this.forestInfo(n)
-    if (!info) return true
-    return info.role !== 'source' && this.emphasis(info.endpointIds) === 'dim'
+    if (!info) return (n as GraphNode).relationType === 'central' ? null : this.forestLit ? 'dim' : 'recede'
+    if (info.role === 'source') return null
+    return this.forestLit && this.emphasis(info.endpointIds) === 'dim' ? 'dim' : null
+  }
+
+  private applyLabelFade(el: HTMLElement, n: unknown): void {
+    const fade = this.labelFade(n)
+    el.toggleAttribute('data-recede', fade === 'recede')
+    el.toggleAttribute('data-dim', fade === 'dim')
+  }
+
+  /** Frame the whole graph a moment after a new forest lands, so the burst
+   *  is on screen however far it grew. */
+  private scheduleForestFraming(): void {
+    this.forestFrameTimers.forEach(clearTimeout)
+    const padding = this.viewportWidth > 768 ? FOREST_FRAME_PADDING.wide : FOREST_FRAME_PADDING.narrow
+    this.forestFrameTimers = FOREST_FRAME_AT_MS.map(ms => setTimeout(() => {
+      this.graph?.zoomToFit(this.reducedMotion ? 0 : 800, padding)
+    }, ms))
   }
 
   private emitForest(name: 'mf-forest-hover' | 'mf-forest-select', target: ForestTarget | null): void {
@@ -356,7 +384,7 @@ export class MfForceGraph extends LitElement {
     }
     for (const n of data.nodes ?? []) {
       const label = n.__threeObj?.children?.find(c => c.isCSS2DObject)
-      if (label) label.element.toggleAttribute('data-dim', this.labelDimmed(n))
+      if (label) this.applyLabelFade(label.element, n)
     }
     for (const l of data.links ?? []) {
       const ground = l.metaphor && l.__lineObj?.children?.find(c => c?.isCSS2DObject)
@@ -736,7 +764,7 @@ export class MfForceGraph extends LitElement {
       this.graph.d3Force('link')?.distance?.((l: unknown) => (isMetaphor(l) ? FOREST_LINK_DISTANCE : 30))
       this.graph.d3Force('forestDepth', forestDepthForce(
         (node: object) => this.forestInfo(node)?.depth,
-        FOREST_RING_SPACING,
+        FOREST_RING,
       ))
     }
 
@@ -836,6 +864,10 @@ export class MfForceGraph extends LitElement {
     // are reused across feeds, so their labels would keep the old role) and
     // re-evaluate styling and visibility in place.
     const forestChanged = changed.has('forest') || changed.has('forestVisible')
+    const previous = changed.get('forest') as ForestOverlay | null | undefined
+    if (this.graph && changed.has('forest') && this.forest && this.forest.forest !== previous?.forest) {
+      this.scheduleForestFraming()
+    }
     if (this.graph && forestChanged) {
       this.graph.nodeThreeObject((n: unknown) => this.nodeLabelFn(n))
       this.refreshForestStyles()
@@ -883,6 +915,7 @@ export class MfForceGraph extends LitElement {
     super.disconnectedCallback()
     if (this.clickTimer) clearTimeout(this.clickTimer)
     if (this.gradeFrameTimer) clearTimeout(this.gradeFrameTimer)
+    this.forestFrameTimers.forEach(clearTimeout)
     if (this.resizeObserver) {
       this.resizeObserver.disconnect()
       this.resizeObserver = null

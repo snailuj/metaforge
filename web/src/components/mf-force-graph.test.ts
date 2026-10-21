@@ -1320,6 +1320,30 @@ describe('MfForceGraph metaphor forest', () => {
     expect(hover).toHaveBeenCalledOnce()
   })
 
+  it('frames the camera when a new forest arrives, and not when paths are lit', async () => {
+    vi.useFakeTimers()
+    await mount()
+    const framesAfterMount = setCounts.zoomToFit ?? 0
+    vi.advanceTimersByTime(5000)
+    const framed = setCounts.zoomToFit ?? 0
+    expect(framed).toBeGreaterThan(framesAfterMount)
+    el.forestLit = new Set(['varve'])
+    await el.updateComplete
+    vi.advanceTimersByTime(5000)
+    expect(setCounts.zoomToFit ?? 0).toBe(framed)
+  })
+
+  it('fades thesaurus labels while a forest is shown, and restores them when it is hidden', async () => {
+    await mount()
+    const label = (n: unknown) => (capturedNodeThreeObject!(n) as { element: HTMLElement }).element
+    expect(label(nodeById(data, 'forbearance')).hasAttribute('data-recede')).toBe(true)
+    expect(label(nodeById(data, 'seed vault')).hasAttribute('data-recede')).toBe(false)
+    expect(label(nodeById(data, 'patience')).hasAttribute('data-recede')).toBe(false)
+    el.forestVisible = false
+    await el.updateComplete
+    expect(label(nodeById(data, 'forbearance')).hasAttribute('data-recede')).toBe(false)
+  })
+
   it('installs the depth force so the forest grows outward from the source', async () => {
     await mount()
     const call = (lastArgs.d3Force ?? []) as unknown[]

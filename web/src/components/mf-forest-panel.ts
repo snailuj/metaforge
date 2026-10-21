@@ -25,7 +25,6 @@ export class MfForestPanel extends LitElement {
       max-height: calc(100% - 3.5rem - 3 * var(--space-md, 1rem));
       z-index: 25;
       display: flex;
-      flex-direction: column;
       background: var(--colour-panel-deep);
       border: 1px solid var(--colour-forest-branch-faint);
       border-block-start: 2px solid var(--colour-forest-branch-dim);
@@ -35,6 +34,13 @@ export class MfForestPanel extends LitElement {
       font-family: var(--font-body);
       font-size: 0.9rem;
       line-height: 1.45;
+    }
+
+    section {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
     }
 
     .head {
@@ -517,9 +523,10 @@ export class MfForestPanel extends LitElement {
     const status = this.statusText()
 
     return html`
+      <section aria-labelledby="forest-heading">
       <div class="head">
         <div class="title-row">
-          <h2 tabindex="-1">${getString('forest-heading')}</h2>
+          <h2 id="forest-heading" tabindex="-1">${getString('forest-heading')}</h2>
           ${response
             ? html`<button
                 class="sheet-toggle"
@@ -586,6 +593,7 @@ export class MfForestPanel extends LitElement {
             ? html`<p class="intro">${getString('forest-intro', { word })}</p>`
             : nothing}
       </div>
+      </section>
     `
   }
 }

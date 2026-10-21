@@ -39,6 +39,7 @@ export interface ForestGraph {
 export interface ForestOverlay {
   byNodeId: Map<string, ForestNodeInfo>
   nodeIdByForestId: Map<string, string>
+  forest: ForestGraph  // same object across recompositions of one response
 }
 
 export function normaliseWord(word: string): string {
@@ -114,7 +115,7 @@ export function composeForest(
     if (!byWord.has(w)) byWord.set(w, n)
   }
 
-  const overlay: ForestOverlay = { byNodeId: new Map(), nodeIdByForestId: new Map() }
+  const overlay: ForestOverlay = { byNodeId: new Map(), nodeIdByForestId: new Map(), forest }
   const added: GraphNode[] = []
   for (const node of forest.nodes) {
     const match = byWord.get(normaliseWord(node.word)) ?? byId.get(node.id)
@@ -155,16 +156,23 @@ export function litEndpoints(forest: ForestGraph, target: ForestTarget | null): 
 
 interface SimNode { x?: number; y?: number; z?: number; vx?: number; vy?: number; vz?: number }
 
+interface DepthForceOptions {
+  spacing: number     // distance between rings
+  offset?: number     // extra radius for every ring, to clear the thesaurus cloud
+  strength?: number
+  flatten?: number    // 0..1: pull toward the root's z plane, facing the default camera
+}
+
 /**
  * A d3 force that pulls each forest node toward a sphere of radius
- * depth * spacing around the depth-0 node, so the forest grows outward from the
- * source in rings instead of tangling into the thesaurus cloud. Nodes with no
- * depth (the thesaurus) are untouched.
+ * offset + depth * spacing around the depth-0 node, so the forest grows outward
+ * from the source in rings instead of tangling into the thesaurus cloud. With
+ * `flatten`, the rings also settle toward the plane facing the default camera,
+ * so the burst reads at a glance. Nodes with no depth (the thesaurus) are untouched.
  */
 export function forestDepthForce<N extends SimNode>(
   depthOf: (node: N) => number | undefined,
-  spacing: number,
-  strength = 0.08,
+  { spacing, offset = 0, strength = 0.08, flatten = 0 }: DepthForceOptions,
 ) {
   let nodes: N[] = []
   const force = (alpha: number) => {
@@ -176,10 +184,10 @@ export function forestDepthForce<N extends SimNode>(
       if (!d) continue
       const dx = (n.x ?? 0) - rx, dy = (n.y ?? 0) - ry, dz = (n.z ?? 0) - rz
       const dist = Math.hypot(dx, dy, dz) || 1e-3
-      const k = ((d * spacing - dist) / dist) * strength * alpha
+      const k = ((offset + d * spacing - dist) / dist) * strength * alpha
       n.vx = (n.vx ?? 0) + dx * k
       n.vy = (n.vy ?? 0) + dy * k
-      n.vz = (n.vz ?? 0) + dz * k
+      n.vz = (n.vz ?? 0) + dz * k - dz * flatten * strength * alpha
     }
   }
   force.initialize = (n: N[]) => { nodes = n }
