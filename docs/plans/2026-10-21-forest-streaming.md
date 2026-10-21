@@ -25,7 +25,10 @@ The graph shows the forging: hops appear as the generator writes them, unjudged 
 
 - Validation, limiter and not-configured errors still answer before the stream starts, with today's status codes and JSON bodies (400, 429 with Retry-After, 503).
 - `event: hop`, `data: {"path_id": "f1", "facet": 1, "from": "patience", "to": "dormant seed", "ground": "..."}` (a branch hop carries `f1b0` and starts from the facet word or the previous hop) as each hop is written. `path_id` names facet and branch; the first hop of a facet is shared by its branches.
-- Path ids: `f<i>` is facet `i`'s own path (source to the facet word; it only gets a verdict when the facet has a line), `f<i>b<j>` is branch `j` of facet `i`, whose path starts with facet `i`'s hop. Indices are 0-based and keep counting across the thin-output retry, so ids never repeat within one stream. `facet` in a `hop` event is `i`. Words in `from` and `to` are normalised as node ids are.
+- Path ids: `f<i>` is facet `i`'s own path (source to the facet word; when the facet has no line of its own, it is resolved as `rejected` with reason `invalid` once the facet is complete, so every path id that got a `hop` resolves exactly once), `f<i>b<j>` is branch `j` of facet `i`, whose path starts with facet `i`'s hop. Indices are 0-based and keep counting across the thin-output retry, so ids never repeat within one stream. `facet` in a `hop` event is `i`. Words in `from` and `to` are normalised as node ids are.
+- Across facets, the first kept path to reach an endpoint keeps it; a later path to the same endpoint is `rejected` as `duplicate`. Within one facet the higher score wins, as today.
+- A judge call that fails rejects its facet's paths as `invalid` and the stream carries on. If nothing was kept and a judge call failed, the stream ends with `error` instead of `done`.
+- When the thin-output retry runs, both attempts' paths are judged and can be kept.
 - A pending node or link stays on the graph while any pending or kept path uses it, and fades once none does.
 - `event: rejected`, `data: {"path_id": "f1b2", "reason": "low_score" | "invalid" | "broken_hop" | "drift" | "cliche" | "literal" | "duplicate"}`.
 - `event: kept`, `data: {"path_id": "f1b2", "endpoint": "<endpoint id>", "score": 7}`.
