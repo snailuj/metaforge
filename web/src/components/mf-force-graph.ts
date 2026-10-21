@@ -27,6 +27,7 @@ const FOREST_LINK_DISTANCE = FOREST_RING.spacing
 const FOREST_FRAME_AT_MS = [900, 3200]
 const FOREST_FRAME_PADDING = { wide: 110, narrow: 30 }
 const LIVE_MARK = '\u2726'
+const GROUND_LABEL_AT = 0.42 // along the link, from its source
 type Emphasis = 'lit' | 'dim' | 'normal'
 
 // 300ms matches typical OS double-click threshold; balances responsiveness
@@ -202,7 +203,7 @@ export class MfForceGraph extends LitElement {
       display: flex;
       flex-direction: column;
       align-items: center;
-      max-width: 10.5rem;
+      max-width: 9rem;
       padding: 2px 8px 3px;
       border-radius: 3px;
       background: rgba(8, 18, 30, 0.86);
@@ -657,8 +658,10 @@ export class MfForceGraph extends LitElement {
       .linkPositionUpdate((obj: unknown, ends: { start: Vec3; end: Vec3 }) => {
         const label = obj as { isCSS2DObject?: boolean; position: { set(x: number, y: number, z: number): void } } | undefined
         if (label?.isCSS2DObject) {
+          // Nearer the parent: the child's own label sits just above the child.
           const { start, end } = ends
-          label.position.set((start.x + end.x) / 2, (start.y + end.y) / 2, (start.z + end.z) / 2)
+          const t = GROUND_LABEL_AT
+          label.position.set(start.x + (end.x - start.x) * t, start.y + (end.y - start.y) * t, start.z + (end.z - start.z) * t)
         }
         return false
       })

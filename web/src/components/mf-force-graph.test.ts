@@ -1226,6 +1226,17 @@ describe('MfForceGraph metaphor forest', () => {
     expect(dimLabelEl.hasAttribute('data-dim')).toBe(false)
   })
 
+  it('keeps each ground label on its link, a little nearer the parent word', async () => {
+    await mount()
+    const update = lastArgs.linkPositionUpdate[0] as (obj: unknown, ends: unknown, link: unknown) => boolean
+    const label = { isCSS2DObject: true, position: { x: 0, y: 0, z: 0, set(x: number, y: number, z: number) { Object.assign(this, { x, y, z }) } } }
+    update(label, { start: { x: 0, y: 0, z: 0 }, end: { x: 100, y: 50, z: 10 } }, {})
+    expect(label.position.x).toBeGreaterThan(30)
+    expect(label.position.x).toBeLessThan(50)
+    expect(label.position.y / label.position.x).toBeCloseTo(0.5)
+    expect(() => update(undefined, { start: { x: 0, y: 0, z: 0 }, end: { x: 1, y: 1, z: 1 } }, {})).not.toThrow()
+  })
+
   it('builds a ground label on metaphor links only, from the edge grounds, as text', async () => {
     await mount()
     const makeLinkObj = lastArgs.linkThreeObject[0] as (l: unknown) => { element: HTMLElement } | null
