@@ -6,6 +6,9 @@ After=network.target
 Type=simple
 User=agent
 WorkingDirectory=__WORKTREE__
+# Optional: ANTHROPIC_API_KEY (and METAFORGE_FOREST_* overrides) for /forge/forest.
+# Without it the route answers 503 and the rest of the API is unaffected.
+EnvironmentFile=-/etc/metaforge/forest.env
 ExecStart=__WORKTREE__/api/metaforge \
     -port 8080 \
     -db __WORKTREE__/data-pipeline/output/lexicon_v2.db \
