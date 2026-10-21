@@ -15,6 +15,7 @@ vi.mock('3d-force-graph', () => ({ default: () => () => chainable }))
 vi.mock('@/api/client', () => ({
   lookupWord: vi.fn(),
   fetchForest: vi.fn(),
+  streamForest: vi.fn(),
   ApiError: class ApiError extends Error {
     status: number
     constructor(message: string, status: number) {
@@ -42,7 +43,7 @@ vi.mock('@/lib/strings', () => ({
 }))
 
 import { MfApp } from './mf-app'
-import { lookupWord, fetchForest } from '@/api/client'
+import { lookupWord, fetchForest, streamForest, type ForestStreamEvent } from '@/api/client'
 import type { ForestResponse } from '@/types/api'
 import type { GraphData } from '@/graph/types'
 import patienceFixture from '@/fixtures/forest-patience.json'
@@ -1688,6 +1689,12 @@ describe('mf-app metaphor forest', () => {
   beforeEach(async () => {
     window.location.hash = ''
     vi.mocked(fetchForest).mockReset()
+    vi.mocked(streamForest).mockReset()
+    // The tests above resolve a whole forest; a whole answer arrives on the
+    // stream as a lone done, as a cache hit does.
+    vi.mocked(streamForest).mockImplementation(async (word, maxHops, onEvent, signal, fresh) => {
+      onEvent({ type: 'done', forest: await fetchForest(word, maxHops, signal, fresh) })
+    })
     vi.mocked(lookupWord).mockReset()
     el = new MfApp()
     document.body.appendChild(el)
@@ -1916,5 +1923,142 @@ describe('mf-app metaphor forest', () => {
     await settle()
     expect((el as any).forestState).toMatchObject({ hover: null, focus: null, content: { kind: 'forest' } })
     expect(el.shadowRoot!.querySelector('mf-forest-panel')).toBeNull()
+  })
+
+  describe('streaming', () => {
+    // A stream the test drives by hand; it rejects with an AbortError when aborted, as fetch does.
+    function deferredStream() {
+      const calls: { word: string; fresh: boolean | undefined; signal: AbortSignal; emit: (e: ForestStreamEvent) => void; finish: () => void }[] = []
+      vi.mocked(streamForest).mockImplementation((word, _maxHops, onEvent, signal, fresh) => new Promise<void>((resolve, reject) => {
+        calls.push({ word, fresh, signal: signal!, emit: onEvent, finish: resolve })
+        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      }))
+      return calls
+    }
+    const hop = (pathId: string, from: string, to: string): ForestStreamEvent => ({ type: 'hop', pathId, facet: Number(pathId[1]), from, to, ground: `${from} to ${to}` })
+    const linkTo = (target: string) => metaphorLinks().find(l => l.metaphor!.forestTarget === target)
+    const nodeOf = (id: string) => graph().graphData.nodes.find(n => n.id === id)
+    async function forging() {
+      const calls = deferredStream()
+      panelEvent({ type: 'forge' })
+      await settle()
+      expect(calls).toHaveLength(1)
+      return calls[0]
+    }
+
+    it('Forge and New forest go through the stream', async () => {
+      const call = await forging()
+      expect(call.word).toBe('patience')
+      expect(call.fresh).toBe(false)
+      expect(fetchForest).not.toHaveBeenCalled()
+    })
+
+    // Rule: hops show on the graph as they arrive; the panel list waits for a judged snapshot.
+    it('draws pending hops on the graph at once, and lists nothing until a snapshot', async () => {
+      const call = await forging()
+      call.emit(hop('f0', 'patience', 'tide pool'))
+      call.emit(hop('f0b0', 'tide pool', 'rock pool'))
+      await settle()
+      expect(panel().state.request.kind).toBe('streaming')
+      expect(panel().state.content.kind).toBe('none')
+      expect(linkTo('rock pool')?.metaphor!.stream).toBe('pending')
+      expect(graph().forest.byNodeId.get('patience').role).toBe('source')
+      call.emit({ type: 'forest', forest })
+      await settle()
+      expect(panel().state.content).toEqual({ kind: 'forest', response: forest })
+      expect(linkTo('rock pool')?.metaphor!.stream).toBe('pending')
+      expect(linkTo('varve')?.metaphor!.stream).toBeUndefined()
+    })
+
+    // Rule: the graph grows rather than jumps: a node keeps its object from first hop to final forest.
+    it('keeps each node object as the stream grows and its snapshots replace one another', async () => {
+      const call = await forging()
+      call.emit(hop('f0', 'patience', 'lake sediment'))
+      await settle()
+      const sediment = nodeOf('lake sediment')
+      const patience = nodeOf('patience')
+      expect(sediment).toBeDefined()
+      call.emit(hop('f0b0', 'lake sediment', 'varve'))
+      call.emit({ type: 'kept', pathId: 'f0b0', endpoint: 'varve', score: 7 })
+      call.emit({ type: 'forest', forest: { ...forest, endpoints: forest.endpoints.filter(e => e.id === 'varve') } })
+      await settle()
+      call.emit({ type: 'done', forest })
+      await settle()
+      expect(panel().state.request.kind).toBe('idle')
+      expect(nodeOf('lake sediment')).toBe(sediment)
+      expect(nodeOf('patience')).toBe(patience)
+    })
+
+    // Rule: a rejected path's marks fade out, then leave the graph.
+    it('fades a rejected path out, then removes it', async () => {
+      const call = await forging()
+      call.emit(hop('f0', 'patience', 'tide pool'))
+      call.emit(hop('f0b0', 'tide pool', 'rock pool'))
+      await settle()
+      expect(linkTo('rock pool')?.metaphor!.stream).toBe('pending')
+      call.emit({ type: 'rejected', pathId: 'f0b0', reason: 'low_score' })
+      call.emit({ type: 'rejected', pathId: 'f0', reason: 'invalid' })
+      await settle()
+      expect(linkTo('rock pool')?.metaphor!.stream).toBe('fading')
+      expect(graph().forest.byNodeId.get('rock pool')?.stream).toBe('fading')
+      await new Promise(r => setTimeout(r, 700))
+      await settle()
+      expect(linkTo('rock pool')).toBeUndefined()
+      expect(nodeOf('rock pool')).toBeUndefined()
+    })
+
+    it('with reduced motion removes a rejected path at once', async () => {
+      vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('reduce'), addEventListener: () => {}, removeEventListener: () => {} }))
+      try {
+        const call = await forging()
+        call.emit(hop('f0', 'patience', 'tide pool'))
+        await settle()
+        expect(linkTo('tide pool')).toBeDefined()
+        call.emit({ type: 'rejected', pathId: 'f0', reason: 'invalid' })
+        await settle()
+        expect(linkTo('tide pool')).toBeUndefined()
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    // Rule: cancel keeps what was kept and drops every pending path.
+    it('Cancel aborts the stream, keeps the last snapshot and stops drawing pending paths', async () => {
+      const call = await forging()
+      call.emit({ type: 'forest', forest })
+      call.emit(hop('f9', 'patience', 'tide pool'))
+      await settle()
+      expect(linkTo('tide pool')?.metaphor!.stream).toBe('pending')
+      panelEvent({ type: 'cancel' })
+      await settle()
+      expect(call.signal.aborted).toBe(true)
+      expect(panel().state).toMatchObject({ request: { kind: 'idle' }, content: { kind: 'forest', response: forest }, notice: 'cancelled' })
+      expect(metaphorLinks().some(l => l.metaphor!.stream === 'pending')).toBe(false)
+      // a late event from the cancelled stream changes nothing
+      const before = panel().state
+      call.emit(hop('f9b0', 'tide pool', 'rock pool'))
+      await settle()
+      expect(panel().state).toBe(before)
+    })
+
+    it('an error event fails the request and keeps the last snapshot', async () => {
+      const call = await forging()
+      call.emit({ type: 'forest', forest })
+      call.emit({ type: 'error', kind: 'timeout' })
+      call.finish()
+      await settle()
+      expect(panel().state.request).toEqual({ kind: 'failed', error: 'timeout', retryAfterSeconds: null })
+      expect(panel().state.content).toEqual({ kind: 'forest', response: forest })
+    })
+
+    it('another word clears every streamed mark', async () => {
+      const call = await forging()
+      call.emit(hop('f0', 'patience', 'tide pool'))
+      await settle()
+      await lookUp(otherLookup)
+      expect(call.signal.aborted).toBe(true)
+      expect(metaphorLinks()).toHaveLength(0)
+      expect(graph().forest).toBeNull()
+    })
   })
 })
