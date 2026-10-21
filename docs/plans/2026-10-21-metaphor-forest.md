@@ -114,7 +114,7 @@ Errors, all `{"error": "<message>"}`:
 
 Grounds and lines have inner whitespace, newlines included, collapsed to single spaces, so a path stays on one line of the judge's message. Paths that fail validation are never sent to the judge.
 
-Then reject flagged paths (first matching flag in the order `broken_hop`, `drift`, `literal`, `cliche`) and paths scoring below the minimum (`low_score`). When two kept paths end at the same endpoint, keep the higher score (then the shorter path, then the earlier one); the others count as `duplicate`. Every generated path is either kept or in exactly one `rejected` bucket, so `kept` plus the `rejected` counts equal `generated`.
+Then reject flagged paths (first matching flag in the order `broken_hop`, `drift`, `literal`, `cliche`) and paths scoring below the minimum (`low_score`). Every distinct route to an endpoint is kept, so `endpoints` can hold one endpoint id more than once, each with its own path; when two kept paths have the same words in the same order, keep the higher score (then the earlier one) and count the other as `duplicate` (owner, 2026-10-22: several routes add interest). Every generated path is either kept or in exactly one `rejected` bucket, so `kept` plus the `rejected` counts equal `generated`.
 
 ## Frontend
 

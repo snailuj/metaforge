@@ -65,7 +65,7 @@ func (s *Service) GenerateStream(ctx context.Context, source string, maxHops int
 		return Forest{}, errNoStreaming
 	}
 	r := &streamRun{s: s, streamer: streamer, source: source, maxHops: maxHops, emit: emit,
-		keptEnd: map[string]bool{}, sem: make(chan struct{}, maxJudgeCalls)}
+		keptRoute: map[string]bool{}, sem: make(chan struct{}, maxJudgeCalls)}
 	genAttempts := 1
 	defer func() {
 		p := recover()
@@ -124,7 +124,7 @@ type streamRun struct {
 	judgeCalls int
 	judgeErr   error
 	kept       []ScoredPath
-	keptEnd    map[string]bool
+	keptRoute  map[string]bool // routeKey of every kept path
 	stats      Stats
 	screened   int // paths considered so far; past maxPaths they count as invalid
 }
@@ -358,10 +358,10 @@ func (r *streamRun) judgeFacet(ctx context.Context, fi int, ids []string, paths 
 	for i, o := range outs {
 		if o.reason == "" {
 			end := o.scored.Words[len(o.scored.Words)-1]
-			if r.keptEnd[end] {
+			if route := routeKey(o.scored.Words); r.keptRoute[route] {
 				o.reason = reasonDuplicate
 			} else {
-				r.keptEnd[end] = true
+				r.keptRoute[route] = true
 				r.kept = append(r.kept, o.scored)
 				r.send("kept", KeptEvent{PathID: ids[i], Endpoint: end, Score: o.scored.Score})
 				continue

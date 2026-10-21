@@ -233,8 +233,9 @@ const (
 //
 // A path is rejected for the first of: no verdict (invalid), then the flags
 // broken_hop, drift, literal, cliche, then a score below minScore. Of kept
-// paths sharing an endpoint, the highest score survives (then the shorter
-// path, then the earlier one) and the rest count as duplicate.
+// paths with the same words in the same order, the higher score survives
+// (then the earlier one) and the rest count as duplicate. Distinct routes to
+// one endpoint are all kept.
 func ApplyVerdicts(paths []Path, verdicts []Verdict, minScore int) (kept []ScoredPath, rej Rejected, ignored []int) {
 	outs, ignored := judgePaths(paths, verdicts, minScore)
 	for _, o := range outs {
@@ -322,19 +323,23 @@ func judgePaths(paths []Path, verdicts []Verdict, minScore int) (outs []pathOutc
 		if o.reason != "" {
 			continue
 		}
-		end := o.scored.Words[len(o.scored.Words)-1]
-		w, seen := winner[end]
+		key := routeKey(o.scored.Words)
+		w, seen := winner[key]
 		if !seen || beats(o.scored, outs[w].scored) {
-			winner[end] = i
+			winner[key] = i
 		}
 	}
 	for i, o := range outs {
-		if o.reason == "" && winner[o.scored.Words[len(o.scored.Words)-1]] != i {
+		if o.reason == "" && winner[routeKey(o.scored.Words)] != i {
 			outs[i].reason = reasonDuplicate
 		}
 	}
 	return outs, ignored
 }
+
+// routeKey identifies a path by its words in order. Distinct routes to one
+// endpoint are all kept; only a repeat of the same route is a duplicate.
+func routeKey(words []string) string { return strings.Join(words, "\x00") }
 
 // beats orders candidates for one endpoint: higher score, then shorter.
 func beats(a, b ScoredPath) bool {
