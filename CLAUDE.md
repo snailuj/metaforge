@@ -37,12 +37,12 @@ A browser-based visual thesaurus combining utility with 3D exploration.
 - Live testing confirmed on multiple browsers and phones
 - ~300 automated tests across all code surfaces
 
-**Metaphor forest (live forge on the 3D graph) built: backend `/forge/forest` and frontend (graph overlay and forest panel) merged; live prompt tuning pending. Data pipeline 70% MVP-ready. Substack teaser post drafted with Opus. Eval harness (M01) shipped.**
+**Metaphor forest (live forge on the 3D graph) built: backend `/forge/forest` and frontend (graph overlay and forest panel) merged; prompts live-tuned and forests cached per word (2026-10-21). Data pipeline 70% MVP-ready. Substack teaser post drafted with Opus. Eval harness (M01) shipped.**
 
 **Next:** see `docs/roadmap/PIPELINE.md`. Active: the metaphor forest (plan: `docs/plans/2026-10-21-metaphor-forest.md`).
 
 **Required for MVP-complete:**
-- **Live metaphor forest** -- backend and frontend merged. Open gates: live prompt tuning waits on an `ANTHROPIC_API_KEY` in the cloud environment; deploy needs Go 1.24+ and `/etc/metaforge/forest.env`; a live-versus-dead eval to replace the aptness KPI is not built.
+- **Live metaphor forest** -- backend and frontend merged, prompts tuned, forests cached per word. Open gates: deploy needs Go 1.24+ and `/etc/metaforge/forest.env`; a live-versus-dead eval to replace the aptness KPI is not built.
 - 2nd-Order Edge Node Rendering
 - 2-3 Substack posts
 - Sem-sim distance between words visually rendered

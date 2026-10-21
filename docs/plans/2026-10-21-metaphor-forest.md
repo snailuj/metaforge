@@ -28,13 +28,15 @@ A 3D force graph of words linked by the semantics they share. From one source wo
 | Hops | `max_hops` 1-5, default 3. |
 | Model | `claude-haiku-5-5`, effort `low`, both calls. Env-configurable. Tuned live on 2026-10-21: `medium` was 3-4x slower and dearer for forests that read no better. |
 | Thin output | Low effort occasionally returns a one-facet stub with no thinking. Fewer than 3 valid paths (`METAFORGE_FOREST_MIN_PATHS`) retries the generator once; the fuller attempt is judged. |
-| Caching | None. |
+| Caching | A pool of up to 10 finished forests per (pipeline fingerprint, word, max_hops) in a writable SQLite file (`METAFORGE_FOREST_CACHE`; unset disables). Forge is served a random forest from the pool with no model call; New forest (`fresh=1`) always generates and adds to the pool, dropping the oldest past `METAFORGE_FOREST_POOL_SIZE`. Empty forests are never stored. The fingerprint hashes prompts, schemas, the forest config and a hand-bumped `pipelineRevision`, so retuning starts fresh pools; older rows stay in the file as a corpus. Owner's choice, 2026-10-21. |
 | Spend guard | Global: 4 concurrent, 30 forests per minute. Env-configurable. |
 | Base graph | The forest overlays the thesaurus graph for the looked-up word; thesaurus links dim while a forest is shown. |
 
 ## API contract
 
-`GET /forge/forest?word=<w>&max_hops=<1..5>`
+`GET /forge/forest?word=<w>&max_hops=<1..5>[&fresh=1]`
+
+`fresh=1` skips the cache lookup (the panel sends it for New forest, when a forest is already shown). With a cache configured the response carries `X-Forest-Cache: hit | miss | fresh`. A hit spends no limiter slot and is served even without an API key.
 
 `word`: required. After normalisation, 1-40 characters of letters, spaces, hyphens and apostrophes. Anything else is 400. This also keeps arbitrary text out of the prompt.
 
@@ -96,7 +98,9 @@ Errors, all `{"error": "<message>"}`:
   - `service.go`: generate, then judge, then build. Logs per request: word, max_hops, model, per-call latency, input, output and cache-read tokens, generated, kept and rejected counts by reason. Timers through the existing `observe` package.
   - `limiter.go`: non-blocking concurrency semaphore plus a fixed one-minute window counter, injectable clock.
 - Handler `GET /forge/forest`, registered in `api/cmd/metaforge/main.go`. Raise the server write timeout to 90 s; per-request deadline 75 s.
-- Env: `ANTHROPIC_API_KEY`, `METAFORGE_FOREST_MODEL`, `METAFORGE_FOREST_JUDGE_MODEL`, `METAFORGE_FOREST_EFFORT`, `METAFORGE_FOREST_MIN_SCORE`, `METAFORGE_FOREST_MIN_PATHS`, `METAFORGE_FOREST_MAX_CONCURRENT`, `METAFORGE_FOREST_PER_MINUTE`.
+- `api/internal/forestcache`: the SQLite pool store (`Random`, `Add` with eviction in one transaction; WAL, one connection). The API units set `METAFORGE_FOREST_CACHE=__WORKTREE__/data-pipeline/output/forest_cache.db`, inside their `ReadWritePaths`.
+- `api/cmd/forestprobe`: live tuning harness. Prints every judged path with its verdict, latency, tokens and cost per word; `-gen-prompt` and `-judge-prompt` take prompt files for A/B runs.
+- Env: `ANTHROPIC_API_KEY`, `METAFORGE_FOREST_MODEL`, `METAFORGE_FOREST_JUDGE_MODEL`, `METAFORGE_FOREST_EFFORT`, `METAFORGE_FOREST_MIN_SCORE`, `METAFORGE_FOREST_MIN_PATHS`, `METAFORGE_FOREST_CACHE`, `METAFORGE_FOREST_POOL_SIZE`, `METAFORGE_FOREST_MAX_CONCURRENT`, `METAFORGE_FOREST_PER_MINUTE`.
 
 ### Path validation (reject as `invalid`)
 
@@ -290,6 +294,24 @@ Scores outside 0-10 are clamped. Unknown indices are ignored and logged.
 
 ## Open
 
-- Live prompt tuning waits on an API key in the cloud environment. Gotcha for that session: Claude Code cloud containers set `ANTHROPIC_BASE_URL` for their own use, and the Go SDK reads it, so start the API with `env -u ANTHROPIC_BASE_URL` or the calls go to the wrong host. The key lives in the environment variable `METAFORGE_ANTHROPIC_API_KEY`, not `ANTHROPIC_API_KEY`, so Claude Code itself never picks it up; map it at launch: `env -u ANTHROPIC_BASE_URL ANTHROPIC_API_KEY="$METAFORGE_ANTHROPIC_API_KEY" ./metaforge ...`. A network secret cannot carry it: `api.anthropic.com` is on the container proxy's no-proxy list, so no header injection reaches it, and the API expects `x-api-key`, not `Authorization: Bearer`. Tune on a mix of abstract sources (patience, bureaucracy) and concrete ones (river), where the probe produced literal endpoints.
-- Full-stack check against a stand-in model server passed on 2026-10-21 (contract, request shape, 400/503 paths, UI order, no raw string ids in the forest panel). Real latency and cost per forest are not measured yet.
+- Live prompt tuning done 2026-10-21 (see Tuning log). Gotcha for any re-tuning session: Claude Code cloud containers set `ANTHROPIC_BASE_URL` for their own use, and the Go SDK reads it, so start the API with `env -u ANTHROPIC_BASE_URL` or the calls go to the wrong host. The key lives in the environment variable `METAFORGE_ANTHROPIC_API_KEY`, not `ANTHROPIC_API_KEY`, so Claude Code itself never picks it up; map it at launch: `env -u ANTHROPIC_BASE_URL ANTHROPIC_API_KEY="$METAFORGE_ANTHROPIC_API_KEY" ./metaforge ...`. A network secret cannot carry it: `api.anthropic.com` is on the container proxy's no-proxy list, so no header injection reaches it, and the API expects `x-api-key`, not `Authorization: Bearer`. Tune on a mix of abstract sources (patience, bureaucracy) and concrete ones (river), where the probe produced literal endpoints.
+- Full-stack check against a stand-in model server passed on 2026-10-21 (contract, request shape, 400/503 paths, UI order, no raw string ids in the forest panel). Live check through the real binary passed the same day (three concurrent forests, 9-29 s; cache miss 29 s, hit 1-2 ms, restart keeps the pool).
+- A cold Forge still waits 10-30 s. Streaming facets to the panel as they are generated would cut perceived latency; not built.
+- Pre-warming pools for common words (a batch over the top-N lexicon words) is possible now that forests are cached; not built.
 - A live-versus-dead eval to replace the aptness KPI is a follow-up.
+
+## Tuning log (2026-10-21, `claude-haiku-5-5`)
+
+Probed with `api/cmd/forestprobe` on 22 sources, abstract and concrete (patience, bureaucracy, river, grief, ambition, clock, loyalty, city, memory, hope, debt, war, love, winter, fear, ocean, silence, hunger, lighthouse, ember and others).
+
+| Round | Change | Finding |
+|---|---|---|
+| v0 | plan prompts, effort medium | ~$0.004 and 35-47 s per forest. The generator reused the prompt's example vehicles as a menu ("dead letter" for bureaucracy, river and grief; escrow, rendering, annealing, tidemark and tailings across sources). Obscure endpoints passed ("lehr" scored 7). The judge's reasons contradicted its flags. |
+| v1 | example lists removed, plain-words rule; stricter broken_hop | Reuse gone, endpoints everyday and specific. 4 of 16 calls returned a one-element array (one facet, or one verdict for eight paths). The judge checked later grounds against the source word. |
+| fix | schemas sent in written property order | A decoded Go map had sent every schema key alphabetically, so the generator wrote a facet's branches before its word and the judge flagged before naming the path. No one-element outputs since. |
+| v2 | judge reads one row per hop; verdict order index, reason, flags, score | Flags agree with reasons. Low effort: generator 7-20 s, judge 3-7 s, ~$0.001 per forest, forests that read as well as medium (37 kept and 18 sevens on 8 words, against 30 and 8 at medium). Repeat forests for one word share almost nothing. |
+| retry | thin output retried once | Low effort occasionally answers a 37-token stub with no thinking ("palimpsest", ground "x", no branches). Fewer than 3 valid paths retries the generator once. |
+
+Lines the tuned pipeline produced: "Grief is the low-battery chirp in the hallway, starting up each night at three." "Ambition is a cuckoo chick, heaving its nest-mates over the edge before they open their beaks." "His loyalty is a tenant still paying rent on a house whose roof has long fallen in." "A lighthouse is a broken molar left standing in the jaw of the coast."
+
+The judge is the same small model as the generator. Its 6-7 scores are a gate, not a calibrated quality measure; the live-versus-dead eval above is what would calibrate it.

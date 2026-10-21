@@ -246,6 +246,7 @@ Mode switch to grade: the panel and browse graph unmount; hover and focus are cl
 | Gesture | Second time | Decision |
 |---|---|---|
 | Forge or New forest while in flight | No request. | Idempotent (single flight, floor 12). |
+| Forge with no forest shown; New forest with one | Forge requests without `fresh`, so the server may answer instantly from its pool for the word; New forest sends `fresh=1` and always gets a newly generated forest. | Cache semantics: the plan's Caching row. |
 | Forge or New forest after it settles | A new request, usually a different forest. | Counter; the shown forest stays until the new one lands. |
 | Cancel | The control is gone. | Idempotent. |
 | Max steps to the same value | No `change` event; the reducer returns the same state. | Idempotent. |
