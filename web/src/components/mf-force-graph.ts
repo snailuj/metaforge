@@ -27,7 +27,7 @@ const FOREST_LINK_DISTANCE = FOREST_RING.spacing
 const FOREST_FRAME_AT_MS = [900, 3200]
 const FOREST_FRAME_PADDING = { wide: 110, narrow: 30 }
 const LIVE_MARK = '\u2726'
-const GROUND_LABEL_AT = 0.42 // along the link, from its source
+const GROUND_LABEL_AT = 0.36 // along the link, from its source
 type Emphasis = 'lit' | 'dim' | 'normal'
 
 // 300ms matches typical OS double-click threshold; balances responsiveness
@@ -180,6 +180,11 @@ export class MfForceGraph extends LitElement {
     .mf-graph-label[data-role='forest-source'] .mf-graph-label__text {
       font-size: 17px !important;
     }
+    /* CSS2DRenderer re-stacks labels by depth every frame (inline z-index);
+       words on a lit path and the root stay above the ground labels. */
+    .mf-graph-label[data-lit], .mf-graph-label[data-role='forest-source'] {
+      z-index: 100000 !important;
+    }
     .mf-graph-label[data-role='forest-endpoint'][data-lit] {
       border-color: #e8fbff;
       box-shadow: 0 0 12px rgba(92, 200, 224, 0.55);
@@ -203,7 +208,7 @@ export class MfForceGraph extends LitElement {
       display: flex;
       flex-direction: column;
       align-items: center;
-      max-width: 9rem;
+      max-width: 8.5rem;
       padding: 2px 8px 3px;
       border-radius: 3px;
       background: rgba(8, 18, 30, 0.86);

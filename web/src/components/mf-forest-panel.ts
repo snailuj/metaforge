@@ -589,7 +589,7 @@ export class MfForestPanel extends LitElement {
             <ol class="list" aria-label=${getString('forest-list-label', { word })}>
               ${response.endpoints.map(e => this.renderItem(e))}
             </ol>`
-          : content.kind === 'none' && !loadingNow
+          : content.kind === 'none' && request.kind === 'idle'
             ? html`<p class="intro">${getString('forest-intro', { word })}</p>`
             : nothing}
       </div>

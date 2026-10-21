@@ -123,8 +123,10 @@ describe('MfForestPanel', () => {
       }
     })
 
-    it('introduces the forge for the committed word before anything is forged', () => {
+    it('introduces the forge for the committed word before anything is forged, and not over a failure', async () => {
       expect(text($('[data-testid="forest-body"]'))).toContain('Grow fresh metaphors for “patience”')
+      await render(failed(loading(), 'not-configured'))
+      expect(text($('[data-testid="forest-body"]'))).toBe('')
     })
 
     it('announces loading, and says the current forest stays during a re-roll', async () => {
