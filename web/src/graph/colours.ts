@@ -41,6 +41,7 @@ export const FOREST_COLOURS = {
   spark: '#e8fbff',
   endpoint: '#dff9ff',
   hop: '#3e9db3',
+  hopLabel: '#8fd3e3',
   live: '#d4af37',
 } as const
 

@@ -162,13 +162,18 @@ export class MfForceGraph extends LitElement {
       font-size: 11px;
       vertical-align: 1px;
     }
-    /* !important: buildLabelEl sets an inline contrast background. */
+    /* !important: buildLabelEl sets an inline contrast background. Hops get a
+       quieter backing than endpoints (square, faint rule) so links crossing
+       them never cut the word; upright, unlike the italic grounds. */
     .mf-graph-label[data-role='forest-hop'] {
-      background: transparent !important;
+      background: var(--colour-forest-label-bg) !important;
+      border: 1px solid var(--colour-forest-branch-faint);
+      border-radius: 3px;
+      padding: 0 5px 1px;
     }
     .mf-graph-label[data-role='forest-hop'] .mf-graph-label__text {
-      font-size: 11px !important;
-      font-style: italic;
+      font-size: 11.5px !important;
+      letter-spacing: 0.01em;
     }
     /* The root of the forest: the looked-up word, larger, in a gold ring. */
     .mf-graph-label[data-role='forest-source'] {
@@ -623,7 +628,7 @@ export class MfForceGraph extends LitElement {
     if (info) {
       return info.role === 'endpoint'
         ? { text: node.word, colour: FOREST_COLOURS.endpoint, role: 'forest-endpoint', mark: info.live ? LIVE_MARK : undefined }
-        : { text: node.word, colour: FOREST_COLOURS.hop, role: 'forest-hop' }
+        : { text: node.word, colour: FOREST_COLOURS.hopLabel, role: 'forest-hop' }
     }
     const colour = node.relationType === 'central'
       ? NODE_COLOURS.central
