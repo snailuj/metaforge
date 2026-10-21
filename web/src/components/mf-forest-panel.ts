@@ -480,7 +480,10 @@ export class MfForestPanel extends LitElement {
         @pointerenter=${(ev: PointerEvent) => { if (ev.pointerType !== 'touch') this.emit({ type: 'hover', target }) }}
         @pointerleave=${(ev: PointerEvent) => { if (ev.pointerType !== 'touch') this.emit({ type: 'hover', target: null }) }}
         @focusin=${() => this.emit({ type: 'focus', target })}
-        @focusout=${() => this.emit({ type: 'focus', target: null })}
+        @focusout=${(ev: FocusEvent) => {
+          // Moving between this item's own buttons keeps its path lit.
+          if (!(ev.currentTarget as HTMLElement).contains(ev.relatedTarget as Node | null)) this.emit({ type: 'focus', target: null })
+        }}
       >
         <div class="item-head">
           <h3>${e.id}</h3>

@@ -242,6 +242,12 @@ describe('MfForestPanel', () => {
       ])
     })
 
+    it('moving focus between controls of the same item keeps its path lit', () => {
+      const [highlight, lookup] = [...items()[4].querySelectorAll('button')]
+      highlight.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: lookup }))
+      expect(events).toEqual([])
+    })
+
     it('Highlight path toggles the selection and reflects it with aria-pressed', async () => {
       const toggle = () => items()[2].querySelector<HTMLButtonElement>('[data-testid="forest-highlight"]')!
       expect(toggle().getAttribute('aria-pressed')).toBe('false')
