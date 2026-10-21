@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import ftl from '../../public/strings/v1/ui.ftl?raw'
+import ftl from '../../../strings/v1/ui.en-GB.ftl?raw'
 import type { ForestResponse } from '@/types/api'
 import patience from '@/fixtures/forest-patience.json'
 import { initStrings } from '@/lib/strings'

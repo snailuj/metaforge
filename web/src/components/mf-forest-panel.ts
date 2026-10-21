@@ -446,13 +446,13 @@ export class MfForestPanel extends LitElement {
   private statusText(): string {
     const { request, content, notice, word } = this.state
     const kept = content.kind === 'forest'
-    if (request.kind === 'loading') return getString(kept ? 'forest-loading-kept' : 'forest-loading', { word })
+    if (request.kind === 'loading') return kept ? getString('forest-loading-kept', { word }) : getString('forest-loading', { word })
     if (notice === 'found' && kept) {
       const endpoints = content.response.endpoints
       return getString('forest-found', { n: endpoints.length, live: endpoints.filter(e => e.score >= LIVE_SCORE).length, word })
     }
     if (notice === 'empty-kept') return getString('forest-empty-kept')
-    if (notice === 'cancelled') return getString(kept ? 'forest-cancelled-kept' : 'forest-cancelled')
+    if (notice === 'cancelled') return kept ? getString('forest-cancelled-kept') : getString('forest-cancelled')
     if (content.kind === 'empty') return getString('forest-empty', { word, generated: content.response.stats.generated })
     return ''
   }
@@ -556,7 +556,7 @@ export class MfForestPanel extends LitElement {
             data-testid="forest-primary"
             aria-disabled=${loadingNow ? 'true' : 'false'}
             @click=${this.onPrimary}
-          >${loadingNow ? getString('forest-forging') : getString(content.kind === 'forest' ? 'forest-forge-new' : 'forest-forge')}</button>
+          >${loadingNow ? getString('forest-forging') : content.kind === 'forest' ? getString('forest-forge-new') : getString('forest-forge')}</button>
           ${loadingNow
             ? html`<button class="secondary" data-testid="forest-cancel" @click=${this.onCancel}>${getString('forest-cancel')}</button>`
             : nothing}

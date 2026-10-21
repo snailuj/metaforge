@@ -31,7 +31,7 @@ Rulings quoted verbatim. The tables fill the cells around them and do not overri
 | Transform, overlay, lit paths, depth force | `web/src/graph/forest.ts:51`, `:104`, `:143`, `:173` |
 | Graph rendering and gestures | `web/src/components/mf-force-graph.ts:339` onward (forest accessors), `:409` (hover, touch guard), `:685` (background click), `:738` (forest-node click) |
 | Panel (the accessible surface) | `web/src/components/mf-forest-panel.ts`; status and alert regions `:573`, `:576`; phone sheet `:353` |
-| Copy | `web/public/strings/v1/ui.ftl`, section "Metaphor forest panel" |
+| Copy | `strings/v1/ui.en-GB.ftl`, section "Metaphor forest panel" |
 
 Existing behaviour the design relies on, unchanged: lookups are latest-wins through `lookupId`; a lookup error sets `appState = 'error'` and leaves `result` and the graph in place; `errorMessage` is shared by lookup, grade and auth errors; single click arms a 300 ms timer and a second click inside it navigates; the results panel collapses at 768 px and below.
 
