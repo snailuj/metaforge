@@ -141,6 +141,8 @@ forge.hints-remaining =
 
 Runs on every commit. Catches typos and orphaned references before they reach production.
 
+Implemented as `web/src/lib/strings-audit.test.ts` (runs with `npm test`), not a shell script.
+
 ### Runtime Fallback (Safety Net)
 
 - If a string somehow slips through: log `console.warn('Missing string: ${id}')` and render the ID
