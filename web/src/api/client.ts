@@ -58,7 +58,8 @@ export async function autocompleteWord(prefix: string, limit = 10): Promise<Auto
 }
 
 /** The failure kinds the forest UI distinguishes (one recovery action each). */
-export type ForestErrorKind = 'invalid-word' | 'busy' | 'failed' | 'not-configured' | 'timeout' | 'network'
+export const FOREST_ERROR_KINDS = ['invalid-word', 'busy', 'failed', 'not-configured', 'timeout', 'network'] as const
+export type ForestErrorKind = typeof FOREST_ERROR_KINDS[number]
 
 export class ForestError extends Error {
   constructor(
