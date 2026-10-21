@@ -327,4 +327,81 @@ describe('MfForestPanel', () => {
       expect(text(toggle)).toBe('Show 9 metaphors')
     })
   })
+
+  describe('streaming', () => {
+    type StreamEvent = Extract<ForestEvent, { type: 'stream' }>['event']
+    const stream = (s: ForestState, ...evs: StreamEvent[]) =>
+      evs.reduce((acc, event) => reduceForest(acc, { type: 'stream', seq: acc.seq, event }), s)
+    const hop = (pathId: string, from: string, to: string): StreamEvent => ({ type: 'hop', pathId, facet: 0, from, to, ground: 'g' })
+    const snapshot = (n: number): StreamEvent => ({ type: 'forest', forest: { ...forest, endpoints: forest.endpoints.slice(0, n) } })
+    const status = () => text($('[role="status"]'))
+
+    // Rule: while streaming, the status counts the metaphors of the latest snapshot.
+    it('says how many metaphors are forged so far, from the latest snapshot', async () => {
+      const first = stream(loading(), hop('f0', 'patience', 'dormant seed'))
+      expect(first.request.kind).toBe('streaming')
+      await render(first)
+      expect(status()).toBe('Forging… no metaphors so far')
+      await render(stream(first, snapshot(1)))
+      expect(status()).toBe('Forging… 1 metaphor so far')
+      const four = stream(first, snapshot(1), snapshot(4), hop('f1', 'patience', 'peat bog'))
+      await render(four)
+      expect(status()).toBe('Forging… 4 metaphors so far')
+      // a re-roll counts only its own snapshots, not the forest still shown
+      const reroll = stream(run(shown(), { type: 'forge' }), hop('f0', 'patience', 'dormant seed'))
+      await render(reroll)
+      expect(items()).toHaveLength(9)
+      expect(status()).toBe('Forging… no metaphors so far')
+    })
+
+    // Rule: the list only ever shows judged metaphors, from the latest snapshot.
+    it('lists the latest snapshot and nothing a hop or verdict adds', async () => {
+      const s = stream(loading(), hop('f0', 'patience', 'dormant seed'), snapshot(2), hop('f0b0', 'dormant seed', 'seed vault'), { type: 'kept', pathId: 'f0b0', endpoint: 'seed vault', score: 7 })
+      await render(s)
+      expect(items().map(i => text(i.querySelector('h3')))).toEqual(forest.endpoints.slice(0, 2).map(e => e.id))
+    })
+
+    it('keeps the in-flight controls while streaming', async () => {
+      await render(stream(loading(), snapshot(2)))
+      expect(text(primary())).toBe('Forging…')
+      expect(primary().getAttribute('aria-disabled')).toBe('true')
+      expect($('[data-testid="forest-cancel"]')).not.toBeNull()
+      expect($('#forest-on-graph')).not.toBeNull()
+      primary().click()
+      expect(events).toEqual([])
+    })
+
+    it('Cancel while streaming returns focus to the primary and says the forest is kept', async () => {
+      const s = stream(loading(), snapshot(2))
+      await render(s)
+      const cancel = $<HTMLButtonElement>('[data-testid="forest-cancel"]')!
+      cancel.focus()
+      cancel.click()
+      await render(reduceForest(s, { type: 'cancel' }))
+      expect(el.shadowRoot!.activeElement).toBe(primary())
+      expect(status()).toBe('Forging stopped. Your last forest is still shown.')
+      expect(items()).toHaveLength(2)
+    })
+
+    it('a stream error keeps the list and says the last forest is still shown', async () => {
+      await render(stream(loading(), snapshot(2), { type: 'error', kind: 'timeout' }))
+      expect(text($('[role="alert"]'))).toContain('Your last forest is still shown.')
+      expect(items()).toHaveLength(2)
+    })
+
+    // Rule: the sheet opens once for a stream; later snapshots never reopen a sheet the user closed.
+    it('opens the phone sheet on the first snapshot only', async () => {
+      const first = stream(loading(), snapshot(1))
+      await render(loading())
+      await render(first)
+      expect(el.hasAttribute('sheet-open')).toBe(true)
+      $<HTMLButtonElement>('[data-testid="forest-sheet-toggle"]')!.click()
+      await el.updateComplete
+      expect(el.hasAttribute('sheet-open')).toBe(false)
+      const later = stream(first, snapshot(3))
+      await render(later)
+      await render(stream(later, { type: 'done', forest }))
+      expect(el.hasAttribute('sheet-open')).toBe(false)
+    })
+  })
 })

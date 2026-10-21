@@ -35,6 +35,7 @@ declare module '3d-force-graph' {
     linkPositionUpdate(fn: (obj: unknown, ends: { start: { x: number; y: number; z: number }; end: { x: number; y: number; z: number } }, link: unknown) => boolean): ForceGraph3DInstance
     onBackgroundClick(fn: (event: MouseEvent) => void): ForceGraph3DInstance
     zoomToFit(ms?: number, px?: number): ForceGraph3DInstance
+    emitParticle(link: object): ForceGraph3DInstance
     graphData(data?: { nodes: unknown[]; links: unknown[] }): ForceGraph3DInstance
     d3AlphaDecay(decay: number): ForceGraph3DInstance
     d3VelocityDecay(decay: number): ForceGraph3DInstance

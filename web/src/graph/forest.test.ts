@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import type { ForestResponse } from '@/types/api'
 import type { GraphData, GraphLink } from './types'
 import patience from '@/fixtures/forest-patience.json'
-import { forestToGraph, composeForest, litEndpoints, normaliseWord, forestDepthForce, LIVE_SCORE } from './forest'
+import { forestToGraph, composeForest, litEndpoints, normaliseWord, forestDepthForce, streamMarks, fadeMarks, nextFadeEnd, FOREST_FADE_MS, LIVE_SCORE } from './forest'
+import type { StreamPath } from '@/forest/state'
 
 const forestResponse = patience as ForestResponse
 
@@ -145,6 +146,136 @@ describe('composeForest', () => {
     for (const l of metaphorLinks(first)) l.source = { id: endOf(l.source) } as never
     const second = composeForest(thesaurusGraph(), forest).data
     for (const l of metaphorLinks(second)) expect(typeof l.source).toBe('string')
+  })
+})
+
+describe('streamed forest marks', () => {
+  const hop = (from: string, to: string) => ({ from, to, ground: `${from} to ${to}` })
+  const path = (id: string, status: StreamPath['status'], hops: [string, string][], endpoint?: string): StreamPath =>
+    ({ id, facet: Number(id[1]), hops: hops.map(([f, t]) => hop(f, t)), status, endpoint, score: endpoint ? 8 : undefined })
+  const key = (s: string, t: string) => JSON.stringify([s, t])
+  // facet 0: head hop patience -> lake sediment, branches b0 and b1 off it
+  const paths = (head: StreamPath['status'], b0: StreamPath['status'], b1: StreamPath['status']): Record<string, StreamPath> => ({
+    f0: path('f0', head, [['patience', 'lake sediment']]),
+    f0b0: path('f0b0', b0, [['lake sediment', 'varve']], b0 === 'kept' ? 'varve' : undefined),
+    f0b1: path('f0b1', b1, [['lake sediment', 'silt'], ['silt', 'delta']]),
+  })
+
+  // Rule: a link or node stays while any pending or kept path uses it, and a
+  // branch uses its facet's head hop even though that hop came under the facet's id.
+  it('keeps the head hop while any branch still uses it, and drops it once none does', () => {
+    const live = streamMarks(paths('rejected', 'pending', 'rejected'), null)
+    expect(live.links.get(key('patience', 'lake sediment'))?.status).toBe('pending')
+    expect(live.links.has(key('silt', 'delta'))).toBe(false)
+    expect(live.nodes.has('silt')).toBe(false)
+    const none = streamMarks(paths('rejected', 'rejected', 'rejected'), null)
+    expect(none.links.size).toBe(0)
+    expect(none.nodes.size).toBe(0)
+  })
+
+  it('a link or node on a kept path is kept, the rest of a pending path stays pending', () => {
+    const m = streamMarks(paths('rejected', 'kept', 'pending'), null)
+    expect(m.links.get(key('patience', 'lake sediment'))?.status).toBe('kept')
+    expect(m.links.get(key('lake sediment', 'varve'))?.status).toBe('kept')
+    expect(m.links.get(key('silt', 'delta'))?.status).toBe('pending')
+    expect(m.nodes.get('varve')).toMatchObject({ role: 'endpoint', live: true, depth: 2, status: 'kept' })
+    expect(m.nodes.get('delta')).toMatchObject({ role: 'hop', depth: 3, status: 'pending' })
+    expect(m.nodes.get('patience')).toMatchObject({ role: 'source', depth: 0 })
+  })
+
+  // Rule: a mark never doubles a node or link the latest snapshot already draws.
+  it('leaves out every node and link the snapshot already holds', () => {
+    const forest = forestToGraph(forestResponse)
+    const m = streamMarks(paths('rejected', 'kept', 'pending'), forest)
+    // the snapshot holds patience -> lake sediment -> varve
+    expect(m.links.has(key('patience', 'lake sediment'))).toBe(false)
+    expect(m.links.has(key('lake sediment', 'varve'))).toBe(false)
+    expect(m.nodes.has('lake sediment')).toBe(false)
+    expect(m.links.has(key('lake sediment', 'silt'))).toBe(true)
+    expect(m.nodes.has('silt')).toBe(true)
+  })
+
+  // Rule: a mark that no path uses any more fades for FOREST_FADE_MS, then goes;
+  // with no fade time (reduced motion) it goes at once.
+  it('fades a dropped mark for the fade time, then removes it', () => {
+    const before = streamMarks(paths('pending', 'pending', 'pending'), null)
+    const after = streamMarks(paths('pending', 'pending', 'rejected'), null)
+    expect(before.links.has(key('silt', 'delta'))).toBe(true)
+    const fading = fadeMarks(before, after, null, 1000, FOREST_FADE_MS)
+    expect(fading.links.get(key('silt', 'delta'))).toMatchObject({ status: 'fading', fadeUntil: 1000 + FOREST_FADE_MS })
+    expect(fading.nodes.get('delta')).toMatchObject({ status: 'fading', fadeUntil: 1000 + FOREST_FADE_MS })
+    expect(fading.links.get(key('patience', 'lake sediment'))?.status).toBe('pending')
+    expect(nextFadeEnd(fading)).toBe(1000 + FOREST_FADE_MS)
+    // a later update during the fade keeps its deadline
+    const still = fadeMarks(fading, after, null, 1300, FOREST_FADE_MS)
+    expect(still.links.get(key('silt', 'delta'))?.fadeUntil).toBe(1000 + FOREST_FADE_MS)
+    const gone = fadeMarks(still, after, null, 1000 + FOREST_FADE_MS, FOREST_FADE_MS)
+    expect(gone.links.has(key('silt', 'delta'))).toBe(false)
+    expect(nextFadeEnd(gone)).toBeNull()
+    const instant = fadeMarks(before, after, null, 1000, 0)
+    expect(instant.links.has(key('silt', 'delta'))).toBe(false)
+    expect(instant.nodes.has('delta')).toBe(false)
+  })
+
+  it('never fades a mark that moved into the snapshot', () => {
+    const forest = forestToGraph(forestResponse)
+    const before = streamMarks(paths('rejected', 'kept', 'rejected'), null)
+    const after = streamMarks(paths('rejected', 'kept', 'rejected'), forest)
+    expect(before.links.has(key('lake sediment', 'varve'))).toBe(true)
+    const m = fadeMarks(before, after, forest, 1000, FOREST_FADE_MS)
+    expect(m.links.size).toBe(0)
+    expect(m.nodes.size).toBe(0)
+  })
+
+  it('a mark that a path uses again stops fading', () => {
+    const before = streamMarks(paths('pending', 'pending', 'pending'), null)
+    const dropped = fadeMarks(before, streamMarks(paths('pending', 'pending', 'rejected'), null), null, 1000, FOREST_FADE_MS)
+    expect(dropped.links.get(key('silt', 'delta'))?.status).toBe('fading')
+    const back = fadeMarks(dropped, before, null, 1100, FOREST_FADE_MS)
+    expect(back.links.get(key('silt', 'delta'))?.status).toBe('pending')
+  })
+
+  describe('composed with the thesaurus', () => {
+    const marks = () => streamMarks(paths('rejected', 'kept', 'pending'), null)
+
+    it('draws a stream with no snapshot yet: an overlay whose source is depth 0, and no dangling link', () => {
+      const { data, overlay } = composeForest(thesaurusGraph(), null, { marks: marks(), pool: new Map() })
+      expect(overlay).not.toBeNull()
+      expect(overlay!.byNodeId.get('patience')).toMatchObject({ role: 'source', depth: 0 })
+      const ids = new Set(data.nodes.map(n => n.id))
+      const streamed = metaphorLinks(data)
+      expect(streamed.length).toBe(4)
+      for (const l of streamed) {
+        expect(ids.has(endOf(l.source)) && ids.has(endOf(l.target))).toBe(true)
+        expect(l.metaphor!.stream).toBeDefined()
+      }
+    })
+
+    // Rule: a node keeps one object from its first hop to the final forest, so its position holds.
+    it('reuses one node object from pending mark to snapshot node', () => {
+      const pool = new Map()
+      const first = composeForest(thesaurusGraph(), null, { marks: marks(), pool }).data
+      const varve = first.nodes.find(n => n.id === 'varve')!
+      expect(varve).toBeDefined()
+      const forest = forestToGraph(forestResponse, pool)
+      const second = composeForest(thesaurusGraph(), forest, { marks: streamMarks(paths('rejected', 'kept', 'pending'), forest), pool }).data
+      expect(second.nodes.find(n => n.id === 'varve')).toBe(varve)
+      expect(second.nodes.find(n => n.id === 'delta')).toBe(first.nodes.find(n => n.id === 'delta'))
+    })
+
+    it('places a new node at its parent, so the graph grows out from it rather than from the origin', () => {
+      const pool = new Map()
+      const base = thesaurusGraph()
+      Object.assign(base.nodes[0], { x: 10, y: -20, z: 5 })
+      const data = composeForest(base, null, { marks: marks(), pool }).data
+      const sediment = data.nodes.find(n => n.id === 'lake sediment')!
+      expect(sediment.x).toBeDefined()
+      expect(Math.hypot(sediment.x! - 10, sediment.y! + 20, sediment.z! - 5)).toBeLessThan(5)
+      // a node with a position already keeps it
+      sediment.x = 99
+      const again = composeForest(base, null, { marks: marks(), pool }).data
+      expect(again.nodes.find(n => n.id === 'lake sediment')!.x).toBe(99)
+    })
   })
 })
 

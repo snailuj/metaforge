@@ -1,9 +1,12 @@
 import { LitElement, html, css, type PropertyValues } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
-import { lookupWord, ApiError, fetchForest, ForestError } from '@/api/client'
+import { lookupWord, ApiError, streamForest, ForestError } from '@/api/client'
 import { transformLookupToGraph, mergeSecondOrderGraph, stripSecondOrderNodes } from '@/graph/transform'
-import { composeForest, forestToGraph, litEndpoints, type ForestGraph, type ForestOverlay, type ForestTarget } from '@/graph/forest'
-import { initialForestState, reduceForest, litTarget, sameTarget, type ForestEvent, type ForestState } from '@/forest/state'
+import {
+  composeForest, fadeMarks, forestToGraph, litEndpoints, nextFadeEnd, streamMarks, FOREST_FADE_MS,
+  type ForestGraph, type ForestNodePool, type ForestOverlay, type ForestTarget, type StreamMarks,
+} from '@/graph/forest'
+import { initialForestState, reduceForest, litTarget, sameTarget, type ForestEvent, type ForestState, type StreamPath } from '@/forest/state'
 import { computeCrossLinks } from '@/graph/cross-links'
 import { initStrings, getString } from '@/lib/strings'
 import { GradingClient } from '@/api/grading-client'
@@ -44,6 +47,11 @@ import './mf-mobile-notes-overlay'
 type AppMode = 'browse' | 'grade'
 
 type AppState = 'idle' | 'loading' | 'ready' | 'error'
+
+/** The paths a streaming request has drawn, or null when nothing streams. */
+function streamPaths(s: ForestState): Readonly<Record<string, StreamPath>> | null {
+  return s.request.kind === 'streaming' ? s.request.paths : null
+}
 
 @customElement('mf-app')
 export class MfApp extends LitElement {
@@ -446,6 +454,12 @@ export class MfApp extends LitElement {
   private forestGraph: ForestGraph | null = null
   private forestAbort: AbortController | null = null
   private forestLitTarget: ForestTarget | null = null
+  // Streaming: the marks drawn beyond the latest snapshot (pending, kept or
+  // fading), the timer that ends the next fade, and the node objects for the
+  // committed word, reused so nodes keep their positions as the forest grows.
+  private forestMarks: StreamMarks = { nodes: new Map(), links: new Map() }
+  private forestFadeTimer: ReturnType<typeof setTimeout> | null = null
+  private forestPool: ForestNodePool = new Map()
 
   private currentWord = ''
   private lookupId = 0
@@ -512,6 +526,8 @@ export class MfApp extends LitElement {
     super.disconnectedCallback()
     window.removeEventListener('hashchange', this.handleHashChange)
     window.removeEventListener('resize', this.handleResize)
+    if (this.forestFadeTimer) clearTimeout(this.forestFadeTimer)
+    this.forestFadeTimer = null
   }
 
   private handleHashChange = () => {
@@ -584,13 +600,17 @@ export class MfApp extends LitElement {
     }
     if (next.request.kind === 'loading' && next.seq !== prev.seq) void this.runForest(next)
 
+    if (next.word !== prev.word) {
+      // The forest belongs to its word: nothing of the old one fades or is reused.
+      this.forestPool = new Map()
+      this.forestMarks = { nodes: new Map(), links: new Map() }
+    }
     const prevResponse = prev.content.kind === 'forest' ? prev.content.response : null
     const nextResponse = next.content.kind === 'forest' ? next.content.response : null
     const forestChanged = prevResponse !== nextResponse
-    if (forestChanged) {
-      this.forestGraph = nextResponse ? forestToGraph(nextResponse) : null
-      this.recomposeGraph()
-    }
+    const streamChanged = streamPaths(prev) !== streamPaths(next)
+    if (forestChanged) this.forestGraph = nextResponse ? forestToGraph(nextResponse, this.forestPool) : null
+    if (forestChanged || streamChanged) this.updateStreamMarks()
     const target = litTarget(next)
     if (forestChanged || !sameTarget(target, this.forestLitTarget)) {
       this.forestLitTarget = target
@@ -609,12 +629,17 @@ export class MfApp extends LitElement {
     const started = performance.now()
     console.info('[forest] request', { word, maxHops, seq, fresh })
     try {
-      const response = await fetchForest(word, maxHops, controller.signal, fresh)
-      console.info('[forest] response', {
-        word, seq, endpoints: response.endpoints.length, generated: response.stats.generated,
-        ms: Math.round(performance.now() - started),
-      })
-      this.dispatchForest({ type: 'settled', seq, response })
+      await streamForest(word, maxHops, event => {
+        const ms = Math.round(performance.now() - started)
+        if (event.type === 'done') {
+          console.info('[forest] response', { word, seq, endpoints: event.forest.endpoints.length, generated: event.forest.stats.generated, ms })
+        } else if (event.type === 'error') {
+          console.warn('[forest] stream failed', { word, seq, kind: event.kind, ms })
+        } else {
+          console.debug('[forest] stream event', { seq, type: event.type, path: 'pathId' in event ? event.pathId : undefined, ms })
+        }
+        this.dispatchForest({ type: 'stream', seq, event })
+      }, controller.signal, fresh)
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         console.debug('[forest] request aborted', { word, seq })
@@ -630,8 +655,27 @@ export class MfApp extends LitElement {
     }
   }
 
+  /** Recompute the streamed marks from the current paths and snapshot, carry
+   *  dropped ones as fading (at once gone under reduced motion), and redraw. */
+  private updateStreamMarks(): void {
+    const live = streamMarks(streamPaths(this.forestState) ?? {}, this.forestGraph)
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    const now = performance.now()
+    this.forestMarks = fadeMarks(this.forestMarks, live, this.forestGraph, now, reduce ? 0 : FOREST_FADE_MS)
+    if (this.forestFadeTimer) clearTimeout(this.forestFadeTimer)
+    this.forestFadeTimer = null
+    const end = nextFadeEnd(this.forestMarks)
+    if (end !== null) {
+      this.forestFadeTimer = setTimeout(() => {
+        this.forestFadeTimer = null
+        this.updateStreamMarks()
+      }, Math.max(0, end - now) + 1)
+    }
+    this.recomposeGraph()
+  }
+
   private recomposeGraph(): void {
-    const { data, overlay } = composeForest(this.thesaurusGraph, this.forestGraph)
+    const { data, overlay } = composeForest(this.thesaurusGraph, this.forestGraph, { marks: this.forestMarks, pool: this.forestPool })
     this.graphData = data
     this.forestOverlay = overlay
   }
