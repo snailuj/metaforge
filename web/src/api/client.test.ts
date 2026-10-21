@@ -135,6 +135,15 @@ describe('fetchForest', () => {
     expect(fetch).toHaveBeenCalledWith('/forge/forest?word=dormant%20seed&max_hops=4', { signal: undefined })
   })
 
+  // Rule: New forest asks the server to skip its cache; Forge lets it serve one.
+  it('adds fresh=1 only when a fresh forest is asked for', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse(patienceForest)))
+    await fetchForest('patience', 3, undefined, true)
+    expect(fetch).toHaveBeenCalledWith('/forge/forest?word=patience&max_hops=3&fresh=1', { signal: undefined })
+    await fetchForest('patience', 3, undefined, false)
+    expect(fetch).toHaveBeenLastCalledWith('/forge/forest?word=patience&max_hops=3', { signal: undefined })
+  })
+
   it('passes the abort signal through to fetch', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse(patienceForest)))
     const controller = new AbortController()

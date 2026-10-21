@@ -1673,9 +1673,9 @@ describe('mf-app metaphor forest', () => {
   const metaphorLinks = () => graph().graphData.links.filter(l => l.metaphor)
   // A forest call the test resolves by hand, recording the signal it was given.
   function deferredForest() {
-    const calls: { word: string; maxHops: number; signal: AbortSignal; resolve: (r: ForestResponse) => void; reject: (e: unknown) => void }[] = []
-    vi.mocked(fetchForest).mockImplementation((word, maxHops, signal) => new Promise((resolve, reject) => {
-      calls.push({ word, maxHops, signal: signal!, resolve, reject })
+    const calls: { word: string; maxHops: number; signal: AbortSignal; fresh: boolean | undefined; resolve: (r: ForestResponse) => void; reject: (e: unknown) => void }[] = []
+    vi.mocked(fetchForest).mockImplementation((word, maxHops, signal, fresh) => new Promise((resolve, reject) => {
+      calls.push({ word, maxHops, signal: signal!, fresh, resolve, reject })
     }))
     return calls
   }
@@ -1712,6 +1712,19 @@ describe('mf-app metaphor forest', () => {
     await settle()
     expect(calls.map(c => [c.word, c.maxHops])).toEqual([['patience', 4]])
     expect(panel().state.request.kind).toBe('loading')
+  })
+
+  // Rule: the first Forge for a word may be served from the server's cache;
+  // New forest (a forest is already shown) always asks for a fresh one.
+  it('asks for a fresh forest only once a forest is shown', async () => {
+    const calls = deferredForest()
+    panelEvent({ type: 'forge' })
+    await settle()
+    calls[0].resolve(forest)
+    await settle()
+    panelEvent({ type: 'forge' })
+    await settle()
+    expect(calls.map(c => c.fresh)).toEqual([false, true])
   })
 
   // Floor 12 end to end: two activations before the response issue one request.

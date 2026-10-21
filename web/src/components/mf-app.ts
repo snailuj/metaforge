@@ -601,12 +601,15 @@ export class MfApp extends LitElement {
 
   private async runForest(s: ForestState): Promise<void> {
     const { seq, word, maxHops } = s
+    // A forest already on show means New forest: ask for one the server has
+    // not served before rather than a cached one.
+    const fresh = s.content.kind === 'forest'
     const controller = new AbortController()
     this.forestAbort = controller
     const started = performance.now()
-    console.info('[forest] request', { word, maxHops, seq })
+    console.info('[forest] request', { word, maxHops, seq, fresh })
     try {
-      const response = await fetchForest(word, maxHops, controller.signal)
+      const response = await fetchForest(word, maxHops, controller.signal, fresh)
       console.info('[forest] response', {
         word, seq, endpoints: response.endpoints.length, generated: response.stats.generated,
         ms: Math.round(performance.now() - started),

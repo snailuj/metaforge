@@ -90,10 +90,12 @@ function parseRetryAfter(value: string | null): number | null {
  * Generate a metaphor forest for a word. Slow (a model call, up to ~75 s), so
  * callers pass an AbortSignal; an abort rejects with the fetch AbortError
  * unchanged. Every other failure is a ForestError; the server's own `error`
- * text is never surfaced because it is written for logs.
+ * text is never surfaced because it is written for logs. `fresh` (New forest)
+ * skips the server's cache of forests for the word; without it (Forge) the
+ * server may answer from that cache, instantly.
  */
-export async function fetchForest(word: string, maxHops: number, signal?: AbortSignal): Promise<ForestResponse> {
-  const url = `/forge/forest?word=${encodeURIComponent(word)}&max_hops=${maxHops}`
+export async function fetchForest(word: string, maxHops: number, signal?: AbortSignal, fresh = false): Promise<ForestResponse> {
+  const url = `/forge/forest?word=${encodeURIComponent(word)}&max_hops=${maxHops}${fresh ? '&fresh=1' : ''}`
   let response: Response
   try {
     response = await fetch(url, { signal })
