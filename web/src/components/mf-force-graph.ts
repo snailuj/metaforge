@@ -4,13 +4,24 @@ import type { PropertyValues } from 'lit'
 import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
 import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
-import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR } from '@/graph/colours'
-import { makeLabelRenderer, makeLabelObject, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle, type BacklinkRow } from '@/graph/label-layer'
+import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR, FOREST_COLOURS, withAlpha } from '@/graph/colours'
+import { makeLabelRenderer, makeLabelObject, makeGroundLabel, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle, type BacklinkRow } from '@/graph/label-layer'
+import { forestDepthForce, type ForestNodeInfo, type ForestOverlay, type ForestTarget } from '@/graph/forest'
 import type { ChainRecord, JudgementRecord } from '../types/grading'
 import { normaliseJudgement } from '../types/grading'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
 const EDGE_COLOUR_DIM = 'rgba(232, 224, 212, 0.08)'
+
+// Metaphor forest emphasis. Thesaurus marks recede while a forest is shown so
+// the forest reads as the figure; anything off a lit path recedes further.
+const FOREST_EDGE_THESAURUS = 'rgba(232, 224, 212, 0.05)'
+const FOREST_EDGE_THESAURUS_DIM = 'rgba(232, 224, 212, 0.03)'
+const FOREST_NODE_VAL = { endpoint: 18, hop: 1.5 } as const
+const FOREST_LINK_DISTANCE = 42   // matches the depth-force ring spacing
+const FOREST_RING_SPACING = 46
+const LIVE_MARK = '\u2726'
+type Emphasis = 'lit' | 'dim' | 'normal'
 
 // 300ms matches typical OS double-click threshold; balances responsiveness
 // with avoiding false double-click detection on slower clickers
@@ -47,6 +58,8 @@ interface GradeNode {
   role: 'topic' | 'vehicle' | 'step'
   backlinks: BacklinkRow[]
 }
+
+interface Vec3 { x: number; y: number; z: number }
 
 // Grade-mode graph link — retains originating chain signature for colouring
 interface GradeLink {
@@ -89,8 +102,10 @@ export class MfForceGraph extends LitElement {
     }
     /* Labels live in this shadow root (CSS2DRenderer overlay), so the hover
        highlight rule applies here. */
-    .mf-graph-label {
-      transition: background 120ms ease;
+    @media (prefers-reduced-motion: no-preference) {
+      .mf-graph-label {
+        transition: background 120ms ease;
+      }
     }
     .mf-graph-label.label-hovered {
       background: rgba(255, 255, 255, 0.18);
@@ -122,6 +137,60 @@ export class MfForceGraph extends LitElement {
     .mf-graph-label__backlink {
       opacity: 0.85;
     }
+    /* Metaphor forest labels. Colours mirror FOREST_COLOURS; the canvas cannot
+       read CSS custom properties, so the tokens live in both places. */
+    .mf-graph-label[data-role='forest-endpoint'] {
+      background: rgba(10, 22, 36, 0.78);
+      border: 1px solid rgba(92, 200, 224, 0.55);
+      border-radius: 999px;
+      padding: 1px 8px 2px;
+    }
+    .mf-graph-label[data-role='forest-endpoint'] .mf-graph-label__text {
+      font-size: 14px !important;
+      letter-spacing: 0.01em;
+    }
+    .mf-graph-label__mark {
+      color: var(--colour-forest-live, #d4af37);
+      margin-inline-end: 4px;
+      font-size: 11px;
+      vertical-align: 1px;
+    }
+    .mf-graph-label[data-role='forest-hop'] {
+      background: transparent;
+    }
+    .mf-graph-label[data-role='forest-hop'] .mf-graph-label__text {
+      font-size: 11px !important;
+      font-style: italic;
+    }
+    .mf-graph-label[data-dim] {
+      opacity: 0.22;
+    }
+    .mf-ground-label {
+      visibility: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      max-width: 15rem;
+      padding: 2px 8px 3px;
+      border-radius: 3px;
+      background: rgba(8, 18, 30, 0.86);
+      border-inline-start: 2px solid #5cc8e0;
+      color: #d7f6fb;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-style: italic;
+      font-size: 12px;
+      line-height: 1.3;
+      text-align: center;
+      white-space: normal;
+    }
+    .mf-ground-label[data-lit] {
+      visibility: visible;
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .mf-graph-label[data-role^='forest'] {
+        transition: opacity 160ms ease;
+      }
+    }
   `
 
   private graph: ForceGraph3DInstance | null = null
@@ -136,6 +205,10 @@ export class MfForceGraph extends LitElement {
   private labelRefDist = 200
   // Chain signature of the path currently hovered (grade mode) — whole-path highlight.
   private hoveredChainSig: string | null = null
+  private reducedMotion = false
+  // pointerType of the latest pointer on the canvas; a touch never sets hover.
+  private lastPointerType = 'mouse'
+  private forestHoverActive = false
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
   @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
@@ -149,6 +222,13 @@ export class MfForceGraph extends LitElement {
   @property({ attribute: false }) pathFilter: 'both' | 'ungraded' | 'graded' = 'both'
   @property({ attribute: false }) labelSize: LabelSizeConfig | null = null
   @property({ type: Number }) viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
+  // Metaphor forest overlay (browse mode). graphData already holds the forest
+  // nodes and links; this says which nodes play which role.
+  @property({ attribute: false }) forest: ForestOverlay | null = null
+  // Show on graph. Hiding uses visibility, not a re-feed, so the layout holds.
+  @property({ attribute: false }) forestVisible = true
+  // Endpoint ids of the paths to light; null lights nothing.
+  @property({ attribute: false }) forestLit: ReadonlySet<string> | null = null
 
   // Whether the 3D library should be loaded. Derived from mode + viewportWidth —
   // kept as a getter so Lit never schedules a secondary update cycle from updated().
@@ -156,6 +236,132 @@ export class MfForceGraph extends LitElement {
   // the reactive props it depends on (mode, viewportWidth) — no @state needed.
   get threeDLoaded(): boolean {
     return this.mode === 'browse' || this.viewportWidth >= 900
+  }
+
+  // --- Metaphor forest ---
+
+  /** The overlay in force: none in grade mode or while hidden. */
+  private get activeForest(): ForestOverlay | null {
+    return this.mode === 'browse' && this.forestVisible ? this.forest : null
+  }
+
+  private forestInfo(n: unknown): ForestNodeInfo | undefined {
+    return this.activeForest?.byNodeId.get((n as GraphNode).id)
+  }
+
+  private emphasis(endpointIds: string[]): Emphasis {
+    if (!this.forestLit || this.forestLit.size === 0) return 'normal'
+    return endpointIds.some(id => this.forestLit!.has(id)) ? 'lit' : 'dim'
+  }
+
+  private nodeColorFn = (n: unknown): string => {
+    if (this.mode === 'grade') return GRADE_NODE_COLOURS[(n as GradeNode).role]
+    const node = n as GraphNode
+    const base = node.relationType === 'central'
+      ? NODE_COLOURS.central
+      : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
+    if (!this.activeForest) return base
+    const info = this.forestInfo(node)
+    if (!info) return withAlpha(base, this.forestLit ? 0.18 : 0.55)
+    if (info.role === 'source') return NODE_COLOURS.central
+    const colour = info.role === 'endpoint' ? FOREST_COLOURS.endpoint : FOREST_COLOURS.hop
+    return this.emphasis(info.endpointIds) === 'dim' ? withAlpha(colour, 0.22) : colour
+  }
+
+  private linkColorFn = (l: unknown): string => {
+    if (this.mode === 'grade') {
+      const sig = (l as GradeLink).chainSig
+      const verdict = this.getEdgeColour(sig)
+      const base = GRADE_EDGE_COLOURS[verdict ?? 'ungraded']
+      // Whole-path highlight: links sharing the hovered chain glow white.
+      return sig === this.hoveredChainSig ? '#ffffff' : base
+    }
+    const link = l as GraphLink
+    if (this.activeForest) {
+      if (link.metaphor) {
+        const e = this.emphasis(link.metaphor.endpointIds)
+        return e === 'lit' ? FOREST_COLOURS.spark : withAlpha(FOREST_COLOURS.branch, e === 'dim' ? 0.12 : 0.8)
+      }
+      return link.order === 2 || this.forestLit ? FOREST_EDGE_THESAURUS_DIM : FOREST_EDGE_THESAURUS
+    }
+    return link.order === 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR
+  }
+
+  private particleCountFn = (l: unknown): number => {
+    const link = l as GraphLink
+    if (this.reducedMotion || !this.activeForest || !link.metaphor) return 0
+    const e = this.emphasis(link.metaphor.endpointIds)
+    return e === 'lit' ? 4 : e === 'dim' ? 0 : 2
+  }
+
+  private arrowLengthFn = (l: unknown): number =>
+    this.reducedMotion && this.activeForest && (l as GraphLink).metaphor ? 3.5 : 0
+
+  private groundLabelFn = (l: unknown) => {
+    const link = l as GraphLink
+    if (this.mode !== 'browse' || !link.metaphor) return null
+    const obj = makeGroundLabel(link.metaphor.grounds)
+    if (this.activeForest && this.emphasis(link.metaphor.endpointIds) === 'lit') obj.element.setAttribute('data-lit', '')
+    return obj
+  }
+
+  private nodeLabelFn = (n: unknown) => {
+    const obj = makeLabelObject(this.labelStyleFor(n), () => this.effectiveLabelSize, () => this.labelRefDist)
+    if (this.labelDimmed(n)) obj.element.setAttribute('data-dim', '')
+    return obj
+  }
+
+  private labelDimmed(n: unknown): boolean {
+    if (!this.activeForest || !this.forestLit) return false
+    const info = this.forestInfo(n)
+    if (!info) return true
+    return info.role !== 'source' && this.emphasis(info.endpointIds) === 'dim'
+  }
+
+  private emitForest(name: 'mf-forest-hover' | 'mf-forest-select', target: ForestTarget | null): void {
+    this.dispatchEvent(new CustomEvent(name, { detail: { target }, bubbles: true, composed: true }))
+  }
+
+  private forestTargetForLink(l: unknown): ForestTarget | null {
+    const m = (l as GraphLink | null)?.metaphor
+    return m ? { kind: 'link', source: m.forestSource, target: m.forestTarget } : null
+  }
+
+  private setForestHover(target: ForestTarget | null): void {
+    if (target && this.lastPointerType === 'touch') return
+    if (!target && !this.forestHoverActive) return
+    this.forestHoverActive = !!target
+    this.emitForest('mf-forest-hover', target)
+  }
+
+  /** Re-evaluate forest styling in place: colours, particles and label DOM.
+   *  Never graphData(), so the simulation does not re-heat. */
+  private refreshForestStyles(): void {
+    if (!this.graph) return
+    this.graph
+      .nodeColor(this.nodeColorFn)
+      .linkColor(this.linkColorFn)
+      .linkDirectionalParticles(this.particleCountFn)
+      .linkDirectionalArrowLength(this.arrowLengthFn)
+    this.syncForestLabels()
+  }
+
+  /** Mirror the lit set onto label DOM: grounds show on lit links, labels off
+   *  every lit path dim. Objects created later read the same rules at birth. */
+  private syncForestLabels(): void {
+    if (!this.graph) return
+    const data = this.graph.graphData() as unknown as {
+      nodes?: Array<{ __threeObj?: { children?: Array<{ isCSS2DObject?: boolean; element: HTMLElement }> } }>
+      links?: Array<GraphLink & { __lineObj?: { children?: Array<{ isCSS2DObject?: boolean; element: HTMLElement }> } }>
+    }
+    for (const n of data.nodes ?? []) {
+      const label = n.__threeObj?.children?.find(c => c.isCSS2DObject)
+      if (label) label.element.toggleAttribute('data-dim', this.labelDimmed(n))
+    }
+    for (const l of data.links ?? []) {
+      const ground = l.metaphor && l.__lineObj?.children?.find(c => c?.isCSS2DObject)
+      if (ground) ground.element.toggleAttribute('data-lit', !!this.activeForest && this.emphasis(l.metaphor!.endpointIds) === 'lit')
+    }
   }
 
   // --- Grade-mode derived accessors ---
@@ -300,7 +506,9 @@ export class MfForceGraph extends LitElement {
       return this.visibleGradeNodeIds().has((n as { id: string }).id)
     }
     const node = n as GraphNode
-    if (node.relationType === 'central') return true
+    // Forest-only words hide with the forest; forest words skip the rarity filter.
+    if (node.relationType === 'metaphor') return !!this.activeForest
+    if (node.relationType === 'central' || this.forestInfo(node)) return true
     const rarity = node.rarity ?? 'unusual'
     return !this.hiddenRarities.has(rarity)
   }
@@ -309,7 +517,8 @@ export class MfForceGraph extends LitElement {
     if (this.mode === 'grade') {
       return this.pathFilterPasses((l as GradeLink).chainSig)
     }
-    const link = l as { source: unknown; target: unknown }
+    const link = l as { source: unknown; target: unknown; metaphor?: unknown }
+    if (link.metaphor && !this.activeForest) return false
     return this.isNodeVisible(link.source) && this.isNodeVisible(link.target)
   }
 
@@ -326,6 +535,12 @@ export class MfForceGraph extends LitElement {
       return { text: gn.head, colour: GRADE_NODE_COLOURS[gn.role], role: gn.role, backlinks: gn.backlinks }
     }
     const node = n as GraphNode
+    const info = this.forestInfo(node)
+    if (info && info.role !== 'source') {
+      return info.role === 'endpoint'
+        ? { text: node.word, colour: FOREST_COLOURS.endpoint, role: 'forest-endpoint', mark: info.live ? LIVE_MARK : undefined }
+        : { text: node.word, colour: FOREST_COLOURS.hop, role: 'forest-hop' }
+    }
     const colour = node.relationType === 'central'
       ? NODE_COLOURS.central
       : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
@@ -336,49 +551,66 @@ export class MfForceGraph extends LitElement {
     this.container = this.renderRoot.querySelector('#graph-container') as HTMLDivElement
     if (!this.container) return
 
+    this.reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    // Remember the input type so a tap (which three reports as a hover) never
+    // leaves a path lit after the finger lifts.
+    const notePointer = (e: Event) => { this.lastPointerType = (e as PointerEvent).pointerType || 'mouse' }
+    this.container.addEventListener('pointerdown', notePointer, { capture: true })
+    this.container.addEventListener('pointermove', notePointer, { capture: true })
+
     this.labelRenderer = makeLabelRenderer(this.container.clientWidth, this.container.clientHeight)
     this.graph = ForceGraph3D({ controlType: 'orbit', extraRenderers: [this.labelRenderer] })(this.container)
       .backgroundColor('#1a1a2e')
-      .nodeColor((n: unknown) => {
-        if (this.mode === 'grade') return GRADE_NODE_COLOURS[(n as GradeNode).role]
-        const node = n as GraphNode
-        if (node.relationType === 'central') return NODE_COLOURS.central
-        return RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
+      .nodeColor(this.nodeColorFn)
+      .nodeVal((n: unknown) => {
+        if (this.mode === 'grade') return GRADE_NODE_VAL[(n as GradeNode).role]
+        const role = this.forestInfo(n)?.role
+        return role === 'endpoint' || role === 'hop' ? FOREST_NODE_VAL[role] : (n as GraphNode).val
       })
-      .nodeVal((n: unknown) => (
-        this.mode === 'grade' ? GRADE_NODE_VAL[(n as GradeNode).role] : (n as GraphNode).val
-      ))
       .nodeOpacity(0.9)
       .nodeRelSize(0.5)
       .nodeThreeObjectExtend(true)
-      .nodeThreeObject((n: unknown) => makeLabelObject(
-        this.labelStyleFor(n),
-        () => this.effectiveLabelSize,
-        () => this.labelRefDist,
-      ))
+      .nodeThreeObject(this.nodeLabelFn)
       .d3VelocityDecay(0.85)
       .d3AlphaDecay(0.005)
       .cooldownTime(30000)
       .warmupTicks(50)
-      .linkColor((l: unknown) => {
-        if (this.mode === 'grade') {
-          const sig = (l as GradeLink).chainSig
-          const verdict = this.getEdgeColour(sig)
-          const base = GRADE_EDGE_COLOURS[verdict ?? 'ungraded']
-          // Whole-path highlight: links sharing the hovered chain glow white.
-          return sig === this.hoveredChainSig ? '#ffffff' : base
-        }
-        return (l as GraphLink).order === 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR
-      })
+      .linkColor(this.linkColorFn)
       .linkWidth((l: unknown) => {
         if (this.mode === 'grade') {
           return (l as GradeLink).chainSig === this.hoveredChainSig ? 3 : 1.5
         }
-        return (l as GraphLink).order === 2 ? 0.5 : 1
+        const link = l as GraphLink
+        return link.metaphor ? 1.1 : link.order === 2 ? 0.5 : 1
       })
       .linkOpacity(0.6)
+      // Metaphor forest: sparks flow source to target, which the transform
+      // orients from the source word outward along each path.
+      .linkDirectionalParticles(this.particleCountFn)
+      .linkDirectionalParticleSpeed(0.0045)
+      .linkDirectionalParticleWidth(1.6)
+      .linkDirectionalParticleColor(() => FOREST_COLOURS.spark)
+      .linkDirectionalArrowLength(this.arrowLengthFn)
+      .linkDirectionalArrowRelPos(0.92)
+      .linkDirectionalArrowColor(() => FOREST_COLOURS.branch)
+      .linkThreeObjectExtend(true)
+      .linkThreeObject(this.groundLabelFn)
+      .linkPositionUpdate((obj: unknown, ends: { start: Vec3; end: Vec3 }) => {
+        const label = obj as { isCSS2DObject?: boolean; position: { set(x: number, y: number, z: number): void } } | undefined
+        if (label?.isCSS2DObject) {
+          const { start, end } = ends
+          label.position.set((start.x + end.x) / 2, (start.y + end.y) / 2, (start.z + end.z) / 2)
+        }
+        return false
+      })
+      .onBackgroundClick(() => {
+        if (this.activeForest) this.emitForest('mf-forest-select', null)
+      })
       .onLinkHover((l: unknown) => {
-        if (this.mode !== 'grade') return
+        if (this.mode !== 'grade') {
+          if (this.activeForest) this.setForestHover(this.forestTargetForLink(l))
+          return
+        }
         const sig = l ? (l as GradeLink).chainSig : null
         if (sig !== this.hoveredChainSig) {
           this.hoveredChainSig = sig
@@ -387,7 +619,12 @@ export class MfForceGraph extends LitElement {
         if (this.container) this.container.style.cursor = l ? 'pointer' : 'default'
       })
       .onLinkClick((l: unknown) => {
-        if (this.mode !== 'grade' || !l) return
+        if (this.mode !== 'grade') {
+          const target = this.activeForest && this.forestTargetForLink(l)
+          if (target) this.emitForest('mf-forest-select', target)
+          return
+        }
+        if (!l) return
         // Click anywhere on a path selects it — same as clicking the vehicle.
         const sig = (l as GradeLink).chainSig
         const chain = this.gradeChains.find(c => c.chain_signature === sig)
@@ -407,8 +644,23 @@ export class MfForceGraph extends LitElement {
           }
           return
         }
-        // Browse-mode behaviour — unchanged.
         const node = n as GraphNode
+        const info = this.forestInfo(node)
+        // A forest word is drawn as part of the forest, so it behaves as one:
+        // single click selects its paths, double-click navigates, never expands.
+        if (info) {
+          if (this.clickTimer) {
+            clearTimeout(this.clickTimer)
+            this.clickTimer = null
+            this.dispatchEvent(new CustomEvent('mf-node-navigate', { detail: node, bubbles: true, composed: true }))
+          } else {
+            this.clickTimer = setTimeout(() => {
+              this.clickTimer = null
+              this.emitForest('mf-forest-select', { kind: 'node', id: info.forestId })
+            }, DBLCLICK_THRESHOLD_MS)
+          }
+          return
+        }
         if (node.order === 2) {
           if (this.clickTimer) {
             clearTimeout(this.clickTimer)
@@ -454,6 +706,10 @@ export class MfForceGraph extends LitElement {
         if (this.container) {
           this.container.style.cursor = node ? 'pointer' : 'default'
         }
+        if (this.activeForest) {
+          const info = node ? this.forestInfo(node) : undefined
+          this.setForestHover(info ? { kind: 'node', id: info.forestId } : null)
+        }
 
         if (this.previousHoveredNode) {
           this.setLabelHover(this.previousHoveredNode, false)
@@ -471,6 +727,17 @@ export class MfForceGraph extends LitElement {
       this.graph.nodeRelSize(2)
       this.graph.d3Force('charge')?.strength?.(-22)
       this.graph.d3Force('link')?.distance?.(18)
+    }
+
+    // Browse mode: metaphor links are a little longer than thesaurus links, and
+    // the depth force rings the forest around the source.
+    if (this.mode === 'browse' && this.graph) {
+      const isMetaphor = (l: unknown) => !!(l as GraphLink).metaphor
+      this.graph.d3Force('link')?.distance?.((l: unknown) => (isMetaphor(l) ? FOREST_LINK_DISTANCE : 30))
+      this.graph.d3Force('forestDepth', forestDepthForce(
+        (node: object) => this.forestInfo(node)?.depth,
+        FOREST_RING_SPACING,
+      ))
     }
 
     // Sync renderer dimensions to actual container size (fixes hit-test offset)
@@ -521,7 +788,7 @@ export class MfForceGraph extends LitElement {
    *  (used for whole-path hover highlight). */
   private refreshLinkStyles(): void {
     if (!this.graph) return
-    this.graph.linkColor(this.graph.linkColor()).linkWidth(this.graph.linkWidth())
+    this.graph.linkColor(this.linkColorFn).linkWidth(this.graph.linkWidth())
   }
 
   /** Feed the active graph to the library, and (grade mode) frame it. */
@@ -565,6 +832,17 @@ export class MfForceGraph extends LitElement {
   }
 
   updated(changed: PropertyValues<this>): void {
+    // A new or hidden forest changes node roles: rebuild labels (node objects
+    // are reused across feeds, so their labels would keep the old role) and
+    // re-evaluate styling and visibility in place.
+    const forestChanged = changed.has('forest') || changed.has('forestVisible')
+    if (this.graph && forestChanged) {
+      this.graph.nodeThreeObject((n: unknown) => this.nodeLabelFn(n))
+      this.refreshForestStyles()
+      this.reapplyVisibility()
+    } else if (this.graph && changed.has('forestLit')) {
+      this.refreshForestStyles()
+    }
     // Topology-affecting changes need a full re-feed (which restarts the sim):
     // the browse graph, the mode, or the grade chains.
     const topologyChanged =
