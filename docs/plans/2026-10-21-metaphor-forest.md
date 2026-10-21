@@ -283,5 +283,6 @@ Scores outside 0-10 are clamped. Unknown indices are ignored and logged.
 
 ## Open
 
-- Live prompt tuning waits on an API key in the cloud environment.
+- Live prompt tuning waits on an API key in the cloud environment. Gotcha for that session: Claude Code cloud containers set `ANTHROPIC_BASE_URL` for their own use, and the Go SDK reads it, so start the API with `env -u ANTHROPIC_BASE_URL` or the calls go to the wrong host. Tune on a mix of abstract sources (patience, bureaucracy) and concrete ones (river), where the probe produced literal endpoints.
+- Full-stack check against a stand-in model server passed on 2026-10-21 (contract, request shape, 400/503 paths, UI order, no raw string ids in the forest panel). Real latency and cost per forest are not measured yet.
 - A live-versus-dead eval to replace the aptness KPI is a follow-up.
