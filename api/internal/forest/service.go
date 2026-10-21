@@ -83,6 +83,7 @@ func (s *Service) Generate(ctx context.Context, source string, maxHops int) (for
 			"rejected_invalid", r.Invalid, "rejected_low_score", r.LowScore,
 			"rejected_broken_hop", r.BrokenHop, "rejected_drift", r.Drift,
 			"rejected_cliche", r.Cliche, "rejected_literal", r.Literal,
+			"rejected_duplicate", r.Duplicate,
 			"outcome", "ok")
 		s.Logger.Info("forest request", attrs...)
 	}()

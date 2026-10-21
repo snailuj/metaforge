@@ -66,7 +66,7 @@ A 3D force graph of words linked by the semantics they share. From one source wo
   "stats": {
     "generated": 14,
     "kept": 8,
-    "rejected": {"invalid": 1, "low_score": 3, "broken_hop": 1, "drift": 0, "cliche": 1, "literal": 0}
+    "rejected": {"invalid": 1, "low_score": 3, "broken_hop": 1, "drift": 0, "cliche": 1, "literal": 0, "duplicate": 0}
   }
 }
 ```
@@ -100,12 +100,16 @@ Errors, all `{"error": "<message>"}`:
 ### Path validation (reject as `invalid`)
 
 - a hop word empty after normalisation, longer than 4 words or 60 characters
-- an empty ground, or an empty line on a path end
+- an empty ground, or a ground longer than 80 characters
+- an empty line on a path end, or a line longer than 200 characters
 - path length 0 or greater than `max_hops`
 - a path that revisits a word, including the source
 - the judge returned no verdict for the path
+- the path is beyond the first 24 the model produced, in model order (extras are never judged)
 
-Then reject flagged paths (first matching flag in the order `broken_hop`, `drift`, `literal`, `cliche`) and paths scoring below the minimum (`low_score`). When two kept paths end at the same endpoint, keep the higher score.
+Grounds and lines have inner whitespace, newlines included, collapsed to single spaces, so a path stays on one line of the judge's message. Paths that fail validation are never sent to the judge.
+
+Then reject flagged paths (first matching flag in the order `broken_hop`, `drift`, `literal`, `cliche`) and paths scoring below the minimum (`low_score`). When two kept paths end at the same endpoint, keep the higher score (then the shorter path, then the earlier one); the others count as `duplicate`. Every generated path is either kept or in exactly one `rejected` bucket, so `kept` plus the `rejected` counts equal `generated`.
 
 ## Frontend
 

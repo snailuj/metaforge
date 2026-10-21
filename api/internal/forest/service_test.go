@@ -138,7 +138,7 @@ func TestServiceGenerateHappyPath(t *testing.T) {
 		"gen_input_tokens": 100.0, "gen_output_tokens": 200.0, "gen_cache_read_tokens": 10.0,
 		"judge_input_tokens": 50.0, "judge_output_tokens": 60.0, "judge_cache_read_tokens": 5.0,
 		"generated": 3.0, "kept": 1.0, "rejected_invalid": 1.0, "rejected_low_score": 1.0,
-		"rejected_broken_hop": 0.0, "rejected_drift": 0.0, "rejected_cliche": 0.0, "rejected_literal": 0.0,
+		"rejected_broken_hop": 0.0, "rejected_drift": 0.0, "rejected_cliche": 0.0, "rejected_literal": 0.0, "rejected_duplicate": 0.0,
 		"outcome": "ok",
 	}
 	if summary == nil {

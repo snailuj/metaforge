@@ -212,6 +212,7 @@ type Rejected struct {
 	Drift     int `json:"drift"`
 	Cliche    int `json:"cliche"`
 	Literal   int `json:"literal"`
+	Duplicate int `json:"duplicate"`
 }
 
 // ScoredPath is a path that survived judging.
@@ -233,7 +234,7 @@ const (
 // A path is rejected for the first of: no verdict (invalid), then the flags
 // broken_hop, drift, literal, cliche, then a score below minScore. Of kept
 // paths sharing an endpoint, the highest score survives (then the shorter
-// path, then the earlier one) and the rest count as invalid.
+// path, then the earlier one) and the rest count as duplicate.
 func ApplyVerdicts(paths []Path, verdicts []Verdict, minScore int) (kept []ScoredPath, rej Rejected, ignored []int) {
 	byIndex := make(map[int]Verdict, len(verdicts))
 	for _, v := range verdicts {
@@ -279,7 +280,7 @@ func ApplyVerdicts(paths []Path, verdicts []Verdict, minScore int) (kept []Score
 		if winner[sp.Words[len(sp.Words)-1]] == i {
 			kept = append(kept, sp)
 		} else {
-			rej.Invalid++
+			rej.Duplicate++
 		}
 	}
 	return kept, rej, ignored

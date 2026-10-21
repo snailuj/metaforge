@@ -208,7 +208,7 @@ func testPaths(n int) []Path {
 }
 
 func rejectedTotal(r Rejected) int {
-	return r.Invalid + r.LowScore + r.BrokenHop + r.Drift + r.Cliche + r.Literal
+	return r.Invalid + r.LowScore + r.BrokenHop + r.Drift + r.Cliche + r.Literal + r.Duplicate
 }
 
 // Rule: every path lands in exactly one bucket (kept or one rejection
@@ -278,7 +278,7 @@ func TestApplyVerdictsIgnoresUnknownAndDuplicateIndices(t *testing.T) {
 }
 
 // Rule: one endpoint is kept once: the higher score, then the shorter
-// path, then the earlier one. The losers count as invalid so the counts
+// path, then the earlier one. The losers count as duplicate so the counts
 // still add up.
 func TestApplyVerdictsDeduplicatesEndpoints(t *testing.T) {
 	mk := func(line string, words ...string) Path {
@@ -308,7 +308,7 @@ func TestApplyVerdictsDeduplicatesEndpoints(t *testing.T) {
 	if !reflect.DeepEqual(lines, []string{"c", "e", "f"}) {
 		t.Errorf("kept lines = %v, want [c e f]", lines)
 	}
-	if rej.Invalid != 4 || len(kept)+rejectedTotal(rej) != len(paths) {
+	if rej != (Rejected{Duplicate: 4}) || len(kept)+rejectedTotal(rej) != len(paths) {
 		t.Errorf("rejected = %+v", rej)
 	}
 }
@@ -402,7 +402,7 @@ func TestBuildEmptyForestSerialisesEmptyArrays(t *testing.T) {
 	s := string(raw)
 	for _, want := range []string{`"edges":[]`, `"endpoints":[]`,
 		`"nodes":[{"id":"patience","word":"patience","role":"source"}]`,
-		`"stats":{"generated":2,"kept":0,"rejected":{"invalid":2,"low_score":0,"broken_hop":0,"drift":0,"cliche":0,"literal":0}}`} {
+		`"stats":{"generated":2,"kept":0,"rejected":{"invalid":2,"low_score":0,"broken_hop":0,"drift":0,"cliche":0,"literal":0,"duplicate":0}}`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("JSON %s lacks %s", s, want)
 		}
