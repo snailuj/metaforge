@@ -150,6 +150,10 @@ func TestValidatePath(t *testing.T) {
 		{"longer than max hops", func(p *Path) {}, 1, true},
 		{"revisits a hop", func(p *Path) { p.Words[1] = "dormant seed" }, 3, true},
 		{"revisits the source", func(p *Path) { p.Words[1] = "patience" }, 3, true},
+		{"line of exactly 200 characters", func(p *Path) { p.Line = strings.Repeat("l", 200) }, 3, false},
+		{"line over 200 characters", func(p *Path) { p.Line = strings.Repeat("é", 201) }, 3, true},
+		{"ground of exactly 80 characters", func(p *Path) { p.Grounds[0] = strings.Repeat("g", 80) }, 3, false},
+		{"ground over 80 characters", func(p *Path) { p.Grounds[1] = strings.Repeat("é", 81) }, 3, true},
 		{"grounds misaligned", func(p *Path) { p.Grounds = p.Grounds[:1] }, 3, true},
 	}
 	for _, tc := range cases {
@@ -565,5 +569,24 @@ func TestJudgeUserMessage(t *testing.T) {
 		"2. patience -[records]-> tidemark | Patience is a tidemark."
 	if got := JudgeUserMessage("patience", paths); got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+}
+
+// Rule: at most maxPaths model paths are considered, in model order; the
+// rest count as invalid, so valid + invalid always equals the input.
+func TestScreenCapsPathsInModelOrder(t *testing.T) {
+	paths := testPaths(maxPaths + 6)
+	paths[2].Grounds[0] = "" // invalid inside the cap
+
+	valid, invalid := Screen("src", 3, paths)
+
+	if len(valid) != maxPaths-1 || invalid != 7 {
+		t.Fatalf("valid=%d invalid=%d, want %d and 7", len(valid), invalid, maxPaths-1)
+	}
+	if valid[len(valid)-1].Words[0] != fmt.Sprintf("w%d", maxPaths) {
+		t.Errorf("last kept path = %v, want the %dth in model order", valid[len(valid)-1].Words, maxPaths)
+	}
+	if maxPaths != 24 {
+		t.Errorf("maxPaths = %d, spec says 24", maxPaths)
 	}
 }

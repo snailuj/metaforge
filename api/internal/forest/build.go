@@ -116,8 +116,13 @@ func withLine(p Path, line string) Path {
 }
 
 const (
-	maxHopWords = 4
-	maxHopChars = 60
+	maxHopWords    = 4
+	maxHopChars    = 60
+	maxGroundChars = 80
+	maxLineChars   = 200
+
+	// maxPaths bounds what a model can make the judge read and us hold.
+	maxPaths = 24
 )
 
 // ValidatePath reports the first rule the path breaks. source must already
@@ -133,6 +138,8 @@ func ValidatePath(source string, maxHops int, p Path) error {
 		return fmt.Errorf("path has %d words but %d grounds", n, len(p.Grounds))
 	case p.Line == "":
 		return errors.New("path end has an empty line")
+	case utf8.RuneCountInString(p.Line) > maxLineChars:
+		return fmt.Errorf("line is longer than %d characters", maxLineChars)
 	}
 	seen := map[string]bool{source: true}
 	for i, w := range p.Words {
@@ -145,6 +152,8 @@ func ValidatePath(source string, maxHops int, p Path) error {
 			return fmt.Errorf("hop %q is longer than %d characters", w, maxHopChars)
 		case p.Grounds[i] == "":
 			return fmt.Errorf("hop %q has an empty ground", w)
+		case utf8.RuneCountInString(p.Grounds[i]) > maxGroundChars:
+			return fmt.Errorf("ground of hop %q is longer than %d characters", w, maxGroundChars)
 		case seen[w]:
 			return fmt.Errorf("path revisits %q", w)
 		}
@@ -154,10 +163,10 @@ func ValidatePath(source string, maxHops int, p Path) error {
 }
 
 // Screen keeps the paths that pass ValidatePath, in order, and counts the
-// rest.
+// rest. Only the first maxPaths are considered; later ones count as invalid.
 func Screen(source string, maxHops int, paths []Path) (valid []Path, invalid int) {
-	for _, p := range paths {
-		if ValidatePath(source, maxHops, p) == nil {
+	for i, p := range paths {
+		if i < maxPaths && ValidatePath(source, maxHops, p) == nil {
 			valid = append(valid, p)
 		} else {
 			invalid++
