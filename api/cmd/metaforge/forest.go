@@ -8,6 +8,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/snailuj/metaforge/internal/forest"
+	"github.com/snailuj/metaforge/internal/forestcache"
 	"github.com/snailuj/metaforge/internal/handler"
 	"github.com/snailuj/metaforge/internal/llm"
 )
@@ -19,6 +20,7 @@ const (
 	defaultForestMinPaths      = 3
 	defaultForestMaxConcurrent = 4
 	defaultForestPerMinute     = 30
+	defaultForestPoolSize      = 10
 
 	// forestWriteTimeout must exceed handler.ForestRequestTimeout so a
 	// request that uses its whole deadline can still write its 504.
@@ -33,6 +35,8 @@ type forestSettings struct {
 	MaxConcurrent int
 	PerMinute     int
 	APIKey        string
+	CachePath     string // empty disables the forest cache
+	PoolSize      int    // forests kept per (word, max_hops)
 }
 
 func loadForestSettings() forestSettings {
@@ -48,6 +52,8 @@ func loadForestSettings() forestSettings {
 		MaxConcurrent: boundedEnvInt("METAFORGE_FOREST_MAX_CONCURRENT", defaultForestMaxConcurrent, 1, 1<<20),
 		PerMinute:     boundedEnvInt("METAFORGE_FOREST_PER_MINUTE", defaultForestPerMinute, 1, 1<<20),
 		APIKey:        os.Getenv("ANTHROPIC_API_KEY"),
+		CachePath:     os.Getenv("METAFORGE_FOREST_CACHE"),
+		PoolSize:      boundedEnvInt("METAFORGE_FOREST_POOL_SIZE", defaultForestPoolSize, 1, 1000),
 	}
 }
 
@@ -74,13 +80,35 @@ func boundedEnvInt(key string, fallback, lo, hi int) int {
 }
 
 // newForestHandler builds the route. With no API key the route still exists
-// and answers 503.
+// and answers 503, except that a cache keeps serving the forests it holds.
 func newForestHandler(s forestSettings) *handler.ForestHandler {
 	limiter := forest.NewLimiter(s.MaxConcurrent, s.PerMinute, time.Now)
+	var h *handler.ForestHandler
 	if s.APIKey == "" {
-		slog.Warn("ANTHROPIC_API_KEY is empty: /forge/forest will answer 503")
-		return handler.NewForestHandler(nil, limiter)
+		slog.Warn("ANTHROPIC_API_KEY is empty: /forge/forest will answer 503 except for cached forests")
+		h = handler.NewForestHandler(nil, limiter)
+	} else {
+		svc := forest.NewService(llm.NewAnthropic(option.WithAPIKey(s.APIKey)), s.Config)
+		h = handler.NewForestHandler(svc, limiter)
 	}
-	svc := forest.NewService(llm.NewAnthropic(option.WithAPIKey(s.APIKey)), s.Config)
-	return handler.NewForestHandler(svc, limiter)
+	if cache := openForestCache(s); cache != nil {
+		h.Cache = cache
+	}
+	return h
+}
+
+// openForestCache returns nil when no path is set or the file will not
+// open; the cache is an optimisation, so its failure is logged, not fatal.
+// The store lives for the process, which never shuts down gracefully.
+func openForestCache(s forestSettings) *forestcache.Store {
+	if s.CachePath == "" {
+		slog.Info("METAFORGE_FOREST_CACHE is unset: every forest is generated")
+		return nil
+	}
+	store, err := forestcache.Open(s.CachePath, forest.Fingerprint(s.Config), s.PoolSize)
+	if err != nil {
+		slog.Error("forest cache unavailable, every forest will be generated", "path", s.CachePath, "err", err)
+		return nil
+	}
+	return store
 }

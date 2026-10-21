@@ -9,6 +9,8 @@ WorkingDirectory=__WORKTREE__
 # Optional: ANTHROPIC_API_KEY (and METAFORGE_FOREST_* overrides) for /forge/forest.
 # Without it the route answers 503 and the rest of the API is unaffected.
 EnvironmentFile=-/etc/metaforge/forest.env
+# Pool of finished forests per word, served by Forge without a model call.
+Environment=METAFORGE_FOREST_CACHE=__WORKTREE__/data-pipeline/output/forest_cache.db
 ExecStart=__WORKTREE__/api/metaforge \
     -port 8080 \
     -db __WORKTREE__/data-pipeline/output/lexicon_v2.db \

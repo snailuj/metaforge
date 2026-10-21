@@ -3,6 +3,8 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/snailuj/metaforge/internal/forest"
@@ -13,6 +15,7 @@ var forestEnvVars = []string{
 	"ANTHROPIC_API_KEY", "METAFORGE_FOREST_MODEL", "METAFORGE_FOREST_JUDGE_MODEL",
 	"METAFORGE_FOREST_EFFORT", "METAFORGE_FOREST_MIN_SCORE", "METAFORGE_FOREST_MIN_PATHS",
 	"METAFORGE_FOREST_MAX_CONCURRENT", "METAFORGE_FOREST_PER_MINUTE",
+	"METAFORGE_FOREST_CACHE", "METAFORGE_FOREST_POOL_SIZE",
 }
 
 // clearForestEnv blanks every variable so no test depends on the ambient
@@ -33,6 +36,7 @@ func TestLoadForestSettingsDefaults(t *testing.T) {
 		Config:        forest.Config{Model: "claude-haiku-5-5", JudgeModel: "claude-haiku-5-5", Effort: "low", MinScore: 6, MinPaths: 3},
 		MaxConcurrent: 4,
 		PerMinute:     30,
+		PoolSize:      10,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)
@@ -49,6 +53,8 @@ func TestLoadForestSettingsFromEnv(t *testing.T) {
 	t.Setenv("METAFORGE_FOREST_MIN_PATHS", "0")
 	t.Setenv("METAFORGE_FOREST_MAX_CONCURRENT", "2")
 	t.Setenv("METAFORGE_FOREST_PER_MINUTE", "10")
+	t.Setenv("METAFORGE_FOREST_CACHE", "/var/lib/forest.db")
+	t.Setenv("METAFORGE_FOREST_POOL_SIZE", "5")
 
 	s := loadForestSettings()
 
@@ -57,6 +63,8 @@ func TestLoadForestSettingsFromEnv(t *testing.T) {
 		MaxConcurrent: 2,
 		PerMinute:     10,
 		APIKey:        "sk-test",
+		CachePath:     "/var/lib/forest.db",
+		PoolSize:      5,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)
@@ -149,5 +157,44 @@ func TestForestRouteWithKeyIsConfigured(t *testing.T) {
 func TestWriteTimeoutOutlastsForestDeadline(t *testing.T) {
 	if forestWriteTimeout <= handler.ForestRequestTimeout {
 		t.Errorf("write timeout %v must exceed request deadline %v", forestWriteTimeout, handler.ForestRequestTimeout)
+	}
+}
+
+// Rule: a configured cache path opens a cache keyed on the pipeline
+// fingerprint; without a path there is no cache.
+func TestForestHandlerOpensConfiguredCache(t *testing.T) {
+	clearForestEnv(t)
+	path := filepath.Join(t.TempDir(), "forest_cache.db")
+	t.Setenv("METAFORGE_FOREST_CACHE", path)
+
+	h := newForestHandler(loadForestSettings())
+	if h.Cache == nil {
+		t.Fatal("no cache on the handler")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("cache file not created: %v", err)
+	}
+
+	clearForestEnv(t)
+	if h := newForestHandler(loadForestSettings()); h.Cache != nil {
+		t.Error("cache opened with no path configured")
+	}
+}
+
+// Rule: a cache that will not open is logged and skipped; the forest route
+// and the rest of the API keep working.
+func TestForestHandlerRunsWithoutUnopenableCache(t *testing.T) {
+	clearForestEnv(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	t.Setenv("METAFORGE_FOREST_CACHE", filepath.Join(t.TempDir(), "missing-dir", "forest_cache.db"))
+
+	h := newForestHandler(loadForestSettings())
+	if h.Cache != nil {
+		t.Error("handler holds a cache that failed to open")
+	}
+	w := httptest.NewRecorder()
+	h.HandleForest(w, httptest.NewRequest("GET", "/forge/forest?word=", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want the configured route's 400", w.Code)
 	}
 }
