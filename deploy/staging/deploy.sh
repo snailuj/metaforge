@@ -55,10 +55,37 @@ sed "s|__WORKTREE__|${WORKTREE}|g" "${SCRIPT_DIR}/metaforge-api-staging.service"
 echo "Installed: ${SERVICE_NAME}.service"
 
 # 6. Drop Caddy snippet
+# Grading secrets come from the gitignored ${SCRIPT_DIR}/.env (see .env.example).
+# Without them the snippet carries raw placeholders, Caddy rejects it, and the
+# broken file on disk would stop Caddy (and every site) on its next restart.
 echo "--- Drop Caddy snippet ---"
-sed "s|__WORKTREE__|${WORKTREE}|g" "${SCRIPT_DIR}/metaforge-staging.caddy" \
-    | sudo tee "${CADDY_SNIPPETS}/metaforge-next.caddy" > /dev/null
-echo "Installed: ${CADDY_SNIPPETS}/metaforge-next.caddy"
+ENV_FILE="${SCRIPT_DIR}/.env"
+if [ ! -f "${ENV_FILE}" ]; then
+    echo "ERROR: ${ENV_FILE} missing (copy .env.example and fill it in)" >&2
+    exit 1
+fi
+set -a
+# shellcheck source=/dev/null
+. "${ENV_FILE}"
+set +a
+: "${JULIAN_BCRYPT_HASH:?not set in ${ENV_FILE}}"
+: "${GRADING_SECRET:?not set in ${ENV_FILE}}"
+
+SNIPPET="${CADDY_SNIPPETS}/metaforge-next.caddy"
+sudo cp "${SNIPPET}" "${SNIPPET}.prev" 2>/dev/null || true
+sed -e "s|__WORKTREE__|${WORKTREE}|g" \
+    -e "s|__JULIAN_BCRYPT_HASH__|${JULIAN_BCRYPT_HASH}|g" \
+    -e "s|__GRADING_SECRET__|${GRADING_SECRET}|g" \
+    "${SCRIPT_DIR}/metaforge-staging.caddy" \
+    | sudo tee "${SNIPPET}" > /dev/null
+if sudo grep -q '__[A-Z_]*__' "${SNIPPET}" \
+    || ! sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile > /dev/null 2>&1; then
+    echo "ERROR: rendered snippet is invalid; restoring previous" >&2
+    sudo mv "${SNIPPET}.prev" "${SNIPPET}"
+    exit 1
+fi
+sudo rm -f "${SNIPPET}.prev"
+echo "Installed: ${SNIPPET}"
 echo ""
 
 # 7. Reload services
