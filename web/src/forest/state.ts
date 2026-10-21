@@ -5,16 +5,32 @@
 // callers can skip work with an identity check.
 
 import type { ForestResponse } from '@/types/api'
-import type { ForestErrorKind } from '@/api/client'
+import type { ForestErrorKind, ForestStreamEvent } from '@/api/client'
 import { normaliseWord, type ForestTarget } from '@/graph/forest'
 
 export const DEFAULT_MAX_HOPS = 3
 export const MIN_HOPS = 1
 export const MAX_HOPS = 5
 
+/** One hop of a streamed path, as the generator wrote it (node ids). */
+export interface StreamHop { from: string; to: string; ground: string }
+
+/** A path the stream has drawn. A branch `f<i>b<j>` also runs along its facet's
+ *  head hop, which arrives under the facet's own id `f<i>`. */
+export interface StreamPath {
+  id: string
+  facet: number
+  hops: StreamHop[]
+  status: 'pending' | 'kept' | 'rejected'
+  endpoint?: string
+  score?: number
+}
+
 export type ForestRequest =
   | { kind: 'idle' }
   | { kind: 'loading' }
+  // `snapshot` is the latest judged forest of this stream (null until the first).
+  | { kind: 'streaming'; snapshot: ForestResponse | null; paths: Readonly<Record<string, StreamPath>> }
   | { kind: 'failed'; error: ForestErrorKind; retryAfterSeconds: number | null }
 
 export type ForestContent =
@@ -41,6 +57,7 @@ export interface ForestState {
 export type ForestEvent =
   | { type: 'forge' }
   | { type: 'settled'; seq: number; response: ForestResponse }
+  | { type: 'stream'; seq: number; event: ForestStreamEvent }
   | { type: 'failed'; seq: number; error: ForestErrorKind; retryAfterSeconds: number | null }
   | { type: 'cancel' }
   | { type: 'word-committed'; word: string }
@@ -60,6 +77,11 @@ export function initialForestState(word = '', maxHops = DEFAULT_MAX_HOPS): Fores
 
 const NO_HIGHLIGHT = { hover: null, focus: null, selection: null } as const
 
+/** A request is in flight: waiting for the first event, or streaming. */
+export function inFlight(s: ForestState): boolean {
+  return s.request.kind === 'loading' || s.request.kind === 'streaming'
+}
+
 export function sameTarget(a: ForestTarget | null, b: ForestTarget | null): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
@@ -72,7 +94,7 @@ export function litTarget(s: ForestState): ForestTarget | null {
 export function reduceForest(s: ForestState, e: ForestEvent): ForestState {
   switch (e.type) {
     case 'forge':
-      if (s.request.kind === 'loading') return s
+      if (inFlight(s)) return s
       return {
         ...s,
         seq: s.seq + 1,
@@ -85,19 +107,19 @@ export function reduceForest(s: ForestState, e: ForestEvent): ForestState {
       // seq alone identifies the response: the server's normalised `source`
       // can differ from ours (Go and JS disagree on case and whitespace).
       if (!isCurrent(s, e.seq)) return s
-      if (e.response.endpoints.length > 0) {
-        return { ...s, ...NO_HIGHLIGHT, request: { kind: 'idle' }, content: { kind: 'forest', response: e.response }, onGraph: true, notice: 'found' }
-      }
-      if (s.content.kind === 'forest') return { ...s, request: { kind: 'idle' }, notice: 'empty-kept' }
-      return { ...s, request: { kind: 'idle' }, content: { kind: 'empty', response: e.response }, notice: null }
+      return settle(s, e.response)
     }
+
+    case 'stream':
+      if (!isCurrent(s, e.seq)) return s
+      return reduceStream(s, e.event)
 
     case 'failed':
       if (!isCurrent(s, e.seq)) return s
       return { ...s, request: { kind: 'failed', error: e.error, retryAfterSeconds: e.retryAfterSeconds }, notice: null }
 
     case 'cancel':
-      if (s.request.kind !== 'loading') return s
+      if (!inFlight(s)) return s
       return { ...s, seq: s.seq + 1, request: { kind: 'idle' }, notice: 'cancelled' }
 
     case 'word-committed':
@@ -128,5 +150,60 @@ export function reduceForest(s: ForestState, e: ForestEvent): ForestState {
 }
 
 function isCurrent(s: ForestState, seq: number): boolean {
-  return seq === s.seq && s.request.kind === 'loading'
+  return seq === s.seq && inFlight(s)
+}
+
+/** A snapshot already shown by this stream keeps its highlights through later
+ *  snapshots and the final forest: they only add paths. */
+function streamedSnapshot(s: ForestState): boolean {
+  return s.request.kind === 'streaming' && !!s.request.snapshot && s.content.kind === 'forest'
+}
+
+function settle(s: ForestState, response: ForestResponse): ForestState {
+  if (response.endpoints.length > 0) {
+    const highlight = streamedSnapshot(s) ? {} : { ...NO_HIGHLIGHT, onGraph: true }
+    return { ...s, ...highlight, request: { kind: 'idle' }, content: { kind: 'forest', response }, notice: 'found' }
+  }
+  if (s.content.kind === 'forest') return { ...s, request: { kind: 'idle' }, notice: 'empty-kept' }
+  return { ...s, request: { kind: 'idle' }, content: { kind: 'empty', response }, notice: null }
+}
+
+function reduceStream(s: ForestState, e: ForestStreamEvent): ForestState {
+  if (e.type === 'done') return settle(s, e.forest)
+  if (e.type === 'error') return { ...s, request: { kind: 'failed', error: e.kind, retryAfterSeconds: null }, notice: null }
+
+  const request = s.request.kind === 'streaming' ? s.request : { kind: 'streaming' as const, snapshot: null, paths: {} }
+  const { paths } = request
+  switch (e.type) {
+    case 'forest': {
+      const next = { ...s, request: { ...request, snapshot: e.forest } }
+      if (e.forest.endpoints.length === 0) return next
+      const highlight = streamedSnapshot(s) ? {} : { ...NO_HIGHLIGHT, onGraph: true }
+      return { ...next, ...highlight, content: { kind: 'forest', response: e.forest } }
+    }
+    case 'hop': {
+      const path = paths[e.pathId]
+      if (path && path.status !== 'pending') {
+        console.debug('[forest] hop for a path already judged, ignored', { pathId: e.pathId })
+        return s
+      }
+      const hop = { from: e.from, to: e.to, ground: e.ground }
+      const updated: StreamPath = path
+        ? { ...path, hops: [...path.hops, hop] }
+        : { id: e.pathId, facet: e.facet, hops: [hop], status: 'pending' }
+      return { ...s, request: { ...request, paths: { ...paths, [e.pathId]: updated } } }
+    }
+    case 'kept':
+    case 'rejected': {
+      const path = paths[e.pathId]
+      if (path?.status !== 'pending') {
+        console.debug('[forest] verdict for a path that is not pending, ignored', { pathId: e.pathId, verdict: e.type })
+        return s
+      }
+      const updated: StreamPath = e.type === 'kept'
+        ? { ...path, status: 'kept', endpoint: e.endpoint, score: e.score }
+        : { ...path, status: 'rejected' }
+      return { ...s, request: { ...request, paths: { ...paths, [e.pathId]: updated } } }
+    }
+  }
 }

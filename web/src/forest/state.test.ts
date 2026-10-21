@@ -230,3 +230,133 @@ describe('forest state: highlight', () => {
     }
   })
 })
+
+describe('forest state: streaming', () => {
+  type StreamEvent = Extract<ForestEvent, { type: 'stream' }>['event']
+  const stream = (s: ForestState, ...events: StreamEvent[]) =>
+    events.reduce((acc, event) => reduceForest(acc, { type: 'stream', seq: acc.seq, event }), s)
+  const hop = (pathId: string, from: string, to: string): StreamEvent =>
+    ({ type: 'hop', pathId, facet: Number(pathId.slice(1, 2)), from, to, ground: `${from} to ${to}` })
+  const kept = (pathId: string, endpoint: string): StreamEvent => ({ type: 'kept', pathId, endpoint, score: 7 })
+  const rejected = (pathId: string): StreamEvent => ({ type: 'rejected', pathId, reason: 'low_score' })
+  const snapshot = (n: number): ForestResponse => ({ ...forest, endpoints: forest.endpoints.slice(0, n) })
+  const pathsOf = (s: ForestState) => {
+    if (s.request.kind !== 'streaming') throw new Error(`expected streaming, got ${s.request.kind}`)
+    return s.request.paths
+  }
+
+  it('the first stream event turns the request into streaming, with that path pending', () => {
+    const s = stream(loading(), hop('f0', 'patience', 'dormant seed'))
+    expect(s.request.kind).toBe('streaming')
+    expect(pathsOf(s).f0).toMatchObject({ status: 'pending', hops: [{ from: 'patience', to: 'dormant seed' }] })
+    expect(s.seq).toBe(loading().seq)
+  })
+
+  it('hops for one path id extend that path in order', () => {
+    const s = stream(loading(), hop('f0', 'patience', 'dormant seed'), hop('f0b0', 'dormant seed', 'seed vault'), hop('f0b0', 'seed vault', 'ark'))
+    expect(pathsOf(s).f0b0.hops.map(h => h.to)).toEqual(['seed vault', 'ark'])
+    expect(pathsOf(s).f0.hops).toHaveLength(1)
+  })
+
+  // Rule: every pending path resolves exactly once; later verdicts and hops for it change nothing.
+  it('every pending path resolves exactly once', () => {
+    const s = stream(loading(), hop('f0', 'patience', 'dormant seed'), hop('f0b0', 'dormant seed', 'seed vault'), hop('f0b1', 'dormant seed', 'ark'))
+    const k = stream(s, kept('f0b0', 'seed vault'), rejected('f0b1'))
+    expect(pathsOf(k).f0b0.status).toBe('kept')
+    expect(pathsOf(k).f0b1.status).toBe('rejected')
+    expect(pathsOf(k).f0.status).toBe('pending')
+    for (const late of [rejected('f0b0'), kept('f0b0', 'other'), kept('f0b1', 'ark'), hop('f0b0', 'seed vault', 'x')]) {
+      expect(stream(k, late)).toBe(k)
+    }
+  })
+
+  it('a verdict for a path that never had a hop changes nothing', () => {
+    const s = stream(loading(), hop('f0', 'patience', 'dormant seed'))
+    expect(stream(s, kept('f7b0', 'ghost'))).toBe(s)
+  })
+
+  // Rule: the shown forest only ever comes from a snapshot, so the list never holds an unjudged path.
+  it('hops and verdicts never change the shown content; each snapshot replaces it', () => {
+    const before = run(shown(), { type: 'forge' })
+    const s = stream(before, hop('f0', 'patience', 'dormant seed'), kept('f0', 'dormant seed'))
+    expect(s.request.kind).toBe('streaming')
+    expect(s.content).toBe(before.content)
+    const first = stream(s, { type: 'forest', forest: snapshot(2) })
+    expect(first.content).toEqual({ kind: 'forest', response: snapshot(2) })
+    const second = stream(first, { type: 'forest', forest: snapshot(4) })
+    expect(second.content).toEqual({ kind: 'forest', response: snapshot(4) })
+    expect(second.request).toMatchObject({ kind: 'streaming', snapshot: snapshot(4) })
+  })
+
+  it('a snapshot with no endpoints yet keeps the forest already shown', () => {
+    const before = run(shown(), { type: 'forge' })
+    const s = stream(before, { type: 'forest', forest: emptyForest })
+    expect(s.content).toBe(before.content)
+    expect(s.request).toMatchObject({ kind: 'streaming', snapshot: emptyForest })
+  })
+
+  it('the first snapshot of a re-roll clears highlights on the old forest; later ones keep them', () => {
+    const pick = { kind: 'path', endpointId: 'varve' } as const
+    const lit = run(shown(), { type: 'select', target: pick }, { type: 'forge' })
+    expect(lit.selection).toEqual(pick)
+    const first = stream(lit, { type: 'forest', forest: snapshot(2) })
+    expect(first.selection).toBeNull()
+    const picked = run(first, { type: 'select', target: { kind: 'path', endpointId: 'escapement' } })
+    expect(picked.selection).not.toBeNull()
+    const later = stream(picked, { type: 'forest', forest: snapshot(4) }, { type: 'done', forest })
+    expect(later.selection).toEqual({ kind: 'path', endpointId: 'escapement' })
+    expect(later.request.kind).toBe('idle')
+  })
+
+  it('done ends the stream with the final forest and announces it', () => {
+    const s = stream(loading(), hop('f0', 'patience', 'dormant seed'), { type: 'forest', forest: snapshot(2) }, { type: 'done', forest })
+    expect(s).toMatchObject({ request: { kind: 'idle' }, content: { kind: 'forest', response: forest }, notice: 'found' })
+  })
+
+  it('a cache hit (a lone done) settles like a whole response', () => {
+    const s = stream(loading(), { type: 'done', forest })
+    expect(s).toMatchObject({ request: { kind: 'idle' }, content: { kind: 'forest', response: forest }, notice: 'found' })
+  })
+
+  it('Forge while streaming changes nothing (single flight)', () => {
+    const s = stream(loading(), hop('f0', 'patience', 'dormant seed'))
+    expect(s.request.kind).toBe('streaming')
+    expect(reduceForest(s, { type: 'forge' })).toBe(s)
+  })
+
+  // Rule: cancel and a stream error keep what was kept and drop every pending path.
+  it('Cancel mid-stream keeps the last snapshot, clears pending paths and says so', () => {
+    const s = stream(loading(), hop('f0', 'patience', 'dormant seed'), { type: 'forest', forest: snapshot(2) }, hop('f1', 'patience', 'peat bog'))
+    expect(Object.keys(pathsOf(s))).toEqual(['f0', 'f1'])
+    const c = reduceForest(s, { type: 'cancel' })
+    expect(c).toMatchObject({ request: { kind: 'idle' }, content: { kind: 'forest', response: snapshot(2) }, notice: 'cancelled' })
+    expect(c.seq).toBe(s.seq + 1)
+  })
+
+  it.each([
+    ['an error event', (s: ForestState) => stream(s, { type: 'error', kind: 'timeout' })],
+    ['a failure thrown by the client', (s: ForestState) => reduceForest(s, { type: 'failed', seq: s.seq, error: 'timeout', retryAfterSeconds: null })],
+  ])('%s mid-stream keeps the last snapshot and clears pending paths', (_label, failWith) => {
+    const s = stream(loading(), hop('f0', 'patience', 'dormant seed'), { type: 'forest', forest: snapshot(2) })
+    expect(s.request.kind).toBe('streaming')
+    const f = failWith(s)
+    expect(f.request).toEqual({ kind: 'failed', error: 'timeout', retryAfterSeconds: null })
+    expect(f.content).toEqual({ kind: 'forest', response: snapshot(2) })
+  })
+
+  // Rule: a stream event from a superseded request never changes anything.
+  it('drops stream events from a request that was cancelled, replaced or moved to another word', () => {
+    const live = stream(loading(), hop('f0', 'patience', 'dormant seed'))
+    const old = live.seq
+    const superseded = [
+      reduceForest(live, { type: 'cancel' }),
+      run(live, { type: 'cancel' }, { type: 'forge' }),
+      run(live, { type: 'word-committed', word: 'bureaucracy' }, { type: 'forge' }),
+    ]
+    const late: StreamEvent[] = [hop('f0b0', 'dormant seed', 'seed vault'), kept('f0', 'dormant seed'), { type: 'forest', forest }, { type: 'done', forest }, { type: 'error', kind: 'failed' }]
+    for (const s of superseded) {
+      expect(s.seq).not.toBe(old)
+      for (const event of late) expect(reduceForest(s, { type: 'stream', seq: old, event })).toBe(s)
+    }
+  })
+})
