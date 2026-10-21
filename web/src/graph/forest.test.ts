@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest'
 import type { ForestResponse } from '@/types/api'
 import type { GraphData, GraphLink } from './types'
 import patience from '@/fixtures/forest-patience.json'
-import { forestToGraph, composeForest, litEndpoints, normaliseWord, forestDepthForce, streamMarks, fadeMarks, nextFadeEnd, FOREST_FADE_MS, LIVE_SCORE } from './forest'
+import { forestToGraph, composeForest, litPaths, pathKey, pathTarget, normaliseWord, forestDepthForce, streamMarks, fadeMarks, nextFadeEnd, FOREST_FADE_MS, LIVE_SCORE } from './forest'
 import type { StreamPath } from '@/forest/state'
+const key = (id: string) => pathKey(forestResponse.endpoints.find(e => e.id === id)!)
+const pt = (id: string) => pathTarget(forestResponse.endpoints.find(e => e.id === id)!)
+
 
 const forestResponse = patience as ForestResponse
 
@@ -51,8 +54,8 @@ describe('forestToGraph', () => {
 
   it('lists, for every node, exactly the kept paths that pass through or end at it', () => {
     for (const [id, info] of forest.info) {
-      const expected = forestResponse.endpoints.filter(e => e.path.includes(id)).map(e => e.id).sort()
-      expect([...info.endpointIds].sort(), id).toEqual(expected)
+      const expected = forestResponse.endpoints.filter(e => e.path.includes(id)).map(e => pathKey(e)).sort()
+      expect([...info.pathKeys].sort(), id).toEqual(expected)
     }
   })
 
@@ -127,7 +130,7 @@ describe('composeForest', () => {
     const { data } = composeForest(thesaurusGraph(), forestToGraph(forestResponse))
     const link = metaphorLinks(data).find(l => endOf(l.source) === 'patience' && endOf(l.target) === 'dormant seed')!
     expect(link.metaphor!.grounds).toEqual(['waits intact until conditions allow'])
-    expect([...link.metaphor!.endpointIds].sort()).toEqual(['controlled burn', 'seed vault'])
+    expect([...link.metaphor!.pathKeys].sort()).toEqual([key('controlled burn'), key('seed vault')].sort())
   })
 
   it('reuses forest-only node objects across recompositions, so a re-layout keeps their positions', () => {
@@ -279,32 +282,32 @@ describe('streamed forest marks', () => {
   })
 })
 
-describe('litEndpoints', () => {
+describe('litPaths', () => {
   const forest = forestToGraph(forestResponse)
 
   it('lights nothing when there is no target', () => {
-    expect(litEndpoints(forest, null)).toBeNull()
+    expect(litPaths(forest, null)).toBeNull()
   })
 
   // Rule: hovering a node lights every path through it and only those.
   it('lights exactly the paths that contain a node', () => {
     for (const id of forest.info.keys()) {
-      const expected = new Set(forestResponse.endpoints.filter(e => e.path.includes(id)).map(e => e.id))
-      expect(litEndpoints(forest, { kind: 'node', id }), id).toEqual(expected)
+      const expected = new Set(forestResponse.endpoints.filter(e => e.path.includes(id)).map(e => pathKey(e)))
+      expect(litPaths(forest, { kind: 'node', id }), id).toEqual(expected)
     }
   })
 
   it('lights exactly the paths that use a link', () => {
-    const lit = litEndpoints(forest, { kind: 'link', source: 'scar tissue', target: 'hypertrophic scar' })
-    expect(lit).toEqual(new Set(['keloid']))
+    const lit = litPaths(forest, { kind: 'link', source: 'scar tissue', target: 'hypertrophic scar' })
+    expect(lit).toEqual(new Set([key('keloid')]))
   })
 
   it('lights one path for a path target', () => {
-    expect(litEndpoints(forest, { kind: 'path', endpointId: 'varve' })).toEqual(new Set(['varve']))
+    expect(litPaths(forest, pt('varve'))).toEqual(new Set([key('varve')]))
   })
 
   it('lights nothing for a target that is not in this forest', () => {
-    expect(litEndpoints(forest, { kind: 'node', id: 'nowhere' })).toEqual(new Set())
+    expect(litPaths(forest, { kind: 'node', id: 'nowhere' })).toEqual(new Set())
   })
 })
 
@@ -363,5 +366,45 @@ describe('forestDepthForce', () => {
     force.initialize([n])
     force(1)
     expect([n.vx, n.vy, n.vz]).toEqual([0, 0, 0])
+  })
+})
+
+// Rule: two routes to one endpoint are two metaphors; lighting one route lights
+// only its own links, and the shared endpoint is live if either route is.
+describe('several routes to one endpoint', () => {
+  const routes: ForestResponse = {
+    source: 'patience', max_hops: 3, model: 'm',
+    nodes: [
+      { id: 'patience', word: 'patience', role: 'source' },
+      { id: 'seed', word: 'seed', role: 'hop' },
+      { id: 'bank', word: 'bank', role: 'hop' },
+      { id: 'vault', word: 'vault', role: 'endpoint' },
+    ],
+    edges: [
+      { source: 'patience', target: 'seed', grounds: ['waits'] },
+      { source: 'seed', target: 'vault', grounds: ['keeps'] },
+      { source: 'patience', target: 'bank', grounds: ['holds'] },
+      { source: 'bank', target: 'vault', grounds: ['locks'] },
+    ],
+    endpoints: [
+      // Server order: score descending.
+      { id: 'vault', path: ['patience', 'seed', 'vault'], grounds: ['waits', 'keeps'], line: 'A.', score: 8, reason: 'r' },
+      { id: 'vault', path: ['patience', 'bank', 'vault'], grounds: ['holds', 'locks'], line: 'B.', score: 6, reason: 'r' },
+    ],
+    stats: { generated: 2, kept: 2, rejected: { invalid: 0, low_score: 0, broken_hop: 0, drift: 0, cliche: 0, literal: 0, duplicate: 0 } },
+  }
+  const forest = forestToGraph(routes)
+  const [viaSeed, viaBank] = routes.endpoints
+
+  it('keeps the two routes apart', () => {
+    expect(pathKey(viaBank)).not.toBe(pathKey(viaSeed))
+    expect(litPaths(forest, pathTarget(viaSeed))).toEqual(new Set([pathKey(viaSeed)]))
+    expect(litPaths(forest, { kind: 'link', source: 'bank', target: 'vault' })).toEqual(new Set([pathKey(viaBank)]))
+    expect(litPaths(forest, { kind: 'node', id: 'vault' })).toEqual(new Set([pathKey(viaBank), pathKey(viaSeed)]))
+  })
+
+  it('marks the shared endpoint live when its best route is', () => {
+    expect(viaBank.score).toBeLessThan(LIVE_SCORE)
+    expect(forest.info.get('vault')!.live).toBe(true)
   })
 })

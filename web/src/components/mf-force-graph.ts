@@ -327,9 +327,9 @@ export class MfForceGraph extends LitElement {
     return this.activeForest?.byNodeId.get((n as GraphNode).id)
   }
 
-  private emphasis(endpointIds: string[]): Emphasis {
+  private emphasis(pathKeys: string[]): Emphasis {
     if (!this.forestLit || this.forestLit.size === 0) return 'normal'
-    return endpointIds.some(id => this.forestLit!.has(id)) ? 'lit' : 'dim'
+    return pathKeys.some(id => this.forestLit!.has(id)) ? 'lit' : 'dim'
   }
 
   /** Share of a fading mark's fade still to run: 1 when it starts, 0 when gone. */
@@ -354,7 +354,7 @@ export class MfForceGraph extends LitElement {
     const colour = info.role === 'endpoint' ? FOREST_COLOURS.endpoint : FOREST_COLOURS.hop
     if (info.stream === 'fading') return withAlpha(colour, Math.round(this.fadeLeft(info.fadeUntil) * 100) / 100)
     if (info.stream === 'pending') return withAlpha(colour, 0.7)
-    return this.emphasis(info.endpointIds) === 'dim' ? withAlpha(colour, 0.22) : colour
+    return this.emphasis(info.pathKeys) === 'dim' ? withAlpha(colour, 0.22) : colour
   }
 
   private linkColorFn = (l: unknown): string => {
@@ -376,7 +376,7 @@ export class MfForceGraph extends LitElement {
         return withAlpha(FOREST_COLOURS.branch, Math.round(0.85 * this.fadeLeft(link.metaphor.fadeUntil) * 100) / 100)
       }
       if (link.metaphor) {
-        const e = this.emphasis(link.metaphor.endpointIds)
+        const e = this.emphasis(link.metaphor.pathKeys)
         return e === 'lit' ? FOREST_COLOURS.spark : withAlpha(FOREST_COLOURS.branch, e === 'dim' ? 0.16 : 0.85)
       }
       return link.order === 2 || this.forestLit ? FOREST_EDGE_THESAURUS_DIM : FOREST_EDGE_THESAURUS
@@ -389,7 +389,7 @@ export class MfForceGraph extends LitElement {
     if (!this.activeForest || !link.metaphor) return 0
     if (link.metaphor.stream === 'pending') return this.reducedMotion ? STILL_DOTS : 0
     if (this.reducedMotion || link.metaphor.stream === 'fading') return 0
-    const e = this.emphasis(link.metaphor.endpointIds)
+    const e = this.emphasis(link.metaphor.pathKeys)
     return e === 'lit' ? 4 : e === 'dim' ? 0 : 2
   }
 
@@ -400,7 +400,7 @@ export class MfForceGraph extends LitElement {
     if (this.mode === 'grade') return (l as GradeLink).chainSig === this.hoveredChainSig ? 3 : 1.5
     const link = l as GraphLink
     if (!link.metaphor) return link.order === 2 ? 0.5 : 1
-    return this.activeForest && this.emphasis(link.metaphor.endpointIds) === 'lit' ? 2.4 : 1.1
+    return this.activeForest && this.emphasis(link.metaphor.pathKeys) === 'lit' ? 2.4 : 1.1
   }
 
   private arrowLengthFn = (l: unknown): number =>
@@ -410,7 +410,7 @@ export class MfForceGraph extends LitElement {
     const link = l as GraphLink
     if (this.mode !== 'browse' || !link.metaphor) return null
     const obj = makeGroundLabel(link.metaphor.grounds)
-    if (this.activeForest && this.emphasis(link.metaphor.endpointIds) === 'lit') obj.element.setAttribute('data-lit', '')
+    if (this.activeForest && this.emphasis(link.metaphor.pathKeys) === 'lit') obj.element.setAttribute('data-lit', '')
     return obj
   }
 
@@ -427,7 +427,7 @@ export class MfForceGraph extends LitElement {
     const info = this.forestInfo(n)
     if (!info) return (n as GraphNode).relationType === 'central' ? null : this.forestLit ? 'dim' : 'recede'
     if (info.role === 'source') return null
-    const e = this.emphasis(info.endpointIds)
+    const e = this.emphasis(info.pathKeys)
     return e === 'normal' ? null : e
   }
 
@@ -546,7 +546,7 @@ export class MfForceGraph extends LitElement {
     }
     for (const l of Array.isArray(data.links) ? data.links : []) {
       const ground = l.metaphor && l.__lineObj?.children?.find(c => c?.isCSS2DObject)
-      if (ground) ground.element.toggleAttribute('data-lit', !!this.activeForest && this.emphasis(l.metaphor!.endpointIds) === 'lit')
+      if (ground) ground.element.toggleAttribute('data-lit', !!this.activeForest && this.emphasis(l.metaphor!.pathKeys) === 'lit')
     }
   }
 

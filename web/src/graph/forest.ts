@@ -9,7 +9,7 @@ export interface ForestNodeInfo {
   role: ForestRole
   forestId: string
   depth: number           // fewest hops from the source along a kept path
-  endpointIds: string[]   // kept paths that pass through or end at this node
+  pathKeys: string[]      // kept paths (pathKey) that pass through or end at this node
   live: boolean           // endpoints only
   stream?: StreamMarkStatus  // set only on streamed marks
   fadeUntil?: number
@@ -17,7 +17,7 @@ export interface ForestNodeInfo {
 
 /** What a hover, focus or selection points at; it lights every path through it. */
 export type ForestTarget =
-  | { kind: 'path'; endpointId: string }
+  | { kind: 'path'; endpointId: string; pathKey: string }
   | { kind: 'node'; id: string }                       // forest id
   | { kind: 'link'; source: string; target: string }   // forest ids
 
@@ -25,7 +25,7 @@ interface ForestLinkSpec {
   source: string
   target: string
   grounds: string[]
-  endpointIds: string[]
+  pathKeys: string[]
 }
 
 /** A forest response, indexed once on arrival. Its node objects are reused by
@@ -83,21 +83,30 @@ export function normaliseWord(word: string): string {
 
 const linkKey = (source: string, target: string) => JSON.stringify([source, target])
 
+/** Names one kept path. An endpoint can be reached by several routes, each its
+ *  own metaphor, so the endpoint word alone does not identify one. */
+export const pathKey = (e: Pick<ForestEndpoint, 'path'>): string => JSON.stringify(e.path)
+
+/** The target for one endpoint item; always built here so sameTarget can compare. */
+export const pathTarget = (e: ForestEndpoint): ForestTarget => ({ kind: 'path', endpointId: e.id, pathKey: pathKey(e) })
+
 export function forestToGraph(response: ForestResponse, pool?: ForestNodePool): ForestGraph {
   const throughNode = new Map<string, string[]>()
   const throughLink = new Map<string, string[]>()
   const depth = new Map<string, number>()
   for (const e of response.endpoints) {
     e.path.forEach((id, i) => {
-      throughNode.set(id, [...(throughNode.get(id) ?? []), e.id])
+      throughNode.set(id, [...(throughNode.get(id) ?? []), pathKey(e)])
       depth.set(id, Math.min(depth.get(id) ?? Infinity, i))
       if (i > 0) {
         const key = linkKey(e.path[i - 1], id)
-        throughLink.set(key, [...(throughLink.get(key) ?? []), e.id])
+        throughLink.set(key, [...(throughLink.get(key) ?? []), pathKey(e)])
       }
     })
   }
-  const scores = new Map(response.endpoints.map(e => [e.id, e.score]))
+  // Best score per endpoint word: any live route makes the endpoint live.
+  const scores = new Map<string, number>()
+  for (const e of response.endpoints) scores.set(e.id, Math.max(scores.get(e.id) ?? 0, e.score))
 
   const info = new Map<string, ForestNodeInfo>()
   const nodes: GraphNode[] = []
@@ -107,7 +116,7 @@ export function forestToGraph(response: ForestResponse, pool?: ForestNodePool): 
       role,
       forestId: n.id,
       depth: depth.get(n.id) ?? (role === 'source' ? 0 : 1),
-      endpointIds: [...new Set(throughNode.get(n.id) ?? [])],
+      pathKeys: [...new Set(throughNode.get(n.id) ?? [])],
       live: (scores.get(n.id) ?? 0) >= LIVE_SCORE,
     })
     const fields = { word: n.word, relationType: role === 'source' ? 'central' : 'metaphor', val: 1, order: role === 'source' ? 0 : 1 } as const
@@ -121,7 +130,7 @@ export function forestToGraph(response: ForestResponse, pool?: ForestNodePool): 
     source: e.source,
     target: e.target,
     grounds: e.grounds,
-    endpointIds: [...new Set(throughLink.get(linkKey(e.source, e.target)) ?? [])],
+    pathKeys: [...new Set(throughLink.get(linkKey(e.source, e.target)) ?? [])],
   }))
 
   return { source: response.source, endpoints: response.endpoints, info, nodes, links }
@@ -173,7 +182,7 @@ export function composeForest(
     // A thesaurus word that stops being streamed just goes back to the thesaurus.
     if (match && m.status === 'fading') continue
     overlay.byNodeId.set(node.id, {
-      role: m.role, forestId: m.id, depth: m.depth, endpointIds: [], live: m.live, stream: m.status, fadeUntil: m.fadeUntil,
+      role: m.role, forestId: m.id, depth: m.depth, pathKeys: [], live: m.live, stream: m.status, fadeUntil: m.fadeUntil,
     })
   }
   const addedById = new Map(added.map(n => [n.id, n]))
@@ -187,7 +196,7 @@ export function composeForest(
     target: overlay.nodeIdByForestId.get(l.target) ?? l.target,
     relationType: 'metaphor',
     order: 1,
-    metaphor: { grounds: l.grounds, endpointIds: l.endpointIds, forestSource: l.source, forestTarget: l.target },
+    metaphor: { grounds: l.grounds, pathKeys: l.pathKeys, forestSource: l.source, forestTarget: l.target },
   }))
   for (const l of stream?.marks.links.values() ?? []) {
     const source = overlay.nodeIdByForestId.get(l.source)
@@ -195,7 +204,7 @@ export function composeForest(
     if (source === undefined || target === undefined) continue
     links.push({
       source, target, relationType: 'metaphor', order: 1,
-      metaphor: { grounds: l.grounds, endpointIds: [], forestSource: l.source, forestTarget: l.target, stream: l.status, fadeUntil: l.fadeUntil },
+      metaphor: { grounds: l.grounds, pathKeys: [], forestSource: l.source, forestTarget: l.target, stream: l.status, fadeUntil: l.fadeUntil },
     })
   }
 
@@ -301,17 +310,17 @@ export function nextFadeEnd(marks: StreamMarks): number | null {
   return end
 }
 
-/** Endpoint ids of every kept path through the target; null when nothing is targeted. */
-export function litEndpoints(forest: ForestGraph, target: ForestTarget | null): Set<string> | null {
+/** Path keys of every kept path through the target; null when nothing is targeted. */
+export function litPaths(forest: ForestGraph, target: ForestTarget | null): Set<string> | null {
   if (!target) return null
   switch (target.kind) {
     case 'path':
-      return new Set(forest.endpoints.some(e => e.id === target.endpointId) ? [target.endpointId] : [])
+      return new Set(forest.endpoints.some(e => pathKey(e) === target.pathKey) ? [target.pathKey] : [])
     case 'node':
-      return new Set(forest.info.get(target.id)?.endpointIds ?? [])
+      return new Set(forest.info.get(target.id)?.pathKeys ?? [])
     case 'link': {
       const link = forest.links.find(l => l.source === target.source && l.target === target.target)
-      return new Set(link?.endpointIds ?? [])
+      return new Set(link?.pathKeys ?? [])
     }
   }
 }

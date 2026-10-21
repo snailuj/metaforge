@@ -144,6 +144,10 @@ vi.mock('three/addons/renderers/CSS2DRenderer.js', () => ({
   })),
 }))
 import { MfForceGraph } from './mf-force-graph'
+import { pathKey, pathTarget } from '@/graph/forest'
+const key = (id: string) => pathKey((patienceForest as ForestResponse).endpoints.find(e => e.id === id)!)
+const pt = (id: string) => pathTarget((patienceForest as ForestResponse).endpoints.find(e => e.id === id)!)
+
 
 const testData: GraphData = {
   nodes: [
@@ -1165,7 +1169,7 @@ describe('MfForceGraph metaphor forest', () => {
     const feedsBefore = graphDataSetCount
     const unlitLink = metaphorLink(data, 'peat bog', 'bog body')
     const normalAlpha = alpha(capturedLinkColor!(unlitLink))
-    el.forestLit = new Set(['seed vault'])
+    el.forestLit = new Set([key('seed vault')])
     await el.updateComplete
 
     expect(capturedNodeColor!(nodeById(data, 'seed vault'))).toBe(FOREST_COLOURS.endpoint)
@@ -1185,7 +1189,7 @@ describe('MfForceGraph metaphor forest', () => {
     const lit = metaphorLink(data, 'dormant seed', 'seed vault')
     const other = metaphorLink(data, 'peat bog', 'bog body')
     const before = capturedLinkWidth!(lit)
-    el.forestLit = new Set(['seed vault'])
+    el.forestLit = new Set([key('seed vault')])
     await el.updateComplete
     expect(capturedLinkWidth!(lit)).toBeGreaterThan(before)
     expect(capturedLinkWidth!(other)).toBeLessThanOrEqual(before)
@@ -1195,7 +1199,7 @@ describe('MfForceGraph metaphor forest', () => {
     await mount()
     const label = (n: unknown) => (capturedNodeThreeObject!(n) as { element: HTMLElement }).element
     expect(label(nodeById(data, 'patience')).dataset.role).toBe('forest-source')
-    el.forestLit = new Set(['seed vault'])
+    el.forestLit = new Set([key('seed vault')])
     await el.updateComplete
     expect(label(nodeById(data, 'dormant seed')).hasAttribute('data-lit')).toBe(true)
     expect(label(nodeById(data, 'seed vault')).hasAttribute('data-lit')).toBe(true)
@@ -1216,7 +1220,7 @@ describe('MfForceGraph metaphor forest', () => {
       links: [],
     }
     el.forestSelectedId = 'keloid'
-    el.forestLit = new Set(['varve'])
+    el.forestLit = new Set([key('varve')])
     await el.updateComplete
     expect(labelEl.hasAttribute('data-selected')).toBe(true)
     expect(otherEl.hasAttribute('data-selected')).toBe(false)
@@ -1231,7 +1235,7 @@ describe('MfForceGraph metaphor forest', () => {
   it('completes a forest update when the library reports no node or link arrays', async () => {
     await mount()
     mockGraphData = { nodes: (() => []) as unknown as unknown[], links: undefined as unknown as unknown[] }
-    el.forestLit = new Set(['seed vault'])
+    el.forestLit = new Set([key('seed vault')])
     await expect(el.updateComplete).resolves.toBe(true)
     el.forestSelectedId = 'seed vault'
     await expect(el.updateComplete).resolves.toBe(true)
@@ -1252,7 +1256,7 @@ describe('MfForceGraph metaphor forest', () => {
       ],
       links: [lit],
     }
-    el.forestLit = new Set(['seed vault'])
+    el.forestLit = new Set([key('seed vault')])
     await el.updateComplete
     expect(groundEl.hasAttribute('data-lit')).toBe(true)
     expect(labelEl.hasAttribute('data-dim')).toBe(false)
@@ -1398,7 +1402,7 @@ describe('MfForceGraph metaphor forest', () => {
     vi.advanceTimersByTime(5000)
     const framed = setCounts.zoomToFit ?? 0
     expect(framed).toBeGreaterThan(framesAfterMount)
-    el.forestLit = new Set(['varve'])
+    el.forestLit = new Set([key('varve')])
     await el.updateComplete
     vi.advanceTimersByTime(5000)
     expect(setCounts.zoomToFit ?? 0).toBe(framed)

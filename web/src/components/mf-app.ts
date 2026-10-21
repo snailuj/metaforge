@@ -3,7 +3,7 @@ import { customElement, state } from 'lit/decorators.js'
 import { lookupWord, ApiError, streamForest, ForestError } from '@/api/client'
 import { transformLookupToGraph, mergeSecondOrderGraph, stripSecondOrderNodes } from '@/graph/transform'
 import {
-  composeForest, fadeMarks, forestToGraph, litEndpoints, nextFadeEnd, streamMarks, FOREST_FADE_MS,
+  composeForest, fadeMarks, forestToGraph, litPaths, nextFadeEnd, streamMarks, FOREST_FADE_MS,
   type ForestGraph, type ForestNodePool, type ForestOverlay, type ForestTarget, type StreamMarks,
 } from '@/graph/forest'
 import { initialForestState, reduceForest, litTarget, sameTarget, type ForestEvent, type ForestState, type StreamPath } from '@/forest/state'
@@ -614,7 +614,7 @@ export class MfApp extends LitElement {
     const target = litTarget(next)
     if (forestChanged || !sameTarget(target, this.forestLitTarget)) {
       this.forestLitTarget = target
-      const lit = this.forestGraph ? litEndpoints(this.forestGraph, target) : null
+      const lit = this.forestGraph ? litPaths(this.forestGraph, target) : null
       this.forestLit = lit && lit.size > 0 ? lit : null
     }
   }

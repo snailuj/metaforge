@@ -45,7 +45,7 @@ export type StreamMarkStatus = 'pending' | 'kept' | 'fading'
  *  words, and the kept paths (by endpoint id) that run along it. */
 export interface MetaphorLinkInfo {
   grounds: string[]
-  endpointIds: string[]
+  pathKeys: string[]
   forestSource: string  // forest ids, stable across recompositions
   forestTarget: string
   stream?: StreamMarkStatus  // set only on streamed marks

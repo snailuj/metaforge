@@ -47,6 +47,10 @@ import { lookupWord, fetchForest, streamForest, type ForestStreamEvent } from '@
 import type { ForestResponse } from '@/types/api'
 import type { GraphData } from '@/graph/types'
 import patienceFixture from '@/fixtures/forest-patience.json'
+import { pathKey, pathTarget } from '@/graph/forest'
+const key = (id: string) => pathKey((patienceFixture as ForestResponse).endpoints.find(e => e.id === id)!)
+const pt = (id: string) => pathTarget((patienceFixture as ForestResponse).endpoints.find(e => e.id === id)!)
+
 
 const mockResult: LookupResult = {
   word: 'fire',
@@ -1831,8 +1835,8 @@ describe('mf-app metaphor forest', () => {
     await settle()
     graph().dispatchEvent(new CustomEvent('mf-forest-hover', { detail: { target: { kind: 'node', id: 'dormant seed' } }, bubbles: true, composed: true }))
     await settle()
-    expect(graph().forestLit).toEqual(new Set(['seed vault', 'controlled burn']))
-    expect(panel().lit).toEqual(new Set(['seed vault', 'controlled burn']))
+    expect(graph().forestLit).toEqual(new Set([key('seed vault'), key('controlled burn')]))
+    expect(panel().lit).toEqual(new Set([key('seed vault'), key('controlled burn')]))
     graph().dispatchEvent(new CustomEvent('mf-forest-hover', { detail: { target: null }, bubbles: true, composed: true }))
     await settle()
     expect(graph().forestLit).toBeNull()
@@ -1842,7 +1846,7 @@ describe('mf-app metaphor forest', () => {
     vi.mocked(fetchForest).mockResolvedValue(forest)
     panelEvent({ type: 'forge' })
     await settle()
-    panelEvent({ type: 'select', target: { kind: 'path', endpointId: 'varve' } })
+    panelEvent({ type: 'select', target: pt('varve') })
     await settle()
     expect((graph() as any).forestSelectedId).toBe('varve')
     panelEvent({ type: 'select', target: { kind: 'link', source: 'peat bog', target: 'bog body' } })
@@ -1856,7 +1860,7 @@ describe('mf-app metaphor forest', () => {
     await settle()
     graph().dispatchEvent(new CustomEvent('mf-forest-select', { detail: { target: { kind: 'node', id: 'keloid' } }, bubbles: true, composed: true }))
     await settle()
-    expect(graph().forestLit).toEqual(new Set(['keloid']))
+    expect(graph().forestLit).toEqual(new Set([key('keloid')]))
     expect((graph() as any).forestSelectedId).toBe('keloid')
     graph().dispatchEvent(new CustomEvent('mf-forest-select', { detail: { target: null }, bubbles: true, composed: true }))
     await settle()
@@ -1915,8 +1919,8 @@ describe('mf-app metaphor forest', () => {
     vi.mocked(fetchForest).mockResolvedValue(forest)
     panelEvent({ type: 'forge' })
     await settle()
-    panelEvent({ type: 'focus', target: { kind: 'path', endpointId: 'varve' } })
-    panelEvent({ type: 'hover', target: { kind: 'path', endpointId: 'keloid' } })
+    panelEvent({ type: 'focus', target: pt('varve') })
+    panelEvent({ type: 'hover', target: pt('keloid') })
     await settle()
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 404, json: async () => ({}) } as Response)
     ;(el as any).toggleMode()
