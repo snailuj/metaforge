@@ -25,10 +25,14 @@ type fakeResult struct {
 type fakeLLM struct {
 	results []fakeResult
 	calls   []llm.Request
+	panicOn string // when set, Complete panics with this value
 }
 
 func (f *fakeLLM) Complete(_ context.Context, req llm.Request) (llm.Response, error) {
 	f.calls = append(f.calls, req)
+	if f.panicOn != "" {
+		panic(f.panicOn)
+	}
 	if len(f.calls) > len(f.results) {
 		return llm.Response{}, errors.New("unexpected extra call")
 	}
@@ -269,5 +273,35 @@ func TestServiceLogsCancellationAtInfo(t *testing.T) {
 		if rec["msg"] == "forest request" && (rec["level"] != "INFO" || rec["outcome"] != "canceled") {
 			t.Errorf("summary = %v, want INFO outcome=canceled", rec)
 		}
+	}
+}
+
+// Rule: a panic is never logged as success; it is logged with
+// outcome=panic and then continues to unwind.
+func TestServiceLogsPanicAndRepanics(t *testing.T) {
+	f := &fakeLLM{panicOn: "kaboom"}
+	s, logs := testService(f)
+
+	var recovered any
+	func() {
+		defer func() { recovered = recover() }()
+		_, _ = s.Generate(context.Background(), "patience", 3)
+	}()
+
+	if recovered != "kaboom" {
+		t.Errorf("recovered %v, want the original panic value", recovered)
+	}
+	var summaries int
+	for _, rec := range logRecords(t, logs) {
+		if rec["msg"] != "forest request" {
+			continue
+		}
+		summaries++
+		if rec["level"] != "ERROR" || rec["outcome"] != "panic" || rec["panic"] != "kaboom" {
+			t.Errorf("summary = %v, want ERROR outcome=panic panic=kaboom", rec)
+		}
+	}
+	if summaries != 1 {
+		t.Errorf("%d summary lines, want 1", summaries)
 	}
 }

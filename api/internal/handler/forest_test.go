@@ -16,19 +16,23 @@ import (
 )
 
 type fakeForestGen struct {
-	forest   forest.Forest
-	err      error
-	called   int
-	word     string
-	maxHops  int
-	deadline time.Time
-	hasDL    bool
-	block    chan struct{} // when set, Generate waits on it or on ctx
-	started  chan struct{} // when set, receives one value as Generate begins
+	forest    forest.Forest
+	err       error
+	called    int
+	word      string
+	maxHops   int
+	deadline  time.Time
+	hasDL     bool
+	panicWith any           // when set, Generate panics with it
+	block     chan struct{} // when set, Generate waits on it or on ctx
+	started   chan struct{} // when set, receives one value as Generate begins
 }
 
 func (f *fakeForestGen) Generate(ctx context.Context, word string, maxHops int) (forest.Forest, error) {
 	f.called++
+	if f.panicWith != nil {
+		panic(f.panicWith)
+	}
 	f.word, f.maxHops = word, maxHops
 	f.deadline, f.hasDL = ctx.Deadline()
 	if f.started != nil {
@@ -222,6 +226,28 @@ func TestForestReleasesSlotOnFailure(t *testing.T) {
 		if w := getForest(h, "word=anger"); w.Code != http.StatusBadGateway {
 			t.Fatalf("request %d status = %d, want 502 (a leaked slot would give 429)", i+1, w.Code)
 		}
+	}
+}
+
+// Rule: the slot is released when the generator panics too.
+func TestForestReleasesSlotOnPanic(t *testing.T) {
+	gen := &fakeForestGen{panicWith: "kaboom"}
+	h := newForestTestHandler(gen, 1, 100)
+
+	for i := 0; i < 3; i++ {
+		func() {
+			defer func() {
+				if r := recover(); r != "kaboom" {
+					t.Fatalf("request %d: recovered %v, want the generator's panic", i+1, r)
+				}
+			}()
+			getForest(h, "word=anger")
+		}()
+	}
+	// A leaked slot would make the next request 429 instead of reaching the generator.
+	gen.panicWith = nil
+	if w := getForest(h, "word=anger"); w.Code != http.StatusOK {
+		t.Errorf("status after panics = %d, want 200", w.Code)
 	}
 }
 

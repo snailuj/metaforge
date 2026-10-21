@@ -64,6 +64,10 @@ func (s *Service) Generate(ctx context.Context, source string, maxHops int) (for
 		attrs = append(attrs, gen.attrs("gen")...)
 		attrs = append(attrs, judge.attrs("judge")...)
 		attrs = append(attrs, "judge_ran", judgeRan)
+		if p := recover(); p != nil {
+			s.Logger.Error("forest request", append(attrs, "outcome", "panic", "panic", fmt.Sprint(p))...)
+			panic(p)
+		}
 		if errors.Is(err, context.Canceled) {
 			// The client went away; nothing failed on our side.
 			s.Logger.Info("forest request", append(attrs, "outcome", "canceled", "error", err.Error())...)
