@@ -51,7 +51,7 @@ What's next: Metaphor Forge UI, 20k word enrichment, CI/CD pipeline, polish for 
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.24+
 - Python 3.11+ with venv
 - Node.js 20+
 - SQLite 3
