@@ -257,6 +257,12 @@ describe('MfForestPanel', () => {
       expect(toggle().getAttribute('aria-pressed')).toBe('true')
     })
 
+    it('Escape from the head controls clears the selection too', async () => {
+      await render(run(shown(), { type: 'select', target: { kind: 'path', endpointId: 'bog body' } }))
+      $<HTMLSelectElement>('select')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }))
+      expect(events).toEqual([{ type: 'select', target: null }])
+    })
+
     it('Escape in the list clears the selection', async () => {
       await render(run(shown(), { type: 'select', target: { kind: 'path', endpointId: 'bog body' } }))
       items()[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
@@ -297,6 +303,16 @@ describe('MfForestPanel', () => {
       expect($('[data-testid="forest-sheet-toggle"]')).toBeNull()
       await render(shown())
       expect($('[data-testid="forest-sheet-toggle"]')).not.toBeNull()
+    })
+
+    it('Escape from the head controls collapses the open sheet when nothing is selected', async () => {
+      await render(loading())
+      await render(shown())
+      expect(el.hasAttribute('sheet-open')).toBe(true)
+      primary().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }))
+      await el.updateComplete
+      expect(el.hasAttribute('sheet-open')).toBe(false)
+      expect(events).toEqual([])
     })
 
     it('opens the sheet when a new forest arrives, and the toggle collapses it', async () => {

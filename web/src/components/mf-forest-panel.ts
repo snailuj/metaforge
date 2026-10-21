@@ -526,7 +526,7 @@ export class MfForestPanel extends LitElement {
     const status = this.statusText()
 
     return html`
-      <section aria-labelledby="forest-heading">
+      <section aria-labelledby="forest-heading" @keydown=${this.onKeydown}>
       <div class="head">
         <div class="title-row">
           <h2 id="forest-heading" tabindex="-1">${getString('forest-heading')}</h2>
@@ -584,7 +584,6 @@ export class MfForestPanel extends LitElement {
         id="forest-body"
         data-testid="forest-body"
         ?data-has-list=${!!response}
-        @keydown=${this.onKeydown}
       >
         ${response
           ? html`

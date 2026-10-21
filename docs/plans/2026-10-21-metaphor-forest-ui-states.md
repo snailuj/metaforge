@@ -47,7 +47,7 @@ Existing behaviour the design relies on, unchanged: lookups are latest-wins thro
 | Stale-Hops-Note is dropped. | The select sits beside New forest and plainly shows the setting for the next press. |
 | Highlight targets are nodes, links and paths. Hover on a hop or a link lights every path through it. | The build brief overrules Hover-Endpoints-Only. |
 | Graph-hover and panel-hover merge into one hover source; sources are hover, focus, selection. | One pointer is in one place, so the priority rule is "hover, else focus, else selection". |
-| Pin becomes selection: a click or tap on any forest node or metaphor link, or the panel's Highlight path toggle. A background click and Escape in the list clear it. | Touch has no hover, so a tap must be able to light paths; clicking empty space is the natural way out. |
+| Pin becomes selection: a click or tap on any forest node or metaphor link, or the panel's Highlight path toggle. A background click and Escape anywhere in the panel clear it. | Touch has no hover, so a tap must be able to light paths; clicking empty space is the natural way out. |
 | A selection draws a gold ring on its node's label; hover never does. The draft's panel "Pinned" badge is dropped (the pressed Highlight path button carries it). | Without a graph mark, a click that toggles the selection under the pointer shows no change: the blocker the draft named Pin-Is-Visibly-Different. |
 | Soft lookup covers every lookup started from the forest (panel Look up, double-click on any forest node), not only forest-only words. | One rule instead of an origin split; the 404 toast is harmless for a word the thesaurus has. |
 | The Look up button stays active while a lookup runs. | `doLookup` is latest-wins, so a second press supersedes the first rather than duplicating it. |
@@ -179,7 +179,7 @@ Presentation. Graph: lit nodes and links bright, lit branches wider with more sp
 | focus leaves a list item | No-op. | Stays lit-hover; focus dropped. | -> lit-selected if set, else unlit. | No-op. |
 | click or tap a forest node or metaphor link; Highlight path | Selection set -> lit-selected, ring drawn. | Selection set; ring drawn; stays lit-hover until the pointer leaves. | Selection set; stays lit-focus. | Same target: selection cleared, ring removed (-> next source down, else unlit). Another target: selection moves. |
 | background click on the graph | No-op (nothing selected). | Selection cleared; stays lit-hover. | Selection cleared; stays lit-focus. | -> unlit. |
-| Escape in the list | No-op; on a phone with the sheet open, the sheet collapses. | Selection cleared if set. | Selection cleared if set. | -> unlit. Focus stays. |
+| Escape in the panel | No-op; on a phone with the sheet open, the sheet collapses. | Selection cleared if set. | Selection cleared if set. | -> unlit. Focus stays. |
 | new forest arrives, or another word is committed | No-op. | -> unlit, all sources cleared. | -> unlit. | -> unlit. |
 | Show on graph unchecked | Graph shows nothing lit; the panel still marks lit items. Sources kept. | Same. | Same. | Same. |
 | mode switch to grade | No-op. | -> unlit (hover cleared). | -> unlit or lit-selected (focus cleared). | Unchanged; shown again on return. |
@@ -227,7 +227,7 @@ At 768 px and below the panel is a bottom sheet (75 dvh maximum, safe-area paddi
 | Event | desktop | sheet collapsed | sheet open |
 |---|---|---|---|
 | sheet toggle (`aria-expanded`, "Show {n} metaphors" or "Hide metaphors"; rendered only with a forest) | Hidden by CSS. | -> open. | -> collapsed; focus stays on the toggle. |
-| Escape in the list with no selection | No-op. | No-op. | -> collapsed; focus to the toggle. |
+| Escape in the panel with no selection | No-op. | No-op. | -> collapsed; focus to the toggle. |
 | new forest arrives | No-op. | -> open; focus does not move. | Stays open. |
 | content leaves forest (another word) | No-op. | No-op. | -> collapsed. |
 | the results panel opens | No-op. | It slides over the sheet (z-order). | Same. |
