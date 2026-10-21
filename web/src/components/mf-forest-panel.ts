@@ -3,7 +3,7 @@ import { customElement, property } from 'lit/decorators.js'
 import { getString } from '@/lib/strings'
 import type { ForestEndpoint, ForestResponse } from '@/types/api'
 import { LIVE_SCORE, type ForestTarget } from '@/graph/forest'
-import { MAX_HOPS, MIN_HOPS, initialForestState, sameTarget, type ForestEvent, type ForestState } from '@/forest/state'
+import { MAX_HOPS, MIN_HOPS, inFlight, initialForestState, sameTarget, type ForestEvent, type ForestState } from '@/forest/state'
 
 const HOP_OPTIONS = Array.from({ length: MAX_HOPS - MIN_HOPS + 1 }, (_, i) => MIN_HOPS + i)
 
@@ -391,12 +391,15 @@ export class MfForestPanel extends LitElement {
     if (!changed.has('state')) return
     const prev = changed.get('state') as ForestState | undefined
     const response = this.forestResponse(this.state)
-    if (response && response !== (prev && this.forestResponse(prev))) this.sheetOpen = true
+    // A stream's later snapshots and its final forest only add to the first,
+    // so they never reopen a sheet the user closed.
+    const sameStream = prev?.request.kind === 'streaming' && !!prev.request.snapshot && !!this.forestResponse(prev)
+    if (response && response !== (prev && this.forestResponse(prev)) && !sameStream) this.sheetOpen = true
     if (!response) this.sheetOpen = false
     // The control that had focus is about to disappear.
     const active = this.shadowRoot?.activeElement
     if (prev && prev.word !== this.state.word && active) this.focusHeadingAfterUpdate = true
-    else if (prev?.request.kind === 'loading' && this.state.request.kind !== 'loading' && active?.matches('[data-testid="forest-cancel"]')) {
+    else if (prev && inFlight(prev) && !inFlight(this.state) && active?.matches('[data-testid="forest-cancel"]')) {
       this.focusPrimaryAfterUpdate = true
     }
   }
@@ -419,7 +422,7 @@ export class MfForestPanel extends LitElement {
   }
 
   private onPrimary(): void {
-    if (this.state.request.kind === 'loading') return
+    if (inFlight(this.state)) return
     this.emit({ type: 'forge' })
   }
 
@@ -446,6 +449,7 @@ export class MfForestPanel extends LitElement {
   private statusText(): string {
     const { request, content, notice, word } = this.state
     const kept = content.kind === 'forest'
+    if (request.kind === 'streaming') return getString('forest-streaming', { n: request.snapshot?.endpoints.length ?? 0 })
     if (request.kind === 'loading') return kept ? getString('forest-loading-kept', { word }) : getString('forest-loading', { word })
     if (notice === 'found' && kept) {
       const endpoints = content.response.endpoints
@@ -521,7 +525,7 @@ export class MfForestPanel extends LitElement {
 
   render() {
     const { request, content, word, onGraph } = this.state
-    const loadingNow = request.kind === 'loading'
+    const loadingNow = inFlight(this.state)
     const response = this.forestResponse(this.state)
     const status = this.statusText()
 

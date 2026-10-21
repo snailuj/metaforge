@@ -56,6 +56,11 @@ forest-cancel = Cancel
 forest-show-on-graph = Show on graph
 forest-loading = Forging metaphors for “{ $word }”. This can take up to a minute.
 forest-loading-kept = Forging a new forest for “{ $word }”. The current one stays until it arrives.
+forest-streaming = { $n ->
+    [0] Forging… no metaphors so far
+    [one] Forging… 1 metaphor so far
+   *[other] Forging… { $n } metaphors so far
+  }
 forest-found = { $n ->
     [one] Found 1 metaphor
    *[other] Found { $n } metaphors
