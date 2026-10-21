@@ -645,6 +645,10 @@ export class MfForceGraph extends LitElement {
     this.labelRenderer = makeLabelRenderer(this.container.clientWidth, this.container.clientHeight)
     this.graph = ForceGraph3D({ controlType: 'orbit', extraRenderers: [this.labelRenderer] })(this.container)
       .backgroundColor('#1a1a2e')
+      // The library's hover tooltips render HTML. Forest words are model text,
+      // so they stay off: the default reads a `name` field, which must never become markup.
+      .nodeLabel(() => '')
+      .linkLabel(() => '')
       .nodeColor(this.nodeColorFn)
       .nodeVal((n: unknown) => {
         if (this.mode === 'grade') return GRADE_NODE_VAL[(n as GradeNode).role]

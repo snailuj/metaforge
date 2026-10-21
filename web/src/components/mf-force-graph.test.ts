@@ -1414,6 +1414,19 @@ describe('MfForceGraph metaphor forest', () => {
     expect(label(nodeById(data, 'forbearance')).hasAttribute('data-recede')).toBe(false)
   })
 
+  // Rule: the library's nodeLabel/linkLabel tooltips render HTML, so they stay
+  // empty; a future `name` field must never become markup.
+  it('sets empty node and link tooltips explicitly', async () => {
+    await mount()
+    const nodeLabel = lastArgs.nodeLabel?.[0] as ((n: unknown) => string) | undefined
+    const linkLabel = lastArgs.linkLabel?.[0] as ((l: unknown) => string) | undefined
+    expect(typeof nodeLabel).toBe('function')
+    expect(typeof linkLabel).toBe('function')
+    const hostile = '<img src=x onerror=alert(1)>'
+    expect(nodeLabel!({ ...nodeById(data, 'varve'), name: hostile })).toBe('')
+    expect(linkLabel!({ ...metaphorLink(data, 'patience', 'escapement'), name: hostile })).toBe('')
+  })
+
   it('installs the depth force so the forest grows outward from the source', async () => {
     await mount()
     const call = (lastArgs.d3Force ?? []) as unknown[]

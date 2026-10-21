@@ -2,6 +2,7 @@ declare module '3d-force-graph' {
   export interface ForceGraph3DInstance {
     backgroundColor(colour: string): ForceGraph3DInstance
     nodeLabel(fn: (node: unknown) => string): ForceGraph3DInstance
+    linkLabel(fn: (link: unknown) => string): ForceGraph3DInstance
     nodeColor(fn: (node: unknown) => string): ForceGraph3DInstance
     nodeVal(fn: (node: unknown) => number): ForceGraph3DInstance
     nodeOpacity(opacity: number): ForceGraph3DInstance
