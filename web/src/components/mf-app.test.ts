@@ -3,7 +3,12 @@ import type { LookupResult } from '@/types/api'
 
 // Mock 3D dependencies that require WebGL (unavailable in happy-dom).
 // ForceGraph3D is a curried factory: ForceGraph3D(opts)(container) → instance with chainable methods.
-const chainable = new Proxy({}, { get: () => () => chainable })
+// graphData() with no argument is the library's getter: it reports arrays, never a function.
+const chainable: unknown = new Proxy({}, {
+  get: (_t, prop) => prop === 'graphData'
+    ? (data?: unknown) => (data === undefined ? { nodes: [], links: [] } : chainable)
+    : () => chainable,
+})
 vi.mock('3d-force-graph', () => ({ default: () => () => chainable }))
 
 // Mock the API client module
