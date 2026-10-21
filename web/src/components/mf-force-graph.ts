@@ -147,8 +147,8 @@ export class MfForceGraph extends LitElement {
     /* Metaphor forest labels. Colours mirror FOREST_COLOURS; the canvas cannot
        read CSS custom properties, so the tokens live in both places. */
     .mf-graph-label[data-role='forest-endpoint'] {
-      background: rgba(10, 22, 36, 0.86) !important;
-      border: 1px solid rgba(92, 200, 224, 0.55);
+      background: var(--colour-forest-label-bg) !important;
+      border: 1px solid var(--colour-forest-branch-dim);
       border-radius: 999px;
       padding: 1px 8px 2px;
     }
@@ -172,11 +172,11 @@ export class MfForceGraph extends LitElement {
     }
     /* The root of the forest: the looked-up word, larger, in a gold ring. */
     .mf-graph-label[data-role='forest-source'] {
-      background: rgba(26, 22, 10, 0.9) !important;
-      border: 1px solid rgba(212, 175, 55, 0.7);
+      background: var(--colour-forest-root-bg) !important;
+      border: 1px solid var(--colour-accent-gold-dim);
       border-radius: 999px;
       padding: 2px 10px 3px;
-      box-shadow: 0 0 14px rgba(212, 175, 55, 0.25);
+      box-shadow: 0 0 14px var(--colour-forest-root-glow);
     }
     .mf-graph-label[data-role='forest-source'] .mf-graph-label__text {
       font-size: 17px !important;
@@ -187,16 +187,23 @@ export class MfForceGraph extends LitElement {
       z-index: 100000 !important;
     }
     .mf-graph-label[data-role='forest-endpoint'][data-lit] {
-      border-color: #e8fbff;
-      box-shadow: 0 0 12px rgba(92, 200, 224, 0.55);
+      border-color: var(--colour-forest-spark);
+      box-shadow: 0 0 12px var(--colour-forest-glow);
     }
     .mf-graph-label[data-role='forest-hop'][data-lit] {
-      background: rgba(8, 18, 30, 0.94) !important;
+      background: var(--colour-forest-label-bg-strong) !important;
       border-radius: 3px;
     }
     .mf-graph-label[data-role='forest-hop'][data-lit] .mf-graph-label__text {
-      color: #dff9ff !important;
+      color: var(--colour-forest-endpoint) !important;
       font-size: 12px !important;
+    }
+    /* A selection is a gold ring a hover never draws, so a click that selects
+       or clears it always shows a change. */
+    .mf-graph-label[data-selected] {
+      outline: 2px solid var(--colour-forest-live);
+      outline-offset: 2px;
+      border-radius: 999px;
     }
     .mf-graph-label[data-recede] {
       opacity: 0.45;
@@ -212,10 +219,10 @@ export class MfForceGraph extends LitElement {
       max-width: 7.5rem;
       padding: 2px 7px 3px;
       border-radius: 3px;
-      background: rgba(8, 18, 30, 0.86);
-      border-inline-start: 2px solid #5cc8e0;
-      color: #d7f6fb;
-      font-family: Georgia, 'Times New Roman', serif;
+      background: var(--colour-forest-label-bg-strong);
+      border-inline-start: 2px solid var(--colour-forest-branch);
+      color: var(--colour-forest-ground);
+      font-family: var(--font-body, Georgia, serif);
       font-style: italic;
       font-size: 11px;
       line-height: 1.25;
@@ -269,6 +276,8 @@ export class MfForceGraph extends LitElement {
   @property({ attribute: false }) forestVisible = true
   // Endpoint ids of the paths to light; null lights nothing.
   @property({ attribute: false }) forestLit: ReadonlySet<string> | null = null
+  // Forest id of the node whose label carries the selection ring.
+  @property({ attribute: false }) forestSelectedId: string | null = null
 
   // Whether the 3D library should be loaded. Derived from mode + viewportWidth —
   // kept as a getter so Lit never schedules a secondary update cycle from updated().
@@ -374,6 +383,8 @@ export class MfForceGraph extends LitElement {
     el.toggleAttribute('data-recede', fade === 'recede')
     el.toggleAttribute('data-dim', fade === 'dim')
     el.toggleAttribute('data-lit', fade === 'lit')
+    const info = this.activeForest && this.forestSelectedId ? this.forestInfo(n) : undefined
+    el.toggleAttribute('data-selected', !!info && info.forestId === this.forestSelectedId)
   }
 
   /** Frame the whole graph a moment after a new forest lands, so the burst
@@ -914,6 +925,8 @@ export class MfForceGraph extends LitElement {
       this.reapplyVisibility()
     } else if (this.graph && changed.has('forestLit')) {
       this.refreshForestStyles()
+    } else if (this.graph && changed.has('forestSelectedId')) {
+      this.syncForestLabels()
     }
     // Topology-affecting changes need a full re-feed (which restarts the sim):
     // the browse graph, the mode, or the grade chains.

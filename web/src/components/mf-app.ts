@@ -633,6 +633,13 @@ export class MfApp extends LitElement {
     this.forestOverlay = overlay
   }
 
+  /** The forest node that carries the selection ring on the graph. */
+  private get forestSelectedId(): string | null {
+    const s = this.forestState.selection
+    if (!s) return null
+    return s.kind === 'node' ? s.id : s.kind === 'path' ? s.endpointId : s.target
+  }
+
   private handleForestEvent(e: CustomEvent<ForestEvent>): void {
     this.dispatchForest(e.detail)
   }
@@ -1157,6 +1164,7 @@ export class MfApp extends LitElement {
         .forest=${this.forestOverlay}
         .forestVisible=${this.forestState.onGraph}
         .forestLit=${this.forestLit}
+        .forestSelectedId=${this.forestSelectedId}
         @mf-node-select=${this.handleNodeSelect}
         @mf-node-navigate=${this.handleNodeNavigate}
         @mf-node-copy=${this.handleCopy}

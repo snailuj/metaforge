@@ -1797,6 +1797,18 @@ describe('mf-app metaphor forest', () => {
     expect(graph().forestLit).toBeNull()
   })
 
+  it('marks the endpoint of a path chosen with Highlight path, and the head of a selected link', async () => {
+    vi.mocked(fetchForest).mockResolvedValue(forest)
+    panelEvent({ type: 'forge' })
+    await settle()
+    panelEvent({ type: 'select', target: { kind: 'path', endpointId: 'varve' } })
+    await settle()
+    expect((graph() as any).forestSelectedId).toBe('varve')
+    panelEvent({ type: 'select', target: { kind: 'link', source: 'peat bog', target: 'bog body' } })
+    await settle()
+    expect((graph() as any).forestSelectedId).toBe('bog body')
+  })
+
   it('a graph selection lights its paths until it is cleared', async () => {
     vi.mocked(fetchForest).mockResolvedValue(forest)
     panelEvent({ type: 'forge' })
@@ -1804,9 +1816,11 @@ describe('mf-app metaphor forest', () => {
     graph().dispatchEvent(new CustomEvent('mf-forest-select', { detail: { target: { kind: 'node', id: 'keloid' } }, bubbles: true, composed: true }))
     await settle()
     expect(graph().forestLit).toEqual(new Set(['keloid']))
+    expect((graph() as any).forestSelectedId).toBe('keloid')
     graph().dispatchEvent(new CustomEvent('mf-forest-select', { detail: { target: null }, bubbles: true, composed: true }))
     await settle()
     expect(graph().forestLit).toBeNull()
+    expect((graph() as any).forestSelectedId).toBeNull()
   })
 
   // Rule: a lookup started from the forest never breaks the page.

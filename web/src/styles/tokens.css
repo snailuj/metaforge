@@ -32,6 +32,12 @@
   --colour-forest-hop: #3e9db3;
   --colour-forest-ground: #9fd9e6;
   --colour-forest-live: #d4af37;
+  --colour-forest-spark: #e8fbff;
+  --colour-forest-glow: rgba(92, 200, 224, 0.55);
+  --colour-forest-label-bg: rgba(10, 22, 36, 0.86);
+  --colour-forest-label-bg-strong: rgba(8, 18, 30, 0.94);
+  --colour-forest-root-bg: rgba(26, 22, 10, 0.9);
+  --colour-forest-root-glow: rgba(212, 175, 55, 0.25);
   --colour-panel-deep: rgba(14, 22, 42, 0.88);
 
   /* Alerts */

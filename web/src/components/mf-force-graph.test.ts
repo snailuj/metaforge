@@ -1201,6 +1201,31 @@ describe('MfForceGraph metaphor forest', () => {
     expect(label(nodeById(data, 'peat bog')).hasAttribute('data-lit')).toBe(false)
   })
 
+  // Rule: a selection looks different from a hover, so toggling it under the
+  // pointer always shows a change.
+  it('rings the selected forest node label, whatever else is lit', async () => {
+    await mount()
+    const labelEl = document.createElement('div')
+    const otherEl = document.createElement('div')
+    mockGraphData = {
+      nodes: [
+        { ...nodeById(data, 'keloid'), __threeObj: { children: [{ isCSS2DObject: true, element: labelEl }] } },
+        { ...nodeById(data, 'varve'), __threeObj: { children: [{ isCSS2DObject: true, element: otherEl }] } },
+      ],
+      links: [],
+    }
+    el.forestSelectedId = 'keloid'
+    el.forestLit = new Set(['varve'])
+    await el.updateComplete
+    expect(labelEl.hasAttribute('data-selected')).toBe(true)
+    expect(otherEl.hasAttribute('data-selected')).toBe(false)
+    const born = (capturedNodeThreeObject!(nodeById(data, 'keloid')) as { element: HTMLElement }).element
+    expect(born.hasAttribute('data-selected')).toBe(true)
+    el.forestSelectedId = null
+    await el.updateComplete
+    expect(labelEl.hasAttribute('data-selected')).toBe(false)
+  })
+
   it('marks lit grounds and lit labels on the label DOM, and clears them when nothing is lit', async () => {
     await mount()
     const groundEl = document.createElement('div')
