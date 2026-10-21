@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -275,4 +276,130 @@ func beats(a, b ScoredPath) bool {
 		return a.Score > b.Score
 	}
 	return len(a.Words) < len(b.Words)
+}
+
+// Role is a node's part in the forest.
+type Role string
+
+const (
+	RoleSource   Role = "source"
+	RoleHop      Role = "hop"
+	RoleEndpoint Role = "endpoint"
+)
+
+// Node is a word in the forest; ID is the normalised word.
+type Node struct {
+	ID   string `json:"id"`
+	Word string `json:"word"`
+	Role Role   `json:"role"`
+}
+
+// Edge runs along a path, source outward, carrying the distinct grounds
+// that join its two words across all kept paths.
+type Edge struct {
+	Source  string   `json:"source"`
+	Target  string   `json:"target"`
+	Grounds []string `json:"grounds"`
+}
+
+// Endpoint is a kept path end. Grounds[i] joins Path[i] to Path[i+1].
+type Endpoint struct {
+	ID      string   `json:"id"`
+	Path    []string `json:"path"`
+	Grounds []string `json:"grounds"`
+	Line    string   `json:"line"`
+	Score   int      `json:"score"`
+	Reason  string   `json:"reason"`
+}
+
+// Stats accounts for every generated path: Kept plus the Rejected counts
+// equal Generated.
+type Stats struct {
+	Generated int      `json:"generated"`
+	Kept      int      `json:"kept"`
+	Rejected  Rejected `json:"rejected"`
+}
+
+// Forest is the API response body.
+type Forest struct {
+	Source    string     `json:"source"`
+	MaxHops   int        `json:"max_hops"`
+	Model     string     `json:"model"`
+	Nodes     []Node     `json:"nodes"`
+	Edges     []Edge     `json:"edges"`
+	Endpoints []Endpoint `json:"endpoints"`
+	Stats     Stats      `json:"stats"`
+}
+
+// Merge folds kept paths into the node, edge and endpoint lists. Nodes and
+// edges appear in order of first use; endpoints sort by score descending,
+// then path length ascending, then input order. The slices are never nil.
+func Merge(source string, kept []ScoredPath) Forest {
+	f := Forest{
+		Source:    source,
+		Nodes:     []Node{{ID: source, Word: source, Role: RoleSource}},
+		Edges:     []Edge{},
+		Endpoints: []Endpoint{},
+	}
+
+	endpointIDs := make(map[string]bool, len(kept))
+	for _, k := range kept {
+		endpointIDs[k.Words[len(k.Words)-1]] = true
+	}
+
+	nodeSeen := map[string]bool{source: true}
+	edgeAt := map[[2]string]int{}
+	for _, k := range kept {
+		path := append([]string{source}, k.Words...)
+		for i := 1; i < len(path); i++ {
+			if w := path[i]; !nodeSeen[w] {
+				nodeSeen[w] = true
+				role := RoleHop
+				if endpointIDs[w] {
+					role = RoleEndpoint
+				}
+				f.Nodes = append(f.Nodes, Node{ID: w, Word: w, Role: role})
+			}
+			key := [2]string{path[i-1], path[i]}
+			at, ok := edgeAt[key]
+			if !ok {
+				at = len(f.Edges)
+				edgeAt[key] = at
+				f.Edges = append(f.Edges, Edge{Source: key[0], Target: key[1], Grounds: []string{}})
+			}
+			if g := k.Grounds[i-1]; !slices.Contains(f.Edges[at].Grounds, g) {
+				f.Edges[at].Grounds = append(f.Edges[at].Grounds, g)
+			}
+		}
+		f.Endpoints = append(f.Endpoints, Endpoint{
+			ID:      k.Words[len(k.Words)-1],
+			Path:    path,
+			Grounds: append([]string(nil), k.Grounds...),
+			Line:    k.Line,
+			Score:   k.Score,
+			Reason:  k.Reason,
+		})
+	}
+
+	slices.SortStableFunc(f.Endpoints, func(a, b Endpoint) int {
+		if a.Score != b.Score {
+			return b.Score - a.Score
+		}
+		return len(a.Path) - len(b.Path)
+	})
+	return f
+}
+
+// Build judges the screened paths against verdicts and merges the
+// survivors. invalid is the count of paths Screen already dropped; it is
+// added to Generated and Rejected.Invalid. ignored lists verdict indices
+// that matched nothing. Model is left for the caller to set.
+func Build(source string, maxHops, minScore int, valid []Path, invalid int, verdicts []Verdict) (f Forest, ignored []int) {
+	kept, rej, ignored := ApplyVerdicts(valid, verdicts, minScore)
+	rej.Invalid += invalid
+
+	f = Merge(source, kept)
+	f.MaxHops = maxHops
+	f.Stats = Stats{Generated: len(valid) + invalid, Kept: len(kept), Rejected: rej}
+	return f, ignored
 }

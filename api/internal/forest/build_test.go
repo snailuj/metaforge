@@ -1,9 +1,12 @@
 package forest
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -303,5 +306,242 @@ func TestApplyVerdictsDeduplicatesEndpoints(t *testing.T) {
 	}
 	if rej.Invalid != 4 || len(kept)+rejectedTotal(rej) != len(paths) {
 		t.Errorf("rejected = %+v", rej)
+	}
+}
+
+func sp(score int, line string, wordsAndGrounds ...string) ScoredPath {
+	p := Path{Line: line}
+	for i := 0; i < len(wordsAndGrounds); i += 2 {
+		p.Words = append(p.Words, wordsAndGrounds[i])
+		p.Grounds = append(p.Grounds, wordsAndGrounds[i+1])
+	}
+	return ScoredPath{Path: p, Score: score, Reason: "r"}
+}
+
+func TestMergeMatchesSpecExample(t *testing.T) {
+	f := Merge("patience", []ScoredPath{
+		sp(7, "His patience was a seed vault.",
+			"dormant seed", "waits intact until conditions allow", "seed vault", "stays viable for centuries"),
+	})
+
+	wantNodes := []Node{
+		{ID: "patience", Word: "patience", Role: RoleSource},
+		{ID: "dormant seed", Word: "dormant seed", Role: RoleHop},
+		{ID: "seed vault", Word: "seed vault", Role: RoleEndpoint},
+	}
+	wantEdges := []Edge{
+		{Source: "patience", Target: "dormant seed", Grounds: []string{"waits intact until conditions allow"}},
+		{Source: "dormant seed", Target: "seed vault", Grounds: []string{"stays viable for centuries"}},
+	}
+	wantEnd := []Endpoint{{
+		ID:      "seed vault",
+		Path:    []string{"patience", "dormant seed", "seed vault"},
+		Grounds: []string{"waits intact until conditions allow", "stays viable for centuries"},
+		Line:    "His patience was a seed vault.", Score: 7, Reason: "r",
+	}}
+	if f.Source != "patience" || !reflect.DeepEqual(f.Nodes, wantNodes) ||
+		!reflect.DeepEqual(f.Edges, wantEdges) || !reflect.DeepEqual(f.Endpoints, wantEnd) {
+		t.Errorf("Merge =\n%+v", f)
+	}
+}
+
+// Rule: a node that ends any kept path is an endpoint even when another
+// path passes through it; shared edges list each distinct ground once.
+func TestMergeSharesNodesAndEdges(t *testing.T) {
+	f := Merge("src", []ScoredPath{
+		sp(8, "l1", "facet", "g1", "mid", "g2"),
+		sp(7, "l2", "facet", "g1", "mid", "g2", "far", "g3"),
+		sp(6, "l3", "facet", "g1b"),
+	})
+
+	roles := map[string]Role{}
+	for _, n := range f.Nodes {
+		roles[n.ID] = n.Role
+	}
+	want := map[string]Role{"src": RoleSource, "facet": RoleEndpoint, "mid": RoleEndpoint, "far": RoleEndpoint}
+	if !reflect.DeepEqual(roles, want) || len(f.Nodes) != 4 {
+		t.Errorf("roles = %v, nodes %d", roles, len(f.Nodes))
+	}
+	if len(f.Edges) != 3 {
+		t.Fatalf("edges = %+v", f.Edges)
+	}
+	if !reflect.DeepEqual(f.Edges[0].Grounds, []string{"g1", "g1b"}) {
+		t.Errorf("src->facet grounds = %v, want [g1 g1b]", f.Edges[0].Grounds)
+	}
+}
+
+func TestMergeSortsEndpointsByScoreThenLength(t *testing.T) {
+	f := Merge("src", []ScoredPath{
+		sp(6, "a", "a", "g"),
+		sp(9, "b", "x", "g", "b", "g"),
+		sp(9, "c", "c", "g"),
+		sp(7, "d", "d", "g"),
+		sp(9, "e", "y", "g", "e", "g"),
+	})
+	var ids []string
+	for _, e := range f.Endpoints {
+		ids = append(ids, e.ID)
+	}
+	if !reflect.DeepEqual(ids, []string{"c", "b", "e", "d", "a"}) {
+		t.Errorf("endpoint order = %v, want [c b e d a]", ids)
+	}
+}
+
+// Rule: an empty forest still serialises with [] not null.
+func TestBuildEmptyForestSerialisesEmptyArrays(t *testing.T) {
+	f, _ := Build("patience", 3, 6, nil, 2, nil)
+
+	raw, err := json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	for _, want := range []string{`"edges":[]`, `"endpoints":[]`,
+		`"nodes":[{"id":"patience","word":"patience","role":"source"}]`,
+		`"stats":{"generated":2,"kept":0,"rejected":{"invalid":2,"low_score":0,"broken_hop":0,"drift":0,"cliche":0,"literal":0}}`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("JSON %s lacks %s", s, want)
+		}
+	}
+}
+
+// randomCase builds a reproducible scenario. Paths flagged bad carry "bad-"
+// in every word, ground and line and always receive a rejecting verdict (or
+// none); good paths tag every ground "p<i>" so a ground identifies the path
+// it came from.
+func randomCase(seed int64) (paths []Path, verdicts []Verdict, invalid int) {
+	rng := rand.New(rand.NewSource(seed))
+	pool := []string{"anvil", "vault", "orrery", "moraine", "escrow", "tidemark", "annealing", "winnow", "rendering", "taxidermy"}
+	n := rng.Intn(40)
+	for i := 0; i < n; i++ {
+		bad := rng.Intn(4) == 0
+		var p Path
+		perm := rng.Perm(len(pool))
+		for h := 0; h <= rng.Intn(4); h++ {
+			w, g := pool[perm[h]], fmt.Sprintf("p%d", i)
+			if bad {
+				w, g = "bad-"+w, "bad-"+g
+			}
+			p.Words, p.Grounds = append(p.Words, w), append(p.Grounds, g)
+		}
+		p.Line = "line"
+		if bad {
+			p.Line = "bad-line"
+		}
+		paths = append(paths, p)
+
+		v := Verdict{Index: i + 1, Score: rng.Intn(12) - 1, Reason: "r"}
+		switch {
+		case bad && rng.Intn(3) == 0:
+			continue // no verdict
+		case bad:
+			switch rng.Intn(5) {
+			case 0:
+				v.BrokenHop = true
+			case 1:
+				v.Drift = true
+			case 2:
+				v.Literal = true
+			case 3:
+				v.Cliche = true
+			default:
+				v.Score = rng.Intn(6)
+			}
+		}
+		verdicts = append(verdicts, v)
+	}
+	return paths, verdicts, rng.Intn(5)
+}
+
+// Rules, for every random input:
+//   - every kept endpoint's path starts at the source and each consecutive
+//     pair is an edge that carries the matching ground;
+//   - nodes and edges are exactly those of the kept endpoint paths, so no
+//     rejected path (including a deduplicated loser) contributes anything;
+//   - stats add up to generated;
+//   - the same input gives the same output, whatever the verdict order.
+func TestBuildProperties(t *testing.T) {
+	const minScore = 6
+	for seed := int64(0); seed < 300; seed++ {
+		paths, verdicts, invalid := randomCase(seed)
+		f, _ := Build("src", 4, minScore, paths, invalid, verdicts)
+
+		edgeGrounds := map[[2]string][]string{}
+		for _, e := range f.Edges {
+			edgeGrounds[[2]string{e.Source, e.Target}] = e.Grounds
+		}
+		wantNodes := map[string]bool{"src": true}
+		wantEdges := map[[2]string]bool{}
+		seenEnd := map[string]bool{}
+		prev := 11
+		for _, ep := range f.Endpoints {
+			if ep.Path[0] != "src" || ep.Path[len(ep.Path)-1] != ep.ID || len(ep.Grounds) != len(ep.Path)-1 {
+				t.Fatalf("seed %d: malformed endpoint %+v", seed, ep)
+			}
+			if seenEnd[ep.ID] {
+				t.Fatalf("seed %d: endpoint %q appears twice", seed, ep.ID)
+			}
+			seenEnd[ep.ID] = true
+			if ep.Score < minScore || ep.Score > prev {
+				t.Fatalf("seed %d: score %d out of order or below minimum", seed, ep.Score)
+			}
+			prev = ep.Score
+			if strings.Contains(ep.Line, "bad-") {
+				t.Fatalf("seed %d: rejected line leaked: %+v", seed, ep)
+			}
+			for i := 0; i+1 < len(ep.Path); i++ {
+				key := [2]string{ep.Path[i], ep.Path[i+1]}
+				if !slices.Contains(edgeGrounds[key], ep.Grounds[i]) {
+					t.Fatalf("seed %d: edge %v lacks ground %q", seed, key, ep.Grounds[i])
+				}
+				wantEdges[key] = true
+				wantNodes[ep.Path[i+1]] = true
+			}
+		}
+		gotNodes := map[string]bool{}
+		for _, n := range f.Nodes {
+			gotNodes[n.ID] = true
+			if strings.Contains(n.ID, "bad-") {
+				t.Fatalf("seed %d: rejected word leaked as node %q", seed, n.ID)
+			}
+		}
+		if !reflect.DeepEqual(gotNodes, wantNodes) || len(f.Nodes) != len(wantNodes) {
+			t.Fatalf("seed %d: nodes %v, want exactly %v", seed, gotNodes, wantNodes)
+		}
+		if len(f.Edges) != len(wantEdges) {
+			t.Fatalf("seed %d: %d edges, want %d", seed, len(f.Edges), len(wantEdges))
+		}
+		for _, e := range f.Edges {
+			if !wantEdges[[2]string{e.Source, e.Target}] {
+				t.Fatalf("seed %d: stray edge %+v", seed, e)
+			}
+			for _, g := range e.Grounds {
+				if strings.Contains(g, "bad-") {
+					t.Fatalf("seed %d: rejected ground leaked on %+v", seed, e)
+				}
+				owned := false
+				for _, ep := range f.Endpoints {
+					owned = owned || slices.Contains(ep.Grounds, g)
+				}
+				if !owned {
+					t.Fatalf("seed %d: edge ground %q belongs to no kept endpoint", seed, g)
+				}
+			}
+		}
+
+		st := f.Stats
+		if st.Generated != len(paths)+invalid || st.Kept != len(f.Endpoints) ||
+			st.Kept+rejectedTotal(st.Rejected) != st.Generated {
+			t.Fatalf("seed %d: stats do not add up: %+v", seed, st)
+		}
+
+		shuffled := append([]Verdict(nil), verdicts...)
+		rand.New(rand.NewSource(seed)).Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+		for _, vs := range [][]Verdict{verdicts, shuffled} {
+			again, _ := Build("src", 4, minScore, paths, invalid, vs)
+			if !reflect.DeepEqual(f, again) {
+				t.Fatalf("seed %d: Build is not deterministic", seed)
+			}
+		}
 	}
 }
