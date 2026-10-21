@@ -71,35 +71,11 @@ func (s *Service) Generate(ctx context.Context, source string, maxHops int) (for
 	var judgeRan bool
 	genAttempts := 1
 	defer func() {
-		attrs := []any{
-			"word", source, "max_hops", maxHops,
-			"model", s.cfg.Model, "judge_model", s.cfg.JudgeModel,
-		}
-		attrs = append(attrs, gen.attrs("gen")...)
-		attrs = append(attrs, judge.attrs("judge")...)
-		attrs = append(attrs, "gen_attempts", genAttempts, "judge_ran", judgeRan)
-		if p := recover(); p != nil {
-			s.Logger.Error("forest request", append(attrs, "outcome", "panic", "panic", fmt.Sprint(p))...)
+		p := recover()
+		s.logRequest(source, maxHops, gen, judge, genAttempts, judgeRan, forest, err, p)
+		if p != nil {
 			panic(p)
 		}
-		if errors.Is(err, context.Canceled) {
-			// The client went away; nothing failed on our side.
-			s.Logger.Info("forest request", append(attrs, "outcome", "canceled", "error", err.Error())...)
-			return
-		}
-		if err != nil {
-			s.Logger.Error("forest request", append(attrs, "outcome", "error", "error", err.Error())...)
-			return
-		}
-		r := forest.Stats.Rejected
-		attrs = append(attrs,
-			"generated", forest.Stats.Generated, "kept", forest.Stats.Kept,
-			"rejected_invalid", r.Invalid, "rejected_low_score", r.LowScore,
-			"rejected_broken_hop", r.BrokenHop, "rejected_drift", r.Drift,
-			"rejected_cliche", r.Cliche, "rejected_literal", r.Literal,
-			"rejected_duplicate", r.Duplicate,
-			"outcome", "ok")
-		s.Logger.Info("forest request", attrs...)
 	}()
 
 	valid, invalid, err := s.grow(ctx, &gen, source, maxHops)
@@ -147,6 +123,37 @@ func (s *Service) Generate(ctx context.Context, source string, maxHops int) (for
 		s.Logger.Warn("forest: judge verdict ignored", "word", source, "index", idx, "paths_judged", len(valid))
 	}
 	return forest, nil
+}
+
+// logRequest writes the one summary line per forest request, success or
+// failure. panicked is the recovered value, if any.
+func (s *Service) logRequest(source string, maxHops int, gen, judge callRecord, genAttempts int, judgeRan bool, forest Forest, err error, panicked any, extra ...any) {
+	attrs := []any{
+		"word", source, "max_hops", maxHops,
+		"model", s.cfg.Model, "judge_model", s.cfg.JudgeModel,
+	}
+	attrs = append(attrs, gen.attrs("gen")...)
+	attrs = append(attrs, judge.attrs("judge")...)
+	attrs = append(attrs, "gen_attempts", genAttempts, "judge_ran", judgeRan)
+	attrs = append(attrs, extra...)
+	switch {
+	case panicked != nil:
+		s.Logger.Error("forest request", append(attrs, "outcome", "panic", "panic", fmt.Sprint(panicked))...)
+	case errors.Is(err, context.Canceled):
+		// The client went away; nothing failed on our side.
+		s.Logger.Info("forest request", append(attrs, "outcome", "canceled", "error", err.Error())...)
+	case err != nil:
+		s.Logger.Error("forest request", append(attrs, "outcome", "error", "error", err.Error())...)
+	default:
+		r := forest.Stats.Rejected
+		s.Logger.Info("forest request", append(attrs,
+			"generated", forest.Stats.Generated, "kept", forest.Stats.Kept,
+			"rejected_invalid", r.Invalid, "rejected_low_score", r.LowScore,
+			"rejected_broken_hop", r.BrokenHop, "rejected_drift", r.Drift,
+			"rejected_cliche", r.Cliche, "rejected_literal", r.Literal,
+			"rejected_duplicate", r.Duplicate,
+			"outcome", "ok")...)
+	}
 }
 
 // grow runs one generator call and screens its paths.

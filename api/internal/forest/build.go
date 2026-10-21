@@ -236,6 +236,55 @@ const (
 // paths sharing an endpoint, the highest score survives (then the shorter
 // path, then the earlier one) and the rest count as duplicate.
 func ApplyVerdicts(paths []Path, verdicts []Verdict, minScore int) (kept []ScoredPath, rej Rejected, ignored []int) {
+	outs, ignored := judgePaths(paths, verdicts, minScore)
+	for _, o := range outs {
+		if o.reason == "" {
+			kept = append(kept, o.scored)
+		} else {
+			rej.count(o.reason)
+		}
+	}
+	return kept, rej, ignored
+}
+
+// Rejection reasons, as counted in Rejected and sent in stream events.
+const (
+	reasonInvalid   = "invalid"
+	reasonLowScore  = "low_score"
+	reasonBrokenHop = "broken_hop"
+	reasonDrift     = "drift"
+	reasonLiteral   = "literal"
+	reasonCliche    = "cliche"
+	reasonDuplicate = "duplicate"
+)
+
+func (r *Rejected) count(reason string) {
+	switch reason {
+	case reasonInvalid:
+		r.Invalid++
+	case reasonLowScore:
+		r.LowScore++
+	case reasonBrokenHop:
+		r.BrokenHop++
+	case reasonDrift:
+		r.Drift++
+	case reasonLiteral:
+		r.Literal++
+	case reasonCliche:
+		r.Cliche++
+	case reasonDuplicate:
+		r.Duplicate++
+	}
+}
+
+// pathOutcome is one path's fate: kept when reason is empty.
+type pathOutcome struct {
+	reason string
+	scored ScoredPath
+}
+
+// judgePaths decides each path in input order, by the rules of ApplyVerdicts.
+func judgePaths(paths []Path, verdicts []Verdict, minScore int) (outs []pathOutcome, ignored []int) {
 	byIndex := make(map[int]Verdict, len(verdicts))
 	for _, v := range verdicts {
 		_, dup := byIndex[v.Index]
@@ -247,43 +296,44 @@ func ApplyVerdicts(paths []Path, verdicts []Verdict, minScore int) (kept []Score
 		byIndex[v.Index] = v
 	}
 
-	var passed []ScoredPath
+	outs = make([]pathOutcome, len(paths))
 	for i, p := range paths {
 		v, ok := byIndex[i+1]
 		switch {
 		case !ok:
-			rej.Invalid++
+			outs[i].reason = reasonInvalid
 		case v.BrokenHop:
-			rej.BrokenHop++
+			outs[i].reason = reasonBrokenHop
 		case v.Drift:
-			rej.Drift++
+			outs[i].reason = reasonDrift
 		case v.Literal:
-			rej.Literal++
+			outs[i].reason = reasonLiteral
 		case v.Cliche:
-			rej.Cliche++
+			outs[i].reason = reasonCliche
 		case v.Score < minScore:
-			rej.LowScore++
+			outs[i].reason = reasonLowScore
 		default:
-			passed = append(passed, ScoredPath{Path: p, Score: v.Score, Reason: v.Reason})
+			outs[i].scored = ScoredPath{Path: p, Score: v.Score, Reason: v.Reason}
 		}
 	}
 
-	winner := make(map[string]int, len(passed))
-	for i, sp := range passed {
-		end := sp.Words[len(sp.Words)-1]
+	winner := map[string]int{}
+	for i, o := range outs {
+		if o.reason != "" {
+			continue
+		}
+		end := o.scored.Words[len(o.scored.Words)-1]
 		w, seen := winner[end]
-		if !seen || beats(sp, passed[w]) {
+		if !seen || beats(o.scored, outs[w].scored) {
 			winner[end] = i
 		}
 	}
-	for i, sp := range passed {
-		if winner[sp.Words[len(sp.Words)-1]] == i {
-			kept = append(kept, sp)
-		} else {
-			rej.Duplicate++
+	for i, o := range outs {
+		if o.reason == "" && winner[o.scored.Words[len(o.scored.Words)-1]] != i {
+			outs[i].reason = reasonDuplicate
 		}
 	}
-	return kept, rej, ignored
+	return outs, ignored
 }
 
 // beats orders candidates for one endpoint: higher score, then shorter.
