@@ -11,7 +11,7 @@ import (
 
 var forestEnvVars = []string{
 	"ANTHROPIC_API_KEY", "METAFORGE_FOREST_MODEL", "METAFORGE_FOREST_JUDGE_MODEL",
-	"METAFORGE_FOREST_EFFORT", "METAFORGE_FOREST_MIN_SCORE",
+	"METAFORGE_FOREST_EFFORT", "METAFORGE_FOREST_MIN_SCORE", "METAFORGE_FOREST_MIN_PATHS",
 	"METAFORGE_FOREST_MAX_CONCURRENT", "METAFORGE_FOREST_PER_MINUTE",
 }
 
@@ -30,7 +30,7 @@ func TestLoadForestSettingsDefaults(t *testing.T) {
 	s := loadForestSettings()
 
 	want := forestSettings{
-		Config:        forest.Config{Model: "claude-haiku-5-5", JudgeModel: "claude-haiku-5-5", Effort: "medium", MinScore: 6},
+		Config:        forest.Config{Model: "claude-haiku-5-5", JudgeModel: "claude-haiku-5-5", Effort: "low", MinScore: 6, MinPaths: 3},
 		MaxConcurrent: 4,
 		PerMinute:     30,
 	}
@@ -46,13 +46,14 @@ func TestLoadForestSettingsFromEnv(t *testing.T) {
 	t.Setenv("METAFORGE_FOREST_JUDGE_MODEL", "judge-y")
 	t.Setenv("METAFORGE_FOREST_EFFORT", "high")
 	t.Setenv("METAFORGE_FOREST_MIN_SCORE", "7")
+	t.Setenv("METAFORGE_FOREST_MIN_PATHS", "0")
 	t.Setenv("METAFORGE_FOREST_MAX_CONCURRENT", "2")
 	t.Setenv("METAFORGE_FOREST_PER_MINUTE", "10")
 
 	s := loadForestSettings()
 
 	want := forestSettings{
-		Config:        forest.Config{Model: "gen-x", JudgeModel: "judge-y", Effort: "high", MinScore: 7},
+		Config:        forest.Config{Model: "gen-x", JudgeModel: "judge-y", Effort: "high", MinScore: 7, MinPaths: 0},
 		MaxConcurrent: 2,
 		PerMinute:     10,
 		APIKey:        "sk-test",
@@ -110,8 +111,8 @@ func TestLoadForestSettingsValidatesEffort(t *testing.T) {
 	for _, bad := range []string{"turbo", "Medium", "HIGH", "0", " high"} {
 		clearForestEnv(t)
 		t.Setenv("METAFORGE_FOREST_EFFORT", bad)
-		if s := loadForestSettings(); s.Config.Effort != "medium" {
-			t.Errorf("effort %q gave %q, want medium", bad, s.Config.Effort)
+		if s := loadForestSettings(); s.Config.Effort != defaultForestEffort {
+			t.Errorf("effort %q gave %q, want the default %q", bad, s.Config.Effort, defaultForestEffort)
 		}
 	}
 }

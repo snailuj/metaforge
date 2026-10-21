@@ -14,8 +14,9 @@ import (
 
 const (
 	defaultForestModel         = "claude-haiku-5-5"
-	defaultForestEffort        = "medium"
+	defaultForestEffort        = "low" // tuned 2026-10-21: medium was 3-4x slower for no better forests
 	defaultForestMinScore      = 6
+	defaultForestMinPaths      = 3
 	defaultForestMaxConcurrent = 4
 	defaultForestPerMinute     = 30
 
@@ -42,6 +43,7 @@ func loadForestSettings() forestSettings {
 			JudgeModel: envOrDefault("METAFORGE_FOREST_JUDGE_MODEL", model),
 			Effort:     validEffortEnv("METAFORGE_FOREST_EFFORT", defaultForestEffort),
 			MinScore:   boundedEnvInt("METAFORGE_FOREST_MIN_SCORE", defaultForestMinScore, 0, 10),
+			MinPaths:   boundedEnvInt("METAFORGE_FOREST_MIN_PATHS", defaultForestMinPaths, 0, 24),
 		},
 		MaxConcurrent: boundedEnvInt("METAFORGE_FOREST_MAX_CONCURRENT", defaultForestMaxConcurrent, 1, 1<<20),
 		PerMinute:     boundedEnvInt("METAFORGE_FOREST_PER_MINUTE", defaultForestPerMinute, 1, 1<<20),

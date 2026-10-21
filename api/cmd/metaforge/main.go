@@ -163,7 +163,7 @@ func main() {
 		"forge_ortony_weight", *ortonyWeight, "forge_ortony_scoring", *ortonyScoring,
 		"forge_gamma", *gamma,
 		"forest_model", forestCfg.Config.Model, "forest_judge_model", forestCfg.Config.JudgeModel,
-		"forest_effort", forestCfg.Config.Effort, "forest_min_score", forestCfg.Config.MinScore,
+		"forest_effort", forestCfg.Config.Effort, "forest_min_score", forestCfg.Config.MinScore, "forest_min_paths", forestCfg.Config.MinPaths,
 		"forest_max_concurrent", forestCfg.MaxConcurrent, "forest_per_minute", forestCfg.PerMinute,
 		"forest_configured", forestCfg.APIKey != "")
 

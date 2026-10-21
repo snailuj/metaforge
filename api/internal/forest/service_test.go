@@ -362,3 +362,93 @@ func TestServiceNeverJudgesInvalidPaths(t *testing.T) {
 	}
 }
 
+// stubJSON is the degenerate output seen live: one facet, no branches.
+const stubJSON = `{"facets":[{"word":"palimpsest","ground":"x","line":"","branches":[]}]}`
+
+func verdictsJSON(n int) string {
+	var vs []string
+	for i := 1; i <= n; i++ {
+		vs = append(vs, fmt.Sprintf(`{"index":%d,"reason":"ok","broken_hop":false,"drift":false,"literal":false,"cliche":false,"score":7}`, i))
+	}
+	return `{"verdicts":[` + strings.Join(vs, ",") + `]}`
+}
+
+// Rule: a generator answer with fewer than MinPaths valid paths is retried
+// once, with the same request, and the retry's paths are judged.
+func TestServiceRetriesThinGeneratorOutputOnce(t *testing.T) {
+	f := &fakeLLM{results: []fakeResult{ok(stubJSON, 10, 20, 0), ok(generatedJSON, 30, 40, 5), ok(verdictsJSON(2), 1, 1, 0)}}
+	s, logs := testService(f)
+	s.cfg.MinPaths = 2
+
+	forest, err := s.Generate(context.Background(), "patience", 3)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(f.calls) != 3 || !reflect.DeepEqual(f.calls[0], f.calls[1]) || f.calls[2].System != JudgeSystemPrompt {
+		t.Fatalf("calls = %d, want generate, identical retry, judge", len(f.calls))
+	}
+	if len(forest.Endpoints) != 2 || forest.Stats.Generated != 3 {
+		t.Errorf("forest = %+v, want the retry's paths", forest)
+	}
+	var sawWarn bool
+	for _, rec := range logRecords(t, logs) {
+		if rec["msg"] == "forest: thin generator output, retrying" {
+			sawWarn = rec["level"] == "WARN" && rec["valid"] == float64(0)
+		}
+		if rec["msg"] == "forest request" {
+			if rec["gen_attempts"] != float64(2) || rec["gen_input_tokens"] != float64(40) || rec["gen_output_tokens"] != float64(60) {
+				t.Errorf("summary = %v, want 2 attempts with summed tokens", rec)
+			}
+		}
+	}
+	if !sawWarn {
+		t.Error("no WARN line for the thin output")
+	}
+}
+
+// Rule: there is never a third generator call; the fuller attempt wins.
+func TestServiceKeepsTheFullerOfTwoThinAttempts(t *testing.T) {
+	f := &fakeLLM{results: []fakeResult{ok(generatedJSON, 1, 1, 0), ok(stubJSON, 1, 1, 0), ok(verdictsJSON(2), 1, 1, 0)}}
+	s, _ := testService(f)
+	s.cfg.MinPaths = 5
+
+	forest, err := s.Generate(context.Background(), "patience", 3)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(f.calls) != 3 || len(forest.Endpoints) != 2 {
+		t.Errorf("calls=%d endpoints=%d, want 3 calls judging the first attempt's 2 paths", len(f.calls), len(forest.Endpoints))
+	}
+}
+
+// Rule: a failed retry is logged and the first attempt is still judged; a
+// thin forest beats an error page.
+func TestServiceKeepsFirstAttemptWhenRetryFails(t *testing.T) {
+	f := &fakeLLM{results: []fakeResult{ok(generatedJSON, 1, 1, 0), {err: errors.New("overloaded")}, ok(verdictsJSON(2), 1, 1, 0)}}
+	s, logs := testService(f)
+	s.cfg.MinPaths = 3
+
+	forest, err := s.Generate(context.Background(), "patience", 3)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(forest.Endpoints) != 2 {
+		t.Errorf("endpoints = %d, want the first attempt's 2", len(forest.Endpoints))
+	}
+	if !strings.Contains(logs.String(), "overloaded") {
+		t.Errorf("retry failure not logged:\n%s", logs)
+	}
+}
+
+// Rule: a retry cut short by the request deadline returns the deadline
+// error, so the handler answers 504 rather than a thin 200.
+func TestServiceReturnsDeadlineFromRetry(t *testing.T) {
+	f := &fakeLLM{results: []fakeResult{ok(stubJSON, 1, 1, 0), {err: context.DeadlineExceeded}}}
+	s, _ := testService(f)
+	s.cfg.MinPaths = 3
+
+	_, err := s.Generate(context.Background(), "patience", 3)
+	if !errors.Is(err, context.DeadlineExceeded) || len(f.calls) != 2 {
+		t.Errorf("err=%v calls=%d, want DeadlineExceeded after 2 calls", err, len(f.calls))
+	}
+}
