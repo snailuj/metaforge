@@ -15,7 +15,7 @@ vi.mock('three/addons/renderers/CSS2DRenderer.js', () => ({
   })),
 }))
 import {
-  labelScale, buildLabelEl, DEFAULT_LABEL_SIZE, LABEL_CENTER,
+  labelScale, buildLabelEl, DEFAULT_LABEL_SIZE, LABEL_CENTER, makeGroundLabel,
   type LabelSizeConfig,
 } from './label-layer'
 
@@ -172,5 +172,34 @@ describe('syncLabelVisibility', () => {
     syncLabelVisibility(nodes, n => (n as { id: string }).id === 'a')
     expect(a.visible).toBe(true); expect(a.element.style.display).toBe('')
     expect(b.visible).toBe(false); expect(b.element.style.display).toBe('none')
+  })
+})
+
+// Forest words, grounds and lines come straight from a language model, so every
+// label renders them as text and never as markup.
+const HOSTILE = '<img src=x onerror=alert(1)>'
+
+describe('forest label primitives', () => {
+  it('a label mark renders as its own span before the text', () => {
+    const el = buildLabelEl({ text: 'seed vault', colour: '#fff', role: 'forest-endpoint', mark: '\u2726' }, CONST)
+    const mark = el.querySelector('.mf-graph-label__mark')
+    expect(mark?.textContent).toBe('\u2726')
+    expect(el.firstElementChild).toBe(mark)
+    expect(el.querySelector('.mf-graph-label__text')?.textContent).toBe('seed vault')
+  })
+
+  it('renders model text in a node label as text, never as markup', () => {
+    const el = buildLabelEl({ text: HOSTILE, colour: '#fff', role: 'forest-hop', mark: HOSTILE }, CONST)
+    expect(el.querySelector('img')).toBeNull()
+    expect(el.querySelector('.mf-graph-label__text')?.textContent).toBe(HOSTILE)
+  })
+
+  it('a ground label shows each ground on its own line, as text', () => {
+    const obj = makeGroundLabel(['stays viable for centuries', HOSTILE])
+    const el = obj.element as HTMLElement
+    expect(el.className).toContain('mf-ground-label')
+    expect(el.querySelector('img')).toBeNull()
+    expect([...el.querySelectorAll('.mf-ground-label__ground')].map(g => g.textContent)).toEqual(['stays viable for centuries', HOSTILE])
+    expect(el.style.pointerEvents).toBe('none')
   })
 })
