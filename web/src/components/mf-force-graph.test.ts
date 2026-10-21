@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { GraphData } from '@/graph/types'
-import { RARITY_COLOURS, NODE_COLOURS, FOREST_COLOURS } from '@/graph/colours'
+import { RARITY_COLOURS, NODE_COLOURS, FOREST_COLOURS, withAlpha } from '@/graph/colours'
 import type { ForestResponse } from '@/types/api'
-import { composeForest, forestToGraph } from '@/graph/forest'
+import { composeForest, forestToGraph, streamMarks, fadeMarks, FOREST_FADE_MS } from '@/graph/forest'
+import type { StreamPath } from '@/forest/state'
 import patienceForest from '@/fixtures/forest-patience.json'
 
 // Capture the accessor functions and constructor options passed to the graph instance
@@ -1442,6 +1443,134 @@ describe('MfForceGraph metaphor forest', () => {
     el.addEventListener('mf-forest-select', select)
     ;(lastArgs.onBackgroundClick[0] as () => void)()
     expect(select).not.toHaveBeenCalled()
+  })
+})
+
+describe('MfForceGraph streamed forest', () => {
+  const thesaurus = (): GraphData => ({
+    nodes: [
+      { id: 'patience', word: 'patience', relationType: 'central', val: 8, order: 0, rarity: 'common' },
+      { id: 'forbearance', word: 'forbearance', relationType: 'synonym', val: 4, order: 1, rarity: 'rare' },
+    ],
+    links: [{ source: 'patience', target: 'forbearance', relationType: 'synonym', order: 1 }],
+  })
+  const hop = (from: string, to: string) => ({ from, to, ground: `${from} to ${to}` })
+  // f0b0 pending (patience > tide pool > rock pool), f1 kept (patience > glacier),
+  // f2 rejected after it was drawn (patience > sandbar), so sandbar fades.
+  const before: Record<string, StreamPath> = {
+    f0: { id: 'f0', facet: 0, hops: [hop('patience', 'tide pool')], status: 'pending' },
+    f0b0: { id: 'f0b0', facet: 0, hops: [hop('tide pool', 'rock pool')], status: 'pending' },
+    f1: { id: 'f1', facet: 1, hops: [hop('patience', 'glacier')], status: 'kept', endpoint: 'glacier', score: 8 },
+    f2: { id: 'f2', facet: 2, hops: [hop('patience', 'sandbar')], status: 'pending' },
+  }
+  const after = { ...before, f2: { ...before.f2, status: 'rejected' as const } }
+  const linkTo = (data: GraphData, target: string) => data.links.find(l => l.metaphor && l.target === target)!
+  const alpha = (colour: string) => {
+    const m = colour.match(/rgba\([^)]*,\s*([\d.]+)\)/)
+    return m ? Number(m[1]) : 1
+  }
+  const particles = (l: unknown) => (lastArgs.linkDirectionalParticles[0] as (l: unknown) => number)(l)
+  const particleSpeed = (l: unknown) => (lastArgs.linkDirectionalParticleSpeed[0] as (l: unknown) => number)(l)
+
+  let el: MfForceGraph
+  let data: GraphData
+
+  async function mount(opts: { reducedMotion?: boolean } = {}) {
+    vi.stubGlobal('matchMedia', (q: string) => ({
+      matches: q.includes('prefers-reduced-motion') ? !!opts.reducedMotion : false,
+      addEventListener: () => {}, removeEventListener: () => {},
+    }))
+    const fadeMs = opts.reducedMotion ? 0 : FOREST_FADE_MS
+    const marks = fadeMarks(streamMarks(before, null), streamMarks(after, null), null, performance.now(), fadeMs)
+    const c = composeForest(thesaurus(), null, { marks, pool: new Map() })
+    data = c.data
+    el = new MfForceGraph()
+    el.graphData = c.data
+    el.forest = c.overlay
+    document.body.appendChild(el)
+    await el.updateComplete
+  }
+
+  beforeEach(() => {
+    lastArgs = {}
+    setCounts = {}
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    el.remove()
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  // Rule: an unjudged link flickers (its opacity keeps changing, with particle bursts); a judged one is steady.
+  it('flickers pending links with changing opacity and particle bursts, and holds kept ones steady', async () => {
+    await mount()
+    const pending = linkTo(data, 'rock pool')
+    const kept = linkTo(data, 'glacier')
+    expect(pending.metaphor!.stream).toBe('pending')
+    expect(kept.metaphor!.stream).toBe('kept')
+    const seen = new Set<number>()
+    const keptSeen = new Set<string>()
+    for (let i = 0; i < 20; i++) {
+      vi.advanceTimersByTime(100)
+      seen.add(alpha(capturedLinkColor!(pending)))
+      keptSeen.add(capturedLinkColor!(kept))
+    }
+    expect(seen.size).toBeGreaterThan(3)
+    expect(setCounts.emitParticle ?? 0).toBeGreaterThan(0)
+    expect(keptSeen.size).toBe(1)
+    // a kept stream link takes the same live colouring as a snapshot link
+    expect(capturedLinkColor!(kept)).toBe(withAlpha(FOREST_COLOURS.branch, 0.85))
+    expect(particles(kept)).toBe(2)
+  })
+
+  // Rule: a link no path uses any more fades out over about 600 ms.
+  it('fades a dropped link and node out over the fade time', async () => {
+    await mount()
+    const fading = linkTo(data, 'sandbar')
+    expect(fading.metaphor!.stream).toBe('fading')
+    const start = alpha(capturedLinkColor!(fading))
+    vi.advanceTimersByTime(FOREST_FADE_MS / 2)
+    const mid = alpha(capturedLinkColor!(fading))
+    vi.advanceTimersByTime(FOREST_FADE_MS)
+    const end = alpha(capturedLinkColor!(fading))
+    expect(start).toBeGreaterThan(mid)
+    expect(mid).toBeGreaterThan(end)
+    expect(end).toBe(0)
+    const node = data.nodes.find(n => n.id === 'sandbar')!
+    expect(alpha(capturedNodeColor!(node))).toBe(0)
+    expect((capturedNodeThreeObject!(node) as { element: HTMLElement }).element.hasAttribute('data-fading')).toBe(true)
+  })
+
+  it('stops its timer once nothing is pending or fading', async () => {
+    await mount()
+    vi.advanceTimersByTime(100)
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
+    el.forest = composeForest(thesaurus(), null).overlay
+    await el.updateComplete
+    vi.advanceTimersByTime(1000)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  // Rule: with reduced motion nothing flickers or fades; pending links are still and dotted.
+  it('with reduced motion draws pending links still and dotted, and never fades', async () => {
+    await mount({ reducedMotion: true })
+    expect(data.links.some(l => l.metaphor?.stream === 'fading')).toBe(false)
+    const pending = linkTo(data, 'rock pool')
+    const first = capturedLinkColor!(pending)
+    vi.advanceTimersByTime(2000)
+    expect(capturedLinkColor!(pending)).toBe(first)
+    expect(setCounts.emitParticle ?? 0).toBe(0)
+    expect(particles(pending)).toBeGreaterThan(2)
+    expect(particleSpeed(pending)).toBe(0)
+    expect(particleSpeed(linkTo(data, 'glacier'))).toBeGreaterThan(0)
+  })
+
+  it('does not reframe the camera while only a stream is drawn', async () => {
+    await mount()
+    vi.advanceTimersByTime(5000)
+    expect(setCounts.zoomToFit ?? 0).toBe(0)
   })
 })
 

@@ -6,7 +6,7 @@ import type { ForceGraph3DInstance } from '3d-force-graph'
 import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR, FOREST_COLOURS, withAlpha } from '@/graph/colours'
 import { makeLabelRenderer, makeLabelObject, makeGroundLabel, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle, type BacklinkRow } from '@/graph/label-layer'
-import { forestDepthForce, type ForestNodeInfo, type ForestOverlay, type ForestTarget } from '@/graph/forest'
+import { forestDepthForce, FOREST_FADE_MS, type ForestNodeInfo, type ForestOverlay, type ForestTarget } from '@/graph/forest'
 import type { ChainRecord, JudgementRecord } from '../types/grading'
 import { normaliseJudgement } from '../types/grading'
 
@@ -28,6 +28,15 @@ const FOREST_FRAME_AT_MS = [900, 3200]
 const FOREST_FRAME_PADDING = { wide: 110, narrow: 30 }
 const LIVE_MARK = '\u2726'
 const GROUND_LABEL_AT = 0.36 // along the link, from its source
+// Streamed forest: unjudged links flicker like lightning. Each one holds a
+// random brightness for a random short spell and sometimes throws a spark.
+const STREAM_TICK_MS = 90
+const FLICKER_HOLD_MS = { min: 60, max: 260 }
+const FLICKER_ALPHA = { min: 0.08, max: 1 }
+const FLICKER_SPARK_CHANCE = 0.35
+// Reduced motion: a pending link is a still, dotted line (particles that never move).
+const STILL_DOTS = 6
+const PARTICLE_SPEED = 0.0045
 type Emphasis = 'lit' | 'dim' | 'normal'
 
 // 300ms matches typical OS double-click threshold; balances responsiveness
@@ -237,9 +246,21 @@ export class MfForceGraph extends LitElement {
     .mf-ground-label[data-lit] {
       visibility: visible;
     }
+    /* Streamed words: unjudged ones sit back a little; dropped ones fade out
+       (reduced motion removes them at once, so the fade never runs there). */
+    .mf-graph-label[data-pending] {
+      opacity: 0.75;
+    }
     @media (prefers-reduced-motion: no-preference) {
       .mf-graph-label[data-role^='forest'] {
         transition: opacity 160ms ease;
+      }
+      .mf-graph-label[data-fading] {
+        animation: mf-forest-fade 600ms ease-out forwards;
+      }
+      @keyframes mf-forest-fade {
+        from { opacity: 1; }
+        to { opacity: 0; }
       }
     }
   `
@@ -261,6 +282,9 @@ export class MfForceGraph extends LitElement {
   private lastPointerType = 'mouse'
   private forestHoverActive = false
   private forestFrameTimers: ReturnType<typeof setTimeout>[] = []
+  private streamTimer: ReturnType<typeof setTimeout> | null = null
+  // Current flicker brightness of each pending link, keyed by its forest ends.
+  private flicker = new Map<string, { alpha: number; until: number }>()
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
   @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
@@ -308,6 +332,15 @@ export class MfForceGraph extends LitElement {
     return endpointIds.some(id => this.forestLit!.has(id)) ? 'lit' : 'dim'
   }
 
+  /** Share of a fading mark's fade still to run: 1 when it starts, 0 when gone. */
+  private fadeLeft(fadeUntil: number | undefined): number {
+    return Math.min(1, Math.max(0, ((fadeUntil ?? 0) - performance.now()) / FOREST_FADE_MS))
+  }
+
+  private flickerKey(l: GraphLink): string {
+    return JSON.stringify([l.metaphor!.forestSource, l.metaphor!.forestTarget])
+  }
+
   private nodeColorFn = (n: unknown): string => {
     if (this.mode === 'grade') return GRADE_NODE_COLOURS[(n as GradeNode).role]
     const node = n as GraphNode
@@ -319,6 +352,8 @@ export class MfForceGraph extends LitElement {
     if (!info) return withAlpha(base, this.forestLit ? 0.18 : 0.55)
     if (info.role === 'source') return NODE_COLOURS.central
     const colour = info.role === 'endpoint' ? FOREST_COLOURS.endpoint : FOREST_COLOURS.hop
+    if (info.stream === 'fading') return withAlpha(colour, Math.round(this.fadeLeft(info.fadeUntil) * 100) / 100)
+    if (info.stream === 'pending') return withAlpha(colour, 0.7)
     return this.emphasis(info.endpointIds) === 'dim' ? withAlpha(colour, 0.22) : colour
   }
 
@@ -332,6 +367,14 @@ export class MfForceGraph extends LitElement {
     }
     const link = l as GraphLink
     if (this.activeForest) {
+      if (link.metaphor?.stream === 'pending') {
+        return this.reducedMotion
+          ? withAlpha(FOREST_COLOURS.branch, 0.45)
+          : withAlpha(FOREST_COLOURS.spark, this.flicker.get(this.flickerKey(link))?.alpha ?? FLICKER_ALPHA.max)
+      }
+      if (link.metaphor?.stream === 'fading') {
+        return withAlpha(FOREST_COLOURS.branch, Math.round(0.85 * this.fadeLeft(link.metaphor.fadeUntil) * 100) / 100)
+      }
       if (link.metaphor) {
         const e = this.emphasis(link.metaphor.endpointIds)
         return e === 'lit' ? FOREST_COLOURS.spark : withAlpha(FOREST_COLOURS.branch, e === 'dim' ? 0.16 : 0.85)
@@ -343,10 +386,15 @@ export class MfForceGraph extends LitElement {
 
   private particleCountFn = (l: unknown): number => {
     const link = l as GraphLink
-    if (this.reducedMotion || !this.activeForest || !link.metaphor) return 0
+    if (!this.activeForest || !link.metaphor) return 0
+    if (link.metaphor.stream === 'pending') return this.reducedMotion ? STILL_DOTS : 0
+    if (this.reducedMotion || link.metaphor.stream === 'fading') return 0
     const e = this.emphasis(link.metaphor.endpointIds)
     return e === 'lit' ? 4 : e === 'dim' ? 0 : 2
   }
+
+  private particleSpeedFn = (l: unknown): number =>
+    this.reducedMotion && (l as GraphLink).metaphor?.stream === 'pending' ? 0 : PARTICLE_SPEED
 
   private linkWidthFn = (l: unknown): number => {
     if (this.mode === 'grade') return (l as GradeLink).chainSig === this.hoveredChainSig ? 3 : 1.5
@@ -390,6 +438,56 @@ export class MfForceGraph extends LitElement {
     el.toggleAttribute('data-lit', fade === 'lit')
     const info = this.activeForest && this.forestSelectedId ? this.forestInfo(n) : undefined
     el.toggleAttribute('data-selected', !!info && info.forestId === this.forestSelectedId)
+    const stream = this.forestInfo(n)?.stream
+    el.toggleAttribute('data-pending', stream === 'pending')
+    el.toggleAttribute('data-fading', stream === 'fading')
+    // A label rebuilt mid-fade picks the fade up where it was.
+    el.style.animationDelay = stream === 'fading'
+      ? `${-Math.round((1 - this.fadeLeft(this.forestInfo(n)?.fadeUntil)) * FOREST_FADE_MS)}ms`
+      : ''
+  }
+
+  /** Run the stream animation while any streamed link is pending or fading,
+   *  and stop it when none is. Reduced motion never animates. */
+  private syncStreamAnimation(): void {
+    const animate = !!this.graph && !this.reducedMotion && !!this.activeForest &&
+      this.graphData.links.some(l => l.metaphor?.stream === 'pending' || l.metaphor?.stream === 'fading')
+    if (animate && !this.streamTimer) this.streamTimer = setTimeout(this.tickStream, STREAM_TICK_MS)
+    if (!animate && this.streamTimer) {
+      clearTimeout(this.streamTimer)
+      this.streamTimer = null
+    }
+  }
+
+  /** One animation step: new flicker spells and sparks for pending links, and
+   *  the next fade step. Colour accessors only, so the simulation is untouched. */
+  private tickStream = (): void => {
+    this.streamTimer = null
+    if (!this.graph || !this.activeForest) return
+    const now = performance.now()
+    const flicker = new Map<string, { alpha: number; until: number }>()
+    let more = false
+    for (const l of this.graphData.links) {
+      const m = l.metaphor
+      if (m?.stream === 'pending') {
+        more = true
+        const key = this.flickerKey(l)
+        let spell = this.flicker.get(key)
+        if (!spell || now >= spell.until) {
+          spell = {
+            alpha: Math.round((FLICKER_ALPHA.min + Math.random() * (FLICKER_ALPHA.max - FLICKER_ALPHA.min)) * 100) / 100,
+            until: now + FLICKER_HOLD_MS.min + Math.random() * (FLICKER_HOLD_MS.max - FLICKER_HOLD_MS.min),
+          }
+          if (Math.random() < FLICKER_SPARK_CHANCE) this.graph.emitParticle(l)
+        }
+        flicker.set(key, spell)
+      } else if (m?.stream === 'fading' && (m.fadeUntil ?? 0) > now) {
+        more = true
+      }
+    }
+    this.flicker = flicker
+    this.graph.linkColor(this.linkColorFn).nodeColor(this.nodeColorFn)
+    if (more) this.streamTimer = setTimeout(this.tickStream, STREAM_TICK_MS)
   }
 
   /** Frame the whole graph a moment after a new forest lands, so the burst
@@ -674,7 +772,7 @@ export class MfForceGraph extends LitElement {
       // Metaphor forest: sparks flow source to target, which the transform
       // orients from the source word outward along each path.
       .linkDirectionalParticles(this.particleCountFn)
-      .linkDirectionalParticleSpeed(0.0045)
+      .linkDirectionalParticleSpeed(this.particleSpeedFn)
       .linkDirectionalParticleWidth(2.2)
       .linkDirectionalParticleColor(() => FOREST_COLOURS.spark)
       .linkDirectionalArrowLength(this.arrowLengthFn)
@@ -926,7 +1024,8 @@ export class MfForceGraph extends LitElement {
     // re-evaluate styling and visibility in place.
     const forestChanged = changed.has('forest') || changed.has('forestVisible')
     const previous = changed.get('forest') as ForestOverlay | null | undefined
-    if (this.graph && changed.has('forest') && this.forest && this.forest.forest !== previous?.forest) {
+    // A stream with no snapshot yet has no forest to frame; the first snapshot frames it.
+    if (this.graph && changed.has('forest') && this.forest?.forest && this.forest.forest !== previous?.forest) {
       this.scheduleForestFraming()
     }
     if (this.graph && forestChanged) {
@@ -959,6 +1058,7 @@ export class MfForceGraph extends LitElement {
     if ((changed.has('pathFilter') || changed.has('hiddenRarities')) && this.graph) {
       this.reapplyVisibility()
     }
+    if (forestChanged || topologyChanged) this.syncStreamAnimation()
   }
 
   /** Re-apply the visibility predicates and mirror them onto the label DOM.
@@ -979,6 +1079,8 @@ export class MfForceGraph extends LitElement {
     if (this.clickTimer) clearTimeout(this.clickTimer)
     if (this.gradeFrameTimer) clearTimeout(this.gradeFrameTimer)
     this.forestFrameTimers.forEach(clearTimeout)
+    if (this.streamTimer) clearTimeout(this.streamTimer)
+    this.streamTimer = null
     if (this.resizeObserver) {
       this.resizeObserver.disconnect()
       this.resizeObserver = null
