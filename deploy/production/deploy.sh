@@ -3,7 +3,7 @@
 # Idempotent: pull -> restore DB -> build Go -> build frontend -> drop Caddy snippet -> reload
 #
 # Drops a single-site Caddy snippet into /etc/caddy/conf.d/.
-# Does NOT own or restart the Caddy service -- the system caddy.service
+# Does NOT own or restart the Caddy service -- julianit-caddy.service
 # imports all snippets via: import /etc/caddy/conf.d/*.caddy
 #
 # Usage: ./deploy.sh
@@ -67,7 +67,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE_NAME}"
 sudo systemctl restart "${SERVICE_NAME}"
 sleep 2
-sudo caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+# Via the unit so the adapt sees its EnvironmentFile: other snippets (staging's
+# grading auth) reference {$VAR} secrets that a bare `caddy reload` lacks.
+sudo systemctl reload julianit-caddy
 echo ""
 
 # 8. Health checks
