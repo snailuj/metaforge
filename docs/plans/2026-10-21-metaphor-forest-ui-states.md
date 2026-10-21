@@ -156,6 +156,17 @@ The panel's Look up button and a double-click on any forest node run `doLookup` 
 - A 404 restores `appState = 'ready'`, leaves the forest, any request and the search box alone, and shows the toast ""{word}" isn't in the thesaurus. Your forest is unchanged." for 5 s (`role="status"`). Focus does not move.
 - Any other failure takes the existing lookup error path.
 
+### 5.6 Streaming (added 2026-10-21)
+
+Forge and New forest read the forest as a server-sent event stream (`docs/plans/2026-10-21-forest-streaming.md`).
+
+- The first stream event moves `loading` to `streaming`, which holds the latest snapshot and the pending paths by id. A `kept` or `rejected` resolves a pending path once; later events for that path change nothing.
+- Snapshots replace the shown forest and list. `done` settles as the JSON answer did; `error` becomes `failed`.
+- Cancel and errors keep the last snapshot and drop pending paths. The seq check covers stream events.
+- During a re-roll the old forest stays on graph and list until the first snapshot with endpoints; pending hops draw over it. Only that first snapshot clears highlights and turns Show on graph back on, so a hover survives later snapshots.
+- The status line shows the loading text until the first event, then "Forging... N metaphors so far" from the latest snapshot of this stream.
+- A pending or fading node or link stays while any pending or kept path uses it, then fades for 600 ms (removed at once under reduced motion). One rule covers rejection, `done`, cancel and errors.
+
 ## 6. Region B: highlight
 
 Targets: a path (by endpoint id), a forest node, or a metaphor link. A target lights every kept path that contains it (`litEndpoints`, `web/src/graph/forest.ts:143`).
