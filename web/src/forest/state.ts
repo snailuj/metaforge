@@ -82,7 +82,9 @@ export function reduceForest(s: ForestState, e: ForestEvent): ForestState {
       }
 
     case 'settled': {
-      if (!isCurrent(s, e.seq) || normaliseWord(e.response.source) !== normaliseWord(s.word)) return s
+      // seq alone identifies the response: the server's normalised `source`
+      // can differ from ours (Go and JS disagree on case and whitespace).
+      if (!isCurrent(s, e.seq)) return s
       if (e.response.endpoints.length > 0) {
         return { ...s, ...NO_HIGHLIGHT, request: { kind: 'idle' }, content: { kind: 'forest', response: e.response }, onGraph: true, notice: 'found' }
       }

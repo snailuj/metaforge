@@ -126,21 +126,28 @@ describe('forest state: stale responses', () => {
     expect(lateFail).toBe(moved)
   })
 
+  it('drops an old response while a newer request is in flight, even one naming the new word', () => {
+    const old = loading()
+    const newer = run(old, { type: 'word-committed', word: 'bureaucracy' }, { type: 'forge' })
+    const late = reduceForest(newer, { type: 'settled', seq: old.seq, response: { ...forest, source: 'bureaucracy' } })
+    expect(late).toBe(newer)
+    expect(reduceForest(newer, { type: 'failed', seq: old.seq, error: 'timeout', retryAfterSeconds: null })).toBe(newer)
+  })
+
   it('drops a response from a cancelled request', () => {
     const inFlight = loading()
     const cancelled = reduceForest(inFlight, { type: 'cancel' })
     expect(reduceForest(cancelled, { type: 'settled', seq: inFlight.seq, response: forest })).toBe(cancelled)
   })
 
-  it('drops a response whose source is not the committed word, even under the current sequence', () => {
-    const s = loading()
-    const wrong = { ...forest, source: 'impatience' }
-    expect(reduceForest(s, { type: 'settled', seq: s.seq, response: wrong })).toBe(s)
-  })
-
-  it('matches the source to the committed word after normalisation', () => {
-    const s = run(initialForestState('  Patience '), { type: 'forge' })
-    expect(settle(s).content.kind).toBe('forest')
+  // Rule: the sequence number alone identifies the current response. Go and JS
+  // normalise words differently, so a server-normalised source must never strand
+  // the request in loading.
+  it.each(['İstanbul', 'istanbul\u0085', 'Patience'])('settles the current request whatever source the server reports (%j)', source => {
+    const s = run(initialForestState('istanbul'), { type: 'forge' })
+    const done = reduceForest(s, { type: 'settled', seq: s.seq, response: { ...forest, source } })
+    expect(done.request.kind).toBe('idle')
+    expect(done.content.kind).toBe('forest')
   })
 
   it('drops a second response under a sequence that already settled', () => {

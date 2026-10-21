@@ -54,6 +54,7 @@ Existing behaviour the design relies on, unchanged: lookups are latest-wins thro
 | A mode switch aborts nothing and clears only hover and focus. | The request is already paid for; letting it land keeps the forest for the way back. Only pointer and focus sources go stale when the panel unmounts. |
 | One-Phone-Panel-Open is done by stacking: an opened results panel slides over the forest sheet. | Same outcome with one CSS rule and no new cross-component event. |
 | The next Forge clears an empty result. | Nothing on screen is worth keeping, and `empty` then only ever pairs with an idle request. |
+| The stale check uses `seq` alone; the `source` comparison is dropped (review finding). | Go and JS normalise differently ("İstanbul", U+0085), so a current response could be dropped and leave the request loading. |
 | Failure kinds are named (`invalid-word`, `busy`, `failed`, `not-configured`, `timeout`, `network`), not numbered by status. | Names say what to do; statuses stay in the logs. |
 | "Max hops" is "Max steps" in the UI, and all copy was rewritten to name the next action. | Plain language and floor item 17. |
 | Composition: a new forest is framed by the camera, its rings clear the thesaurus cloud and flatten toward the default camera, thesaurus labels recede, and lit words stay above ground labels. | The owner must see the forest at a glance; these came from the visual check. |
@@ -65,7 +66,7 @@ One `ForestState` (`web/src/forest/state.ts`), plus effect handles.
 | Field | Meaning |
 |---|---|
 | `word` | The committed word (`result.word`). Requests always send it, never the search box text. |
-| `seq` | Bumped on every Forge, Cancel and word change. A response applies only if its `seq` is current, a request is in flight, and its `source` normalises to `word`. Whenever `seq` moves, `mf-app` aborts the request in flight. |
+| `seq` | Bumped on every Forge, Cancel and word change. A response applies only if its `seq` is current and a request is in flight; `source` is not compared, because Go and JS normalise words differently. Whenever `seq` moves, `mf-app` aborts the request in flight. |
 | `request` | `idle`, `loading`, or `failed(kind, retryAfterSeconds)`. |
 | `content` | `none`, `forest(response)` (at least one endpoint) or `empty(response)`. |
 | `maxHops` | 1 to 5, default 3. Survives word changes and failures. |
@@ -99,7 +100,7 @@ Presentation discriminates every pair: the primary label (Forge, Forging…, New
 2. settled, at least one endpoint (200).
 3. settled, no endpoints (200).
 4. failed(kind): any non-200, a network failure, or a 200 whose body breaks the contract.
-5. stale: any settle whose `seq` is not current, or arrives with no request in flight, or whose `source` is not the committed word, and every AbortError.
+5. stale: any settle whose `seq` is not current or that arrives with no request in flight, and every AbortError.
 6. cancel.
 7. word-committed: a lookup succeeds. Same word or another word.
 8. set-max-hops.
@@ -296,7 +297,7 @@ Mode switch to grade: the panel and browse graph unmount; hover and focus are cl
 | Own-Error-Channel | Forest failures live in the panel, not `errorMessage`. | Shared string, cleared by every lookup. |
 | Forge-Uses-Committed-Word | Requests send `result.word`. | The search box changes before a lookup succeeds. |
 | Forest-Follows-Committed-Word | Same word keeps the forest, another word clears it, a lookup start or failure changes nothing. | A typo or a repeat search must not destroy a forest. |
-| Stale-By-Seq-And-Source | A response applies only under the current `seq`, with a request in flight, for the committed word. | Belt and braces against late responses and our own aborts. |
+| Stale-By-Seq | A response applies only under the current `seq` with a request in flight. Alias: Stale-By-Seq-And-Source. | Every Forge, Cancel and word change moves `seq`, so it alone identifies the current response; comparing the server's normalised `source` could strand the request in loading. |
 | Soft-Lookup-From-Forest | Every lookup started from the forest survives a 404. | Forest words are often phrases the thesaurus lacks. |
 | Forest-Role-Wins-Clicks | Forest nodes select or navigate; they never expand. | Behaviour follows what is drawn. |
 | Hover-Lights-Every-Path | Hover on an endpoint, hop or link lights every path through it. | Build brief. |

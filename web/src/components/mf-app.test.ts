@@ -1743,10 +1743,20 @@ describe('mf-app metaphor forest', () => {
     await settle()
     await lookUp(otherLookup)
     expect(calls[0].signal.aborted).toBe(true)
-    calls[0].resolve(forest)
+    // A new request for the new word is in flight. The late answer to the old
+    // request even names the new word, so only the sequence number can reject it.
+    panelEvent({ type: 'forge' })
+    await settle()
+    expect(calls.map(c => c.word)).toEqual(['patience', 'bureaucracy'])
+    const bureaucracyForest = { ...forest, source: 'bureaucracy' }
+    calls[0].resolve(bureaucracyForest)
     await settle()
     expect(metaphorLinks()).toHaveLength(0)
-    expect(panel().state).toMatchObject({ word: 'bureaucracy', content: { kind: 'none' }, request: { kind: 'idle' } })
+    expect(panel().state).toMatchObject({ word: 'bureaucracy', content: { kind: 'none' }, request: { kind: 'loading' } })
+
+    calls[1].resolve(bureaucracyForest)
+    await settle()
+    expect(panel().state).toMatchObject({ content: { kind: 'forest' }, request: { kind: 'idle' } })
   })
 
   it('keeps the forest through a repeat lookup of the same word and a second-order expansion', async () => {
