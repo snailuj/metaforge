@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/snailuj/metaforge/internal/forest"
@@ -31,6 +35,16 @@ type ForestGenerator interface {
 	Generate(ctx context.Context, word string, maxHops int) (forest.Forest, error)
 }
 
+// ForestStreamer is the streaming slice of forest.Service. A generator that
+// also implements it serves event-stream requests as a stream.
+type ForestStreamer interface {
+	GenerateStream(ctx context.Context, word string, maxHops int, emit func(forest.StreamEvent)) (forest.Forest, error)
+}
+
+// defaultForestKeepalive is how often an idle stream gets a comment line,
+// well inside common proxy idle timeouts.
+const defaultForestKeepalive = 10 * time.Second
+
 // ForestCache is a best-effort store of finished forests (forestcache.Store).
 type ForestCache interface {
 	Random(ctx context.Context, word string, maxHops int) (forest.Forest, bool, error)
@@ -47,12 +61,14 @@ type ForestHandler struct {
 	limiter *forest.Limiter
 	Timeout time.Duration
 	Cache   ForestCache // nil disables caching
+	// Keepalive is the comment interval on an idle event stream.
+	Keepalive time.Duration
 }
 
 // NewForestHandler takes a nil gen when the server has no API key; the
 // route then answers 503.
 func NewForestHandler(gen ForestGenerator, limiter *forest.Limiter) *ForestHandler {
-	return &ForestHandler{gen: gen, limiter: limiter, Timeout: ForestRequestTimeout}
+	return &ForestHandler{gen: gen, limiter: limiter, Timeout: ForestRequestTimeout, Keepalive: defaultForestKeepalive}
 }
 
 // HandleForest handles GET /forge/forest?word=<word>&max_hops=<1..5>&fresh=1
@@ -61,6 +77,10 @@ func NewForestHandler(gen ForestGenerator, limiter *forest.Limiter) *ForestHandl
 // random forest from the word's pool and spends nothing; fresh=1 (New
 // forest), or an empty pool, generates and adds the forest to the pool.
 // X-Forest-Cache reports hit, miss or fresh.
+//
+// With Accept: text/event-stream, and a generator that can stream, the
+// answer is a server-sent event stream (see streamForest). Refusals before
+// generation starts keep their status codes and JSON bodies either way.
 func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 	if h.gen == nil && h.Cache == nil {
 		writeForestUnconfigured(w)
@@ -91,6 +111,11 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		case hit:
 			slog.Info("forest: cache hit", "word", word, "max_hops", maxHops, "endpoints", len(cached.Endpoints))
 			w.Header().Set("X-Forest-Cache", "hit")
+			if wantsStream(r) {
+				sse := startSSE(w)
+				sse.event("done", cached)
+				return
+			}
 			writeForest(w, word, cached)
 			return
 		}
@@ -112,6 +137,14 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), h.Timeout)
 	defer cancel()
+
+	if streamer, ok := h.gen.(ForestStreamer); ok && wantsStream(r) && canStream(h.gen) {
+		if h.Cache != nil {
+			w.Header().Set("X-Forest-Cache", cacheState)
+		}
+		h.streamForest(ctx, w, streamer, word, maxHops)
+		return
+	}
 
 	result, err := h.gen.Generate(ctx, word, maxHops)
 	if err != nil {
@@ -136,6 +169,103 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		h.store(r.Context(), word, maxHops, result)
 	}
 	writeForest(w, word, result)
+}
+
+// streamForest answers with a server-sent event stream: each service event
+// as it happens, then one done with the final forest, or one error event
+// with kind "timeout" or "failed". A comment line goes out every Keepalive
+// while the stream is idle.
+func (h *ForestHandler) streamForest(ctx context.Context, w http.ResponseWriter, gen ForestStreamer, word string, maxHops int) {
+	sse := startSSE(w)
+	if h.Keepalive > 0 {
+		// Nothing may write to w after the handler returns, so wait for it.
+		stop, done := make(chan struct{}), make(chan struct{})
+		go func() { defer close(done); sse.keepalive(h.Keepalive, stop) }()
+		defer func() { close(stop); <-done }()
+	}
+
+	result, err := gen.GenerateStream(ctx, word, maxHops, func(ev forest.StreamEvent) { sse.event(ev.Name, ev.Data) })
+	switch {
+	case errors.Is(err, context.Canceled):
+		slog.Info("forest: client disconnected mid-stream", "word", word)
+	case err != nil:
+		kind := "failed"
+		if errors.Is(err, context.DeadlineExceeded) {
+			kind = "timeout"
+		}
+		slog.Warn("forest: stream failed", "word", word, "kind", kind)
+		sse.event("error", map[string]string{"error": "metaphor forest generation failed", "kind": kind})
+	default:
+		if h.Cache != nil {
+			h.store(ctx, word, maxHops, result)
+		}
+		sse.event("done", result)
+	}
+}
+
+// canStream lets a generator whose model client cannot stream decline;
+// the request is then answered as JSON.
+func canStream(gen ForestGenerator) bool {
+	c, ok := gen.(interface{ CanStream() bool })
+	return !ok || c.CanStream()
+}
+
+func wantsStream(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+}
+
+// sseWriter serialises writes from the service's events and the keepalive.
+type sseWriter struct {
+	mu sync.Mutex
+	w  http.ResponseWriter
+}
+
+func startSSE(w http.ResponseWriter) *sseWriter {
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	s := &sseWriter{w: w}
+	s.flush()
+	return s
+}
+
+func (s *sseWriter) event(name string, data any) {
+	b, err := json.Marshal(data)
+	if err != nil {
+		slog.Error("forest: failed to encode stream event", "event", name, "err", err)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", name, b); err != nil {
+		slog.Debug("forest: stream write failed", "event", name, "err", err)
+		return
+	}
+	s.flush()
+}
+
+func (s *sseWriter) keepalive(every time.Duration, stop <-chan struct{}) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			s.mu.Lock()
+			_, _ = io.WriteString(s.w, ": keepalive\n\n")
+			s.flush()
+			s.mu.Unlock()
+		}
+	}
+}
+
+func (s *sseWriter) flush() {
+	if f, ok := s.w.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // store adds a forest worth serving again. Failures are logged, never

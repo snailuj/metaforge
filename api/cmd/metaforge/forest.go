@@ -112,3 +112,7 @@ func openForestCache(s forestSettings) *forestcache.Store {
 	}
 	return store
 }
+
+// The live service must satisfy the handler's streaming interface, or
+// event-stream requests would silently fall back to JSON.
+var _ handler.ForestStreamer = (*forest.Service)(nil)
