@@ -8,7 +8,7 @@ Bolted onto this is an experimental metaphor forge that surfaces surprising sema
 
 ## Status
 
-**Early MVP.** The API and basic graph navigation work. The metaphor forge is tuning its scoring pipeline. A staging deployment is live at [metaforge.julianit.me](https://metaforge.julianit.me/).
+**Early MVP.** The API and basic graph navigation work. The metaphor forge is tuning its scoring pipeline. A staging deployment is live at [metaforge-next.julianit.me](https://metaforge-next.julianit.me/).
 
 What exists today:
 
@@ -51,7 +51,7 @@ What's next: Metaphor Forge UI, 20k word enrichment, CI/CD pipeline, polish for 
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.24+
 - Python 3.11+ with venv
 - Node.js 20+
 - SQLite 3

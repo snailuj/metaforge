@@ -16,6 +16,126 @@ from datetime import datetime, timezone
 from metaphor_graph import insert_bridge
 from metaphor_graph import snap_concept_string
 from metaphor_graph import insert_bridge_with_raw_path, BridgeSnapFailure
+from metaphor_graph import snap_by_gloss
+from metaphor_graph import embed_text, snap_by_gloss_embed
+
+
+class _FakeVectors:
+    """Minimal stand-in for utils.FastTextVectors (no 2GB load in tests)."""
+    def __init__(self, mapping):
+        import numpy as np
+        self._m = {w: np.asarray(v, dtype=float) for w, v in mapping.items()}
+
+    def __contains__(self, w):
+        return w in self._m
+
+    def __getitem__(self, w):
+        return self._m[w]
+
+
+class TestEmbedText:
+    def test_mean_of_present_tokens(self):
+        import numpy as np
+        v = _FakeVectors({"violent": [1.0, 0.0], "storm": [0.0, 1.0]})
+        out = embed_text("a violent storm", v)
+        assert np.allclose(out, [0.5, 0.5])
+
+    def test_ignores_oov_and_stopwords(self):
+        import numpy as np
+        v = _FakeVectors({"storm": [2.0, 0.0]})
+        # "the"/"a" are stopwords, "zzz" is OOV -> only "storm" counts
+        out = embed_text("the a zzz storm", v)
+        assert np.allclose(out, [2.0, 0.0])
+
+    def test_returns_none_when_no_token_embeddable(self):
+        v = _FakeVectors({"storm": [1.0, 0.0]})
+        assert embed_text("the a of", v) is None
+        assert embed_text("", v) is None
+
+
+class TestSnapByGlossEmbed:
+    def test_picks_max_cosine_definition(self):
+        conn = _conn()
+        _seed_lemma_senses(conn, [
+            ("100", "n", "atmospheric windstorm disturbance", "tempest"),
+            ("200", "n", "violent emotional upheaval turmoil", "tempest"),
+        ])
+        v = _FakeVectors({
+            "emotional": [1.0, 0.0], "upheaval": [1.0, 0.0], "turmoil": [1.0, 0.0],
+            "atmospheric": [0.0, 1.0], "windstorm": [0.0, 1.0], "disturbance": [0.0, 1.0],
+            "inner": [1.0, 0.0], "strain": [1.0, 0.0],
+        })
+        # gloss embeds toward the emotional axis -> should pick synset 200
+        sid = snap_by_gloss_embed(conn, "tempest", "inner emotional strain", v)
+        assert sid == "200"
+
+    def test_returns_none_when_gloss_unembeddable(self):
+        conn = _conn()
+        _seed_lemma_senses(conn, [("100", "n", "violent storm", "tempest")])
+        v = _FakeVectors({"violent": [1.0, 0.0]})
+        # gloss has no embeddable content tokens -> None (caller falls back)
+        assert snap_by_gloss_embed(conn, "tempest", "the a of", v) is None
+
+    def test_returns_none_when_lemma_absent(self):
+        conn = _conn()
+        v = _FakeVectors({"storm": [1.0, 0.0]})
+        assert snap_by_gloss_embed(conn, "tempest", "a storm", v) is None
+
+
+def _seed_lemma_senses(conn: sqlite3.Connection,
+                       rows: list[tuple[str, str, str, str]]) -> None:
+    """Seed synsets + lemmas for snap_by_gloss tests.
+
+    rows: (synset_id, pos, definition, lemma).
+    """
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS lemmas (
+            synset_id TEXT NOT NULL,
+            lemma     TEXT NOT NULL
+        );
+    """)
+    for sid, pos, defn, lemma in rows:
+        conn.execute("INSERT INTO synsets VALUES (?, ?, ?)", (sid, pos, defn))
+        conn.execute("INSERT INTO lemmas VALUES (?, ?)", (sid, lemma))
+
+
+class TestSnapByGloss:
+    def test_picks_the_gloss_matching_sense(self):
+        conn = _conn()
+        _seed_lemma_senses(conn, [
+            # the lowest-id sense is the WRONG one a no-prior snapper would pick
+            ("100", "n", "a sudden violent disturbance of the atmosphere", "tempest"),
+            ("200", "n", "a violent commotion or emotional upheaval", "tempest"),
+        ])
+        sid = snap_by_gloss(conn, "tempest",
+                            "a turbulent emotional state of inner upheaval")
+        assert sid == "200"  # gloss overlap (upheaval/violent) beats lowest-id
+
+    def test_returns_none_when_no_content_overlap(self):
+        conn = _conn()
+        _seed_lemma_senses(conn, [
+            ("100", "n", "a sudden violent disturbance of the atmosphere", "tempest"),
+        ])
+        # caller falls back to the default resolver when we can't gloss-match
+        assert snap_by_gloss(conn, "tempest", "a small songbird of the finch family") is None
+
+    def test_returns_none_for_empty_inputs(self):
+        conn = _conn()
+        assert snap_by_gloss(conn, "", "anything") is None
+        assert snap_by_gloss(conn, "tempest", "") is None
+
+    def test_returns_none_when_lemma_absent(self):
+        conn = _conn()
+        _seed_lemma_senses(conn, [("100", "n", "a unit of weight", "gram")])
+        assert snap_by_gloss(conn, "tempest", "a violent storm") is None
+
+    def test_tie_breaks_to_lowest_synset_id(self):
+        conn = _conn()
+        _seed_lemma_senses(conn, [
+            ("300", "n", "a violent storm", "squall"),
+            ("100", "n", "a violent storm", "squall"),  # identical gloss, lower id
+        ])
+        assert snap_by_gloss(conn, "squall", "a violent storm") == "100"
 
 
 def _seed_curated(conn: sqlite3.Connection, rows: list[tuple[int, str, str, str, int]]) -> None:

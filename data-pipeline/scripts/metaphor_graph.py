@@ -16,6 +16,7 @@ Public surface:
 from __future__ import annotations
 
 import hashlib
+import re
 import sqlite3
 import logging
 
@@ -491,6 +492,128 @@ def lookup_primary_synset(conn: sqlite3.Connection, lemma: str) -> str | None:
             return sid
 
     return None
+
+
+# Function words carry no sense signal — drop them before gloss overlap.
+_GLOSS_STOPWORDS = frozenset("""
+a an the of to or and in on for with that is as by be from at its it this which
+into such than any some something someone usually especially typically often
+""".split())
+
+
+def _gloss_tokens(text: str) -> set[str]:
+    """Lower-cased content tokens of a gloss: alnum runs, >=3 chars, no stopwords."""
+    return {
+        tok for tok in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(tok) >= 3 and tok not in _GLOSS_STOPWORDS
+    }
+
+
+def embed_text(text: str, vectors) -> "object | None":
+    """Mean FastText vector of a gloss's content tokens, or None if none embed.
+
+    `vectors` is any container supporting `word in vectors` and `vectors[word]`
+    (utils.FastTextVectors). Stopwords and OOV tokens are dropped; an empty
+    result returns None so callers fall back rather than snap on no evidence.
+    """
+    import numpy as np
+    vecs = [vectors[t] for t in _gloss_tokens(text) if t in vectors]
+    if not vecs:
+        return None
+    return np.mean(np.stack(vecs), axis=0)
+
+
+def snap_by_gloss_embed(conn: sqlite3.Connection, lemma: str,
+                        emitted_gloss: str, vectors) -> str | None:
+    """Snap a lemma to the synset whose definition is most COSINE-SIMILAR to an
+    emitted gloss (FastText mean-vector embedding).
+
+    The semantic upgrade of snap_by_gloss: catches good glosses that token
+    overlap fumbles to a near-neighbour synset (e.g. a generic "place of
+    worship" gloss landing on the Judaism-specific sense). Returns None when the
+    lemma is unknown, the gloss has no embeddable content, or no candidate
+    definition embeds — caller then falls back to token-overlap / legacy resolver.
+    Ties break to the lowest synset_id.
+    """
+    import numpy as np
+    if not lemma or not emitted_gloss:
+        return None
+    qv = embed_text(emitted_gloss, vectors)
+    if qv is None:
+        return None
+    qn = float(np.linalg.norm(qv))
+    if qn == 0.0:
+        return None
+    try:
+        rows = conn.execute(
+            "SELECT l.synset_id, s.definition FROM lemmas l "
+            "JOIN synsets s ON s.synset_id = l.synset_id "
+            "WHERE LOWER(l.lemma) = ?",
+            (lemma.strip().lower(),),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc).lower():
+            raise
+        return None
+    best_sid: str | None = None
+    best_score = -1.0
+    for sid, defn in rows:
+        dv = embed_text(defn, vectors)
+        if dv is None:
+            continue
+        dn = float(np.linalg.norm(dv))
+        if dn == 0.0:
+            continue
+        score = float(np.dot(qv, dv) / (qn * dn))
+        if score > best_score or (score == best_score
+                                  and (best_sid is None or sid < best_sid)):
+            best_score = score
+            best_sid = sid
+    return best_sid
+
+
+def snap_by_gloss(conn: sqlite3.Connection, lemma: str,
+                  emitted_gloss: str) -> str | None:
+    """Snap a lemma to the synset whose definition best matches an emitted gloss.
+
+    The emit-the-sense path: the generating model records the one-line sense it
+    intends per node, so we snap by gloss-to-gloss content-word overlap (a Lesk
+    WSD) instead of the no-prior lowest-id heuristic in lookup_primary_synset
+    that produced the measured ~5-16% endpoint sense-contamination.
+
+    Returns the best-overlap synset_id, or None when the lemma is unknown, the
+    gloss is empty, or NO content word overlaps any candidate — in which case the
+    caller falls back to the default resolver (we never guess a sense with zero
+    evidence). Ties break to the lowest synset_id, matching the legacy resolver.
+    """
+    if not lemma or not emitted_gloss:
+        return None
+    want = _gloss_tokens(emitted_gloss)
+    if not want:
+        return None
+    try:
+        rows = conn.execute(
+            "SELECT l.synset_id, s.definition FROM lemmas l "
+            "JOIN synsets s ON s.synset_id = l.synset_id "
+            "WHERE LOWER(l.lemma) = ?",
+            (lemma.strip().lower(),),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        # Fixture DBs lacking lemmas/synsets fail-open to "no match".
+        if "no such table" not in str(exc).lower():
+            raise
+        return None
+    best_sid: str | None = None
+    best_score = 0
+    for sid, defn in rows:
+        score = len(want & _gloss_tokens(defn))
+        if score == 0:
+            continue
+        if score > best_score or (score == best_score
+                                  and (best_sid is None or sid < best_sid)):
+            best_score = score
+            best_sid = sid
+    return best_sid
 
 
 class BridgeSnapFailure(ValueError):

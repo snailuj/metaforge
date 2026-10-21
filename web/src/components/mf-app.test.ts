@@ -3,18 +3,31 @@ import type { LookupResult } from '@/types/api'
 
 // Mock 3D dependencies that require WebGL (unavailable in happy-dom).
 // ForceGraph3D is a curried factory: ForceGraph3D(opts)(container) → instance with chainable methods.
-const chainable = new Proxy({}, { get: () => () => chainable })
+// graphData() with no argument is the library's getter: it reports arrays, never a function.
+const chainable: unknown = new Proxy({}, {
+  get: (_t, prop) => prop === 'graphData'
+    ? (data?: unknown) => (data === undefined ? { nodes: [], links: [] } : chainable)
+    : () => chainable,
+})
 vi.mock('3d-force-graph', () => ({ default: () => () => chainable }))
 
 // Mock the API client module
 vi.mock('@/api/client', () => ({
   lookupWord: vi.fn(),
+  fetchForest: vi.fn(),
+  streamForest: vi.fn(),
   ApiError: class ApiError extends Error {
     status: number
     constructor(message: string, status: number) {
       super(message)
       this.name = 'ApiError'
       this.status = status
+    }
+  },
+  ForestError: class ForestError extends Error {
+    constructor(public kind: string, public status: number, public retryAfterSeconds: number | null = null) {
+      super(kind)
+      this.name = 'ForestError'
     }
   },
 }))
@@ -30,7 +43,10 @@ vi.mock('@/lib/strings', () => ({
 }))
 
 import { MfApp } from './mf-app'
-import { lookupWord } from '@/api/client'
+import { lookupWord, fetchForest, streamForest, type ForestStreamEvent } from '@/api/client'
+import type { ForestResponse } from '@/types/api'
+import type { GraphData } from '@/graph/types'
+import patienceFixture from '@/fixtures/forest-patience.json'
 
 const mockResult: LookupResult = {
   word: 'fire',
@@ -1733,4 +1749,419 @@ describe('mf-app blind re-grade view', () => {
     expect(styleText).toMatch(/\.grade-walk-scroll[^}]*overflow-y\s*:\s*auto/s);
     expect(styleText).toMatch(/\.grade-walk-scroll[^}]*padding-bottom\s*:\s*max\s*\(/s);
   });
+})
+
+describe('mf-app metaphor forest', () => {
+  const forest = patienceFixture as ForestResponse
+  const patienceLookup: LookupResult = {
+    word: 'patience',
+    senses: [{
+      synset_id: '1', pos: 'noun', definition: 'good-natured tolerance of delay',
+      synonyms: [{ word: 'forbearance', synset_id: '1' }],
+      relations: { hypernyms: [], hyponyms: [], similar: [{ word: 'escapement', synset_id: '9' }], antonyms: [] },
+    }],
+  }
+  const otherLookup: LookupResult = { ...patienceLookup, word: 'bureaucracy', senses: [] }
+
+  let el: MfApp
+  // Also waits for the graph's own update, which rejects if updated() threw, so
+  // these tests only pass when the forest props were applied in full.
+  const settle = async () => {
+    await new Promise(r => setTimeout(r, 20))
+    await el.updateComplete
+    await (el.shadowRoot!.querySelector('mf-force-graph') as unknown as { updateComplete?: Promise<boolean> } | null)?.updateComplete
+  }
+  const panel = () => el.shadowRoot!.querySelector('mf-forest-panel') as HTMLElement & { state: any; lit: ReadonlySet<string> | null }
+  const graph = () => el.shadowRoot!.querySelector('mf-force-graph') as HTMLElement & { graphData: GraphData; forest: any; forestVisible: boolean; forestLit: ReadonlySet<string> | null }
+  const panelEvent = (detail: unknown) => panel().dispatchEvent(new CustomEvent('mf-forest-event', { detail, bubbles: true, composed: true }))
+  const metaphorLinks = () => graph().graphData.links.filter(l => l.metaphor)
+  // A forest call the test resolves by hand, recording the signal it was given.
+  function deferredForest() {
+    const calls: { word: string; maxHops: number; signal: AbortSignal; fresh: boolean | undefined; resolve: (r: ForestResponse) => void; reject: (e: unknown) => void }[] = []
+    vi.mocked(fetchForest).mockImplementation((word, maxHops, signal, fresh) => new Promise((resolve, reject) => {
+      calls.push({ word, maxHops, signal: signal!, fresh, resolve, reject })
+    }))
+    return calls
+  }
+  async function lookUp(result: LookupResult) {
+    vi.mocked(lookupWord).mockResolvedValueOnce(result)
+    ;(el as any).doLookup(result.word)
+    await settle()
+  }
+
+  beforeEach(async () => {
+    window.location.hash = ''
+    vi.mocked(fetchForest).mockReset()
+    vi.mocked(streamForest).mockReset()
+    // The tests above resolve a whole forest; a whole answer arrives on the
+    // stream as a lone done, as a cache hit does.
+    vi.mocked(streamForest).mockImplementation(async (word, maxHops, onEvent, signal, fresh) => {
+      onEvent({ type: 'done', forest: await fetchForest(word, maxHops, signal, fresh) })
+    })
+    vi.mocked(lookupWord).mockReset()
+    el = new MfApp()
+    document.body.appendChild(el)
+    await settle()
+    await lookUp(patienceLookup)
+  })
+
+  afterEach(() => {
+    el.remove()
+    window.location.hash = ''
+  })
+
+  it('shows the forest panel in browse mode once a word is looked up, for that word', () => {
+    expect(panel()).not.toBeNull()
+    expect(panel().state.word).toBe('patience')
+  })
+
+  it('Forge asks for a forest for the committed word with the chosen max hops', async () => {
+    const calls = deferredForest()
+    panelEvent({ type: 'set-max-hops', maxHops: 4 })
+    panelEvent({ type: 'forge' })
+    await settle()
+    expect(calls.map(c => [c.word, c.maxHops])).toEqual([['patience', 4]])
+    expect(panel().state.request.kind).toBe('loading')
+  })
+
+  // Rule: the first Forge for a word may be served from the server's cache;
+  // New forest (a forest is already shown) always asks for a fresh one.
+  it('asks for a fresh forest only once a forest is shown', async () => {
+    const calls = deferredForest()
+    panelEvent({ type: 'forge' })
+    await settle()
+    calls[0].resolve(forest)
+    await settle()
+    panelEvent({ type: 'forge' })
+    await settle()
+    expect(calls.map(c => c.fresh)).toEqual([false, true])
+  })
+
+  // Floor 12 end to end: two activations before the response issue one request.
+  it('issues one request for two Forge presses before the response', async () => {
+    const calls = deferredForest()
+    panelEvent({ type: 'forge' })
+    panelEvent({ type: 'forge' })
+    await settle()
+    expect(fetchForest).toHaveBeenCalledTimes(1)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('overlays the forest on the browse graph and hands the overlay to the graph', async () => {
+    const calls = deferredForest()
+    panelEvent({ type: 'forge' })
+    await settle()
+    calls[0].resolve(forest)
+    await settle()
+    expect(metaphorLinks()).toHaveLength(forest.edges.length)
+    expect(graph().forest.byNodeId.get('escapement').role).toBe('endpoint')
+    expect(graph().graphData.nodes.filter(n => n.id === 'escapement')).toHaveLength(1)
+    expect(panel().state.content.kind).toBe('forest')
+  })
+
+  // Rule: a response for a word that is no longer current never renders.
+  it('aborts and drops a forest whose word was replaced by another lookup', async () => {
+    const calls = deferredForest()
+    panelEvent({ type: 'forge' })
+    await settle()
+    await lookUp(otherLookup)
+    expect(calls[0].signal.aborted).toBe(true)
+    // A new request for the new word is in flight. The late answer to the old
+    // request even names the new word, so only the sequence number can reject it.
+    panelEvent({ type: 'forge' })
+    await settle()
+    expect(calls.map(c => c.word)).toEqual(['patience', 'bureaucracy'])
+    const bureaucracyForest = { ...forest, source: 'bureaucracy' }
+    calls[0].resolve(bureaucracyForest)
+    await settle()
+    expect(metaphorLinks()).toHaveLength(0)
+    expect(panel().state).toMatchObject({ word: 'bureaucracy', content: { kind: 'none' }, request: { kind: 'loading' } })
+
+    calls[1].resolve(bureaucracyForest)
+    await settle()
+    expect(panel().state).toMatchObject({ content: { kind: 'forest' }, request: { kind: 'idle' } })
+  })
+
+  it('keeps the forest through a repeat lookup of the same word and a second-order expansion', async () => {
+    vi.mocked(fetchForest).mockResolvedValue(forest)
+    panelEvent({ type: 'forge' })
+    await settle()
+    await lookUp(patienceLookup)
+    expect(metaphorLinks()).toHaveLength(forest.edges.length)
+
+    vi.mocked(lookupWord).mockResolvedValueOnce({ ...patienceLookup, word: 'forbearance' })
+    graph().dispatchEvent(new CustomEvent('mf-node-select', {
+      detail: { id: 'forbearance', word: 'forbearance', relationType: 'synonym', val: 4, order: 1 }, bubbles: true, composed: true,
+    }))
+    await settle()
+    expect(metaphorLinks()).toHaveLength(forest.edges.length)
+  })
+
+  it('clears the forest when another word is committed', async () => {
+    vi.mocked(fetchForest).mockResolvedValue(forest)
+    panelEvent({ type: 'forge' })
+    await settle()
+    await lookUp(otherLookup)
+    expect(metaphorLinks()).toHaveLength(0)
+    expect(graph().forest).toBeNull()
+  })
+
+  it('shows a failure kind in the panel and keeps a shown forest', async () => {
+    const { ForestError } = await import('@/api/client')
+    vi.mocked(fetchForest).mockResolvedValueOnce(forest).mockRejectedValueOnce(new ForestError('busy', 429, 12))
+    panelEvent({ type: 'forge' })
+    await settle()
+    panelEvent({ type: 'forge' })
+    await settle()
+    expect(panel().state.request).toEqual({ kind: 'failed', error: 'busy', retryAfterSeconds: 12 })
+    expect(metaphorLinks()).toHaveLength(forest.edges.length)
+  })
+
+  it('hides the forest from the graph without re-feeding the graph data', async () => {
+    vi.mocked(fetchForest).mockResolvedValue(forest)
+    panelEvent({ type: 'forge' })
+    await settle()
+    const fed = graph().graphData
+    panelEvent({ type: 'set-on-graph', onGraph: false })
+    await settle()
+    expect(graph().forestVisible).toBe(false)
+    expect(graph().graphData).toBe(fed)
+  })
+
+  it('lights the paths through a hovered graph node, on the graph and in the panel', async () => {
+    vi.mocked(fetchForest).mockResolvedValue(forest)
+    panelEvent({ type: 'forge' })
+    await settle()
+    graph().dispatchEvent(new CustomEvent('mf-forest-hover', { detail: { target: { kind: 'node', id: 'dormant seed' } }, bubbles: true, composed: true }))
+    await settle()
+    expect(graph().forestLit).toEqual(new Set(['seed vault', 'controlled burn']))
+    expect(panel().lit).toEqual(new Set(['seed vault', 'controlled burn']))
+    graph().dispatchEvent(new CustomEvent('mf-forest-hover', { detail: { target: null }, bubbles: true, composed: true }))
+    await settle()
+    expect(graph().forestLit).toBeNull()
+  })
+
+  it('marks the endpoint of a path chosen with Highlight path, and the head of a selected link', async () => {
+    vi.mocked(fetchForest).mockResolvedValue(forest)
+    panelEvent({ type: 'forge' })
+    await settle()
+    panelEvent({ type: 'select', target: { kind: 'path', endpointId: 'varve' } })
+    await settle()
+    expect((graph() as any).forestSelectedId).toBe('varve')
+    panelEvent({ type: 'select', target: { kind: 'link', source: 'peat bog', target: 'bog body' } })
+    await settle()
+    expect((graph() as any).forestSelectedId).toBe('bog body')
+  })
+
+  it('a graph selection lights its paths until it is cleared', async () => {
+    vi.mocked(fetchForest).mockResolvedValue(forest)
+    panelEvent({ type: 'forge' })
+    await settle()
+    graph().dispatchEvent(new CustomEvent('mf-forest-select', { detail: { target: { kind: 'node', id: 'keloid' } }, bubbles: true, composed: true }))
+    await settle()
+    expect(graph().forestLit).toEqual(new Set(['keloid']))
+    expect((graph() as any).forestSelectedId).toBe('keloid')
+    graph().dispatchEvent(new CustomEvent('mf-forest-select', { detail: { target: null }, bubbles: true, composed: true }))
+    await settle()
+    expect(graph().forestLit).toBeNull()
+    expect((graph() as any).forestSelectedId).toBeNull()
+  })
+
+  // Rule: a lookup started from the forest never breaks the page.
+  it('a forest lookup that 404s leaves the search box, the forest and the app as they were, and says so', async () => {
+    const { ApiError } = await import('@/api/client')
+    vi.mocked(fetchForest).mockResolvedValue(forest)
+    panelEvent({ type: 'forge' })
+    await settle()
+    const toast = el.shadowRoot!.querySelector('mf-toast') as unknown as { show: (m: string, d?: number) => void }
+    const shown = vi.spyOn(toast, 'show')
+    vi.mocked(lookupWord).mockRejectedValueOnce(new ApiError('not found', 404))
+    panel().dispatchEvent(new CustomEvent('mf-forest-lookup', { detail: { word: 'seed vault' }, bubbles: true, composed: true }))
+    await settle()
+    expect(lookupWord).toHaveBeenLastCalledWith('seed vault')
+    expect((el as any).appState).toBe('ready')
+    expect(el.shadowRoot!.querySelector('.error-message')).toBeNull()
+    expect((el.shadowRoot!.querySelector('mf-search-bar') as any).value).toBe('patience')
+    expect(metaphorLinks()).toHaveLength(forest.edges.length)
+    expect(shown).toHaveBeenCalledWith('forest-lookup-missing', 5000)
+  })
+
+  it('double-clicking a forest node looks it up softly; a thesaurus node keeps the normal lookup', async () => {
+    const { ApiError } = await import('@/api/client')
+    vi.mocked(fetchForest).mockResolvedValue(forest)
+    panelEvent({ type: 'forge' })
+    await settle()
+    vi.mocked(lookupWord).mockRejectedValueOnce(new ApiError('not found', 404))
+    graph().dispatchEvent(new CustomEvent('mf-node-navigate', { detail: { id: 'varve', word: 'varve' }, bubbles: true, composed: true }))
+    await settle()
+    expect((el as any).appState).toBe('ready')
+
+    vi.mocked(lookupWord).mockRejectedValueOnce(new ApiError('not found', 404))
+    graph().dispatchEvent(new CustomEvent('mf-node-navigate', { detail: { id: 'forbearance', word: 'forbearance' }, bubbles: true, composed: true }))
+    await settle()
+    expect((el as any).appState).toBe('error')
+  })
+
+  it('a forest lookup that succeeds navigates to the word', async () => {
+    vi.mocked(fetchForest).mockResolvedValue(forest)
+    panelEvent({ type: 'forge' })
+    await settle()
+    vi.mocked(lookupWord).mockResolvedValueOnce({ ...patienceLookup, word: 'escapement' })
+    panel().dispatchEvent(new CustomEvent('mf-forest-lookup', { detail: { word: 'escapement' }, bubbles: true, composed: true }))
+    await settle()
+    expect((el as any).result.word).toBe('escapement')
+    expect(panel().state.word).toBe('escapement')
+    expect(metaphorLinks()).toHaveLength(0)
+  })
+
+  it('switching to grade mode drops hover and focus, and keeps the forest for the way back', async () => {
+    vi.mocked(fetchForest).mockResolvedValue(forest)
+    panelEvent({ type: 'forge' })
+    await settle()
+    panelEvent({ type: 'focus', target: { kind: 'path', endpointId: 'varve' } })
+    panelEvent({ type: 'hover', target: { kind: 'path', endpointId: 'keloid' } })
+    await settle()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 404, json: async () => ({}) } as Response)
+    ;(el as any).toggleMode()
+    await settle()
+    expect((el as any).forestState).toMatchObject({ hover: null, focus: null, content: { kind: 'forest' } })
+    expect(el.shadowRoot!.querySelector('mf-forest-panel')).toBeNull()
+  })
+
+  describe('streaming', () => {
+    // A stream the test drives by hand; it rejects with an AbortError when aborted, as fetch does.
+    function deferredStream() {
+      const calls: { word: string; fresh: boolean | undefined; signal: AbortSignal; emit: (e: ForestStreamEvent) => void; finish: () => void }[] = []
+      vi.mocked(streamForest).mockImplementation((word, _maxHops, onEvent, signal, fresh) => new Promise<void>((resolve, reject) => {
+        calls.push({ word, fresh, signal: signal!, emit: onEvent, finish: resolve })
+        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      }))
+      return calls
+    }
+    const hop = (pathId: string, from: string, to: string): ForestStreamEvent => ({ type: 'hop', pathId, facet: Number(pathId[1]), from, to, ground: `${from} to ${to}` })
+    const linkTo = (target: string) => metaphorLinks().find(l => l.metaphor!.forestTarget === target)
+    const nodeOf = (id: string) => graph().graphData.nodes.find(n => n.id === id)
+    async function forging() {
+      const calls = deferredStream()
+      panelEvent({ type: 'forge' })
+      await settle()
+      expect(calls).toHaveLength(1)
+      return calls[0]
+    }
+
+    it('Forge and New forest go through the stream', async () => {
+      const call = await forging()
+      expect(call.word).toBe('patience')
+      expect(call.fresh).toBe(false)
+      expect(fetchForest).not.toHaveBeenCalled()
+    })
+
+    // Rule: hops show on the graph as they arrive; the panel list waits for a judged snapshot.
+    it('draws pending hops on the graph at once, and lists nothing until a snapshot', async () => {
+      const call = await forging()
+      call.emit(hop('f0', 'patience', 'tide pool'))
+      call.emit(hop('f0b0', 'tide pool', 'rock pool'))
+      await settle()
+      expect(panel().state.request.kind).toBe('streaming')
+      expect(panel().state.content.kind).toBe('none')
+      expect(linkTo('rock pool')?.metaphor!.stream).toBe('pending')
+      expect(graph().forest.byNodeId.get('patience').role).toBe('source')
+      call.emit({ type: 'forest', forest })
+      await settle()
+      expect(panel().state.content).toEqual({ kind: 'forest', response: forest })
+      expect(linkTo('rock pool')?.metaphor!.stream).toBe('pending')
+      expect(linkTo('varve')?.metaphor!.stream).toBeUndefined()
+    })
+
+    // Rule: the graph grows rather than jumps: a node keeps its object from first hop to final forest.
+    it('keeps each node object as the stream grows and its snapshots replace one another', async () => {
+      const call = await forging()
+      call.emit(hop('f0', 'patience', 'lake sediment'))
+      await settle()
+      const sediment = nodeOf('lake sediment')
+      const patience = nodeOf('patience')
+      expect(sediment).toBeDefined()
+      call.emit(hop('f0b0', 'lake sediment', 'varve'))
+      call.emit({ type: 'kept', pathId: 'f0b0', endpoint: 'varve', score: 7 })
+      call.emit({ type: 'forest', forest: { ...forest, endpoints: forest.endpoints.filter(e => e.id === 'varve') } })
+      await settle()
+      call.emit({ type: 'done', forest })
+      await settle()
+      expect(panel().state.request.kind).toBe('idle')
+      expect(nodeOf('lake sediment')).toBe(sediment)
+      expect(nodeOf('patience')).toBe(patience)
+    })
+
+    // Rule: a rejected path's marks fade out, then leave the graph.
+    it('fades a rejected path out, then removes it', async () => {
+      const call = await forging()
+      call.emit(hop('f0', 'patience', 'tide pool'))
+      call.emit(hop('f0b0', 'tide pool', 'rock pool'))
+      await settle()
+      expect(linkTo('rock pool')?.metaphor!.stream).toBe('pending')
+      call.emit({ type: 'rejected', pathId: 'f0b0', reason: 'low_score' })
+      call.emit({ type: 'rejected', pathId: 'f0', reason: 'invalid' })
+      await settle()
+      expect(linkTo('rock pool')?.metaphor!.stream).toBe('fading')
+      expect(graph().forest.byNodeId.get('rock pool')?.stream).toBe('fading')
+      await new Promise(r => setTimeout(r, 700))
+      await settle()
+      expect(linkTo('rock pool')).toBeUndefined()
+      expect(nodeOf('rock pool')).toBeUndefined()
+    })
+
+    it('with reduced motion removes a rejected path at once', async () => {
+      vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('reduce'), addEventListener: () => {}, removeEventListener: () => {} }))
+      try {
+        const call = await forging()
+        call.emit(hop('f0', 'patience', 'tide pool'))
+        await settle()
+        expect(linkTo('tide pool')).toBeDefined()
+        call.emit({ type: 'rejected', pathId: 'f0', reason: 'invalid' })
+        await settle()
+        expect(linkTo('tide pool')).toBeUndefined()
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    // Rule: cancel keeps what was kept and drops every pending path.
+    it('Cancel aborts the stream, keeps the last snapshot and stops drawing pending paths', async () => {
+      const call = await forging()
+      call.emit({ type: 'forest', forest })
+      call.emit(hop('f9', 'patience', 'tide pool'))
+      await settle()
+      expect(linkTo('tide pool')?.metaphor!.stream).toBe('pending')
+      panelEvent({ type: 'cancel' })
+      await settle()
+      expect(call.signal.aborted).toBe(true)
+      expect(panel().state).toMatchObject({ request: { kind: 'idle' }, content: { kind: 'forest', response: forest }, notice: 'cancelled' })
+      expect(metaphorLinks().some(l => l.metaphor!.stream === 'pending')).toBe(false)
+      // a late event from the cancelled stream changes nothing
+      const before = panel().state
+      call.emit(hop('f9b0', 'tide pool', 'rock pool'))
+      await settle()
+      expect(panel().state).toBe(before)
+    })
+
+    it('an error event fails the request and keeps the last snapshot', async () => {
+      const call = await forging()
+      call.emit({ type: 'forest', forest })
+      call.emit({ type: 'error', kind: 'timeout' })
+      call.finish()
+      await settle()
+      expect(panel().state.request).toEqual({ kind: 'failed', error: 'timeout', retryAfterSeconds: null })
+      expect(panel().state.content).toEqual({ kind: 'forest', response: forest })
+    })
+
+    it('another word clears every streamed mark', async () => {
+      const call = await forging()
+      call.emit(hop('f0', 'patience', 'tide pool'))
+      await settle()
+      await lookUp(otherLookup)
+      expect(call.signal.aborted).toBe(true)
+      expect(metaphorLinks()).toHaveLength(0)
+      expect(graph().forest).toBeNull()
+    })
+  })
 })

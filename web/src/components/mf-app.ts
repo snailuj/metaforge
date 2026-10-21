@@ -1,7 +1,12 @@
 import { LitElement, html, css, type PropertyValues } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
-import { lookupWord, ApiError } from '@/api/client'
+import { lookupWord, ApiError, streamForest, ForestError } from '@/api/client'
 import { transformLookupToGraph, mergeSecondOrderGraph, stripSecondOrderNodes } from '@/graph/transform'
+import {
+  composeForest, fadeMarks, forestToGraph, litEndpoints, nextFadeEnd, streamMarks, FOREST_FADE_MS,
+  type ForestGraph, type ForestNodePool, type ForestOverlay, type ForestTarget, type StreamMarks,
+} from '@/graph/forest'
+import { initialForestState, reduceForest, litTarget, sameTarget, type ForestEvent, type ForestState, type StreamPath } from '@/forest/state'
 import { computeCrossLinks } from '@/graph/cross-links'
 import { initStrings, getString } from '@/lib/strings'
 import { GradingClient } from '@/api/grading-client'
@@ -29,6 +34,7 @@ import type { MfToast } from './mf-toast'
 import './mf-search-bar'
 import './mf-force-graph'
 import './mf-results-panel'
+import './mf-forest-panel'
 import './mf-toast'
 import './mf-error-banner'
 import './mf-topic-picker'
@@ -43,6 +49,11 @@ import './mf-mobile-notes-overlay'
 type AppMode = 'browse' | 'grade'
 
 type AppState = 'idle' | 'loading' | 'ready' | 'error'
+
+/** The paths a streaming request has drawn, or null when nothing streams. */
+function streamPaths(s: ForestState): Readonly<Record<string, StreamPath>> | null {
+  return s.request.kind === 'streaming' ? s.request.paths : null
+}
 
 @customElement('mf-app')
 export class MfApp extends LitElement {
@@ -79,6 +90,14 @@ export class MfApp extends LitElement {
 
     mf-results-panel {
       z-index: 20;
+    }
+
+    /* Phone: the forest is a bottom sheet (z 25). An opened results panel
+       slides over it; closing it uncovers the sheet again. */
+    @media (max-width: 768px) {
+      mf-results-panel {
+        z-index: 26;
+      }
     }
 
     .status-message {
@@ -448,10 +467,28 @@ export class MfApp extends LitElement {
   private _guidedGraphSig = ''
   private _guidedGraphChains: ChainRecord[] = []
 
+  // Metaphor forest. forestState is the whole UI state machine (forest/state.ts);
+  // the rest is derived from it or is an effect handle.
+  @state() private forestState: ForestState = initialForestState()
+  @state() private forestOverlay: ForestOverlay | null = null
+  @state() private forestLit: ReadonlySet<string> | null = null
+  private forestGraph: ForestGraph | null = null
+  private forestAbort: AbortController | null = null
+  private forestLitTarget: ForestTarget | null = null
+  // Streaming: the marks drawn beyond the latest snapshot (pending, kept or
+  // fading), the timer that ends the next fade, and the node objects for the
+  // committed word, reused so nodes keep their positions as the forest grows.
+  private forestMarks: StreamMarks = { nodes: new Map(), links: new Map() }
+  private forestFadeTimer: ReturnType<typeof setTimeout> | null = null
+  private forestPool: ForestNodePool = new Map()
+
   private currentWord = ''
   private lookupId = 0
   private selectId = 0
   private baseGraphData: GraphData = { nodes: [], links: [] }
+  // The thesaurus graph on screen (base plus any second-order expansion); the
+  // forest is overlaid on it to give graphData.
+  private thesaurusGraph: GraphData = { nodes: [], links: [] }
   private gradingClient = new GradingClient()
 
   private hiddenRarities: Set<Rarity> = new Set()
@@ -546,6 +583,8 @@ export class MfApp extends LitElement {
     super.disconnectedCallback()
     window.removeEventListener('hashchange', this.handleHashChange)
     window.removeEventListener('resize', this.handleResize)
+    if (this.forestFadeTimer) clearTimeout(this.forestFadeTimer)
+    this.forestFadeTimer = null
   }
 
   private handleHashChange = () => {
@@ -571,10 +610,12 @@ export class MfApp extends LitElement {
     this.doLookup(e.detail.word)
   }
 
-  private async handleNodeNavigate(e: CustomEvent<{ word: string }>) {
+  private async handleNodeNavigate(e: CustomEvent<{ id?: string; word: string }>) {
     const node = e.detail
     if (node.word) {
-      this.doLookup(node.word)
+      // Forest words are often phrases the thesaurus lacks; look them up softly.
+      const fromForest = !!node.id && !!this.forestOverlay?.byNodeId.has(node.id)
+      this.doLookup(node.word, { soft: fromForest })
     }
   }
 
@@ -587,7 +628,8 @@ export class MfApp extends LitElement {
       const result = await lookupWord(node.word)
       if (id !== this.selectId) return // stale — a newer select superseded this one
       const stripped = stripSecondOrderNodes(this.baseGraphData)
-      this.graphData = mergeSecondOrderGraph(stripped, node.id, result)
+      this.thesaurusGraph = mergeSecondOrderGraph(stripped, node.id, result)
+      this.recomposeGraph()
     } catch (err) {
       console.warn('[mf-app] second-order expansion failed', { nodeId: node.id, word: node.word }, err)
     }
@@ -595,6 +637,123 @@ export class MfApp extends LitElement {
 
   private handleWordNavigate(e: CustomEvent<{ word: string }>) {
     this.doLookup(e.detail.word)
+  }
+
+  // --- Metaphor forest ---
+
+  /** Feed one event to the forest state machine, then run what the change
+   *  implies: abort a superseded request, start a new one, recompose the graph
+   *  when the forest changes, and recompute the lit paths. */
+  private dispatchForest(event: ForestEvent): void {
+    const prev = this.forestState
+    const next = reduceForest(prev, event)
+    if (next === prev) return
+    this.forestState = next
+
+    if (next.seq !== prev.seq && this.forestAbort) {
+      console.debug('[forest] aborting superseded request', { word: prev.word, seq: prev.seq })
+      this.forestAbort.abort()
+      this.forestAbort = null
+    }
+    if (next.request.kind === 'loading' && next.seq !== prev.seq) void this.runForest(next)
+
+    if (next.word !== prev.word) {
+      // The forest belongs to its word: nothing of the old one fades or is reused.
+      this.forestPool = new Map()
+      this.forestMarks = { nodes: new Map(), links: new Map() }
+    }
+    const prevResponse = prev.content.kind === 'forest' ? prev.content.response : null
+    const nextResponse = next.content.kind === 'forest' ? next.content.response : null
+    const forestChanged = prevResponse !== nextResponse
+    const streamChanged = streamPaths(prev) !== streamPaths(next)
+    if (forestChanged) this.forestGraph = nextResponse ? forestToGraph(nextResponse, this.forestPool) : null
+    if (forestChanged || streamChanged) this.updateStreamMarks()
+    const target = litTarget(next)
+    if (forestChanged || !sameTarget(target, this.forestLitTarget)) {
+      this.forestLitTarget = target
+      const lit = this.forestGraph ? litEndpoints(this.forestGraph, target) : null
+      this.forestLit = lit && lit.size > 0 ? lit : null
+    }
+  }
+
+  private async runForest(s: ForestState): Promise<void> {
+    const { seq, word, maxHops } = s
+    // A forest already on show means New forest: ask for one the server has
+    // not served before rather than a cached one.
+    const fresh = s.content.kind === 'forest'
+    const controller = new AbortController()
+    this.forestAbort = controller
+    const started = performance.now()
+    console.info('[forest] request', { word, maxHops, seq, fresh })
+    try {
+      await streamForest(word, maxHops, event => {
+        const ms = Math.round(performance.now() - started)
+        if (event.type === 'done') {
+          console.info('[forest] response', { word, seq, endpoints: event.forest.endpoints.length, generated: event.forest.stats.generated, ms })
+        } else if (event.type === 'error') {
+          console.warn('[forest] stream failed', { word, seq, kind: event.kind, ms })
+        } else {
+          console.debug('[forest] stream event', { seq, type: event.type, path: 'pathId' in event ? event.pathId : undefined, ms })
+        }
+        this.dispatchForest({ type: 'stream', seq, event })
+      }, controller.signal, fresh)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.debug('[forest] request aborted', { word, seq })
+      } else if (err instanceof ForestError) {
+        console.warn('[forest] request failed', { word, seq, kind: err.kind, status: err.status })
+        this.dispatchForest({ type: 'failed', seq, error: err.kind, retryAfterSeconds: err.retryAfterSeconds })
+      } else {
+        console.error('[forest] unexpected failure', { word, seq }, err)
+        this.dispatchForest({ type: 'failed', seq, error: 'failed', retryAfterSeconds: null })
+      }
+    } finally {
+      if (this.forestAbort === controller) this.forestAbort = null
+    }
+  }
+
+  /** Recompute the streamed marks from the current paths and snapshot, carry
+   *  dropped ones as fading (at once gone under reduced motion), and redraw. */
+  private updateStreamMarks(): void {
+    const live = streamMarks(streamPaths(this.forestState) ?? {}, this.forestGraph)
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    const now = performance.now()
+    this.forestMarks = fadeMarks(this.forestMarks, live, this.forestGraph, now, reduce ? 0 : FOREST_FADE_MS)
+    if (this.forestFadeTimer) clearTimeout(this.forestFadeTimer)
+    this.forestFadeTimer = null
+    const end = nextFadeEnd(this.forestMarks)
+    if (end !== null) {
+      this.forestFadeTimer = setTimeout(() => {
+        this.forestFadeTimer = null
+        this.updateStreamMarks()
+      }, Math.max(0, end - now) + 1)
+    }
+    this.recomposeGraph()
+  }
+
+  private recomposeGraph(): void {
+    const { data, overlay } = composeForest(this.thesaurusGraph, this.forestGraph, { marks: this.forestMarks, pool: this.forestPool })
+    this.graphData = data
+    this.forestOverlay = overlay
+  }
+
+  /** The forest node that carries the selection ring on the graph. */
+  private get forestSelectedId(): string | null {
+    const s = this.forestState.selection
+    if (!s) return null
+    return s.kind === 'node' ? s.id : s.kind === 'path' ? s.endpointId : s.target
+  }
+
+  private handleForestEvent(e: CustomEvent<ForestEvent>): void {
+    this.dispatchForest(e.detail)
+  }
+
+  private handleForestTarget(type: 'hover' | 'select', e: CustomEvent<{ target: ForestTarget | null }>): void {
+    this.dispatchForest({ type, target: e.detail.target })
+  }
+
+  private handleForestLookup(e: CustomEvent<{ word: string }>): void {
+    this.doLookup(e.detail.word, { soft: true })
   }
 
   private handleCopy(e: CustomEvent<{ word: string }>) {
@@ -612,6 +771,9 @@ export class MfApp extends LitElement {
     this.mode = next
     localStorage.setItem('mf-mode', next)
     if (next === 'grade') {
+      // The browse surfaces unmount, so nothing can end a hover or focus.
+      this.dispatchForest({ type: 'hover', target: null })
+      this.dispatchForest({ type: 'focus', target: null })
       void this.initGradeMode()
     }
   }
@@ -1111,26 +1273,39 @@ export class MfApp extends LitElement {
     return chain.chain.map(s => s.phrase).join(' → ')
   }
 
-  private async doLookup(word: string) {
+  /** `soft` (lookups started from the forest): the search box changes only on
+   *  success, and a 404 leaves the page as it was with a toast, because forest
+   *  words are often phrases the thesaurus does not have. */
+  private async doLookup(word: string, { soft = false }: { soft?: boolean } = {}) {
     const id = ++this.lookupId
     ++this.selectId // invalidate any in-flight second-order select
-    this.currentWord = word
+    if (!soft) this.currentWord = word
     this.appState = 'loading'
     this.errorMessage = ''
 
     try {
       const result = await lookupWord(word)
       if (id !== this.lookupId) return // stale — a newer lookup superseded this one
+      this.currentWord = word
       this.result = result
       const graph = transformLookupToGraph(result)
       const nodeIds = new Set(graph.nodes.map(n => n.id))
       const crossLinks = computeCrossLinks(result, nodeIds)
       this.baseGraphData = { nodes: graph.nodes, links: [...graph.links, ...crossLinks] }
-      this.graphData = this.baseGraphData
+      this.thesaurusGraph = this.baseGraphData
+      this.dispatchForest({ type: 'word-committed', word: result.word })
+      this.recomposeGraph()
       this.appState = 'ready'
       this.setWordHash(word)
     } catch (err) {
       if (id !== this.lookupId) return // stale
+      if (soft && this.result && err instanceof ApiError && err.status === 404) {
+        console.info('[forest] forest word not in the thesaurus', { word })
+        this.appState = 'ready'
+        const toast = this.shadowRoot?.querySelector('mf-toast') as MfToast | null
+        toast?.show(getString('forest-lookup-missing', { word }), 5000)
+        return
+      }
       this.appState = 'error'
       if (err instanceof ApiError && err.status === 404) {
         this.errorMessage = getString('results-word-not-found', { word })
@@ -1195,9 +1370,15 @@ export class MfApp extends LitElement {
       <mf-force-graph
         .graphData=${this.graphData}
         .hiddenRarities=${this.hiddenRarities}
+        .forest=${this.forestOverlay}
+        .forestVisible=${this.forestState.onGraph}
+        .forestLit=${this.forestLit}
+        .forestSelectedId=${this.forestSelectedId}
         @mf-node-select=${this.handleNodeSelect}
         @mf-node-navigate=${this.handleNodeNavigate}
         @mf-node-copy=${this.handleCopy}
+        @mf-forest-hover=${(e: CustomEvent<{ target: ForestTarget | null }>) => this.handleForestTarget('hover', e)}
+        @mf-forest-select=${(e: CustomEvent<{ target: ForestTarget | null }>) => this.handleForestTarget('select', e)}
       ></mf-force-graph>
 
       <mf-results-panel
@@ -1205,6 +1386,15 @@ export class MfApp extends LitElement {
         @mf-word-navigate=${this.handleWordNavigate}
         @mf-word-copy=${this.handleCopy}
       ></mf-results-panel>
+
+      ${this.result
+        ? html`<mf-forest-panel
+            .state=${this.forestState}
+            .lit=${this.forestLit}
+            @mf-forest-event=${this.handleForestEvent}
+            @mf-forest-lookup=${this.handleForestLookup}
+          ></mf-forest-panel>`
+        : ''}
     `
   }
 

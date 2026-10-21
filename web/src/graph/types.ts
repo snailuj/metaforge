@@ -5,6 +5,7 @@ export type RelationType =
   | 'hypernym'
   | 'hyponym'
   | 'similar'
+  | 'metaphor' // forest-only node or link (the metaphor forest overlay)
 
 /** Frequency-based rarity bucket for visibility filtering */
 export type Rarity = 'common' | 'unusual' | 'rare'
@@ -31,6 +32,24 @@ export interface GraphNode {
   val: number           // Affects node size in 3d-force-graph
   rarity?: Rarity       // Frequency bucket; defaults to 'unusual' when absent
   order: GraphOrder     // Depth from central node (0=central, 1=direct, 2=second-order)
+  x?: number            // set by the force simulation; a new forest node may be seeded with one
+  y?: number
+  z?: number
+}
+
+/** A streamed mark that the latest snapshot does not hold yet: pending (unjudged),
+ *  kept (judged, not yet in a snapshot) or fading (no path uses it any more). */
+export type StreamMarkStatus = 'pending' | 'kept' | 'fading'
+
+/** What a metaphor-forest link carries: the shared qualities that join its two
+ *  words, and the kept paths (by endpoint id) that run along it. */
+export interface MetaphorLinkInfo {
+  grounds: string[]
+  endpointIds: string[]
+  forestSource: string  // forest ids, stable across recompositions
+  forestTarget: string
+  stream?: StreamMarkStatus  // set only on streamed marks
+  fadeUntil?: number         // performance.now() time a fading mark is gone
 }
 
 /** A link (edge) in the force graph */
@@ -39,6 +58,7 @@ export interface GraphLink {
   target: string        // GraphNode.id
   relationType: RelationType
   order: GraphOrder     // Depth from central node (0=central, 1=direct, 2=second-order)
+  metaphor?: MetaphorLinkInfo // set only on metaphor-forest links
 }
 
 /** Complete graph data, ready for 3d-force-graph */
