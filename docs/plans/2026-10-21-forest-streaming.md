@@ -24,7 +24,7 @@ The graph shows the forging: hops appear as the generator writes them, unjudged 
 `GET /forge/forest?word=<w>&max_hops=<n>[&fresh=1]` with `Accept: text/event-stream` streams. Without that header the endpoint answers exactly as today, so `forestprobe`, older clients and tests keep working.
 
 - Validation, limiter and not-configured errors still answer before the stream starts, with today's status codes and JSON bodies (400, 429 with Retry-After, 503).
-- `event: hop`, `data: {"path_id": "f1b2", "facet": 1, "from": "patience", "to": "dormant seed", "ground": "..."}` as each hop is written. `path_id` names facet and branch; the first hop of a facet is shared by its branches.
+- `event: hop`, `data: {"path_id": "f1", "facet": 1, "from": "patience", "to": "dormant seed", "ground": "..."}` (a branch hop carries `f1b0` and starts from the facet word or the previous hop) as each hop is written. `path_id` names facet and branch; the first hop of a facet is shared by its branches.
 - Path ids: `f<i>` is facet `i`'s own path (source to the facet word; it only gets a verdict when the facet has a line), `f<i>b<j>` is branch `j` of facet `i`, whose path starts with facet `i`'s hop. Indices are 0-based and keep counting across the thin-output retry, so ids never repeat within one stream. `facet` in a `hop` event is `i`. Words in `from` and `to` are normalised as node ids are.
 - A pending node or link stays on the graph while any pending or kept path uses it, and fades once none does.
 - `event: rejected`, `data: {"path_id": "f1b2", "reason": "low_score" | "invalid" | "broken_hop" | "drift" | "cliche" | "literal" | "duplicate"}`.
