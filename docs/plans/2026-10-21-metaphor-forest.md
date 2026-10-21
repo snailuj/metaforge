@@ -296,7 +296,7 @@ Scores outside 0-10 are clamped. Unknown indices are ignored and logged.
 
 - Live prompt tuning done 2026-10-21 (see Tuning log). Gotcha for any re-tuning session: Claude Code cloud containers set `ANTHROPIC_BASE_URL` for their own use, and the Go SDK reads it, so start the API with `env -u ANTHROPIC_BASE_URL` or the calls go to the wrong host. The key lives in the environment variable `METAFORGE_ANTHROPIC_API_KEY`, not `ANTHROPIC_API_KEY`, so Claude Code itself never picks it up; map it at launch: `env -u ANTHROPIC_BASE_URL ANTHROPIC_API_KEY="$METAFORGE_ANTHROPIC_API_KEY" ./metaforge ...`. A network secret cannot carry it: `api.anthropic.com` is on the container proxy's no-proxy list, so no header injection reaches it, and the API expects `x-api-key`, not `Authorization: Bearer`. Tune on a mix of abstract sources (patience, bureaucracy) and concrete ones (river), where the probe produced literal endpoints.
 - Full-stack check against a stand-in model server passed on 2026-10-21 (contract, request shape, 400/503 paths, UI order, no raw string ids in the forest panel). Live check through the real binary passed the same day (three concurrent forests, 9-29 s; cache miss 29 s, hit 1-2 ms, restart keeps the pool).
-- A cold Forge still waits 10-30 s. Streaming facets to the panel as they are generated would cut perceived latency; not built.
+- A cold Forge still waits 10-30 s for the whole forest, but streaming (`docs/plans/2026-10-21-forest-streaming.md`) shows hops as they are written and judged metaphors as each facet finishes.
 - Pre-warming pools for common words (a batch over the top-N lexicon words) is possible now that forests are cached; not built.
 - A live-versus-dead eval to replace the aptness KPI is a follow-up.
 
