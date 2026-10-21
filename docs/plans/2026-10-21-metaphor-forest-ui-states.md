@@ -1,527 +1,358 @@
 # Metaphor forest: UI state machine
 
-Status: draft for designer review, 2026-10-21. Written to `docs/plans/2026-10-21-metaphor-forest.md` (the spec, "Frontend" section line 110 onward). Method: `~/.claude/skills/ui-state-design/SKILL.md`. Accessibility bar: `~/.claude/skills/ux-floor/SKILL.md`. No code is changed by this document.
+Status: judged by the designer and built, 2026-10-21, branch `forest/web`. The worker's draft (26 states, 86 transitions) was checked against `~/.claude/skills/ui-state-design/SKILL.md` and simplified. Section 3 records every change and its reason. Spec: `docs/plans/2026-10-21-metaphor-forest.md`. Accessibility bar: `~/.claude/skills/ux-floor/SKILL.md`.
 
-Paths below are relative to the repository root. `file:line` citations are against branch `forest/web` at the time of writing.
+Paths are relative to the repository root. `file:line` citations are against `forest/web` at the time of writing.
 
 ## 1. Scope and fixed constraints
 
-The forest overlays the browse (thesaurus) graph for the committed word. Grade mode is out of scope except where a mode switch changes the forest (section 4, events 13 and 14).
+The forest overlays the browse (thesaurus) graph for the committed word. Grade mode is out of scope except where a mode switch touches the forest.
 
-Constraints quoted from the spec and fixed here. The table fills the cells around them and does not override them.
+Rulings quoted verbatim. The tables fill the cells around them and do not override them.
 
 | Source | Quote |
 |---|---|
+| owner, via the build brief | "see a forest of branching options from one source to many metaphorical endpoints, visible on the graph, with each link showing the meaning its two words share." |
+| build brief | "hovering an endpoint, a hop or a metaphor link lights every path through it, nodes and links, and dims the rest" |
 | spec:32 | "The forest overlays the thesaurus graph for the looked-up word; thesaurus links dim while a forest is shown." |
 | spec:77 | "An empty forest (every path rejected) is still 200 with empty `nodes` apart from the source, and empty `edges` and `endpoints`." |
 | spec:112 | "Map 503, 429 and 504 to distinct user-facing messages." |
-| spec:114 | "hover on an endpoint lights its whole path and dims the rest; thesaurus links dim while a forest is shown." |
 | spec:115 | "Focus or hover on an item lights its path. It is the accessible surface and must work at phone width." |
-| spec:30 | "Caching: None." (Each press can return a different forest, so a discarded forest cannot be restored.) |
+| spec:30 | "Caching: None." (Each press can return a different forest, so a replaced forest cannot be restored.) |
 
-## 2. What exists today
+## 2. Where it lives
 
-| Fact | Where |
+| Part | Where |
 |---|---|
-| Lookup is latest-wins: `lookupId` is bumped on entry and checked after the await, on both success and error paths. | `web/src/components/mf-app.ts:953`, `:961`, `:971` |
-| A lookup sets `currentWord` and `appState = 'loading'` before the response, and clears `errorMessage`. The search box binds to `currentWord`. | `mf-app.ts:955-957`, `:987` |
-| A 404 sets `appState = 'error'` with `results-word-not-found`; anything else sets `error-generic`. `result` and `graphData` are left as they were, so the old graph stays behind the message. | `mf-app.ts:970-978` |
-| Four callers reach `doLookup`: search, node double-click, results-panel chip, URL hash (initial load and `hashchange`). | `mf-app.ts:513-515`, `:517-522`, `:539-541`, `:479-482`, `:494-499` |
-| Single click (`mf-node-select`) fetches the clicked word and merges second-order nodes into `baseGraphData` after stripping earlier ones. Central is ignored. A failure only logs. Latest-wins by `selectId`; `doLookup` also bumps `selectId`. | `mf-app.ts:524-537`, `:954`; `web/src/graph/transform.ts:198-212` |
-| `errorMessage` is one shared string. Lookup errors, grade errors and the auth-expiry message all write it. It renders in two places: the centre status line and `mf-error-banner`. The banner has no `role`. | `mf-app.ts:550`, `:610`, `:629`, `:666`, `:957`, `:973-976`, `:1003`, `:1269-1271`; `web/src/components/mf-error-banner.ts:20-23` |
-| The lookup loading and error text sits in one `role="status" aria-live="polite" aria-atomic` region. | `mf-app.ts:992-1009` |
-| `mf-toast` is a `role="status" aria-live="polite"` element, default duration 1500 ms, shown through `toast.show(msg, duration)`. | `web/src/components/mf-toast.ts:36`, `:51-52`; `mf-app.ts:543-546`, `:1294` |
-| Mode switch swaps the whole subtree. Browse mode mounts `mf-force-graph` and `mf-results-panel`; grade mode does not, so `disconnectedCallback` disposes the WebGL renderer. `result` and `graphData` live in `mf-app` and survive. | `mf-app.ts:553-560`, `:981-1047`, `:1284-1292`; `web/src/components/mf-force-graph.ts:604-618` |
-| The grade-mode graph is wired to the same `mf-node-select` and `mf-node-navigate` handlers. | `mf-app.ts:1070-1072` |
-| Click handling: first click arms a 300 ms timer (`mf-node-select` on expiry); a second click inside it cancels the timer and fires `mf-node-navigate`. Clicks on `order === 2` nodes are swallowed. | `mf-force-graph.ts:17`, `:400-439` |
-| Node hover only toggles a label CSS class. The whole-path highlight pattern exists for grade mode: `hoveredChainSig`, read by `linkColor` and `linkWidth`, applied by `refreshLinkStyles()` without calling `graphData()`, so the force sim does not re-heat. | `mf-force-graph.ts:138`, `:363-378`, `:380-388`, `:452-465`, `:522-525`, `:583-585` |
-| Any change to the `graphData` prop re-feeds the library and restarts the sim. | `mf-force-graph.ts:528-537`, `:567-573` |
-| The rarity filter hides nodes by `rarity ?? 'unusual'`, so a node with no rarity vanishes when "unusual" is unticked. | `mf-force-graph.ts:297-314` |
-| `mf-results-panel` is collapsed by default at 768px and below, with a toggle. Its whole panel is `aria-live="polite"`. Word chips are `span role="button"` and handle Enter only. | `web/src/components/mf-results-panel.ts:68-72`, `:224-229`, `:236-238`, `:271-275`, `:277-291`, `:385` |
-| Browse node ids may be `word__synsetId`. | `web/src/graph/types.ts:27` |
-| Strings live in Fluent, loaded at start. | `web/public/strings/v1/ui.ftl`, `web/src/lib/strings.ts:23-60` |
+| The whole state machine, as a pure reducer | `web/src/forest/state.ts:72` (`reduceForest`), `:68` (`litTarget`) |
+| Effects: start, abort, recompose, lit set | `web/src/components/mf-app.ts:574` (`dispatchForest`), `:602` (`runForest`), `:630` (`recomposeGraph`) |
+| Soft lookup | `web/src/components/mf-app.ts:1070`, 404 branch `:1093`; forest double-click `:544` |
+| Client and error mapping | `web/src/api/client.ts:94` (`fetchForest`), `:74` (status kinds), `:127` (body shape check) |
+| Transform, overlay, lit paths, depth force | `web/src/graph/forest.ts:51`, `:104`, `:143`, `:173` |
+| Graph rendering and gestures | `web/src/components/mf-force-graph.ts:339` onward (forest accessors), `:409` (hover, touch guard), `:685` (background click), `:738` (forest-node click) |
+| Panel (the accessible surface) | `web/src/components/mf-forest-panel.ts`; status and alert regions `:573`, `:576`; phone sheet `:353` |
+| Copy | `web/public/strings/v1/ui.ftl`, section "Metaphor forest panel" |
 
-## 3. Context held by `mf-app`
+Existing behaviour the design relies on, unchanged: lookups are latest-wins through `lookupId`; a lookup error sets `appState = 'error'` and leaves `result` and the graph in place; `errorMessage` is shared by lookup, grade and auth errors; single click arms a 300 ms timer and a second click inside it navigates; the results panel collapses at 768 px and below.
 
-| Variable | Meaning |
+## 3. Changes from the draft
+
+| Change | Reason |
 |---|---|
-| `forest` | The last accepted 200 body, or null. Holds `source`, `max_hops`, `nodes`, `edges`, `endpoints`, `stats`. |
-| `request` | `idle`, `loading`, or `failed(kind)` with kind one of 400, 429, 502, 503, 504, network. |
-| `forestSeq`, `controller` | A counter bumped on every start, cancel, clear and commit of a different word, plus the `AbortController` for the call in flight. A response renders only if its counter is current and `forest.source` equals the committed word. |
-| `hops` | 1 to 5, default 3. Survives word changes and failures. |
-| `pinned` | Endpoint id whose path is pinned, or null. |
-| committed word | `result.word` (`mf-app.ts:962`). Forge always sends this, never `currentWord`, because `currentWord` changes before a lookup succeeds. |
-| lookup ready | `appState === 'ready'`. Called G below. |
+| Request and content are two independent variables. The `reloading` and `failed-kept` families are gone. | A re-roll or a failure never touches the content, so each transition is written once and keeping the shown forest costs nothing. |
+| Confirm-Before-Clear and the whole clear-confirmation region are replaced by a reversible "Show on graph" checkbox. | Hiding loses nothing, so no confirmation is needed and floor items 14 and 15 no longer apply; it uses visibility, so the layout does not jump. |
+| The 429 cooldown timer, its event and its "forge is ready" announcement are dropped. The primary stays enabled after a 429. | An early retry costs one cheap 429 with a fresh `Retry-After`, and the message already says when to retry. |
+| The lookup-ready guard (G) is dropped from every row. | The panel names the committed word, and a lookup that commits another word aborts the request, so a wrong forest cannot render. |
+| Hops-Inert-In-Flight is dropped; the select is always live. | A change mid-flight only sets the next request, so there is nothing to protect. |
+| Stale-Hops-Note is dropped. | The select sits beside New forest and plainly shows the setting for the next press. |
+| Highlight targets are nodes, links and paths. Hover on a hop or a link lights every path through it. | The build brief overrules Hover-Endpoints-Only. |
+| Graph-hover and panel-hover merge into one hover source; sources are hover, focus, selection. | One pointer is in one place, so the priority rule is "hover, else focus, else selection". |
+| Pin becomes selection: a click or tap on any forest node or metaphor link, or the panel's Highlight path toggle. A background click and Escape in the list clear it. | Touch has no hover, so a tap must be able to light paths; clicking empty space is the natural way out. |
+| A selection draws a gold ring on its node's label; hover never does. The draft's panel "Pinned" badge is dropped (the pressed Highlight path button carries it). | Without a graph mark, a click that toggles the selection under the pointer shows no change: the blocker the draft named Pin-Is-Visibly-Different. |
+| Soft lookup covers every lookup started from the forest (panel Look up, double-click on any forest node), not only forest-only words. | One rule instead of an origin split; the 404 toast is harmless for a word the thesaurus has. |
+| The Look up button stays active while a lookup runs. | `doLookup` is latest-wins, so a second press supersedes the first rather than duplicating it. |
+| A mode switch aborts nothing and clears only hover and focus. | The request is already paid for; letting it land keeps the forest for the way back. Only pointer and focus sources go stale when the panel unmounts. |
+| One-Phone-Panel-Open is done by stacking: an opened results panel slides over the forest sheet. | Same outcome with one CSS rule and no new cross-component event. |
+| The next Forge clears an empty result. | Nothing on screen is worth keeping, and `empty` then only ever pairs with an idle request. |
+| Failure kinds are named (`invalid-word`, `busy`, `failed`, `not-configured`, `timeout`, `network`), not numbered by status. | Names say what to do; statuses stay in the logs. |
+| "Max hops" is "Max steps" in the UI, and all copy was rewritten to name the next action. | Plain language and floor item 17. |
+| Composition: a new forest is framed by the camera, its rings clear the thesaurus cloud and flatten toward the default camera, thesaurus labels recede, and lit words stay above ground labels. | The owner must see the forest at a glance; these came from the visual check. |
 
-Forest failures do not use `errorMessage`. Reason: that string is shared with lookup and grade errors, is cleared by every lookup (`mf-app.ts:957`), and renders in two places that would show a forest failure out of context.
+## 4. Context held by `mf-app`
 
-## 4. Region A: forest lifecycle
+One `ForestState` (`web/src/forest/state.ts`), plus effect handles.
 
-The surface is two axes, content kept on screen (none, shown, empty) and request (idle, loading, failed). Failures never destroy a shown forest, so a failed or loading request over a shown forest is its own state.
+| Field | Meaning |
+|---|---|
+| `word` | The committed word (`result.word`). Requests always send it, never the search box text. |
+| `seq` | Bumped on every Forge, Cancel and word change. A response applies only if its `seq` is current, a request is in flight, and its `source` normalises to `word`. Whenever `seq` moves, `mf-app` aborts the request in flight. |
+| `request` | `idle`, `loading`, or `failed(kind, retryAfterSeconds)`. |
+| `content` | `none`, `forest(response)` (at least one endpoint) or `empty(response)`. |
+| `maxHops` | 1 to 5, default 3. Survives word changes and failures. |
+| `onGraph` | Show on graph. Reset to true by a new forest and by a word change. |
+| `notice` | One-off outcome to announce: `found`, `empty-kept`, `cancelled`, or none. Cleared by the next Forge or word. |
+| `hover`, `focus`, `selection` | Highlight sources (section 6). |
 
-### 4.1 States
+Forest failures never use `errorMessage`: that string is shared with lookup and grade errors and is cleared by every lookup.
 
-Seven families, 17 observable states (`failed` and `failed-kept` each carry one of six kinds; `failed-kept(400)` is defensive, since the word already succeeded once).
+## 5. Region A: forest lifecycle
 
-| State | Meaning | Graph | Panel controls | Panel body |
+### 5.1 States
+
+Request: `idle`, `loading`, `failed(kind)`. Content: `none`, `forest`, `empty`. Seven combinations are reachable; `empty` with `loading` or `failed` is not, because Forge clears an empty result.
+
+| Request, content | Panel controls | Status region (polite) | Alert region | Body | Graph |
+|---|---|---|---|---|---|
+| idle, none | Max steps, Forge | empty, or "Forging stopped." after a cancel | empty | Intro: "Grow fresh metaphors for "{word}". Each one is a path of shared qualities, drawn on the graph." | Thesaurus only |
+| loading, none | Max steps, "Forging…" (aria-disabled), Cancel | spinner and "Forging metaphors for "{word}". This can take up to a minute." | empty | empty | Thesaurus only |
+| idle, forest | Max steps, New forest, Show on graph, phone sheet toggle | "Found {n} metaphors for "{word}". {k} are live." until the next request, or the empty-kept or cancelled line | empty | Legend and endpoint list | Forest drawn, thesaurus links and labels receded |
+| loading, forest | Max steps, "Forging…", Cancel, Show on graph | spinner and "Forging a new forest for "{word}". The current one stays until it arrives." | empty | The kept list | The kept forest |
+| idle, empty | Max steps, Forge | "No metaphors passed the quality check for "{word}" this time. The forge tried {generated} and kept none. Press Forge to try again, or look up another word." | empty | empty | Thesaurus only, nothing receded |
+| failed, none | Max steps, Forge | empty | The kind's message (5.4) | empty | Thesaurus only |
+| failed, forest | Max steps, New forest, Show on graph | empty | The kind's message plus " Your last forest is still shown." | The kept list | The kept forest |
+
+Presentation discriminates every pair: the primary label (Forge, Forging…, New forest), Cancel present only in flight, Show on graph present only with a forest, the status text, and the alert text. No state is told apart by colour alone.
+
+### 5.2 Events
+
+1. forge: the primary button (click, tap, Enter, Space).
+2. settled, at least one endpoint (200).
+3. settled, no endpoints (200).
+4. failed(kind): any non-200, a network failure, or a 200 whose body breaks the contract.
+5. stale: any settle whose `seq` is not current, or arrives with no request in flight, or whose `source` is not the committed word, and every AbortError.
+6. cancel.
+7. word-committed: a lookup succeeds. Same word or another word.
+8. set-max-hops.
+9. Not events for this region (explicit no-ops): lookup start, lookup failure (hard or soft), a second-order expansion (it recomposes the graph only), and mode switches (section 8.3).
+
+### 5.3 Transitions
+
+Request view. Every cell is a transition or a no-op with its reason.
+
+| Event | idle | loading | failed(kind) |
+|---|---|---|---|
+| forge | -> loading, `seq` + 1, fetch `(word, maxHops)`. An empty result is cleared; notice cleared. | No-op: single flight. The button is aria-disabled, the handler returns early, and the reducer returns the same state. | -> loading, alert cleared. Otherwise as idle. |
+| settled, endpoints | Stale (nothing in flight): dropped. | -> idle. Content becomes the new forest, highlight sources cleared, `onGraph` true, notice `found`. On a phone the sheet opens; the camera frames the new forest. Focus does not move. | Stale: dropped. |
+| settled, no endpoints | Stale: dropped. | -> idle. A shown forest is kept with notice `empty-kept`; otherwise content becomes `empty`. | Stale: dropped. |
+| failed(kind) | Stale: dropped. | -> failed(kind). Content unchanged. Alert announced once. | Stale: dropped. |
+| stale | Dropped. Nothing renders or is announced; one `console.debug` line. | Same. | Same. |
+| cancel | No-op: the control is not rendered. | -> idle, `seq` + 1, request aborted, notice `cancelled`. Content unchanged. Focus moves to the primary because Cancel disappears. | No-op: the control is not rendered. |
+| word-committed, another word | -> idle, `seq` + 1, content none, highlights cleared, `onGraph` true. Max steps kept. | Same, and the request is aborted. | Same; the alert is cleared. |
+| word-committed, same word | No-op: a repeat search must not destroy a forest. The graph is recomposed on the fresh thesaurus base. | No-op: the request keeps running. | No-op. |
+| set-max-hops | `maxHops` set (clamped 1 to 5). | `maxHops` set; the request in flight keeps the old value. | `maxHops` set; the alert stays until the next action. |
+
+Content view of the same events.
+
+| Event | none | forest | empty |
+|---|---|---|---|
+| forge | Unchanged. | Unchanged: kept until a better one lands. | -> none. |
+| settled, endpoints | -> forest. | -> forest (replaced). | Unreachable: forge cleared it. |
+| settled, no endpoints | -> empty. | Unchanged, notice `empty-kept`. | Unreachable. |
+| failed | Unchanged. | Unchanged. | Unreachable. |
+| cancel | Unchanged. | Unchanged. | Unreachable: no request. |
+| word-committed, another word | Unchanged (already none). | -> none. | -> none. |
+
+### 5.4 Failure kinds
+
+Every message says what happened and the next action, blames no one, and goes into the `role="alert"` region, which is always in the DOM. The server's own `error` text is never shown.
+
+| Kind | Cause | Message | Recovery |
+|---|---|---|---|
+| invalid-word | 400 | ""{word}" can't be forged. The forge takes words and short phrases made of letters, spaces, hyphens and apostrophes, up to 40 characters. Look up a different word to try again." | Look up another word. |
+| busy | 429 | "The forge is busy right now. Try again in {n} seconds." ("1 second"; "in a moment" when `Retry-After` is missing, not whole seconds, or under 1.) | Wait, then press the primary. |
+| failed | 502, any unlisted status, or a contract-breaking 200 (logged with the real status) | "The forge couldn't grow a forest this time. Try again; each try can give different metaphors." | The primary. |
+| not-configured | 503 | "The metaphor forest isn't turned on for this server. The thesaurus still works. Ask the site owner to turn the forest on." | Names who can act. The primary stays enabled; a repeat costs no model call. |
+| timeout | 504 | "The forge took too long and stopped. Try again, or choose fewer steps." | The primary, or Max steps. |
+| network | fetch rejects (not our abort) | "Couldn't reach the server. Check your connection, then try again." | The primary. |
+
+### 5.5 Lookups started from the forest (soft lookup)
+
+The panel's Look up button and a double-click on any forest node run `doLookup` in soft mode:
+
+- The search box changes only on success.
+- `appState` is `loading` while it runs.
+- Success behaves as word-committed (usually another word, which clears the forest).
+- A 404 restores `appState = 'ready'`, leaves the forest, any request and the search box alone, and shows the toast ""{word}" isn't in the thesaurus. Your forest is unchanged." for 5 s (`role="status"`). Focus does not move.
+- Any other failure takes the existing lookup error path.
+
+## 6. Region B: highlight
+
+Targets: a path (by endpoint id), a forest node, or a metaphor link. A target lights every kept path that contains it (`litEndpoints`, `web/src/graph/forest.ts:143`).
+
+Sources, highest priority first:
+
+1. hover: a mouse or pen over a forest node or metaphor link on the graph, or over a list item. Touch never sets hover (the graph remembers the last `pointerType`; the panel checks it on `pointerenter`).
+2. focus: keyboard focus inside a list item.
+3. selection: a click or tap on a forest node or metaphor link (after the 300 ms double-click window), or the item's Highlight path toggle.
+
+The lit target is the first source that is set. States are named by the winning source.
+
+Presentation. Graph: lit nodes and links bright, lit branches wider with more sparks, grounds shown at each lit link, lit words drawn above ground labels; every other forest mark and the whole thesaurus dimmed. A selection also rings its node's label in gold (for a path, the endpoint; for a link, its head node). Panel: lit items carry a cyan rule and tint; a selection made with Highlight path also shows the button pressed (`aria-pressed="true"`). Hover and focus never draw the ring or press the button, so selection always reads differently from a transient light.
+
+| Event | unlit | lit-hover | lit-focus | lit-selected |
 |---|---|---|---|---|
-| none | No forest, nothing in flight. | Thesaurus only, links at normal strength. | Max hops select. Primary "Forge". | Intro line: "Forge finds fresh metaphors for "{word}" and draws them on the graph." |
-| loading | In flight, nothing kept. | Thesaurus only. | Hops select aria-disabled. Primary "Forging..." aria-disabled. "Cancel". | Decorative spinner plus "Forging metaphors for "{word}". This can take up to a minute." |
-| reloading | In flight, a shown forest kept. | The kept forest. | Hops aria-disabled. Primary "Forging..." aria-disabled. "Cancel". "Clear forest". | Line "Forging a new forest. This one stays until it arrives." above the kept list, list `aria-busy="true"`. |
-| shown | At least one endpoint. | Forest drawn, thesaurus links dimmed. | Hops enabled. Primary "New forest". "Clear forest". | Summary "{n} metaphors, {k} live", then the endpoint list (section 7.1). If `hops` differs from `forest.max_hops`: "Built with up to {max_hops} hops. New forest will use {hops}." |
-| empty | 200, no endpoints. | Thesaurus only (nothing to emphasise, so no dimming). | Hops enabled. Primary "Forge". | "No metaphors passed the quality check for "{word}" this time. The forge checked {generated} candidates and kept none. Press Forge to try again, or look up a different word." |
-| failed(kind) | Failed, nothing kept. | Thesaurus only. | Hops enabled. Primary "Forge" (aria-disabled while a 429 cooldown runs). | The message for the kind (section 4.4) in the alert region. |
-| failed-kept(kind) | Failed, shown forest kept. | The kept forest. | Hops enabled. Primary "New forest" (aria-disabled during 429 cooldown). "Clear forest". | The message for the kind plus " Your previous forest is still shown.", then the kept list. |
+| pointer enters a forest node, metaphor link or list item (mouse or pen) | -> lit-hover. | Target switches; stays lit-hover. | -> lit-hover; focus kept underneath. | -> lit-hover; selection kept underneath. |
+| pointer leaves | No-op: no hover set. | -> lit-focus if focus is set, else lit-selected if a selection is set, else unlit. | No-op: hover was not set. | No-op: hover was not set. |
+| touch on the graph | No hover. A tap is a click (row below). | Same. | Same. | Same. |
+| focus enters a list item | -> lit-focus. | Stays lit-hover; focus stored. | Target switches. | -> lit-focus; selection kept. |
+| focus leaves a list item | No-op. | Stays lit-hover; focus dropped. | -> lit-selected if set, else unlit. | No-op. |
+| click or tap a forest node or metaphor link; Highlight path | Selection set -> lit-selected, ring drawn. | Selection set; ring drawn; stays lit-hover until the pointer leaves. | Selection set; stays lit-focus. | Same target: selection cleared, ring removed (-> next source down, else unlit). Another target: selection moves. |
+| background click on the graph | No-op (nothing selected). | Selection cleared; stays lit-hover. | Selection cleared; stays lit-focus. | -> unlit. |
+| Escape in the list | No-op; on a phone with the sheet open, the sheet collapses. | Selection cleared if set. | Selection cleared if set. | -> unlit. Focus stays. |
+| new forest arrives, or another word is committed | No-op. | -> unlit, all sources cleared. | -> unlit. | -> unlit. |
+| Show on graph unchecked | Graph shows nothing lit; the panel still marks lit items. Sources kept. | Same. | Same. | Same. |
+| mode switch to grade | No-op. | -> unlit (hover cleared). | -> unlit or lit-selected (focus cleared). | Unchanged; shown again on return. |
 
-Presentation discriminates every pair: primary label (Forge, Forging..., New forest), the presence of Cancel and Clear forest, the body text, and the alert region content. `loading` and `reloading` differ by the kept list and Clear forest. `shown` and `failed-kept` differ by the alert text. No colour-only cue is used.
+Highlight changes are applied through accessor refreshes and label DOM attributes, never `graphData()`, so the simulation does not re-heat. Highlight is live on a kept forest during a re-roll and after a failed one. With no forest, every row is a no-op (the reducer ignores the event).
 
-Controls other than Clear forest, Cancel, pinning, highlighting and lookup are inert when G is false (a lookup is loading or failed). The panel then shows "Forge is off until the word lookup succeeds." in place of the intro line or above the body. This is a guard on every row below, not a separate state.
+Single click on a forest node never expands it and double-click looks it up softly; nodes with no forest role keep every existing behaviour (Forest-Role-Wins-Clicks). Right-click still copies the word.
 
-### 4.2 Events
+## 7. Region C: Show on graph
 
-1. press-forge: the primary button (click, tap, Enter, Space).
-2. response-ok: 200 with at least one endpoint.
-3. response-empty: 200 with no endpoints.
-4. response-fail(kind): 400, 429, 502, 503, 504, network, any other status, or a 200 whose body fails the shape check.
-5. response-stale: any settle (success, failure, AbortError) whose counter is not current or whose `source` is not the committed word.
-6. press-cancel.
-7. press-clear (opens the confirmation, region C).
-8. confirm-discard (region C, section 6).
-9. hops-change.
-10. lookup-start: any `doLookup` begins, from any caller.
-11. lookup-commit-same: a lookup succeeds and `result.word` equals the previous committed word.
-12. lookup-commit-other: a lookup succeeds with a different word.
-13. lookup-fail: a lookup fails and the app is in the error state (hard), or a soft lookup returns 404 (soft; section 4.5).
-14. mode-to-grade.
-15. mode-to-browse.
-16. cooldown-elapsed (timer).
-17. expand-second-order: single click on a thesaurus node (`mf-node-select`).
+Present only while there is a forest.
 
-Clicking or hovering the graph for highlight, and double-clicking a forest node, are covered by region B and by events 10 to 13.
-
-### 4.3 Transitions
-
-Every row is a cell. "Guard G" means the row is a no-op when lookup is not ready.
-
-Event 1, press-forge
-
-| State | Result | Feedback |
+| Event | on | off |
 |---|---|---|
-| none | -> loading. Counter bumped, new `AbortController`, `fetchForest(result.word, hops)`. Guard G. | Status: "Forging metaphors for "{word}". This can take up to a minute." |
-| loading | No-op. Single flight: the button is aria-disabled and the handler returns early. | None. |
-| reloading | No-op, same guard. | None. |
-| shown | -> reloading. Kept forest stays. Guard G. | Status: "Forging a new forest for "{word}". The current one stays until it arrives." |
-| empty | -> loading. Empty message is replaced. Guard G. | Status as for none. |
-| failed(kind) | -> loading. Alert region emptied. Guard G. No-op while a 429 cooldown runs. | Status as for none. |
-| failed-kept(kind) | -> reloading. Alert region emptied. Guard G. No-op while a 429 cooldown runs. | Status as for shown. |
+| uncheck | -> off. Forest-only nodes and metaphor links hidden by visibility, thesaurus restored, labels rebuilt, no re-feed. | Unreachable. |
+| check | Unreachable. | -> on, the reverse. |
+| new forest arrives | Stays on. | -> on (the user asked for it). |
+| another word committed | Control removed; resets to on. | Same. |
+| failure, cancel, empty re-roll | Unchanged. | Unchanged. |
 
-Event 2, response-ok (counter current, source matches)
+## 8. Region D: layout, phone and keyboard
 
-| State | Result | Feedback |
-|---|---|---|
-| none | Stale; see event 5. | None. |
-| loading | -> shown. | Status: "Found {n} metaphors for "{word}", {k} rated live." (singular for 1). Focus does not move. |
-| reloading | -> shown. The new forest replaces the kept one; `pinned` is cleared. | Same status. |
-| shown | Stale; see event 5. | None. |
-| empty | Stale. | None. |
-| failed(kind) | Stale. | None. |
-| failed-kept(kind) | Stale. | None. |
+### 8.1 Panel structure
 
-Event 3, response-empty
+`mf-forest-panel`, rendered in browse mode whenever a word has been looked up. A `section` landmark named by its `h2` "Metaphor forest" (`tabindex="-1"`).
 
-| State | Result | Feedback |
-|---|---|---|
-| loading | -> empty. | Status: the empty-state sentence. |
-| reloading | -> shown. The kept forest stays, because an empty re-roll is no better than what is on screen. | Status: "The new forest had no metaphors that passed the quality check. Your previous forest is still shown." |
-| none, shown, empty, failed, failed-kept | Stale. | None. |
+1. Controls: "Max steps" select (visible label), the primary button, Cancel in flight.
+2. "Show on graph" checkbox with a visible label, only with a forest.
+3. `role="status"` polite atomic region, always in the DOM.
+4. `role="alert"` region, always in the DOM.
+5. Body: intro, legend and list, or nothing.
 
-Event 4, response-fail(kind)
+One list item per endpoint, in API order (score descending, then shorter path):
 
-| State | Result | Feedback |
-|---|---|---|
-| loading | -> failed(kind). A 429 starts the cooldown timer. | Alert: message for kind (4.4). |
-| reloading | -> failed-kept(kind). A 429 starts the cooldown timer. | Alert: message for kind plus " Your previous forest is still shown." |
-| none, shown, empty, failed, failed-kept | Stale. | None. |
+- Endpoint word (`h3`), "✦ Live" text when the score is 7 or more, then "{score}/10" with the hidden text "Score {score} out of 10".
+- The line, in italic.
+- The path as an ordered list named "Path from "{source}" to "{endpoint}"": each word, with the ground that joins it to the next word set beneath it (hidden prefix "joined by").
+- "Highlight path" toggle (`aria-pressed`, named "Highlight the path to "{endpoint}"") and "Look up" (named "Look up "{endpoint}" in the thesaurus").
+- The judge's `reason` is not shown (the spec lists line, path and score).
 
-Event 5, response-stale
+### 8.2 Phone width
 
-| State | Result | Feedback |
-|---|---|---|
-| any of the seven | Dropped. Nothing renders, nothing is announced. One `console.debug` line records word, counter and outcome. An AbortError caused by our own `abort()` is always stale. | None. |
+At 768 px and below the panel is a bottom sheet (75 dvh maximum, safe-area padding). The bar (heading, controls, status, alert) is always there, so Forge is one tap away. The list shows only while the sheet is open. Every fact and action is in the list, so the graph is never needed.
 
-Event 6, press-cancel
+| Event | desktop | sheet collapsed | sheet open |
+|---|---|---|---|
+| sheet toggle (`aria-expanded`, "Show {n} metaphors" or "Hide metaphors"; rendered only with a forest) | Hidden by CSS. | -> open. | -> collapsed; focus stays on the toggle. |
+| Escape in the list with no selection | No-op. | No-op. | -> collapsed; focus to the toggle. |
+| new forest arrives | No-op. | -> open; focus does not move. | Stays open. |
+| content leaves forest (another word) | No-op. | No-op. | -> collapsed. |
+| the results panel opens | No-op. | It slides over the sheet (z-order). | Same. |
+| viewport crosses 768 px | CSS only; state kept. | Same. | Same. |
 
-| State | Result | Feedback |
-|---|---|---|
-| loading | -> none. `abort()`, counter bumped. | Status: "Forging cancelled." Focus moves to the primary button, because Cancel is removed. |
-| reloading | -> shown. `abort()`, counter bumped. | Status: "Forging cancelled. Your previous forest is still shown." Focus to the primary button. |
-| none, shown, empty, failed, failed-kept | No-op. The control is not rendered. | None. |
+### 8.3 Live regions, focus and mode switches
 
-Event 7, press-clear
+Polite (`role="status"`): loading, re-roll loading, found, empty, empty re-roll kept, cancelled; the soft-lookup toast. Assertive (`role="alert"`): each failure, once. Not announced: highlight changes, max steps, Show on graph (native controls announce themselves), stale drops.
 
-| State | Result | Feedback |
-|---|---|---|
-| shown, reloading, failed-kept | Region C opens. State unchanged. | Confirmation prompt, focus on "Keep forest". |
-| none, loading, empty, failed | No-op. The control is not rendered. Loading has Cancel; the others have nothing to discard. | None. |
+Focus never moves on a response. It moves only when the focused control disappears: Cancel (to the primary) and a word change while focus is in the panel (to the heading). The primary uses `aria-disabled` plus a guard rather than `disabled`, so focus is not dropped in flight.
 
-Event 8, confirm-discard
+Mode switch to grade: the panel and browse graph unmount; hover and focus are cleared; a request in flight keeps running and its result is shown on return. Mode switch to browse: a new graph mounts with the composed graph.
 
-| State | Result | Feedback |
-|---|---|---|
-| shown | -> none. `forest` cleared, `pinned` cleared. | Status: "Forest cleared." Focus to primary button. |
-| reloading | -> none. `abort()`, counter bumped, forest cleared. | Same. |
-| failed-kept(kind) | -> none. Forest and alert cleared, cooldown timer cleared. | Same. |
-| none, loading, empty, failed | Unreachable (region C is closed in these states). | None. |
-
-Inverse: none. The action is irreversible and the confirmation says so.
-
-Event 9, hops-change
-
-| State | Result | Feedback |
-|---|---|---|
-| none | `hops` updated. No request. | None beyond the select's own announcement. |
-| loading, reloading | No-op. Select is aria-disabled. Reason: the request in flight already used the old value. | None. |
-| shown, failed-kept | `hops` updated. No request. The forest is unchanged. If the value differs from `forest.max_hops` the "Built with up to..." line appears; if it matches, it disappears. | None. |
-| empty, failed | `hops` updated. No request. An error stays until the next action. | None. |
-
-Event 10, lookup-start
-
-| State | Result | Feedback |
-|---|---|---|
-| any of the seven | State unchanged. G becomes false, so Forge, New forest and the hops select go inert and the guard line appears. Any request in flight keeps running and may land (it is still for the displayed word). Region C stays as it is. | Existing lookup status ("Looking up..."). |
-
-Event 11, lookup-commit-same
-
-| State | Result | Feedback |
-|---|---|---|
-| any of the seven | State unchanged. The graph is recomposed: fresh thesaurus base, forest overlaid again (section 8). A request in flight keeps running. Reason: the forest belongs to the word, and a repeat lookup (search again, double-click the central node) must not destroy it. | None. |
-
-Event 12, lookup-commit-other
-
-| State | Result | Feedback |
-|---|---|---|
-| any of the seven | -> none. `abort()` if in flight, counter bumped, forest, `pinned`, alert and cooldown timer cleared, region C closed, highlight sources cleared. `hops` kept. Panel heading takes the new word. | No extra announcement (the lookup's own status covers it). If focus was inside the panel it moves to the panel heading (`tabindex="-1"`). |
-
-Event 13, lookup-fail
-
-| State | Result | Feedback |
-|---|---|---|
-| any of the seven | Hard failure: state unchanged, G stays false (`appState = 'error'`). The guard line explains why controls are inert. Soft 404 (4.5): `appState` returns to ready, G true, state unchanged, forest and any request in flight untouched. | Hard: existing lookup error text. Soft: toast (4.5). |
-
-Event 14, mode-to-grade
-
-| State | Result | Feedback |
-|---|---|---|
-| none, shown, empty | State unchanged. Panel and browse graph unmount. `pinned`, hover and focus sources cleared. Region C closed. | None. |
-| loading | -> none. `abort()`, counter bumped. | None (nobody is looking at the panel). |
-| reloading | -> shown. `abort()`, counter bumped. | None. |
-| failed(kind) | -> none. Alert and cooldown timer cleared. Reason: the error described a request the user has left. | None. |
-| failed-kept(kind) | -> shown. Same clearing. | None. |
-
-Event 15, mode-to-browse
-
-| State | Result | Feedback |
-|---|---|---|
-| any of the seven (only none, shown, empty occur after event 14) | State unchanged. A new `mf-force-graph` mounts and is fed the composed graph; the sim runs from scratch, as the browse graph already does after a mode switch. | None. |
-
-Event 16, cooldown-elapsed
-
-| State | Result | Feedback |
-|---|---|---|
-| failed(429) | -> none. Primary re-enabled. | Status: "The forge is ready. Press Forge to try again." |
-| failed-kept(429) | -> shown. Primary re-enabled. | Status: "The forge is ready. Press New forest to try again." |
-| all other states | Unreachable. The timer is cleared on every exit from a 429 state. | None. |
-
-Event 17, expand-second-order (`mf-node-select` on a node with no forest role)
-
-| State | Result | Feedback |
-|---|---|---|
-| any of the seven | State unchanged. The existing expansion runs. The composed graph is built when the response applies, from the forest as it is then, so a forest cleared or replaced meanwhile is respected. Nodes with a forest role never take this path; see 7.2. | None. |
-
-### 4.4 Failure kinds
-
-Common to all kinds: each message names the next action and none blames the user. Alerts use `role="alert"` in a container that is in the DOM before the message is inserted. Every message is assertive.
-
-| Kind | Cause | Exact message | Recovery action | Cooldown |
-|---|---|---|---|---|
-| 400 | `word` fails the server's rule (spec:38), shown by `result.word`. `max_hops` cannot be wrong because the select only offers 1 to 5. | "This word can't be forged. The forest takes words and short phrases of letters, spaces, hyphens and apostrophes, up to 40 characters. Look up a different word." | Look up another word. | No. |
-| 429 | Concurrency or per-minute cap (global). `Retry-After` in seconds. | "The forge is busy. Try again in {seconds} seconds." ("1 second" when 1.) | Wait, then the primary re-enables on its own. | Yes. Seconds taken from `Retry-After`; missing, non-numeric or under 1 gives 10; capped at 60. The text is fixed at response time and does not tick. |
-| 502 | Model error, refusal, `max_tokens`, unparseable output. Also: any other non-OK status, and a 200 whose body fails the shape check (logged with the real status). | "The forge could not build a forest this time. Try again; each attempt can give different results." | Primary. | No. |
-| 503 | No API key configured (spec:86). | "The metaphor forest is not set up on this server. The thesaurus still works. Ask the site owner to turn the forest on." | The user has none; the message says who does. The primary stays enabled, because a repeat costs no model call and the server may be configured later. | No. |
-| 504 | Request deadline (75 s). | "The forge took too long and stopped. Try again, or lower the max hops." | Primary, or the hops select. | No. |
-| network | `fetch` rejects with a TypeError. | "The forest could not reach the server. Check your connection and try again." | Primary. | No. |
-
-The server's own `error` strings are never shown. Reason: they are written for logs and one of them (503) would read as a fault in the page.
-
-### 4.5 Navigating from a forest node (soft lookup)
-
-A forest node whose word is not in the thesaurus graph (origin `forest`) is likely to 404 on lookup. A node that is in the thesaurus graph (origin `both`) keeps the existing lookup behaviour, including the existing error state.
-
-For an origin-`forest` double-click, or the panel's "Look up" button on such an item, `doLookup` runs in soft mode:
-
-- `currentWord` and the search box change only on success.
-- `appState` is `loading` while it runs, so G is false.
-- On success it behaves as lookup-commit-same or lookup-commit-other.
-- On 404 it restores `appState = 'ready'`, leaves forest and request alone, and calls `toast.show('"{word}" is not in the thesaurus. Your forest is unchanged.', 5000)`. The toast is `role="status"`. Focus does not move (it is on the Look up button, or on the canvas).
-- Any other failure follows the existing path (`error-generic`, `appState = 'error'`).
-
-### 4.6 Repeated gestures
+## 9. Repeated gestures
 
 | Gesture | Second time | Decision |
 |---|---|---|
-| Forge or New forest while in flight | No-op, no second request. | Single flight (floor 12). Test: two activations before resolve, fetch mock called once. |
-| Forge or New forest after it settles | A new request, usually a different forest. | Counter by design; replacing a shown forest keeps the old one until the new one arrives. |
-| Cancel | Control is gone after the first press. | Idempotent. |
-| Clear forest, with the prompt open | The button is replaced by the prompt. | Idempotent. |
-| Discard forest | Control is gone. | Idempotent. |
-| Hops select to the same value | No `change` event. | No-op. |
-| Single click on an endpoint | Toggles `pinned`. | Toggle. |
-| Highlight button on a list item | Toggles `pinned` (`aria-pressed`). | Toggle. |
-| Double-click a forest node while a lookup is loading | Latest wins through `lookupId`. | Supersede. |
-| Look up button while a lookup is loading | Inert (aria-disabled). | Single flight for panel-originated lookups. |
-| Mode toggle | Alternates. | Toggle. |
+| Forge or New forest while in flight | No request. | Idempotent (single flight, floor 12). |
+| Forge or New forest after it settles | A new request, usually a different forest. | Counter; the shown forest stays until the new one lands. |
+| Cancel | The control is gone. | Idempotent. |
+| Max steps to the same value | No `change` event; the reducer returns the same state. | Idempotent. |
+| Show on graph | Flips back. | Toggle. |
+| Click or tap the same forest node or link | Clears the selection. | Toggle. |
+| Highlight path on the same item | Clears the selection. | Toggle. |
+| Background click | Nothing more to clear. | Idempotent. |
+| Escape | Clears the selection, then collapses the sheet, then nothing. | Idempotent per layer. |
+| Look up, or double-click a forest node, while a lookup runs | The newer lookup wins. | Supersede. |
+| Sheet toggle | Flips back. | Toggle. |
 
-## 5. Region B: path highlight
+## 10. Mutations and their inverses
 
-An endpoint is the last node of one kept path, so a path is identified by its endpoint id.
-
-Four sources, in priority order:
-
-1. graph-hover: a pointer is over an endpoint node or its label.
-2. panel-hover: a pointer is over a list item.
-3. panel-focus: focus is inside a list item (focus-within).
-4. pinned: the id in `pinned`.
-
-The lit path is the first source that is set. Graph-hover and panel-hover cannot both be set (one pointer). Pointer events count only when `pointerType` is `mouse` or `pen`; touch sets no hover, which avoids sticky hover on tap.
-
-States are named by the winning source: unlit, lit-hover, lit-focus, lit-pinned.
-
-Presentation, graph: the lit path's links are widened and brightened, every other forest link and node and all thesaurus links are dimmed further, and endpoint labels stay on (dimmed). A pinned endpoint also keeps a ring on its node regardless of which path is lit. Presentation, panel: the lit item has a visible outline; a pinned item also shows a "Pinned" text badge and a pressed Highlight button. Hover or focus highlight with no pin shows no ring and no badge. This is what lets a user tell "lit because the pointer is here" from "pinned".
-
-Highlight is applied through a `highlightedPath` property and `refreshLinkStyles()` (`mf-force-graph.ts:522-525`), never through `graphData`, so it cannot re-heat the sim.
-
-Only endpoint nodes are highlight targets. Hop nodes and links are not (spec:114). A hop has a default cursor and no hover effect.
-
-| Event | unlit | lit-hover | lit-focus | lit-pinned |
-|---|---|---|---|---|
-| enter endpoint node or list item (mouse or pen) | -> lit-hover. | Switches path (the pointer moved to another target); stays lit-hover. | -> lit-hover. Focus source is kept underneath. | -> lit-hover. Pin kept underneath. |
-| leave endpoint node or list item | No-op. | -> lit-focus if a focus source is set, else lit-pinned if pinned is set, else unlit. | No-op (hover was not the winner). | No-op. |
-| focus enters a list item | -> lit-focus. | Stays lit-hover; the focus source is stored. | Switches path; stays lit-focus. | -> lit-focus. |
-| focus leaves the items | No-op. | Stays lit-hover; focus source dropped. | -> lit-pinned if pinned is set, else unlit. | No-op. |
-| single click on endpoint node (after the 300 ms timer) | pinned set -> lit-pinned. | pinned set; stays lit-hover until the pointer leaves. | pinned set; stays lit-focus. | Same endpoint: pinned cleared -> unlit (or the next source down). Different endpoint: pinned moves; stays lit-pinned. |
-| press Highlight button on a list item | pinned set -> lit-pinned. | Same as the click row. | Same. | Same. |
-| forest replaced or cleared, lookup-commit-other, mode-to-grade, confirm-discard | No-op. | -> unlit. All four sources cleared. | -> unlit. | -> unlit. |
-| response arrives into reloading and replaces the forest | No-op. | -> unlit. | -> unlit. | -> unlit. |
-| escape key while a list item has focus | No-op. | No-op. | No-op (focus is not removed). | No-op. |
-
-Hover and highlight on the kept forest are live in `reloading` and `failed-kept`, because the kept forest is on screen and valid. In `none`, `loading`, `empty` and `failed` there are no endpoints, so every row is a no-op.
-
-Right-click on a forest node copies its word and shows the existing "Copied" toast (`mf-force-graph.ts:440-451`). Unchanged.
-
-## 6. Region C: clear confirmation
-
-Clear forest discards an artifact that cannot be regenerated (spec:30, each press may differ), so floor items 14 and 15 apply. The prompt is inline in the panel, not a modal, so no focus trap; Escape closes it.
-
-States: closed, open.
-
-Open presentation: the Clear forest button is replaced by the text "Discard this forest? It cannot be restored. Forging again may give different metaphors." (in `reloading`, append " The forest being forged will be stopped too."), then "Keep forest" and "Discard forest". Initial focus is on "Keep forest". Keep is first in tab order.
-
-| Event | closed | open |
-|---|---|---|
-| press-clear (shown, reloading, failed-kept only) | -> open. Focus to "Keep forest". | Unreachable; the button is not rendered. |
-| press "Keep forest" | Unreachable. | -> closed. Focus to the Clear forest button. No data change. |
-| press "Discard forest" | Unreachable. | -> closed and region A event 8. Focus to the primary button. |
-| Escape | No-op. | -> closed, same as Keep. |
-| region A leaves the state the prompt opened in (response lands, cancel, cooldown, lookup-commit-other, mode switch) | No-op. | -> closed. If the Clear forest button still exists focus goes to it; otherwise to the primary button. Reason: the user judged one forest and a different one may now be on screen. |
-| hops-change, region B events, lookup-start, lookup-fail | No-op. | Stays open. |
-
-## 7. Region D: layout, phone and keyboard
-
-### 7.1 Panel structure
-
-`mf-forest-panel`, rendered only in browse mode and only when `result` is set (same rule as `mf-results-panel`, `mf-results-panel.ts:373-375`).
-
-1. Heading `h2`, "Metaphor forest for "{word}"", `tabindex="-1"` so focus can be sent to it.
-2. Controls: a labelled `select` "Max hops" (1 to 5), the primary button, then Cancel or Clear forest.
-3. A `role="status"` polite region, always in the DOM, atomic.
-4. A `role="alert"` region, always in the DOM.
-5. Body (intro, loading text, empty text, or the list).
-
-List item, one per endpoint, in API order (score descending, then path length ascending):
-
-- Endpoint word, then "{score} of 10", with the word "Live" when the score is 7 or more.
-- The `line` text.
-- The path as an ordered list: each step reads "{from} to {to}, because {ground}", using `path[i]` and `grounds[i]` (spec:76).
-- A "Highlight path" toggle button (`aria-pressed`) and a "Look up "{endpoint}"" button.
-- The judge's `reason` is not shown (spec lists line, path and score only).
-
-There is no virtualisation. A forest has at most about 16 endpoints.
-
-### 7.2 Graph gestures and their panel equivalents
-
-Every graph gesture has a keyboard and touch path in the panel, because the canvas is not keyboard-operable.
-
-| Graph gesture | Panel equivalent |
+| Mutation | Inverse, or why it is irreversible |
 |---|---|
-| Hover endpoint, light path | Focus inside the item |
-| Single click endpoint, pin | Highlight path button |
-| Double-click forest node, look up | Look up button |
-| Right-click, copy word | None (existing gap for chips too; not widened here) |
+| A new forest replaces the shown one | Irreversible: no caching (spec:30) and each forest is random. Mitigated: the old forest stays until the new one lands, and a failed or empty re-roll keeps it. Not a destructive action under floor D: the user asked for the replacement and the label "New forest" names it. |
+| Cancel | Inverse is Forge (a new request; the result may differ). |
+| Show on graph | Check it again. |
+| Selection | Select again, Escape, or a background click. |
+| Max steps | Choose the old value. |
+| Another word discards the forest | Irreversible for the same reasons as a replacement; the forest belongs to the word it was forged for. |
 
-Behaviour follows presentation. A node with a forest role (hop, endpoint or source) is drawn in forest styling whether or not it is also a thesaurus neighbour. On such a node:
+## 11. Graph composition rules
 
-- Single click on an endpoint pins its path; on a hop it does nothing.
-- The existing second-order expansion and the order-2 click swallow (`mf-force-graph.ts:412-418`) do not apply.
-- Double-click looks up the word (soft if origin is `forest`, existing path if `both`).
+- Composed graph = the thesaurus graph on screen (base plus any second-order expansion), then the forest overlay (`composeForest`).
+- Forest words match thesaurus nodes on the normalised word (or the same id). A match keeps the thesaurus node object, so the simulation keeps its position and no node is drawn twice.
+- Metaphor links are their own objects, never merged with a thesaurus link on the same pair, and get fresh string ends on every composition so a re-fed simulation never holds a node object from an earlier lookup.
+- Forest-only node objects are created once per response and reused by every composition, so a second-order expansion does not reset them.
+- Forest nodes skip the rarity filter; forest-only nodes and metaphor links hide with Show on graph.
+- Roles: the source keeps the central gold and gets a larger root label in a gold ring; endpoints are larger white-hot spheres with pill labels and a gold ✦ when live; hops are small teal joints with small italic labels.
+- While a forest is shown, thesaurus links dim and thesaurus labels recede.
+- Sparks flow from each link's source to its target, which the transform orients from the source word outward. Under `prefers-reduced-motion: reduce` the sparks are off and short arrows show direction instead; camera moves are instant.
+- A depth force rings the forest around the source (ring 1 clears the thesaurus cloud, later rings follow at the link distance) and draws it toward the plane facing the default camera, so it reads as a burst from the source.
+- The camera frames the graph shortly after a new forest lands, and again as it settles. Highlight and recomposition never reframe.
+- Ground labels hang just below each link, a little nearer the parent word; lit words are kept above them.
+- The forest is never drawn in grade mode.
+- All model text (words, grounds, lines) reaches the DOM through `textContent` or Lit's escaping, never as markup.
 
-Nodes with no forest role keep every existing behaviour. The cost: a thesaurus neighbour that is also a forest hop cannot be expanded while a forest is on screen. Clearing the forest restores it.
-
-### 7.3 Phone width
-
-Breakpoint 768px and below, matching `mf-results-panel.ts:68` and `:226`. Also covers 200% zoom on a 1280px window (floor 24).
-
-Above 768px the panel is docked on the opposite side to the results panel, below the mode toggle, 360px wide.
-
-At 768px and below it is a bottom sheet:
-
-- Collapsed bar (at least 56px high): heading, the status and alert text in full (wrapping), the hops select, the primary button, and Cancel when present. The primary button is reachable in one tap.
-- Expanded sheet (at most 70dvh, scrolls): the bar plus the body, including the full list. The graph stays visible above it and is never needed. Every fact (line, path, grounds, score) and every action (highlight, look up, clear) is a button or text in the list.
-- Expanded is possible only while a list exists (shown, reloading, failed-kept). The toggle (`aria-expanded`, "Show forest list" or "Hide forest list") is rendered only then.
-- The bottom of the sheet pads by `env(safe-area-inset-bottom)` as `mf-app.ts:358` does.
-- `mf-toast` (fixed, bottom 2rem, `mf-toast.ts:7-11`) must sit above the sheet's collapsed bar at this width.
-
-Only one of the results panel and the forest sheet is expanded at a time at this width. This needs `mf-results-panel` to emit an event when it toggles (it emits none today); that change belongs to the implementation task.
-
-| Event | docked | sheet-collapsed | sheet-expanded |
-|---|---|---|---|
-| viewport becomes narrow | -> sheet-collapsed. | No-op. | No-op. |
-| viewport becomes wide | No-op. | -> docked. | -> docked. |
-| press sheet toggle | Unreachable (control hidden). | -> sheet-expanded (only when a list exists). | -> sheet-collapsed. Focus stays on the toggle. |
-| Escape with focus inside the sheet | No-op. | No-op. | -> sheet-collapsed. Focus to the toggle. |
-| region A first reaches shown (loading -> shown) | No-op. | -> sheet-expanded. Focus does not move. | No-op. |
-| region A leaves list states, or lookup-commit-other | No-op. | No-op. | -> sheet-collapsed. |
-| results panel expands | No-op. | No-op. | -> sheet-collapsed. |
-
-The forest survives every layout change. These events change position only.
-
-### 7.4 Live regions and focus
-
-Announced politely through the panel's `role="status"` (and the toast for the soft 404):
-
-- loading started, reloading started, found n (and the k live), empty result, empty re-roll kept, cancelled, forest cleared, cooldown elapsed.
-
-Announced assertively through `role="alert"`:
-
-- every failure message in 4.4, once, when it is inserted.
-
-Not announced: hover and focus highlight changes (focus is announced by the browser and the list items' own text), pin changes (`aria-pressed` does that), hops changes (the select does that), graph re-layout, and `response-stale` drops.
-
-Focus never moves on a response. It moves only where the focused control disappears: Cancel (to primary), Discard and Keep (see region C), the Look up button after lookup-commit-other (to the heading). The primary button uses `aria-disabled="true"` plus a guard rather than the `disabled` attribute while loading, so a keyboard user does not lose focus to the body.
-
-## 8. Graph composition rules
-
-These bind the transform and `mf-force-graph`.
-
-- Composed graph = (browse base, with second-order nodes merged as today) then forest overlay. The overlay is applied after `stripSecondOrderNodes` (`transform.ts:198-212`), never before.
-- Forest nodes match thesaurus nodes on normalised `word`, not on `id`, because browse ids can be `word__synsetId` (`types.ts:27`). A match keeps the thesaurus node object and adds the forest role. Origin is `thesaurus`, `forest` or `both`.
-- Metaphor links are their own kind and are never merged with a thesaurus link between the same pair.
-- Thesaurus links dim only while forest content is on screen: shown, reloading, failed-kept.
-- Forest-role nodes are exempt from the rarity filter. Forest-only nodes have no rarity and would otherwise disappear when "unusual" is unticked (`mf-force-graph.ts:304`).
-- Recomposition reuses node and link objects whose ids are unchanged, so a second-order expansion or a same-word re-lookup does not make the forest jump.
-- Directional particles are off under `prefers-reduced-motion: reduce`, set from `matchMedia`, since the library animates in JS.
-- The forest is never drawn in grade mode; the grade graph builds from `gradeChains` and ignores `graphData` (`mf-force-graph.ts:513-518`).
-
-## 9. Decisions
+## 12. Decisions
 
 | Id | Choice | Reason |
 |---|---|---|
-| Single-Flight-Press | Forge pressed in flight is ignored, not a cancel-and-restart. | Floor 12; restart would double model spend on a global cap. |
-| Keep-Forest-While-Reforging | A re-roll leaves the shown forest on screen, and failures never remove it. | Each forest is unrepeatable and costs a model call; losing it to a 504 is the worst outcome. |
-| Empty-Reroll-Keeps-Previous | A 200 with no endpoints over a shown forest keeps the shown forest. | Same reason; an empty result is not better than what is there. |
-| Add-Cancel-Control | A Cancel button while in flight. | The deadline is 75 s; floor 13 forbids a dead end. Not in the brief; the designer may drop it. |
-| Confirm-Before-Clear | Two-step inline confirmation for Clear forest on a shown forest. | Floor 14; the forest cannot be restored. |
-| Empty-Needs-No-Confirm | Empty has no Clear control and no confirmation. | Nothing is lost. |
-| Own-Error-Channel | Forest failures live in the panel, not in `errorMessage`. | Shared string, cleared by every lookup. |
-| Forge-Uses-Committed-Word | Requests send `result.word`. | `currentWord` changes before a lookup succeeds (`mf-app.ts:955`). |
-| Forest-Follows-Committed-Word | A same-word commit keeps the forest, another word clears it, a lookup start or failure changes nothing. | One sentence; a typo or a repeat search must not destroy a forest. |
-| Controls-Inert-Unless-Ready | Forge, New forest and hops are inert unless `appState === 'ready'`. | Avoids forging for a word the search box no longer shows. |
-| Aria-Disabled-Keeps-Focus | `aria-disabled` plus guard, not `disabled`, on the primary button. | The `disabled` attribute drops keyboard focus to the body. |
-| Soft-Lookup-For-Forest-Words | Forest-only words use a soft lookup that survives a 404. | These words are phrases the thesaurus will often not have. |
-| Forest-Role-Wins-Clicks | Forest-role nodes pin or navigate; they never expand. | Behaviour must follow what is drawn. |
-| Hover-Endpoints-Only | Only endpoints highlight a path. | spec:114; a hop belongs to several paths. |
-| Pointer-Beats-Focus-Beats-Pin | Priority graph-hover, panel-hover, focus, pin; each source clears itself. | The most transient input wins, and the next one down returns when it ends. |
-| Pin-Is-Visibly-Different | A pin has a ring and badge that hover and focus lack. | Otherwise a click to unpin looks like nothing happened while the pointer is still there. |
-| Mouse-Pen-Hover-Only | Touch sets no hover source. | Avoids sticky hover on tap. |
-| Errors-Clear-On-Mode-Switch | Failures are dismissed on the way to grade mode. | The user left the request. |
-| Cooldown-Returns-To-Calm | A 429 resolves to none or shown after `Retry-After`, with a polite status. | No separate "ready" error state; no ticking text. |
-| Retry-After-Clamped | Missing or bad gives 10 s; maximum 60 s. | A header the server controls must not freeze the button. |
-| Other-Statuses-As-502 | Unlisted statuses and bad bodies use the 502 copy and are logged. | One recovery action, and the real status stays in the log. |
-| Hops-Persist | `hops` survives word changes and failures. | A preference, not a result. |
-| Hops-Inert-In-Flight | The select is inert while a request runs. | The request already used the old value. |
-| Stale-Hops-Note | A note shows when the selected hops differ from the shown forest's. | The select and the forest would otherwise disagree silently. |
-| Phone-Bottom-Sheet | Panel is a bottom sheet at 768px and below, primary button in the collapsed bar. | One tap to forge; matches the results panel breakpoint. |
-| Expand-Needs-A-List | Expanded sheet only exists with a list. | An empty expanded sheet has nothing to show. |
-| One-Phone-Panel-Open | Only one of results and forest expanded on a phone. | They would overlap. |
-| Reason-Not-Shown | The judge `reason` is omitted. | Not in the spec's panel contents. |
+| Two-Axis-Forest-State | Request and content are separate variables in one pure reducer. | Each transition is written once; the reducer is unit-testable cell by cell. |
+| Single-Flight-Press | Forge in flight is ignored. | Floor 12; a restart would double model spend on a global cap. |
+| Keep-Forest-While-Reforging | A re-roll leaves the shown forest up; failures and empty results never remove it. | Each forest is unrepeatable and costs a model call. |
+| Show-On-Graph-Not-Clear | A reversible visibility toggle replaces Clear and its confirmation. | Nothing is lost, so no confirmation; no re-feed, so no layout jump. |
+| Cancel-In-Flight | A Cancel button while a request runs. | The deadline is 75 s; a wait with no way out is a dead end. |
+| No-Client-Cooldown | A 429 leaves the primary enabled. | The message says when; an early retry is a cheap 429. |
+| Own-Error-Channel | Forest failures live in the panel, not `errorMessage`. | Shared string, cleared by every lookup. |
+| Forge-Uses-Committed-Word | Requests send `result.word`. | The search box changes before a lookup succeeds. |
+| Forest-Follows-Committed-Word | Same word keeps the forest, another word clears it, a lookup start or failure changes nothing. | A typo or a repeat search must not destroy a forest. |
+| Stale-By-Seq-And-Source | A response applies only under the current `seq`, with a request in flight, for the committed word. | Belt and braces against late responses and our own aborts. |
+| Soft-Lookup-From-Forest | Every lookup started from the forest survives a 404. | Forest words are often phrases the thesaurus lacks. |
+| Forest-Role-Wins-Clicks | Forest nodes select or navigate; they never expand. | Behaviour follows what is drawn. |
+| Hover-Lights-Every-Path | Hover on an endpoint, hop or link lights every path through it. | Build brief. |
+| Hover-Beats-Focus-Beats-Selection | One priority rule over three sources. | The most transient input wins and the next one returns when it ends. |
+| Selection-Ring | A selection rings its node's label; hover never does. | Presentation must tell a selection from a hover. |
+| Touch-Never-Hovers | Touch sets no hover source. | No sticky light after a tap. |
+| Mode-Switch-Keeps-Request | Leaving browse mode aborts nothing. | The result is paid for and shown on return. |
+| Hops-Persist | Max steps survives word changes and failures. | A preference, not a result. |
+| Phone-Bottom-Sheet | A bottom sheet at 768 px and below, with the primary in the always-visible bar. | One tap to forge; the list never needs the graph. |
+| Results-Over-Sheet | On a phone an opened results panel slides over the sheet. | One open panel at a time without a new event. |
+| Reason-Not-Shown | The judge's `reason` is omitted. | Not in the spec's panel contents. |
 
-## 10. UX floor
+## 13. UX floor
 
 | Item | Status |
 |---|---|
-| 1 contrast, tokens | Applies. Panel styles use `var(--...)` tokens, no literal colours. The dimmed state must still meet 3:1 for graph marks and 4.5:1 for text. |
-| 2 semantic elements, names | Applies. All controls are `button` or `select`. The existing `span role="button"` chips are not copied. Icon-only controls carry `aria-label`; none are planned. |
-| 3 keyboard, focus | Applies. Tab order: hops, primary, Cancel or Clear, then each item's Highlight and Look up buttons. Focus rules in 7.4. Region C is inline, not a modal, so no trap. |
-| 4 touch targets | Applies. Buttons and the select are at least 44 by 44 CSS px, at phone width too. |
-| 5 colour not sole | Applies. Live is the word "Live" plus the number; pinned is a badge and `aria-pressed`; errors are text in an alert. |
-| 6 reduced motion | Applies. The spinner, panel transitions and graph particles are off under `prefers-reduced-motion: reduce`. |
-| 7 automated audit | Applies. One axe run per visually distinct state: none, loading, reloading, shown, empty, one failed, one failed-kept, confirm open, phone collapsed, phone expanded. |
-| 8 labels | Applies to the hops select (visible "Max hops" label). |
-| 9 invalid field | N/A. The select offers only valid values. |
-| 10 values preserved | Met. `hops` survives a failure. |
-| 11 announcements | Met (7.4). Failures in `role="alert"`, outcomes in `role="status"`. |
-| 12 single flight | Met (event 1, 4.6). |
-| 13 no dead end | Met. Every failure names a recovery in 4.4; 503 names who can act. |
-| 14, 15 destructive | Met by region C: asymmetric labels, consequence in the confirm control, safe alternative first and focused, irreversibility in the copy. |
-| 16 CTAs | Met. "Forge", "New forest", "Cancel", "Clear forest", "Discard forest", "Keep forest", "Highlight path", "Look up". |
-| 17 error copy | Met. Each message states what happened and the next action. |
-| 18 empty copy | Met. States why and what to do. |
-| 19 one term | Met. "Forge" for the operation, "forest" for the result, "Clear" for the action on a shown forest and "Discard" only on the confirm control that names it. |
-| 20 multi-step | N/A. Forging is one step. |
-| 21 navigation | N/A. The panel adds no primary navigation. |
-| 22 layout | Applies. The primary button is the one primary action; Cancel, Clear and Look up are secondary. |
-| 23 images | N/A. No `<img>`, audio or video. The canvas has no text alternative today; the panel is the accessible equivalent of the forest. |
-| 24 light, dark, 200% zoom | Dark: N/A, the app ships one dark theme and the panel uses the shared tokens so it follows when others land. 200% zoom: applies and lands in the phone layout. |
-| 25 RTL, expansion | Applies to the new panel: logical properties (`inset-inline-end`, `padding-inline`), no fixed text widths or heights. |
+| 1 contrast, tokens | Met for the panel: every colour is a `var(--…)` token (`web/src/styles/tokens.css`, forest section); primary text on the panel is about 14:1, secondary about 7:1, grounds about 11:1, the focus ring about 9:1. WebGL colours cannot read CSS properties, so the canvas palette is `FOREST_COLOURS` in `web/src/graph/colours.ts`, mirrored as tokens. Dimmed and receded graph labels fall below 4.5:1 on purpose: they are incidental text in a visualisation, and every word is in the panel or the results panel at full contrast. |
+| 2 semantic elements | Met: buttons, a select and a checkbox, all named; no `role="button"` spans. List items only observe pointer and focus. |
+| 3 keyboard, focus | Met: Max steps, primary, Cancel, Show on graph, sheet toggle, then each item's Highlight path and Look up; visible `:focus-visible` ring; focus rules in 8.3. No modal. |
+| 4 touch targets | Met: buttons, select and the checkbox label are at least 2.75 rem (44 px) high and wider than 44 px. |
+| 5 colour not sole | Met: "Live" is text, a selection is a ring and `aria-pressed`, a lit item has a structural rule, failures are text in an alert. |
+| 6 reduced motion | Met: every transition and animation sits in `prefers-reduced-motion: no-preference` (the pre-existing label transition was moved into one too); sparks off and arrows on under reduce; camera framing is instant. |
+| 7 automated audit | Met in Chromium with axe-core 4.10.2 per state (none, loading, shown, failed, phone sheet open): zero violations inside the forest panel. Five page-level violations pre-date the forest (search input `aria-expanded`, viewport `user-scalable=no`, no main landmark, no `h1`, canvas and filters outside landmarks). No jest-axe in the unit harness. |
+| 8 labels | Met: "Max steps" and "Show on graph" are visible `label for` elements. |
+| 9 invalid field | N/A: the select offers only valid values and the checkbox has no invalid state. |
+| 10 values preserved | Met: Max steps survives failures and word changes. |
+| 11 announcements | Met (8.3). |
+| 12 single flight | Met at three layers: button, handler guard, reducer. |
+| 13 no dead ends | Met: each failure names its recovery (5.4). |
+| 14, 15 destructive | N/A: no destructive action on this surface. Clear was replaced by a reversible toggle, and New forest replaces model output the user asked to replace (section 10). |
+| 16 CTAs | Met: Forge, New forest, Cancel, Highlight path, Look up, Show on graph. |
+| 17 error copy | Met (5.4). |
+| 18 empty copy | Met: says why and what to do next. |
+| 19 one term | Met: "forge" for the operation, "forest" for the result, "step" for a hop, "metaphor" for an item. |
+| 20 multi-step | N/A: forging is one step. |
+| 21 navigation | N/A: no navigation added. |
+| 22 layout | Met: four text sizes in the panel (1.25, 1.05, 0.9 and 0.8 rem), spacing on the `--space-*` scale, one gold primary. |
+| 23 images | N/A: no `img`, audio or video. The canvas has no text alternative; the panel is its accessible equivalent. |
+| 24 light, dark, 200% zoom | Dark only: the app ships one dark theme and the panel uses the shared tokens. 200% zoom on a 1280 px window lands in the phone layout, checked at 390 px. Text boxes use relative units. Pinch zoom is blocked by the pre-existing `user-scalable=no`. |
+| 25 RTL, expansion | Met for the panel: logical properties throughout, no fixed text widths or heights. Not checked under `dir="rtl"`. |
 
-## 11. Negative criteria
+## 14. Negative criteria and the tests that guard them
 
-One per no-op cell that matters. Each is a test the implementation must pass.
-
-- Two activations of Forge before the response: `fetchForest` called once.
-- Forge pressed while a lookup is loading or failed: no request.
-- A response whose counter is stale or whose `source` differs from the committed word: nothing renders, no announcement.
-- A failed re-roll (any kind) leaves the shown forest and its list on screen.
-- An empty re-roll leaves the shown forest on screen.
-- A lookup that fails (hard or soft 404) leaves forest, pin and any in-flight request unchanged.
-- A same-word lookup keeps the forest; a different word clears it, including a request in flight.
-- Soft 404 leaves the search box on the old word.
-- Single click on a forest-role node never calls `lookupWord`.
-- Clear forest never clears on the first press when a forest is shown; initial focus is not on "Discard forest".
-- Hover end with a pin set falls back to the pin; with focus set, to the focus.
-- Touch input never sets the hover source.
-- Highlight changes never call `graphData()`.
-- Unticking "unusual" does not hide forest nodes.
-- A 429 `Retry-After` of 3 disables the primary for 3 s and re-enables it with one polite announcement.
-- Mode switch to grade aborts a request in flight and renders no forest in the grade graph.
-- At phone width, with the graph canvas absent, every list action still works.
-
-## 12. For the designer
-
-Calls most worth overruling or confirming:
-
-1. Keep-Forest-While-Reforging doubles the failure states (the `failed-kept` family) to protect an unrepeatable result. Dropping it halves the table.
-2. Confirm-Before-Clear adds friction for a clear button. The alternative is a timed undo, which the floor does not let replace the confirmation.
-3. Forest-Role-Wins-Clicks removes second-order expansion from shared nodes while a forest is shown.
-4. Add-Cancel-Control is outside the brief.
-5. The loading text promises "up to a minute"; check it against measured latency once an API key exists.
-6. A cancelled or cleared request relies on the Go handler stopping its model call when the client disconnects. Not checked; the spec does not say.
+| Criterion | Test |
+|---|---|
+| Two Forge presses before the response issue one request. | `mf-app.test.ts` "issues one request for two Forge presses before the response"; `mf-forest-panel.test.ts` "the primary emits forge once…"; `state.test.ts` "Forge while a request is in flight changes nothing" |
+| A response for a word that is no longer current never renders. | `mf-app.test.ts` "aborts and drops a forest whose word was replaced by another lookup"; `state.test.ts` "stale responses" block |
+| A failed or empty re-roll leaves the shown forest and its list. | `state.test.ts` "a shown forest survives a re-roll…"; `mf-forest-panel.test.ts` "says the last forest is still shown…" |
+| A same-word lookup and a second-order expansion keep the forest; another word clears it. | `mf-app.test.ts` "keeps the forest through a repeat lookup…", "clears the forest when another word is committed" |
+| A forest lookup that 404s leaves search box, forest and app state as they were. | `mf-app.test.ts` "a forest lookup that 404s…" |
+| Single click on a forest node never expands it. | `mf-force-graph.test.ts` "single click on a forest node selects it and never fires mf-node-select" |
+| Touch never sets hover. | `mf-force-graph.test.ts` "never sets a forest hover from touch input"; `mf-forest-panel.test.ts` "…touch sets no hover" |
+| Highlight changes never call `graphData()`. | `mf-force-graph.test.ts` "lights the paths in forestLit and dims the rest without calling graphData()" |
+| Hiding the forest never re-feeds the graph. | `mf-app.test.ts` "hides the forest from the graph without re-feeding the graph data" |
+| Unticking every rarity does not hide forest nodes. | `mf-force-graph.test.ts` "keeps forest nodes visible when their rarity is filtered out…" |
+| A selection always looks different from a hover. | `mf-force-graph.test.ts` "rings the selected forest node label, whatever else is lit" |
+| Model text never renders as markup. | `label-layer.test.ts` "renders model text…", "a ground label shows each ground…"; `mf-forest-panel.test.ts` "renders model text as text, never as markup"; `mf-force-graph.test.ts` hostile word and ground cases |
+| A server error string never reaches the UI. | `client.test.ts` "maps HTTP %i to the %s kind" |
+| A contract-breaking 200 is a failure, never data. | `client.test.ts` "treats a 200 with %s as a failed forest, never as data" |
