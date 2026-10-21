@@ -263,21 +263,23 @@ Judge output schema:
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["index", "score", "broken_hop", "drift", "literal", "cliche", "reason"],
+        "required": ["index", "reason", "broken_hop", "drift", "literal", "cliche", "score"],
         "properties": {
           "index": {"type": "integer"},
-          "score": {"type": "integer"},
+          "reason": {"type": "string"},
           "broken_hop": {"type": "boolean"},
           "drift": {"type": "boolean"},
           "literal": {"type": "boolean"},
           "cliche": {"type": "boolean"},
-          "reason": {"type": "string"}
+          "score": {"type": "integer"}
         }
       }
     }
   }
 }
 ```
+
+Property order is part of the prompt: structured output writes keys in schema order, so a verdict names its path, gives its reason, sets its flags and only then scores. The schemas are sent with their property order intact (a decoded Go map would sort the keys alphabetically, which had the generator writing a facet's branches before its word and caused occasional one-element outputs).
 
 Scores outside 0-10 are clamped. Unknown indices are ignored and logged.
 

@@ -37,3 +37,29 @@ func TestPromptsAreNonTrivial(t *testing.T) {
 		t.Error("judge prompt does not match the spec's opening or ending")
 	}
 }
+
+// Rule: structured output writes keys in the schema's property order, so
+// the order is part of the prompt. A facet names its word before growing
+// branches; a verdict names its path, then reasons, then flags, then scores.
+func TestSchemasKeepPropertyOrderWhenMarshalled(t *testing.T) {
+	for name, tc := range map[string]struct {
+		schema map[string]any
+		order  []string
+	}{
+		"generator facet": {GeneratorSchema(), []string{`"word"`, `"ground"`, `"line"`, `"branches"`}},
+		"judge verdict":   {JudgeSchema(), []string{`"index"`, `"reason"`, `"broken_hop"`, `"drift"`, `"literal"`, `"cliche"`, `"score"`}},
+	} {
+		raw, err := json.Marshal(tc.schema)
+		if err != nil {
+			t.Fatalf("%s: marshal: %v", name, err)
+		}
+		s, last := string(raw), -1
+		for _, key := range tc.order {
+			i := strings.Index(s, key+":")
+			if i < last {
+				t.Errorf("%s: %s is out of order in %s", name, key, s)
+			}
+			last = i
+		}
+	}
+}

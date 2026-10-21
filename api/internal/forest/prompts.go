@@ -117,15 +117,15 @@ const judgeSchemaJSON = `{
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["index", "score", "broken_hop", "drift", "literal", "cliche", "reason"],
+        "required": ["index", "reason", "broken_hop", "drift", "literal", "cliche", "score"],
         "properties": {
           "index": {"type": "integer"},
-          "score": {"type": "integer"},
+          "reason": {"type": "string"},
           "broken_hop": {"type": "boolean"},
           "drift": {"type": "boolean"},
           "literal": {"type": "boolean"},
           "cliche": {"type": "boolean"},
-          "reason": {"type": "string"}
+          "score": {"type": "integer"}
         }
       }
     }
@@ -138,12 +138,18 @@ func GeneratorSchema() map[string]any { return mustParseSchema(generatorSchemaJS
 // JudgeSchema returns a fresh parse of the judge output schema.
 func JudgeSchema() map[string]any { return mustParseSchema(judgeSchemaJSON) }
 
-// mustParseSchema panics: the inputs are compile-time constants, and
+// mustParseSchema keeps each top-level value as raw JSON. Structured output
+// writes keys in schema order, and a fully decoded map would marshal them
+// alphabetically. It panics: the inputs are compile-time constants, and
 // TestSchemasAreClosedObjects covers them.
 func mustParseSchema(raw string) map[string]any {
-	var schema map[string]any
-	if err := json.Unmarshal([]byte(raw), &schema); err != nil {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &top); err != nil {
 		panic(fmt.Sprintf("forest: invalid schema constant: %v", err))
+	}
+	schema := make(map[string]any, len(top))
+	for k, v := range top {
+		schema[k] = v
 	}
 	return schema
 }

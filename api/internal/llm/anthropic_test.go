@@ -131,6 +131,28 @@ func TestAnthropicCompleteRequestShape(t *testing.T) {
 	}
 }
 
+// Rule: a schema value held as json.RawMessage reaches the API verbatim,
+// because structured output follows the schema's property order.
+func TestAnthropicCompleteSendsRawSchemaVerbatim(t *testing.T) {
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(messageJSON("end_turn", `[{"type":"text","text":"{}"}]`)))
+	}))
+	t.Cleanup(srv.Close)
+
+	req := testRequest()
+	props := `{"zeta":{"type":"string"},"alpha":{"type":"string"}}`
+	req.Schema = map[string]any{"type": "object", "properties": json.RawMessage(props)}
+	if _, err := newTestCompleter(srv).Complete(context.Background(), req); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if !strings.Contains(string(body), `"properties":`+props) {
+		t.Errorf("schema properties were not sent verbatim:\n%s", body)
+	}
+}
+
 func TestAnthropicCompleteDefaultsMaxTokens(t *testing.T) {
 	var got map[string]any
 	srv := serve(t, 200, messageJSON("end_turn", `[{"type":"text","text":"{}"}]`), &got)
