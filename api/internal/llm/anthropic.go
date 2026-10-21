@@ -24,17 +24,14 @@ func NewAnthropic(opts ...option.RequestOption) *Anthropic {
 	return &Anthropic{client: anthropic.NewClient(opts...)}
 }
 
-// Complete sends a non-streaming request. It sets no temperature, top_p,
-// top_k or thinking: claude-haiku-5-5 rejects non-default sampling values
-// with a 400. API errors are returned wrapped, so callers can recover the
-// *anthropic.Error with errors.As.
-func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error) {
+// params builds the request. It sets no temperature, top_p, top_k or
+// thinking: claude-haiku-5-5 rejects non-default sampling values with a 400.
+func params(req Request) anthropic.MessageNewParams {
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = defaultMaxTokens
 	}
-
-	msg, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
+	return anthropic.MessageNewParams{
 		Model:     anthropic.Model(req.Model),
 		MaxTokens: maxTokens,
 		System: []anthropic.TextBlockParam{{
@@ -48,11 +45,45 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 			Effort: anthropic.OutputConfigEffort(req.Effort),
 			Format: anthropic.JSONOutputFormatParam{Schema: req.Schema},
 		},
-	})
+	}
+}
+
+// Complete sends a non-streaming request. API errors are returned wrapped,
+// so callers can recover the *anthropic.Error with errors.As.
+func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error) {
+	msg, err := a.client.Messages.New(ctx, params(req))
 	if err != nil {
 		return Response{}, fmt.Errorf("anthropic messages: %w", err)
 	}
+	return result(msg)
+}
 
+// Stream sends a streaming request and calls onText with each text chunk as
+// it arrives. The Response and its errors are the same as Complete's, so a
+// caller must still treat chunks as provisional until Stream returns nil.
+func (a *Anthropic) Stream(ctx context.Context, req Request, onText func(string)) (Response, error) {
+	stream := a.client.Messages.NewStreaming(ctx, params(req))
+	defer stream.Close()
+	var msg anthropic.Message
+	for stream.Next() {
+		ev := stream.Current()
+		if err := msg.Accumulate(ev); err != nil {
+			return Response{}, fmt.Errorf("anthropic stream: %w", err)
+		}
+		if d, ok := ev.AsAny().(anthropic.ContentBlockDeltaEvent); ok {
+			if t, ok := d.Delta.AsAny().(anthropic.TextDelta); ok && t.Text != "" {
+				onText(t.Text)
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return Response{}, fmt.Errorf("anthropic stream: %w", err)
+	}
+	return result(&msg)
+}
+
+// result checks a finished message and extracts its JSON text.
+func result(msg *anthropic.Message) (Response, error) {
 	resp := Response{
 		StopReason: string(msg.StopReason),
 		Usage: Usage{

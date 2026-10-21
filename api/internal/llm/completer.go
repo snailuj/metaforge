@@ -34,3 +34,9 @@ type Response struct {
 type Completer interface {
 	Complete(ctx context.Context, req Request) (Response, error)
 }
+
+// Streamer is a Completer that can also hand over text as it is generated.
+type Streamer interface {
+	Completer
+	Stream(ctx context.Context, req Request, onText func(string)) (Response, error)
+}
