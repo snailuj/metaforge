@@ -18,7 +18,13 @@ const maxSourceChars = 40
 // NormalizeWord lower-cases, trims and collapses inner whitespace. The
 // result is the node id, matching the browse graph's bare-word ids.
 func NormalizeWord(s string) string {
-	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+	return strings.ToLower(collapseSpace(s))
+}
+
+// collapseSpace trims and joins inner runs of whitespace, newlines included,
+// into single spaces.
+func collapseSpace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // ParseSourceWord normalises the request word and rejects anything but
@@ -89,16 +95,16 @@ func Flatten(g Generated) []Path {
 	for _, f := range g.Facets {
 		head := Path{
 			Words:   []string{NormalizeWord(f.Word)},
-			Grounds: []string{strings.TrimSpace(f.Ground)},
+			Grounds: []string{collapseSpace(f.Ground)},
 		}
-		if line := strings.TrimSpace(f.Line); line != "" {
+		if line := collapseSpace(f.Line); line != "" {
 			paths = append(paths, withLine(head, line))
 		}
 		for _, b := range f.Branches {
-			p := withLine(head, strings.TrimSpace(b.Line))
+			p := withLine(head, collapseSpace(b.Line))
 			for _, h := range b.Hops {
 				p.Words = append(p.Words, NormalizeWord(h.Word))
-				p.Grounds = append(p.Grounds, strings.TrimSpace(h.Ground))
+				p.Grounds = append(p.Grounds, collapseSpace(h.Ground))
 			}
 			paths = append(paths, p)
 		}

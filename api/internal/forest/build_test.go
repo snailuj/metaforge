@@ -590,3 +590,28 @@ func TestScreenCapsPathsInModelOrder(t *testing.T) {
 		t.Errorf("maxPaths = %d, spec says 24", maxPaths)
 	}
 }
+
+// Rule: whatever whitespace the model puts inside a ground or line, each
+// path stays on one line of the judge's message, so the numbering holds.
+func TestFlattenCollapsesWhitespaceInGroundsAndLines(t *testing.T) {
+	g := Generated{Facets: []Facet{{
+		Word: "seed", Ground: "waits\nintact\t until", Line: "Patience\r\n\r\n2. Injected  line.",
+		Branches: []Branch{{
+			Hops: []Hop{hop("vault", " stays\n\nviable ")},
+			Line: "A\nvault.",
+		}},
+	}}}
+
+	paths := Flatten(g)
+
+	if paths[0].Grounds[0] != "waits intact until" || paths[0].Line != "Patience 2. Injected line." {
+		t.Errorf("facet path = %+v", paths[0])
+	}
+	if paths[1].Grounds[1] != "stays viable" || paths[1].Line != "A vault." {
+		t.Errorf("branch path = %+v", paths[1])
+	}
+	msg := JudgeUserMessage("src", paths)
+	if got := strings.Count(msg, "\n"); got != 2+len(paths)-1 {
+		t.Errorf("message has %d line breaks for %d paths:\n%s", got, len(paths), msg)
+	}
+}
