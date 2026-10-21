@@ -26,7 +26,8 @@ A 3D force graph of words linked by the semantics they share. From one source wo
 | Branching | Forced by the output schema: 3-4 facets of the source, each a first hop with 2-4 branches continuing from it. |
 | Quality gate | Second call (judge) scores each path 0-10 with flags. Keep score >= 6 and no flag. The UI marks >= 7 as live. |
 | Hops | `max_hops` 1-5, default 3. |
-| Model | `claude-haiku-5-5`, effort `medium`, both calls. Env-configurable. |
+| Model | `claude-haiku-5-5`, effort `low`, both calls. Env-configurable. Tuned live on 2026-10-21: `medium` was 3-4x slower and dearer for forests that read no better. |
+| Thin output | Low effort occasionally returns a one-facet stub with no thinking. Fewer than 3 valid paths (`METAFORGE_FOREST_MIN_PATHS`) retries the generator once; the fuller attempt is judged. |
 | Caching | None. |
 | Spend guard | Global: 4 concurrent, 30 forests per minute. Env-configurable. |
 | Base graph | The forest overlays the thesaurus graph for the looked-up word; thesaurus links dim while a forest is shown. |
@@ -95,7 +96,7 @@ Errors, all `{"error": "<message>"}`:
   - `service.go`: generate, then judge, then build. Logs per request: word, max_hops, model, per-call latency, input, output and cache-read tokens, generated, kept and rejected counts by reason. Timers through the existing `observe` package.
   - `limiter.go`: non-blocking concurrency semaphore plus a fixed one-minute window counter, injectable clock.
 - Handler `GET /forge/forest`, registered in `api/cmd/metaforge/main.go`. Raise the server write timeout to 90 s; per-request deadline 75 s.
-- Env: `ANTHROPIC_API_KEY`, `METAFORGE_FOREST_MODEL`, `METAFORGE_FOREST_JUDGE_MODEL`, `METAFORGE_FOREST_EFFORT`, `METAFORGE_FOREST_MIN_SCORE`, `METAFORGE_FOREST_MAX_CONCURRENT`, `METAFORGE_FOREST_PER_MINUTE`.
+- Env: `ANTHROPIC_API_KEY`, `METAFORGE_FOREST_MODEL`, `METAFORGE_FOREST_JUDGE_MODEL`, `METAFORGE_FOREST_EFFORT`, `METAFORGE_FOREST_MIN_SCORE`, `METAFORGE_FOREST_MIN_PATHS`, `METAFORGE_FOREST_MAX_CONCURRENT`, `METAFORGE_FOREST_PER_MINUTE`.
 
 ### Path validation (reject as `invalid`)
 
@@ -139,14 +140,14 @@ The last word of each path is its endpoint, the vehicle. "SOURCE is ENDPOINT" mu
 
 If the facet word is itself a strong endpoint, give the facet a `line`; otherwise leave the facet's `line` empty.
 
-Every ground must be true of both words it joins. Every endpoint must still connect back to SOURCE through its chain of grounds. All endpoints must differ.
+Every ground must be plainly true of both words it joins; a reader should nod at both halves. Every endpoint must still connect back to SOURCE through its chain of grounds. All endpoints must differ.
 
 ## What makes a metaphor live
 - The endpoint comes from a different domain from SOURCE. Something physically part of SOURCE, found with it, or made by it is not a metaphor: a river is not a culvert, a forest is not a sawmill. A synonym walk is not a metaphor.
-- The best vehicles are specific, named things with mechanics: an instrument, a craft process, a technical object, an institution, a biological process. The register, not words to reuse: verdigris, moraine, dead letter, taxidermy, cargo cult, annealing, tidemark, escrow, orrery.
-- Process vehicles land because they carry a mechanism: annealing, winnowing, rendering, triangulation.
+- The best vehicles are specific, named things with mechanics: an instrument, a craft process, a technical object, an institution, a biological process, a ritual, a trade. A mechanism lets the line show SOURCE doing something.
+- Choose each endpoint for this SOURCE. Do not fall back on a stock kit of evocative technical words that would suit any source; if an endpoint would fit most abstract nouns equally well, replace it.
 - Decay and body-horror vehicles punch above their weight for this audience.
-- A reader must get it without a dictionary. Specific beats obscure.
+- Every word on the path must be one a general adult reader knows without a dictionary. Name the everyday thing, not its trade term.
 - Elemental nouns are usually dead: fire, water, storm, stone, light, ice, shadow.
 - Never use these worn vehicles: wound, ghost, hearth, drowning, fever, undertow, volcano, journey, amber, palimpsest, mycelium, fermentation, tapestry, labyrinth, mirror.
 - Familiar means dead. If the pairing is a stock phrase or idiom, drop it.
@@ -214,7 +215,7 @@ Flattening: a facet with a non-empty `line` yields the path `[facet]`. Each bran
 ```
 You are the Forge Reader: a working genre-fiction novelist and acquiring editor with an unsentimental eye for the difference between a live image and a dead one. You have a slush pile and a deadline, and most things are average.
 
-You will get a source word and numbered metaphor paths. Each path walks from the source through hops to an endpoint, with the shared quality ("ground") named at each hop, and ends with a line a writer might use.
+You will get a source word and numbered metaphor paths. Each path shows its chain of words from the source to an endpoint, then one row per hop giving the two words it joins and the shared quality ("ground") between them, then a line a writer might use.
 
 Score each path for liveness, 0 to 10, judging the source-to-endpoint pairing first. The hops matter as evidence that the bridge is real.
 
@@ -233,20 +234,24 @@ Calibration:
 - anger -> heat -> rising temperature -> fire: 1
 
 Flag each path, true or false:
-- broken_hop: some ground is not true of both words it joins.
+- broken_hop: on some row, the ground is false, or only loosely true, of one of that row's two words. Check each row against its own two words only. If your reason doubts a ground, this is true.
 - drift: the endpoint no longer connects back to the source, or the line swaps source and endpoint.
 - literal: the endpoint is physically part of, found with, or made by the source, so the pairing is a fact, not a metaphor.
 - cliche: the pairing or the line is a stock phrase.
 
-A reader must get the image without a dictionary; obscure is not fresh. Do not reward a cliché for being clear. Do not punish an image for being pulpy or vivid. Give one terse reason, at most 10 words, per path.
+A reader must get the image without a dictionary; obscure is not fresh. If the endpoint or any hop is a trade term most adult readers would have to look up, score at most 4. Do not reward a cliché for being clear. Do not punish an image for being pulpy or vivid. Give one terse reason, at most 10 words, per path.
 ```
 
-Judge user message:
+Judge user message (one row per hop, naming the two words its ground joins; an inline `a -[g]-> b -[g]-> c` chain had the judge checking later grounds against the source):
 
 ```
 SOURCE: {word}
 
-1. {source} -[{ground}]-> {word} -[{ground}]-> {endpoint} | {line}
+1. {source} -> {word} -> {endpoint}
+   {source} / {word}: {ground}
+   {word} / {endpoint}: {ground}
+   line: {line}
+
 2. ...
 ```
 
