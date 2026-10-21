@@ -2,6 +2,7 @@ declare module '3d-force-graph' {
   export interface ForceGraph3DInstance {
     backgroundColor(colour: string): ForceGraph3DInstance
     nodeLabel(fn: (node: unknown) => string): ForceGraph3DInstance
+    linkLabel(fn: (link: unknown) => string): ForceGraph3DInstance
     nodeColor(fn: (node: unknown) => string): ForceGraph3DInstance
     nodeVal(fn: (node: unknown) => number): ForceGraph3DInstance
     nodeOpacity(opacity: number): ForceGraph3DInstance
@@ -20,8 +21,21 @@ declare module '3d-force-graph' {
     onNodeHover(fn: (node: unknown | null) => void): ForceGraph3DInstance
     onLinkHover(fn: (link: unknown | null) => void): ForceGraph3DInstance
     onLinkClick(fn: (link: unknown, event: MouseEvent) => void): ForceGraph3DInstance
-    d3Force(name: string): { strength?(s: number): void; distance?(d: number): void } | undefined
+    d3Force(name: string): { strength?(s: number): void; distance?(d: number | ((link: unknown) => number)): void } | undefined
+    d3Force(name: string, force: ((alpha: number) => void) & { initialize?(nodes: never[]): void } | null): ForceGraph3DInstance
+    linkDirectionalParticles(fn: ((link: unknown) => number) | number): ForceGraph3DInstance
+    linkDirectionalParticleSpeed(speed: ((link: unknown) => number) | number): ForceGraph3DInstance
+    linkDirectionalParticleWidth(width: ((link: unknown) => number) | number): ForceGraph3DInstance
+    linkDirectionalParticleColor(fn: ((link: unknown) => string) | string): ForceGraph3DInstance
+    linkDirectionalArrowLength(fn: ((link: unknown) => number) | number): ForceGraph3DInstance
+    linkDirectionalArrowRelPos(pos: ((link: unknown) => number) | number): ForceGraph3DInstance
+    linkDirectionalArrowColor(fn: ((link: unknown) => string) | string): ForceGraph3DInstance
+    linkThreeObject(fn: (link: unknown) => object | null): ForceGraph3DInstance
+    linkThreeObjectExtend(extend: boolean): ForceGraph3DInstance
+    linkPositionUpdate(fn: (obj: unknown, ends: { start: { x: number; y: number; z: number }; end: { x: number; y: number; z: number } }, link: unknown) => boolean): ForceGraph3DInstance
+    onBackgroundClick(fn: (event: MouseEvent) => void): ForceGraph3DInstance
     zoomToFit(ms?: number, px?: number): ForceGraph3DInstance
+    emitParticle(link: object): ForceGraph3DInstance
     graphData(data?: { nodes: unknown[]; links: unknown[] }): ForceGraph3DInstance
     d3AlphaDecay(decay: number): ForceGraph3DInstance
     d3VelocityDecay(decay: number): ForceGraph3DInstance

@@ -1,0 +1,119 @@
+{
+  "source": "patience",
+  "max_hops": 3,
+  "model": "claude-haiku-5-5",
+  "nodes": [
+    {"id": "patience", "word": "patience", "role": "source"},
+    {"id": "sacrificial anode", "word": "sacrificial anode", "role": "endpoint"},
+    {"id": "escapement", "word": "escapement", "role": "endpoint"},
+    {"id": "decompression stop", "word": "decompression stop", "role": "endpoint"},
+    {"id": "dormant seed", "word": "dormant seed", "role": "hop"},
+    {"id": "seed vault", "word": "seed vault", "role": "endpoint"},
+    {"id": "controlled burn", "word": "controlled burn", "role": "endpoint"},
+    {"id": "lake sediment", "word": "lake sediment", "role": "hop"},
+    {"id": "varve", "word": "varve", "role": "endpoint"},
+    {"id": "peat bog", "word": "peat bog", "role": "hop"},
+    {"id": "bog body", "word": "bog body", "role": "endpoint"},
+    {"id": "scar tissue", "word": "scar tissue", "role": "hop"},
+    {"id": "hypertrophic scar", "word": "hypertrophic scar", "role": "hop"},
+    {"id": "keloid", "word": "keloid", "role": "endpoint"},
+    {"id": "blended stock", "word": "blended stock", "role": "hop"},
+    {"id": "solera", "word": "solera", "role": "endpoint"}
+  ],
+  "edges": [
+    {"source": "patience", "target": "sacrificial anode", "grounds": ["absorbs wear so the rest survives"]},
+    {"source": "patience", "target": "escapement", "grounds": ["releases stored force in measured steps"]},
+    {"source": "patience", "target": "decompression stop", "grounds": ["pauses to let pressure bleed off"]},
+    {"source": "patience", "target": "dormant seed", "grounds": ["waits intact until conditions allow"]},
+    {"source": "dormant seed", "target": "seed vault", "grounds": ["stays viable for centuries"]},
+    {"source": "dormant seed", "target": "controlled burn", "grounds": ["fire triggers their regrowth"]},
+    {"source": "patience", "target": "lake sediment", "grounds": ["accrues in tiny increments over years"]},
+    {"source": "lake sediment", "target": "varve", "grounds": ["one dated layer per year"]},
+    {"source": "patience", "target": "peat bog", "grounds": ["keeps what it holds intact"]},
+    {"source": "peat bog", "target": "bog body", "grounds": ["acid tans skin without rot"]},
+    {"source": "patience", "target": "scar tissue", "grounds": ["closes over damage and holds"]},
+    {"source": "scar tissue", "target": "hypertrophic scar", "grounds": ["thickens and stiffens over months"]},
+    {"source": "hypertrophic scar", "target": "keloid", "grounds": ["raised and thickened"]},
+    {"source": "patience", "target": "blended stock", "grounds": ["holds steady as new things arrive"]},
+    {"source": "blended stock", "target": "solera", "grounds": ["tops younger casks from older"]}
+  ],
+  "endpoints": [
+    {
+      "id": "sacrificial anode",
+      "path": ["patience", "sacrificial anode"],
+      "grounds": ["absorbs wear so the rest survives"],
+      "line": "Her patience was a sacrificial anode, corroding quietly so the hull stayed sound.",
+      "score": 8,
+      "reason": "self-erosion as protection, a precise mechanism"
+    },
+    {
+      "id": "escapement",
+      "path": ["patience", "escapement"],
+      "grounds": ["releases stored force in measured steps"],
+      "line": "Patience is an escapement, letting the spring unwind one measured tooth at a time.",
+      "score": 8,
+      "reason": "measured release made mechanical and exact"
+    },
+    {
+      "id": "bog body",
+      "path": ["patience", "peat bog", "bog body"],
+      "grounds": ["keeps what it holds intact", "acid tans skin without rot"],
+      "line": "Her patience kept its grudge like a bog body, tanned and unrotted for decades.",
+      "score": 8,
+      "reason": "a preserved grudge, eerie and bodily"
+    },
+    {
+      "id": "seed vault",
+      "path": ["patience", "dormant seed", "seed vault"],
+      "grounds": ["waits intact until conditions allow", "stays viable for centuries"],
+      "line": "His patience was a seed vault: everything kept viable against the thaw.",
+      "score": 7,
+      "reason": "preservation made literal and cold"
+    },
+    {
+      "id": "varve",
+      "path": ["patience", "lake sediment", "varve"],
+      "grounds": ["accrues in tiny increments over years", "one dated layer per year"],
+      "line": "Patience was a varve: one thin, dated layer laid down each year.",
+      "score": 7,
+      "reason": "slow accrual made visible, slightly obscure"
+    },
+    {
+      "id": "keloid",
+      "path": ["patience", "scar tissue", "hypertrophic scar", "keloid"],
+      "grounds": ["closes over damage and holds", "thickens and stiffens over months", "raised and thickened"],
+      "line": "His patience had healed into a keloid, thickening past the injury it was meant to close.",
+      "score": 7,
+      "reason": "patience curdling into excess, a vivid body image"
+    },
+    {
+      "id": "decompression stop",
+      "path": ["patience", "decompression stop"],
+      "grounds": ["pauses to let pressure bleed off"],
+      "line": "Her patience was a decompression stop, pausing at each depth so nothing bent.",
+      "score": 6,
+      "reason": "apt but close to familiar pacing images"
+    },
+    {
+      "id": "controlled burn",
+      "path": ["patience", "dormant seed", "controlled burn"],
+      "grounds": ["waits intact until conditions allow", "fire triggers their regrowth"],
+      "line": "Her patience was a controlled burn, clearing the undergrowth so the next growth could take.",
+      "score": 6,
+      "reason": "drifts from waiting toward renewal"
+    },
+    {
+      "id": "solera",
+      "path": ["patience", "blended stock", "solera"],
+      "grounds": ["holds steady as new things arrive", "tops younger casks from older"],
+      "line": "The solera of her patience: old years kept, new ones blended in.",
+      "score": 6,
+      "reason": "apt blending image, needs some wine knowledge"
+    }
+  ],
+  "stats": {
+    "generated": 12,
+    "kept": 9,
+    "rejected": {"invalid": 0, "low_score": 2, "broken_hop": 0, "drift": 0, "cliche": 1, "literal": 0, "duplicate": 0}
+  }
+}

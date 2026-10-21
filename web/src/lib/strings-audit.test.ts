@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { FluentResource } from '@fluent/bundle'
+import { FOREST_ERROR_KINDS } from '@/api/client'
 
 // The single source: the API serves this for GET /strings/v1/ui.ftl (HandleStrings),
 // and the Vite dev server proxies /strings to the API rather than serving a copy.
@@ -15,6 +16,8 @@ const DYNAMIC_IDS: Record<string, string[]> = {
   'rarity-': ['common', 'unusual', 'rare'],
   'register-': ['formal', 'informal', 'slang'],
   'connotation-': ['positive', 'negative'],
+  // 'busy' is excluded: mf-forest-panel asks for its two ids by literal.
+  'forest-error-': FOREST_ERROR_KINDS.filter((k) => k !== 'busy'),
 }
 
 function messageIds(file: URL): string[] {
