@@ -147,7 +147,7 @@ export class MfForceGraph extends LitElement {
     /* Metaphor forest labels. Colours mirror FOREST_COLOURS; the canvas cannot
        read CSS custom properties, so the tokens live in both places. */
     .mf-graph-label[data-role='forest-endpoint'] {
-      background: rgba(10, 22, 36, 0.78);
+      background: rgba(10, 22, 36, 0.86) !important;
       border: 1px solid rgba(92, 200, 224, 0.55);
       border-radius: 999px;
       padding: 1px 8px 2px;
@@ -162,8 +162,9 @@ export class MfForceGraph extends LitElement {
       font-size: 11px;
       vertical-align: 1px;
     }
+    /* !important: buildLabelEl sets an inline contrast background. */
     .mf-graph-label[data-role='forest-hop'] {
-      background: transparent;
+      background: transparent !important;
     }
     .mf-graph-label[data-role='forest-hop'] .mf-graph-label__text {
       font-size: 11px !important;
@@ -171,7 +172,7 @@ export class MfForceGraph extends LitElement {
     }
     /* The root of the forest: the looked-up word, larger, in a gold ring. */
     .mf-graph-label[data-role='forest-source'] {
-      background: rgba(26, 22, 10, 0.82);
+      background: rgba(26, 22, 10, 0.9) !important;
       border: 1px solid rgba(212, 175, 55, 0.7);
       border-radius: 999px;
       padding: 2px 10px 3px;
@@ -190,7 +191,7 @@ export class MfForceGraph extends LitElement {
       box-shadow: 0 0 12px rgba(92, 200, 224, 0.55);
     }
     .mf-graph-label[data-role='forest-hop'][data-lit] {
-      background: rgba(8, 18, 30, 0.9);
+      background: rgba(8, 18, 30, 0.94) !important;
       border-radius: 3px;
     }
     .mf-graph-label[data-role='forest-hop'][data-lit] .mf-graph-label__text {
@@ -208,16 +209,16 @@ export class MfForceGraph extends LitElement {
       display: flex;
       flex-direction: column;
       align-items: center;
-      max-width: 8.5rem;
-      padding: 2px 8px 3px;
+      max-width: 7.5rem;
+      padding: 2px 7px 3px;
       border-radius: 3px;
       background: rgba(8, 18, 30, 0.86);
       border-inline-start: 2px solid #5cc8e0;
       color: #d7f6fb;
       font-family: Georgia, 'Times New Roman', serif;
       font-style: italic;
-      font-size: 11.5px;
-      line-height: 1.3;
+      font-size: 11px;
+      line-height: 1.25;
       text-align: center;
       white-space: normal;
     }
