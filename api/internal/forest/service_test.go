@@ -305,3 +305,53 @@ func TestServiceLogsPanicAndRepanics(t *testing.T) {
 		t.Errorf("%d summary lines, want 1", summaries)
 	}
 }
+
+// Rule: only paths that pass validation reach the judge or the response,
+// whatever the judge would have said about them.
+func TestServiceNeverJudgesInvalidPaths(t *testing.T) {
+	generated := `{"facets":[{"word":"dormant seed","ground":"waits","line":"","branches":[
+	  {"hops":[{"word":"seed vault","ground":"keeps"}],"line":"L-valid"},
+	  {"hops":[{"word":"   ","ground":"g"}],"line":"L-emptyword"},
+	  {"hops":[{"word":"alpha","ground":"g"},{"word":"beta","ground":"g"}],"line":"L-toolong"},
+	  {"hops":[{"word":"Patience","ground":"g"}],"line":"L-cycle-source"},
+	  {"hops":[{"word":"Dormant  Seed","ground":"g"}],"line":"L-cycle-hop"},
+	  {"hops":[{"word":"anvil","ground":"g"},{"word":"ANVIL","ground":"g"}],"line":"L-cycle-end"}]}]}`
+	// An enthusiastic judge: a path that slipped through would be kept.
+	var vs []string
+	for i := 1; i <= 8; i++ {
+		vs = append(vs, fmt.Sprintf(`{"index":%d,"score":10,"broken_hop":false,"drift":false,"literal":false,"cliche":false,"reason":"great"}`, i))
+	}
+	judged := `{"verdicts":[` + strings.Join(vs, ",") + `]}`
+	f := &fakeLLM{results: []fakeResult{ok(generated, 1, 1, 0), ok(judged, 1, 1, 0)}}
+	s, _ := testService(f)
+
+	forest, err := s.Generate(context.Background(), "patience", 2)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	if len(f.calls) != 2 {
+		t.Fatalf("%d LLM calls, want 2", len(f.calls))
+	}
+	user := f.calls[1].User
+	for _, leaked := range []string{"L-emptyword", "L-toolong", "L-cycle"} {
+		if strings.Contains(user, leaked) {
+			t.Errorf("invalid path %q reached the judge:\n%s", leaked, user)
+		}
+	}
+	if !strings.Contains(user, "L-valid") || strings.Count(user, "\n") != 2 {
+		t.Errorf("judge message should hold exactly the one valid path:\n%s", user)
+	}
+	if len(forest.Endpoints) != 1 || forest.Endpoints[0].Line != "L-valid" {
+		t.Errorf("endpoints = %+v, want only the valid path", forest.Endpoints)
+	}
+	for _, n := range forest.Nodes {
+		if n.ID == "alpha" || n.ID == "beta" || n.ID == "anvil" {
+			t.Errorf("invalid path contributed node %q", n.ID)
+		}
+	}
+	want := Stats{Generated: 6, Kept: 1, Rejected: Rejected{Invalid: 5}}
+	if forest.Stats != want {
+		t.Errorf("stats = %+v, want %+v", forest.Stats, want)
+	}
+}
