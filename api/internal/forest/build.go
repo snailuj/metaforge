@@ -403,3 +403,24 @@ func Build(source string, maxHops, minScore int, valid []Path, invalid int, verd
 	f.Stats = Stats{Generated: len(valid) + invalid, Kept: len(kept), Rejected: rej}
 	return f, ignored
 }
+
+// GeneratorUserMessage is the generator's user turn.
+func GeneratorUserMessage(source string, maxHops int) string {
+	return fmt.Sprintf("SOURCE: %s\nMAX_HOPS: %d", source, maxHops)
+}
+
+// JudgeUserMessage numbers paths from 1 and writes each as
+// "source -[ground]-> word ... | line", the numbering ApplyVerdicts expects.
+func JudgeUserMessage(source string, paths []Path) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "SOURCE: %s\n", source)
+	for i, p := range paths {
+		b.WriteByte('\n') // blank line before the first path, a line break between the rest
+		fmt.Fprintf(&b, "%d. %s", i+1, source)
+		for j, w := range p.Words {
+			fmt.Fprintf(&b, " -[%s]-> %s", p.Grounds[j], w)
+		}
+		fmt.Fprintf(&b, " | %s", p.Line)
+	}
+	return b.String()
+}

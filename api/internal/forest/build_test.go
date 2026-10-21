@@ -545,3 +545,25 @@ func TestBuildProperties(t *testing.T) {
 		}
 	}
 }
+
+func TestGeneratorUserMessage(t *testing.T) {
+	want := "SOURCE: patience\nMAX_HOPS: 3"
+	if got := GeneratorUserMessage("patience", 3); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// Rule: the judge's numbering is 1-based over the paths it is given, the
+// same numbering ApplyVerdicts reads back.
+func TestJudgeUserMessage(t *testing.T) {
+	paths := []Path{
+		{Words: []string{"dormant seed", "seed vault"}, Grounds: []string{"waits", "stays viable"}, Line: "Patience is a seed vault."},
+		{Words: []string{"tidemark"}, Grounds: []string{"records"}, Line: "Patience is a tidemark."},
+	}
+	want := "SOURCE: patience\n\n" +
+		"1. patience -[waits]-> dormant seed -[stays viable]-> seed vault | Patience is a seed vault.\n" +
+		"2. patience -[records]-> tidemark | Patience is a tidemark."
+	if got := JudgeUserMessage("patience", paths); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+}
