@@ -24,6 +24,20 @@
   --colour-edge-default: rgba(232, 224, 212, 0.15);
   --colour-edge-highlight: rgba(212, 175, 55, 0.4);
 
+  /* Metaphor forest (canvas values mirror FOREST_COLOURS in src/graph/colours.ts) */
+  --colour-forest-branch: #5cc8e0;
+  --colour-forest-branch-dim: rgba(92, 200, 224, 0.4);
+  --colour-forest-branch-faint: rgba(92, 200, 224, 0.12);
+  --colour-forest-endpoint: #dff9ff;
+  --colour-forest-hop: #3e9db3;
+  --colour-forest-ground: #9fd9e6;
+  --colour-forest-live: #d4af37;
+  --colour-panel-deep: rgba(14, 22, 42, 0.88);
+
+  /* Alerts */
+  --colour-alert-text: #eba3a3;
+  --colour-alert-bg: rgba(196, 122, 122, 0.12);
+
   /* Typography */
   --font-heading: 'Playfair Display', Georgia, serif;
   --font-body: 'Crimson Text', 'Times New Roman', serif;
