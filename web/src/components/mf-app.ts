@@ -82,6 +82,14 @@ export class MfApp extends LitElement {
       z-index: 20;
     }
 
+    /* Phone: the forest is a bottom sheet (z 25). An opened results panel
+       slides over it; closing it uncovers the sheet again. */
+    @media (max-width: 768px) {
+      mf-results-panel {
+        z-index: 26;
+      }
+    }
+
     .status-message {
       position: absolute;
       top: 50%;
