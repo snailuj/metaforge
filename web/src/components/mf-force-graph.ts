@@ -168,6 +168,29 @@ export class MfForceGraph extends LitElement {
       font-size: 11px !important;
       font-style: italic;
     }
+    /* The root of the forest: the looked-up word, larger, in a gold ring. */
+    .mf-graph-label[data-role='forest-source'] {
+      background: rgba(26, 22, 10, 0.82);
+      border: 1px solid rgba(212, 175, 55, 0.7);
+      border-radius: 999px;
+      padding: 2px 10px 3px;
+      box-shadow: 0 0 14px rgba(212, 175, 55, 0.25);
+    }
+    .mf-graph-label[data-role='forest-source'] .mf-graph-label__text {
+      font-size: 17px !important;
+    }
+    .mf-graph-label[data-role='forest-endpoint'][data-lit] {
+      border-color: #e8fbff;
+      box-shadow: 0 0 12px rgba(92, 200, 224, 0.55);
+    }
+    .mf-graph-label[data-role='forest-hop'][data-lit] {
+      background: rgba(8, 18, 30, 0.9);
+      border-radius: 3px;
+    }
+    .mf-graph-label[data-role='forest-hop'][data-lit] .mf-graph-label__text {
+      color: #dff9ff !important;
+      font-size: 12px !important;
+    }
     .mf-graph-label[data-recede] {
       opacity: 0.45;
     }
@@ -179,7 +202,7 @@ export class MfForceGraph extends LitElement {
       display: flex;
       flex-direction: column;
       align-items: center;
-      max-width: 15rem;
+      max-width: 10.5rem;
       padding: 2px 8px 3px;
       border-radius: 3px;
       background: rgba(8, 18, 30, 0.86);
@@ -187,7 +210,7 @@ export class MfForceGraph extends LitElement {
       color: #d7f6fb;
       font-family: Georgia, 'Times New Roman', serif;
       font-style: italic;
-      font-size: 12px;
+      font-size: 11.5px;
       line-height: 1.3;
       text-align: center;
       white-space: normal;
@@ -290,7 +313,7 @@ export class MfForceGraph extends LitElement {
     if (this.activeForest) {
       if (link.metaphor) {
         const e = this.emphasis(link.metaphor.endpointIds)
-        return e === 'lit' ? FOREST_COLOURS.spark : withAlpha(FOREST_COLOURS.branch, e === 'dim' ? 0.12 : 0.8)
+        return e === 'lit' ? FOREST_COLOURS.spark : withAlpha(FOREST_COLOURS.branch, e === 'dim' ? 0.16 : 0.85)
       }
       return link.order === 2 || this.forestLit ? FOREST_EDGE_THESAURUS_DIM : FOREST_EDGE_THESAURUS
     }
@@ -302,6 +325,13 @@ export class MfForceGraph extends LitElement {
     if (this.reducedMotion || !this.activeForest || !link.metaphor) return 0
     const e = this.emphasis(link.metaphor.endpointIds)
     return e === 'lit' ? 4 : e === 'dim' ? 0 : 2
+  }
+
+  private linkWidthFn = (l: unknown): number => {
+    if (this.mode === 'grade') return (l as GradeLink).chainSig === this.hoveredChainSig ? 3 : 1.5
+    const link = l as GraphLink
+    if (!link.metaphor) return link.order === 2 ? 0.5 : 1
+    return this.activeForest && this.emphasis(link.metaphor.endpointIds) === 'lit' ? 2.4 : 1.1
   }
 
   private arrowLengthFn = (l: unknown): number =>
@@ -321,19 +351,22 @@ export class MfForceGraph extends LitElement {
     return obj
   }
 
-  /** Thesaurus labels recede while a forest is shown; anything off a lit path dims. */
-  private labelFade(n: unknown): 'recede' | 'dim' | null {
+  /** Thesaurus labels recede while a forest is shown; labels on a lit path
+   *  light up and everything else dims. */
+  private labelFade(n: unknown): 'recede' | 'dim' | 'lit' | null {
     if (!this.activeForest) return null
     const info = this.forestInfo(n)
     if (!info) return (n as GraphNode).relationType === 'central' ? null : this.forestLit ? 'dim' : 'recede'
     if (info.role === 'source') return null
-    return this.forestLit && this.emphasis(info.endpointIds) === 'dim' ? 'dim' : null
+    const e = this.emphasis(info.endpointIds)
+    return e === 'normal' ? null : e
   }
 
   private applyLabelFade(el: HTMLElement, n: unknown): void {
     const fade = this.labelFade(n)
     el.toggleAttribute('data-recede', fade === 'recede')
     el.toggleAttribute('data-dim', fade === 'dim')
+    el.toggleAttribute('data-lit', fade === 'lit')
   }
 
   /** Frame the whole graph a moment after a new forest lands, so the burst
@@ -369,6 +402,9 @@ export class MfForceGraph extends LitElement {
     this.graph
       .nodeColor(this.nodeColorFn)
       .linkColor(this.linkColorFn)
+      // Re-setting the width rebuilds link objects, ground labels included;
+      // they are born with the current lit state.
+      .linkWidth(this.linkWidthFn)
       .linkDirectionalParticles(this.particleCountFn)
       .linkDirectionalArrowLength(this.arrowLengthFn)
     this.syncForestLabels()
@@ -564,7 +600,8 @@ export class MfForceGraph extends LitElement {
     }
     const node = n as GraphNode
     const info = this.forestInfo(node)
-    if (info && info.role !== 'source') {
+    if (info?.role === 'source') return { text: node.word, colour: NODE_COLOURS.central, role: 'forest-source' }
+    if (info) {
       return info.role === 'endpoint'
         ? { text: node.word, colour: FOREST_COLOURS.endpoint, role: 'forest-endpoint', mark: info.live ? LIVE_MARK : undefined }
         : { text: node.word, colour: FOREST_COLOURS.hop, role: 'forest-hop' }
@@ -604,19 +641,13 @@ export class MfForceGraph extends LitElement {
       .cooldownTime(30000)
       .warmupTicks(50)
       .linkColor(this.linkColorFn)
-      .linkWidth((l: unknown) => {
-        if (this.mode === 'grade') {
-          return (l as GradeLink).chainSig === this.hoveredChainSig ? 3 : 1.5
-        }
-        const link = l as GraphLink
-        return link.metaphor ? 1.1 : link.order === 2 ? 0.5 : 1
-      })
+      .linkWidth(this.linkWidthFn)
       .linkOpacity(0.6)
       // Metaphor forest: sparks flow source to target, which the transform
       // orients from the source word outward along each path.
       .linkDirectionalParticles(this.particleCountFn)
       .linkDirectionalParticleSpeed(0.0045)
-      .linkDirectionalParticleWidth(1.6)
+      .linkDirectionalParticleWidth(2.2)
       .linkDirectionalParticleColor(() => FOREST_COLOURS.spark)
       .linkDirectionalArrowLength(this.arrowLengthFn)
       .linkDirectionalArrowRelPos(0.92)
@@ -816,7 +847,7 @@ export class MfForceGraph extends LitElement {
    *  (used for whole-path hover highlight). */
   private refreshLinkStyles(): void {
     if (!this.graph) return
-    this.graph.linkColor(this.linkColorFn).linkWidth(this.graph.linkWidth())
+    this.graph.linkColor(this.linkColorFn).linkWidth(this.linkWidthFn)
   }
 
   /** Feed the active graph to the library, and (grade mode) frame it. */

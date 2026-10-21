@@ -1179,6 +1179,28 @@ describe('MfForceGraph metaphor forest', () => {
     expect(graphDataSetCount).toBe(feedsBefore)
   })
 
+  it('draws lit branches wider than the rest of the forest', async () => {
+    await mount()
+    const lit = metaphorLink(data, 'dormant seed', 'seed vault')
+    const other = metaphorLink(data, 'peat bog', 'bog body')
+    const before = capturedLinkWidth!(lit)
+    el.forestLit = new Set(['seed vault'])
+    await el.updateComplete
+    expect(capturedLinkWidth!(lit)).toBeGreaterThan(before)
+    expect(capturedLinkWidth!(other)).toBeLessThanOrEqual(before)
+  })
+
+  it('marks the labels on a lit path so its hops stand out, and gives the source a root label', async () => {
+    await mount()
+    const label = (n: unknown) => (capturedNodeThreeObject!(n) as { element: HTMLElement }).element
+    expect(label(nodeById(data, 'patience')).dataset.role).toBe('forest-source')
+    el.forestLit = new Set(['seed vault'])
+    await el.updateComplete
+    expect(label(nodeById(data, 'dormant seed')).hasAttribute('data-lit')).toBe(true)
+    expect(label(nodeById(data, 'seed vault')).hasAttribute('data-lit')).toBe(true)
+    expect(label(nodeById(data, 'peat bog')).hasAttribute('data-lit')).toBe(false)
+  })
+
   it('marks lit grounds and lit labels on the label DOM, and clears them when nothing is lit', async () => {
     await mount()
     const groundEl = document.createElement('div')

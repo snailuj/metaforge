@@ -212,5 +212,9 @@ export function makeGroundLabel(grounds: string[]): CSS2DObject {
     row.textContent = ground
     el.appendChild(row)
   }
-  return new CSS2DObject(el)
+  const obj = new CSS2DObject(el)
+  // Hang below the midpoint: word labels float above their nodes, so this
+  // keeps a short link's ground from covering the hop it leads to.
+  obj.center.set(0.5, -0.25)
+  return obj
 }

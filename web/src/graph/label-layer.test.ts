@@ -202,4 +202,10 @@ describe('forest label primitives', () => {
     expect([...el.querySelectorAll('.mf-ground-label__ground')].map(g => g.textContent)).toEqual(['stays viable for centuries', HOSTILE])
     expect(el.style.pointerEvents).toBe('none')
   })
+
+  it('a ground label hangs below its link midpoint, clear of word labels that sit above their nodes', () => {
+    const obj = makeGroundLabel(['x']) as unknown as { center: { x: number; y: number } }
+    expect(obj.center.x).toBe(0.5)
+    expect(obj.center.y).toBeLessThan(0)
+  })
 })
