@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { GraphData } from '@/graph/types'
-import { RARITY_COLOURS } from '@/graph/colours'
+import { RARITY_COLOURS, NODE_COLOURS, FOREST_COLOURS } from '@/graph/colours'
+import type { ForestResponse } from '@/types/api'
+import { composeForest, forestToGraph } from '@/graph/forest'
+import patienceForest from '@/fixtures/forest-patience.json'
 
 // Capture the accessor functions and constructor options passed to the graph instance
 let capturedNodeVisibility: ((node: unknown) => boolean) | null = null
@@ -107,9 +110,19 @@ const chainable: Record<string, unknown> = new Proxy({}, {
     }
     if (prop === 'camera') return () => mockCamera
     if (prop === 'controls') return () => mockControls
-    return () => chainable
+    // Every other setter: remember its latest arguments and count the calls, so
+    // tests can read accessors such as linkDirectionalParticles.
+    return (...args: unknown[]) => {
+      if (args.length) {
+        lastArgs[prop as string] = args
+        setCounts[prop as string] = (setCounts[prop as string] ?? 0) + 1
+      }
+      return chainable
+    }
   },
 })
+let lastArgs: Record<string, unknown[]> = {}
+let setCounts: Record<string, number> = {}
 
 vi.mock('3d-force-graph', () => ({
   default: (opts?: { controlType?: string; extraRenderers?: unknown[] }) => {
@@ -164,6 +177,8 @@ describe('MfForceGraph', () => {
     capturedControlType = undefined
     capturedExtraRenderers = undefined
     mockGraphData = { nodes: [], links: [] }
+    lastArgs = {}
+    setCounts = {}
     graphDataSetCount = 0
     nodeVisibilitySetCount = 0
     linkVisibilitySetCount = 0
@@ -1032,3 +1047,405 @@ describe('MfForceGraph', () => {
     })
   })
 })
+
+describe('MfForceGraph metaphor forest', () => {
+  // Thesaurus graph for "patience" that already holds one forest word (escapement).
+  const thesaurus = (): GraphData => ({
+    nodes: [
+      { id: 'patience', word: 'patience', relationType: 'central', val: 8, order: 0, rarity: 'common' },
+      { id: 'forbearance', word: 'forbearance', relationType: 'synonym', val: 4, order: 1, rarity: 'rare' },
+      { id: 'escapement', word: 'escapement', relationType: 'similar', val: 2, order: 1, rarity: 'rare' },
+    ],
+    links: [
+      { source: 'patience', target: 'forbearance', relationType: 'synonym', order: 1 },
+      { source: 'patience', target: 'escapement', relationType: 'similar', order: 1 },
+    ],
+  })
+  const composed = () => composeForest(thesaurus(), forestToGraph(patienceForest as ForestResponse))
+  const nodeById = (data: GraphData, id: string) => data.nodes.find(n => n.id === id)!
+  const metaphorLink = (data: GraphData, source: string, target: string) =>
+    data.links.find(l => l.metaphor && l.source === source && l.target === target)!
+  const thesaurusLink = (data: GraphData) => data.links.find(l => !l.metaphor)!
+  const alpha = (colour: string) => {
+    const m = colour.match(/rgba\([^)]*,\s*([\d.]+)\)/)
+    return m ? Number(m[1]) : 1
+  }
+  const particles = (l: unknown) => (lastArgs.linkDirectionalParticles[0] as (l: unknown) => number)(l)
+  const arrows = (l: unknown) => (lastArgs.linkDirectionalArrowLength[0] as (l: unknown) => number)(l)
+  const nodeVal = (n: unknown) => (lastArgs.nodeVal[0] as (n: unknown) => number)(n)
+
+  let el: MfForceGraph
+  let data: GraphData
+
+  async function mount(opts: { reducedMotion?: boolean } = {}) {
+    vi.stubGlobal('matchMedia', (q: string) => ({
+      matches: q.includes('prefers-reduced-motion') ? !!opts.reducedMotion : false,
+      addEventListener: () => {}, removeEventListener: () => {},
+    }))
+    const c = composed()
+    data = c.data
+    el = new MfForceGraph()
+    el.graphData = c.data
+    el.forest = c.overlay
+    document.body.appendChild(el)
+    await el.updateComplete
+  }
+
+  beforeEach(() => {
+    lastArgs = {}
+    setCounts = {}
+    graphDataSetCount = 0
+    mockGraphData = { nodes: [], links: [] }
+  })
+
+  afterEach(() => {
+    el.remove()
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  it('draws endpoints larger than hops and thesaurus words, in the endpoint colour; the source keeps the central gold', async () => {
+    await mount()
+    const endpoint = nodeById(data, 'seed vault')
+    const hop = nodeById(data, 'dormant seed')
+    expect(capturedNodeColor!(endpoint)).toBe(FOREST_COLOURS.endpoint)
+    expect(capturedNodeColor!(hop)).toBe(FOREST_COLOURS.hop)
+    expect(capturedNodeColor!(nodeById(data, 'patience'))).toBe(NODE_COLOURS.central)
+    expect(nodeVal(endpoint)).toBeGreaterThan(nodeVal(nodeById(data, 'patience')))
+    expect(nodeVal(hop)).toBeLessThan(nodeVal(nodeById(data, 'forbearance')))
+    // a forest word already in the thesaurus is drawn as the forest sees it
+    expect(capturedNodeColor!(nodeById(data, 'escapement'))).toBe(FOREST_COLOURS.endpoint)
+  })
+
+  // Rule: thesaurus links dim while a forest is shown, and only then.
+  it('dims thesaurus links while a forest is shown and restores them when it is hidden', async () => {
+    await mount()
+    const link = thesaurusLink(data)
+    const withForest = alpha(capturedLinkColor!(link))
+    el.forestVisible = false
+    await el.updateComplete
+    expect(withForest).toBeLessThan(alpha(capturedLinkColor!(link)))
+  })
+
+  it('gives metaphor links their own colour and particles; thesaurus links carry none', async () => {
+    await mount()
+    const ml = metaphorLink(data, 'patience', 'dormant seed')
+    expect(capturedLinkColor!(ml)).toContain(hexToRgb(FOREST_COLOURS.branch))
+    expect(particles(ml)).toBeGreaterThan(0)
+    expect(particles(thesaurusLink(data))).toBe(0)
+    expect(arrows(ml)).toBe(0)
+  })
+
+  it('under reduced motion swaps the particles for static arrows', async () => {
+    await mount({ reducedMotion: true })
+    const ml = metaphorLink(data, 'patience', 'dormant seed')
+    expect(particles(ml)).toBe(0)
+    expect(arrows(ml)).toBeGreaterThan(0)
+    expect(arrows(thesaurusLink(data))).toBe(0)
+  })
+
+  it('keeps forest nodes visible when their rarity is filtered out, and hides forest-only nodes with the forest', async () => {
+    await mount()
+    el.hiddenRarities = new Set(['common', 'unusual', 'rare'])
+    await el.updateComplete
+    expect(capturedNodeVisibility!(nodeById(data, 'escapement'))).toBe(true)  // rare, but an endpoint
+    expect(capturedNodeVisibility!(nodeById(data, 'varve'))).toBe(true)       // forest-only, no rarity
+    expect(capturedNodeVisibility!(nodeById(data, 'forbearance'))).toBe(false)
+    el.forestVisible = false
+    await el.updateComplete
+    expect(capturedNodeVisibility!(nodeById(data, 'varve'))).toBe(false)
+    expect(capturedLinkVisibility!(metaphorLink(data, 'lake sediment', 'varve'))).toBe(false)
+  })
+
+  // Rule: lighting paths brightens exactly their nodes and links, dims every
+  // other forest and thesaurus mark, and never re-feeds the simulation.
+  it('lights the paths in forestLit and dims the rest without calling graphData()', async () => {
+    await mount()
+    const feedsBefore = graphDataSetCount
+    const unlitLink = metaphorLink(data, 'peat bog', 'bog body')
+    const normalAlpha = alpha(capturedLinkColor!(unlitLink))
+    el.forestLit = new Set(['seed vault'])
+    await el.updateComplete
+
+    expect(capturedNodeColor!(nodeById(data, 'seed vault'))).toBe(FOREST_COLOURS.endpoint)
+    expect(capturedNodeColor!(nodeById(data, 'dormant seed'))).toBe(FOREST_COLOURS.hop)
+    expect(alpha(capturedNodeColor!(nodeById(data, 'bog body')))).toBeLessThan(0.5)
+    expect(alpha(capturedNodeColor!(nodeById(data, 'forbearance')))).toBeLessThan(0.5)
+    expect(capturedNodeColor!(nodeById(data, 'patience'))).toBe(NODE_COLOURS.central)
+
+    expect(capturedLinkColor!(metaphorLink(data, 'dormant seed', 'seed vault'))).toBe(FOREST_COLOURS.spark)
+    expect(alpha(capturedLinkColor!(unlitLink))).toBeLessThan(normalAlpha)
+    expect(particles(metaphorLink(data, 'dormant seed', 'seed vault'))).toBeGreaterThan(particles(unlitLink))
+    expect(graphDataSetCount).toBe(feedsBefore)
+  })
+
+  it('draws lit branches wider than the rest of the forest', async () => {
+    await mount()
+    const lit = metaphorLink(data, 'dormant seed', 'seed vault')
+    const other = metaphorLink(data, 'peat bog', 'bog body')
+    const before = capturedLinkWidth!(lit)
+    el.forestLit = new Set(['seed vault'])
+    await el.updateComplete
+    expect(capturedLinkWidth!(lit)).toBeGreaterThan(before)
+    expect(capturedLinkWidth!(other)).toBeLessThanOrEqual(before)
+  })
+
+  it('marks the labels on a lit path so its hops stand out, and gives the source a root label', async () => {
+    await mount()
+    const label = (n: unknown) => (capturedNodeThreeObject!(n) as { element: HTMLElement }).element
+    expect(label(nodeById(data, 'patience')).dataset.role).toBe('forest-source')
+    el.forestLit = new Set(['seed vault'])
+    await el.updateComplete
+    expect(label(nodeById(data, 'dormant seed')).hasAttribute('data-lit')).toBe(true)
+    expect(label(nodeById(data, 'seed vault')).hasAttribute('data-lit')).toBe(true)
+    expect(label(nodeById(data, 'peat bog')).hasAttribute('data-lit')).toBe(false)
+  })
+
+  // Rule: a selection looks different from a hover, so toggling it under the
+  // pointer always shows a change.
+  it('rings the selected forest node label, whatever else is lit', async () => {
+    await mount()
+    const labelEl = document.createElement('div')
+    const otherEl = document.createElement('div')
+    mockGraphData = {
+      nodes: [
+        { ...nodeById(data, 'keloid'), __threeObj: { children: [{ isCSS2DObject: true, element: labelEl }] } },
+        { ...nodeById(data, 'varve'), __threeObj: { children: [{ isCSS2DObject: true, element: otherEl }] } },
+      ],
+      links: [],
+    }
+    el.forestSelectedId = 'keloid'
+    el.forestLit = new Set(['varve'])
+    await el.updateComplete
+    expect(labelEl.hasAttribute('data-selected')).toBe(true)
+    expect(otherEl.hasAttribute('data-selected')).toBe(false)
+    const born = (capturedNodeThreeObject!(nodeById(data, 'keloid')) as { element: HTMLElement }).element
+    expect(born.hasAttribute('data-selected')).toBe(true)
+    el.forestSelectedId = null
+    await el.updateComplete
+    expect(labelEl.hasAttribute('data-selected')).toBe(false)
+  })
+
+  // Rule: graphData() is library-owned; an update must complete whatever it reports.
+  it('completes a forest update when the library reports no node or link arrays', async () => {
+    await mount()
+    mockGraphData = { nodes: (() => []) as unknown as unknown[], links: undefined as unknown as unknown[] }
+    el.forestLit = new Set(['seed vault'])
+    await expect(el.updateComplete).resolves.toBe(true)
+    el.forestSelectedId = 'seed vault'
+    await expect(el.updateComplete).resolves.toBe(true)
+    el.forestVisible = false
+    await expect(el.updateComplete).resolves.toBe(true)
+  })
+
+  it('marks lit grounds and lit labels on the label DOM, and clears them when nothing is lit', async () => {
+    await mount()
+    const groundEl = document.createElement('div')
+    const labelEl = document.createElement('div')
+    const dimLabelEl = document.createElement('div')
+    const lit = { ...metaphorLink(data, 'dormant seed', 'seed vault'), __lineObj: { children: [{}, { isCSS2DObject: true, element: groundEl }] } }
+    mockGraphData = {
+      nodes: [
+        { ...nodeById(data, 'seed vault'), __threeObj: { children: [{ isCSS2DObject: true, element: labelEl }] } },
+        { ...nodeById(data, 'bog body'), __threeObj: { children: [{ isCSS2DObject: true, element: dimLabelEl }] } },
+      ],
+      links: [lit],
+    }
+    el.forestLit = new Set(['seed vault'])
+    await el.updateComplete
+    expect(groundEl.hasAttribute('data-lit')).toBe(true)
+    expect(labelEl.hasAttribute('data-dim')).toBe(false)
+    expect(dimLabelEl.hasAttribute('data-dim')).toBe(true)
+
+    el.forestLit = null
+    await el.updateComplete
+    expect(groundEl.hasAttribute('data-lit')).toBe(false)
+    expect(dimLabelEl.hasAttribute('data-dim')).toBe(false)
+  })
+
+  it('keeps each ground label on its link, a little nearer the parent word', async () => {
+    await mount()
+    const update = lastArgs.linkPositionUpdate[0] as (obj: unknown, ends: unknown, link: unknown) => boolean
+    const label = { isCSS2DObject: true, position: { x: 0, y: 0, z: 0, set(x: number, y: number, z: number) { Object.assign(this, { x, y, z }) } } }
+    update(label, { start: { x: 0, y: 0, z: 0 }, end: { x: 100, y: 50, z: 10 } }, {})
+    expect(label.position.x).toBeGreaterThan(30)
+    expect(label.position.x).toBeLessThan(50)
+    expect(label.position.y / label.position.x).toBeCloseTo(0.5)
+    expect(() => update(undefined, { start: { x: 0, y: 0, z: 0 }, end: { x: 1, y: 1, z: 1 } }, {})).not.toThrow()
+  })
+
+  it('builds a ground label on metaphor links only, from the edge grounds, as text', async () => {
+    await mount()
+    const makeLinkObj = lastArgs.linkThreeObject[0] as (l: unknown) => { element: HTMLElement } | null
+    expect(makeLinkObj(thesaurusLink(data))).toBeNull()
+    const hostile = { ...metaphorLink(data, 'patience', 'dormant seed') }
+    hostile.metaphor = { ...hostile.metaphor!, grounds: ['<img src=x onerror=alert(1)>'] }
+    const obj = makeLinkObj(hostile)!
+    expect(obj.element.querySelector('img')).toBeNull()
+    expect(obj.element.textContent).toBe('<img src=x onerror=alert(1)>')
+  })
+
+  it('labels endpoints with a live mark and forest role, and renders a hostile word as text', async () => {
+    await mount()
+    const label = (n: unknown) => (capturedNodeThreeObject!(n) as { element: HTMLElement }).element
+    const live = label(nodeById(data, 'seed vault'))
+    expect(live.dataset.role).toBe('forest-endpoint')
+    expect(live.querySelector('.mf-graph-label__mark')?.textContent).toBe('✦')
+    expect(label(nodeById(data, 'solera')).querySelector('.mf-graph-label__mark')).toBeNull()
+    expect(label(nodeById(data, 'dormant seed')).dataset.role).toBe('forest-hop')
+
+    const hostile = { ...nodeById(data, 'varve'), word: '<img src=x onerror=alert(1)>' }
+    expect(label(hostile).querySelector('img')).toBeNull()
+    expect(label(hostile).textContent).toContain('<img src=x onerror=alert(1)>')
+  })
+
+  it('rebuilds node labels when the forest changes, so a thesaurus word picks up its forest role', async () => {
+    await mount()
+    // the library recreates every node object when this accessor is re-set
+    const before = capturedNodeThreeObject
+    el.forest = null
+    el.graphData = thesaurus()
+    await el.updateComplete
+    expect(capturedNodeThreeObject).not.toBe(before)
+    const escapement = thesaurus().nodes[2]
+    expect((capturedNodeThreeObject!(escapement) as { element: HTMLElement }).element.dataset.role).toBe('rare')
+  })
+
+  // Rule: on a forest node, a single click selects and never expands; double-click navigates.
+  it('single click on a forest node selects it and never fires mf-node-select', async () => {
+    await mount()
+    vi.useFakeTimers()
+    const select = vi.fn(), expand = vi.fn()
+    el.addEventListener('mf-forest-select', select)
+    el.addEventListener('mf-node-select', expand)
+    capturedOnNodeClick!(nodeById(data, 'escapement'))
+    vi.advanceTimersByTime(400)
+    expect(expand).not.toHaveBeenCalled()
+    expect(select).toHaveBeenCalledOnce()
+    expect(select.mock.calls[0][0].detail).toEqual({ target: { kind: 'node', id: 'escapement' } })
+  })
+
+  it('double-click on a forest node navigates', async () => {
+    await mount()
+    vi.useFakeTimers()
+    const nav = vi.fn(), select = vi.fn()
+    el.addEventListener('mf-node-navigate', nav)
+    el.addEventListener('mf-forest-select', select)
+    capturedOnNodeClick!(nodeById(data, 'varve'))
+    capturedOnNodeClick!(nodeById(data, 'varve'))
+    vi.advanceTimersByTime(400)
+    expect(nav).toHaveBeenCalledOnce()
+    expect(select).not.toHaveBeenCalled()
+  })
+
+  it('single click on a thesaurus node still expands it while a forest is shown', async () => {
+    await mount()
+    vi.useFakeTimers()
+    const expand = vi.fn()
+    el.addEventListener('mf-node-select', expand)
+    capturedOnNodeClick!(nodeById(data, 'forbearance'))
+    vi.advanceTimersByTime(400)
+    expect(expand).toHaveBeenCalledOnce()
+  })
+
+  it('click on a metaphor link selects it; a background click clears the selection', async () => {
+    await mount()
+    const select = vi.fn()
+    el.addEventListener('mf-forest-select', select)
+    capturedOnLinkClick!(metaphorLink(data, 'scar tissue', 'hypertrophic scar'))
+    ;(lastArgs.onBackgroundClick[0] as () => void)()
+    expect(select.mock.calls.map(c => c[0].detail)).toEqual([
+      { target: { kind: 'link', source: 'scar tissue', target: 'hypertrophic scar' } },
+      { target: null },
+    ])
+  })
+
+  it('hover on a forest node or metaphor link emits mf-forest-hover, and leaving emits null', async () => {
+    await mount()
+    const hover = vi.fn()
+    el.addEventListener('mf-forest-hover', hover)
+    capturedOnNodeHover!(nodeById(data, 'dormant seed'), null)
+    capturedOnNodeHover!(null, nodeById(data, 'dormant seed'))
+    ;(lastArgs.onLinkHover[0] as (l: unknown) => void)(metaphorLink(data, 'peat bog', 'bog body'))
+    ;(lastArgs.onLinkHover[0] as (l: unknown) => void)(null)
+    capturedOnNodeHover!(nodeById(data, 'forbearance'), null) // thesaurus: no forest hover
+    expect(hover.mock.calls.map(c => c[0].detail.target)).toEqual([
+      { kind: 'node', id: 'dormant seed' },
+      null,
+      { kind: 'link', source: 'peat bog', target: 'bog body' },
+      null,
+    ])
+  })
+
+  it('never sets a forest hover from touch input (no sticky hover after a tap)', async () => {
+    await mount()
+    const hover = vi.fn()
+    el.addEventListener('mf-forest-hover', hover)
+    const container = el.shadowRoot!.querySelector('#graph-container')!
+    container.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerType: 'touch' }))
+    capturedOnNodeHover!(nodeById(data, 'dormant seed'), null)
+    expect(hover).not.toHaveBeenCalled()
+    container.dispatchEvent(Object.assign(new Event('pointermove', { bubbles: true }), { pointerType: 'mouse' }))
+    capturedOnNodeHover!(nodeById(data, 'dormant seed'), null)
+    expect(hover).toHaveBeenCalledOnce()
+  })
+
+  it('frames the camera when a new forest arrives, and not when paths are lit', async () => {
+    vi.useFakeTimers()
+    await mount()
+    const framesAfterMount = setCounts.zoomToFit ?? 0
+    vi.advanceTimersByTime(5000)
+    const framed = setCounts.zoomToFit ?? 0
+    expect(framed).toBeGreaterThan(framesAfterMount)
+    el.forestLit = new Set(['varve'])
+    await el.updateComplete
+    vi.advanceTimersByTime(5000)
+    expect(setCounts.zoomToFit ?? 0).toBe(framed)
+  })
+
+  it('fades thesaurus labels while a forest is shown, and restores them when it is hidden', async () => {
+    await mount()
+    const label = (n: unknown) => (capturedNodeThreeObject!(n) as { element: HTMLElement }).element
+    expect(label(nodeById(data, 'forbearance')).hasAttribute('data-recede')).toBe(true)
+    expect(label(nodeById(data, 'seed vault')).hasAttribute('data-recede')).toBe(false)
+    expect(label(nodeById(data, 'patience')).hasAttribute('data-recede')).toBe(false)
+    el.forestVisible = false
+    await el.updateComplete
+    expect(label(nodeById(data, 'forbearance')).hasAttribute('data-recede')).toBe(false)
+  })
+
+  // Rule: the library's nodeLabel/linkLabel tooltips render HTML, so they stay
+  // empty; a future `name` field must never become markup.
+  it('sets empty node and link tooltips explicitly', async () => {
+    await mount()
+    const nodeLabel = lastArgs.nodeLabel?.[0] as ((n: unknown) => string) | undefined
+    const linkLabel = lastArgs.linkLabel?.[0] as ((l: unknown) => string) | undefined
+    expect(typeof nodeLabel).toBe('function')
+    expect(typeof linkLabel).toBe('function')
+    const hostile = '<img src=x onerror=alert(1)>'
+    expect(nodeLabel!({ ...nodeById(data, 'varve'), name: hostile })).toBe('')
+    expect(linkLabel!({ ...metaphorLink(data, 'patience', 'escapement'), name: hostile })).toBe('')
+  })
+
+  it('installs the depth force so the forest grows outward from the source', async () => {
+    await mount()
+    const call = (lastArgs.d3Force ?? []) as unknown[]
+    expect(call[0]).toBe('forestDepth')
+    expect(typeof call[1]).toBe('function')
+  })
+
+  it('emits no forest events and draws no forest styling in grade mode', async () => {
+    await mount()
+    el.mode = 'grade'
+    await el.updateComplete
+    const select = vi.fn()
+    el.addEventListener('mf-forest-select', select)
+    ;(lastArgs.onBackgroundClick[0] as () => void)()
+    expect(select).not.toHaveBeenCalled()
+  })
+})
+
+function hexToRgb(hex: string): string {
+  const n = parseInt(hex.slice(1), 16)
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`
+}

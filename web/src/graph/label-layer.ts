@@ -24,6 +24,8 @@ export interface LabelStyle {
   text: string
   colour: string
   role: string // grade: topic|vehicle|step; browse: central|<rarity>
+  // Optional glyph before the text in its own span (forest: the live mark).
+  mark?: string
   // Grade mode only: inbound connections to surface behind the `›` affordance.
   // Browse-mode labels never set this — the arrow/tooltip render only when non-empty.
   backlinks?: BacklinkRow[]
@@ -71,6 +73,13 @@ export function buildLabelEl(style: LabelStyle, cfg: LabelSizeConfig): HTMLDivEl
   el.style.borderRadius = '3px'
   el.style.padding = '1px 4px'
   el.style.willChange = 'transform'
+
+  if (style.mark) {
+    const mark = document.createElement('span')
+    mark.className = 'mf-graph-label__mark'
+    mark.textContent = style.mark
+    el.appendChild(mark)
+  }
 
   const span = document.createElement('span')
   span.className = 'mf-graph-label__text'
@@ -185,4 +194,27 @@ export function syncLabelVisibility(
     label.visible = vis
     label.element.style.display = vis ? '' : 'none'
   }
+}
+
+/**
+ * The label a metaphor link carries at its midpoint: the grounds its two words
+ * share, one per line. Hidden by the shadow stylesheet unless `data-lit` is set,
+ * so lighting a path is a DOM attribute flip, not a link rebuild. Grounds are
+ * model text, so they go in through textContent only.
+ */
+export function makeGroundLabel(grounds: string[]): CSS2DObject {
+  const el = document.createElement('div')
+  el.className = 'mf-ground-label'
+  el.style.pointerEvents = 'none'
+  for (const ground of grounds) {
+    const row = document.createElement('span')
+    row.className = 'mf-ground-label__ground'
+    row.textContent = ground
+    el.appendChild(row)
+  }
+  const obj = new CSS2DObject(el)
+  // Hang below the midpoint: word labels float above their nodes, so this
+  // keeps a short link's ground from covering the hop it leads to.
+  obj.center.set(0.5, -0.5)
+  return obj
 }

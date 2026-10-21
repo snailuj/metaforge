@@ -5,6 +5,7 @@ export type RelationType =
   | 'hypernym'
   | 'hyponym'
   | 'similar'
+  | 'metaphor' // forest-only node or link (the metaphor forest overlay)
 
 /** Frequency-based rarity bucket for visibility filtering */
 export type Rarity = 'common' | 'unusual' | 'rare'
@@ -33,12 +34,22 @@ export interface GraphNode {
   order: GraphOrder     // Depth from central node (0=central, 1=direct, 2=second-order)
 }
 
+/** What a metaphor-forest link carries: the shared qualities that join its two
+ *  words, and the kept paths (by endpoint id) that run along it. */
+export interface MetaphorLinkInfo {
+  grounds: string[]
+  endpointIds: string[]
+  forestSource: string  // forest ids, stable across recompositions
+  forestTarget: string
+}
+
 /** A link (edge) in the force graph */
 export interface GraphLink {
   source: string        // GraphNode.id
   target: string        // GraphNode.id
   relationType: RelationType
   order: GraphOrder     // Depth from central node (0=central, 1=direct, 2=second-order)
+  metaphor?: MetaphorLinkInfo // set only on metaphor-forest links
 }
 
 /** Complete graph data, ready for 3d-force-graph */
