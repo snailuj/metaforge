@@ -425,18 +425,24 @@ func GeneratorUserMessage(source string, maxHops int) string {
 	return fmt.Sprintf("SOURCE: %s\nMAX_HOPS: %d", source, maxHops)
 }
 
-// JudgeUserMessage numbers paths from 1 and writes each as
-// "source -[ground]-> word ... | line", the numbering ApplyVerdicts expects.
+// JudgeUserMessage numbers paths from 1, the numbering ApplyVerdicts
+// expects. Each path gets its chain of words, then one row per hop naming
+// the two words a ground joins, then its line: a small judge given only an
+// inline chain checked later grounds against the source word.
 func JudgeUserMessage(source string, paths []Path) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "SOURCE: %s\n", source)
+	fmt.Fprintf(&b, "SOURCE: %s", source)
 	for i, p := range paths {
-		b.WriteByte('\n') // blank line before the first path, a line break between the rest
-		fmt.Fprintf(&b, "%d. %s", i+1, source)
-		for j, w := range p.Words {
-			fmt.Fprintf(&b, " -[%s]-> %s", p.Grounds[j], w)
+		fmt.Fprintf(&b, "\n\n%d. %s", i+1, source)
+		for _, w := range p.Words {
+			fmt.Fprintf(&b, " -> %s", w)
 		}
-		fmt.Fprintf(&b, " | %s", p.Line)
+		prev := source
+		for j, w := range p.Words {
+			fmt.Fprintf(&b, "\n   %s / %s: %s", prev, w, p.Grounds[j])
+			prev = w
+		}
+		fmt.Fprintf(&b, "\n   line: %s", p.Line)
 	}
 	return b.String()
 }

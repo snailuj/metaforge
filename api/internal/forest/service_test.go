@@ -100,8 +100,14 @@ func TestServiceGenerateHappyPath(t *testing.T) {
 	// Path 2 (gene bank) has an empty ground, so only 2 paths reach the
 	// judge, and verdict 2 refers to the orrery.
 	wantUser := "SOURCE: patience\n\n" +
-		"1. patience -[waits]-> dormant seed -[stays viable]-> seed vault | Patience is a seed vault.\n" +
-		"2. patience -[waits]-> dormant seed -[turns slowly]-> orrery | Patience is an orrery."
+		"1. patience -> dormant seed -> seed vault\n" +
+		"   patience / dormant seed: waits\n" +
+		"   dormant seed / seed vault: stays viable\n" +
+		"   line: Patience is a seed vault.\n\n" +
+		"2. patience -> dormant seed -> orrery\n" +
+		"   patience / dormant seed: waits\n" +
+		"   dormant seed / orrery: turns slowly\n" +
+		"   line: Patience is an orrery."
 	if judge.Model != "judge-model" || judge.System != JudgeSystemPrompt || judge.User != wantUser ||
 		judge.Effort != "medium" || judge.MaxTokens != 16000 || !reflect.DeepEqual(judge.Schema, JudgeSchema()) {
 		t.Errorf("judge request = %+v", judge)
@@ -339,7 +345,7 @@ func TestServiceNeverJudgesInvalidPaths(t *testing.T) {
 			t.Errorf("invalid path %q reached the judge:\n%s", leaked, user)
 		}
 	}
-	if !strings.Contains(user, "L-valid") || strings.Count(user, "\n") != 2 {
+	if !strings.Contains(user, "L-valid") || strings.Count(user, "line: ") != 1 {
 		t.Errorf("judge message should hold exactly the one valid path:\n%s", user)
 	}
 	if len(forest.Endpoints) != 1 || forest.Endpoints[0].Line != "L-valid" {
@@ -355,3 +361,4 @@ func TestServiceNeverJudgesInvalidPaths(t *testing.T) {
 		t.Errorf("stats = %+v, want %+v", forest.Stats, want)
 	}
 }
+

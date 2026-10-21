@@ -565,8 +565,13 @@ func TestJudgeUserMessage(t *testing.T) {
 		{Words: []string{"tidemark"}, Grounds: []string{"records"}, Line: "Patience is a tidemark."},
 	}
 	want := "SOURCE: patience\n\n" +
-		"1. patience -[waits]-> dormant seed -[stays viable]-> seed vault | Patience is a seed vault.\n" +
-		"2. patience -[records]-> tidemark | Patience is a tidemark."
+		"1. patience -> dormant seed -> seed vault\n" +
+		"   patience / dormant seed: waits\n" +
+		"   dormant seed / seed vault: stays viable\n" +
+		"   line: Patience is a seed vault.\n\n" +
+		"2. patience -> tidemark\n" +
+		"   patience / tidemark: records\n" +
+		"   line: Patience is a tidemark."
 	if got := JudgeUserMessage("patience", paths); got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
 	}
@@ -611,7 +616,13 @@ func TestFlattenCollapsesWhitespaceInGroundsAndLines(t *testing.T) {
 		t.Errorf("branch path = %+v", paths[1])
 	}
 	msg := JudgeUserMessage("src", paths)
-	if got := strings.Count(msg, "\n"); got != 2+len(paths)-1 {
+	// Two after SOURCE, two between paths, and per path a break after the
+	// chain and after each ground row.
+	want := 2 + 2*(len(paths)-1)
+	for _, p := range paths {
+		want += 1 + len(p.Grounds)
+	}
+	if got := strings.Count(msg, "\n"); got != want {
 		t.Errorf("message has %d line breaks for %d paths:\n%s", got, len(paths), msg)
 	}
 }
