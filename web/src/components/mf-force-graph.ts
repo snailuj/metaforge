@@ -14,7 +14,6 @@ import type { ChainRecord, JudgementRecord } from '../types/grading'
 import { normaliseJudgement } from '../types/grading'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
-const EDGE_COLOUR_DIM = 'rgba(232, 224, 212, 0.08)'
 // Ghost edges share the thesaurus edge colour; their alpha comes from ghostAlphas.
 const EDGE_RGB = '232, 224, 212'
 // Label opacity the forest's recede/dim states apply (the stylesheet's values),
@@ -413,10 +412,11 @@ export class MfForceGraph extends LitElement {
         const e = this.emphasis(link.metaphor.pathKeys)
         return e === 'lit' ? FOREST_COLOURS.spark : withAlpha(FOREST_COLOURS.branch, e === 'dim' ? 0.16 : 0.85)
       }
-      return link.order >= 2 || this.forestLit ? FOREST_EDGE_THESAURUS_DIM : FOREST_EDGE_THESAURUS
+      return link.ghost || this.forestLit ? FOREST_EDGE_THESAURUS_DIM : FOREST_EDGE_THESAURUS
     }
     if (link.ghost) return `rgba(${EDGE_RGB}, ${ghostAlphas(this.ghostLinkFade(link)).edge})`
-    return link.order >= 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR
+    // Every solid link draws alike at any depth; only ghosts fade.
+    return EDGE_COLOUR
   }
 
   private particleCountFn = (l: unknown): number => {
@@ -434,7 +434,7 @@ export class MfForceGraph extends LitElement {
   private linkWidthFn = (l: unknown): number => {
     if (this.mode === 'grade') return (l as GradeLink).chainSig === this.hoveredChainSig ? 3 : 1.5
     const link = l as GraphLink
-    if (!link.metaphor) return link.ghost ? 0.3 : link.order >= 2 ? 0.5 : 1
+    if (!link.metaphor) return link.ghost ? 0.3 : 1
     return this.activeForest && this.emphasis(link.metaphor.pathKeys) === 'lit' ? 2.4 : 1.1
   }
 

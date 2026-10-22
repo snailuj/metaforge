@@ -1290,15 +1290,15 @@ describe('MfForceGraph', () => {
       expect(capturedLinkColor!(link)).toBe('rgba(232, 224, 212, 0.15)')
     })
 
-    it('returns dimmer alpha for order-2 links', () => {
+    it('draws a non-ghost order-2 link as strong as an order-1 link', () => {
       const link = testData.links.find(l => l.target === 'ember')!
-      expect(capturedLinkColor!(link)).toBe('rgba(232, 224, 212, 0.08)')
+      expect(capturedLinkColor!(link)).toBe('rgba(232, 224, 212, 0.15)')
     })
 
-    it('dims links deeper than the second order the same way', () => {
+    it('draws non-ghost links deeper than the second order the same way', () => {
       const deep = { source: 'ember', target: 'cinder', relationType: 'synonym', order: 3 }
-      expect(capturedLinkColor!(deep)).toBe('rgba(232, 224, 212, 0.08)')
-      expect(capturedLinkWidth!(deep)).toBe(0.5)
+      expect(capturedLinkColor!(deep)).toBe('rgba(232, 224, 212, 0.15)')
+      expect(capturedLinkWidth!(deep)).toBe(1)
     })
 
     it('sets linkWidth accessor as a function', () => {
@@ -1310,9 +1310,9 @@ describe('MfForceGraph', () => {
       expect(capturedLinkWidth!(link)).toBe(1)
     })
 
-    it('returns 0.5 width for order-2 links', () => {
+    it('returns 1 width for non-ghost order-2 links', () => {
       const link = testData.links.find(l => l.target === 'ember')!
-      expect(capturedLinkWidth!(link)).toBe(0.5)
+      expect(capturedLinkWidth!(link)).toBe(1)
     })
 
     it('hides order-2 nodes when their rarity is hidden', async () => {
@@ -1419,6 +1419,13 @@ describe('MfForceGraph metaphor forest', () => {
     el.forestVisible = false
     await el.updateComplete
     expect(withForest).toBeLessThan(alpha(capturedLinkColor!(link)))
+  })
+
+  it('keeps a ghost edge dimmer than a solid thesaurus edge while a forest is shown', async () => {
+    await mount()
+    const solid = { ...thesaurusLink(data), order: 2 }
+    const ghost = { ...solid, ghost: true }
+    expect(alpha(capturedLinkColor!(ghost))).toBeLessThan(alpha(capturedLinkColor!(solid)))
   })
 
   it('gives metaphor links their own colour and particles; thesaurus links carry none', async () => {
