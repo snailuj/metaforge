@@ -144,6 +144,37 @@ describe('MfResultsPanel', () => {
     expect(handler.mock.calls[0][0].detail.word).toBe('sadness')
   })
 
+  describe('graph relation toggles', () => {
+    const toggles = () => [...el.shadowRoot!.querySelectorAll<HTMLInputElement>('.relation-toggles input')]
+
+    beforeEach(async () => {
+      el.result = melancholy
+      el.hiddenRelations = new Set(['hyponym', 'hypernym', 'similar'])
+      await el.updateComplete
+    })
+
+    it('offers one toggle each for hyponyms, hypernyms and similar, reflecting what is hidden', () => {
+      expect(toggles().map(t => t.dataset.relation)).toEqual(['hyponym', 'hypernym', 'similar'])
+      expect(toggles().every(t => !t.checked)).toBe(true)
+    })
+
+    it('fires mf-relations-change with the new hidden set when one is ticked', async () => {
+      const spy = vi.fn()
+      el.addEventListener('mf-relations-change', spy)
+      const hypo = toggles()[0]
+      hypo.checked = true
+      hypo.dispatchEvent(new Event('change'))
+      expect([...spy.mock.calls[0][0].detail.hidden].sort()).toEqual(['hypernym', 'similar'])
+      el.removeEventListener('mf-relations-change', spy)
+    })
+
+    it('shows a ticked toggle for a relation that is not hidden', async () => {
+      el.hiddenRelations = new Set(['similar'])
+      await el.updateComplete
+      expect(toggles().map(t => t.checked)).toEqual([true, true, false])
+    })
+  })
+
   it('renders nothing when result is null', async () => {
     el.result = null
     await el.updateComplete

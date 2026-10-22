@@ -4,7 +4,8 @@ import type { PropertyValues } from 'lit'
 import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
 import { guardOrbitPointerUp } from '@/graph/orbit-guard'
-import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
+import type { GraphData, GraphLink, GraphNode, Rarity, RelationType } from '@/graph/types'
+import { relationReach } from '@/graph/transform'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR, FOREST_COLOURS, withAlpha } from '@/graph/colours'
 import { makeLabelRenderer, makeLabelObject, makeGroundLabel, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle, type BacklinkRow } from '@/graph/label-layer'
 import { forestDepthForce, FOREST_FADE_MS, type ForestNodeInfo, type ForestOverlay, type ForestTarget } from '@/graph/forest'
@@ -13,6 +14,9 @@ import { normaliseJudgement } from '../types/grading'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
 const EDGE_COLOUR_DIM = 'rgba(232, 224, 212, 0.08)'
+// Ghosts (glimpsed words not yet opened) are a hint of more beyond, not a reading.
+const EDGE_COLOUR_GHOST = 'rgba(232, 224, 212, 0.04)'
+const GHOST_ALPHA = 0.3
 
 // Metaphor forest emphasis. Thesaurus marks recede while a forest is shown so
 // the forest reads as the figure; anything off a lit path recedes further.
@@ -129,6 +133,10 @@ export class MfForceGraph extends LitElement {
       .mf-graph-label {
         transition: background 120ms ease;
       }
+    }
+    /* A ghost's label appears only while it is hovered. */
+    .mf-graph-label[data-ghost]:not(.label-hovered) {
+      opacity: 0;
     }
     .mf-graph-label.label-hovered {
       background: rgba(255, 255, 255, 0.18);
@@ -300,6 +308,10 @@ export class MfForceGraph extends LitElement {
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
   @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
+  // Thesaurus relations left off the graph; what only they reach hides with them.
+  @property({ type: Object }) hiddenRelations: ReadonlySet<RelationType> = new Set()
+  // What the source reaches through shown relations (null: everything).
+  private reach: Set<string> | null = null
   @property({ attribute: false }) mode: 'browse' | 'grade' = 'browse'
   @property({ attribute: false }) gradeChains: ChainRecord[] = []
   @property({ attribute: false }) judgements: JudgementRecord[] = []
@@ -359,9 +371,10 @@ export class MfForceGraph extends LitElement {
     const base = node.relationType === 'central'
       ? NODE_COLOURS.central
       : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
-    if (!this.activeForest) return base
+    const ghost = node.ghost ? GHOST_ALPHA : 1
+    if (!this.activeForest) return node.ghost ? withAlpha(base, GHOST_ALPHA) : base
     const info = this.forestInfo(node)
-    if (!info) return withAlpha(base, this.forestLit ? 0.18 : 0.55)
+    if (!info) return withAlpha(base, Math.round((this.forestLit ? 0.18 : 0.55) * ghost * 100) / 100)
     if (info.role === 'source') return NODE_COLOURS.central
     const colour = info.role === 'endpoint' ? FOREST_COLOURS.endpoint : FOREST_COLOURS.hop
     if (info.stream === 'fading') return withAlpha(colour, Math.round(this.fadeLeft(info.fadeUntil) * 100) / 100)
@@ -393,6 +406,7 @@ export class MfForceGraph extends LitElement {
       }
       return link.order >= 2 || this.forestLit ? FOREST_EDGE_THESAURUS_DIM : FOREST_EDGE_THESAURUS
     }
+    if (link.ghost) return EDGE_COLOUR_GHOST
     return link.order >= 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR
   }
 
@@ -411,7 +425,7 @@ export class MfForceGraph extends LitElement {
   private linkWidthFn = (l: unknown): number => {
     if (this.mode === 'grade') return (l as GradeLink).chainSig === this.hoveredChainSig ? 3 : 1.5
     const link = l as GraphLink
-    if (!link.metaphor) return link.order >= 2 ? 0.5 : 1
+    if (!link.metaphor) return link.ghost ? 0.3 : link.order >= 2 ? 0.5 : 1
     return this.activeForest && this.emphasis(link.metaphor.pathKeys) === 'lit' ? 2.4 : 1.1
   }
 
@@ -429,6 +443,7 @@ export class MfForceGraph extends LitElement {
   private nodeLabelFn = (n: unknown) => {
     const obj = makeLabelObject(this.labelStyleFor(n), () => this.effectiveLabelSize, () => this.labelRefDist)
     this.applyLabelFade(obj.element, n)
+    if (this.mode === 'browse' && (n as GraphNode).ghost) obj.element.setAttribute('data-ghost', '')
     return obj
   }
 
@@ -849,6 +864,7 @@ export class MfForceGraph extends LitElement {
     // Forest-only words hide with the forest; forest words skip the rarity filter.
     if (node.relationType === 'metaphor') return !!this.activeForest
     if (node.relationType === 'central' || this.forestInfo(node)) return true
+    if (this.reach && !this.reach.has(node.id)) return false
     const rarity = node.rarity ?? 'unusual'
     return !this.hiddenRarities.has(rarity)
   }
@@ -857,8 +873,9 @@ export class MfForceGraph extends LitElement {
     if (this.mode === 'grade') {
       return this.pathFilterPasses((l as GradeLink).chainSig)
     }
-    const link = l as { source: unknown; target: unknown; metaphor?: unknown }
+    const link = l as { source: unknown; target: unknown; metaphor?: unknown; relationType?: RelationType }
     if (link.metaphor && !this.activeForest) return false
+    if (!link.metaphor && link.relationType && this.hiddenRelations.has(link.relationType)) return false
     return this.isNodeVisible(link.source) && this.isNodeVisible(link.target)
   }
 
@@ -1105,6 +1122,12 @@ export class MfForceGraph extends LitElement {
     }
   }
 
+  willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has('graphData') || changed.has('hiddenRelations')) {
+      this.reach = relationReach(this.graphData, this.hiddenRelations)
+    }
+  }
+
   updated(changed: PropertyValues<this>): void {
     // A new or hidden forest changes node roles: rebuild labels (node objects
     // are reused across feeds, so their labels would keep the old role) and
@@ -1142,7 +1165,7 @@ export class MfForceGraph extends LitElement {
     // Both visibility filters toggle ALREADY-FED objects in place — they never
     // re-feed, so the force sim does not re-heat and the layout stays put.
     // grade-mode 'pathFilter' and browse-mode 'hiddenRarities' share this path.
-    if ((changed.has('pathFilter') || changed.has('hiddenRarities')) && this.graph) {
+    if ((changed.has('pathFilter') || changed.has('hiddenRarities') || changed.has('hiddenRelations')) && this.graph) {
       this.reapplyVisibility()
     }
     if (forestChanged || topologyChanged) this.syncStreamAnimation()

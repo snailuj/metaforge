@@ -33,6 +33,7 @@ export interface GraphNode {
   val: number           // Affects node size in 3d-force-graph
   rarity?: Rarity       // Frequency bucket; defaults to 'unusual' when absent
   order: GraphOrder     // Depth from central node (0=central, 1=direct, 2+=expanded)
+  ghost?: boolean       // a glimpsed word not yet opened: drawn faint, label on hover
   x?: number            // set by the force simulation; a new forest node may be seeded with one
   y?: number
   z?: number
@@ -60,6 +61,7 @@ export interface GraphLink {
   relationType: RelationType
   order: GraphOrder     // Depth from central node (0=central, 1=direct, 2+=expanded)
   metaphor?: MetaphorLinkInfo // set only on metaphor-forest links
+  ghost?: boolean       // leads to a ghost node
 }
 
 /** Complete graph data, ready for 3d-force-graph */
