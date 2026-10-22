@@ -41,6 +41,12 @@ filter-unusual = Unusual
 filter-rare = Rare
 filter-aria-label = Filter by word rarity
 
+## Graph relation toggles (results panel)
+graph-relations-label = Also on the graph:
+graph-relation-hyponym = Hyponyms
+graph-relation-hypernym = Hypernyms
+graph-relation-similar = Similar
+
 ## Graph navigation (Re-Centre and Undo)
 recentre-button = Re-centre on { $word }
 recentre-failed = Couldn’t re-centre on “{ $word }”. Try again in a moment.

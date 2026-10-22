@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 import type { LookupResult, Sense, RelatedWord } from '@/types/api'
+import type { RelationType } from '@/graph/types'
 import { getString } from '@/lib/strings'
 
 @customElement('mf-results-panel')
@@ -69,6 +70,28 @@ export class MfResultsPanel extends LitElement {
       .toggle-btn {
         display: block;
       }
+    }
+
+    .relation-toggles {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-xs, 0.25rem) var(--space-sm, 0.5rem);
+      margin-bottom: var(--space-sm, 0.5rem);
+      font-size: 0.75rem;
+      color: var(--colour-text-muted, #6b6560);
+    }
+
+    .relation-toggles label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--colour-text-secondary, #a89f94);
+      cursor: pointer;
+    }
+
+    .relation-toggles input {
+      accent-color: var(--colour-accent-gold, #d4af37);
     }
 
     h2 {
@@ -218,6 +241,8 @@ export class MfResultsPanel extends LitElement {
 
   @property({ type: Object }) result: LookupResult | null = null
   @property({ type: Boolean, reflect: true }) collapsed = false
+  // Relations left off the graph; synonyms always show.
+  @property({ type: Object }) hiddenRelations: ReadonlySet<RelationType> = new Set()
 
   private mediaQuery: MediaQueryList | null = null
 
@@ -239,6 +264,34 @@ export class MfResultsPanel extends LitElement {
 
   private toggleCollapsed() {
     this.collapsed = !this.collapsed
+  }
+
+  private renderRelationToggles() {
+    const relations: Array<[RelationType, string]> = [
+      ['hyponym', getString('graph-relation-hyponym')],
+      ['hypernym', getString('graph-relation-hypernym')],
+      ['similar', getString('graph-relation-similar')],
+    ]
+    return html`
+      <div class="relation-toggles" role="group" aria-label=${getString('graph-relations-label')}>
+        <span>${getString('graph-relations-label')}</span>
+        ${relations.map(([relation, label]) => html`
+          <label>
+            <input type="checkbox" data-relation=${relation}
+              .checked=${!this.hiddenRelations.has(relation)}
+              @change=${(e: Event) => this.toggleRelation(relation, (e.target as HTMLInputElement).checked)}>
+            ${label}
+          </label>
+        `)}
+      </div>
+    `
+  }
+
+  private toggleRelation(relation: RelationType, shown: boolean) {
+    const hidden = new Set(this.hiddenRelations)
+    if (shown) hidden.delete(relation)
+    else hidden.add(relation)
+    this.dispatchEvent(new CustomEvent('mf-relations-change', { detail: { hidden }, bubbles: true, composed: true }))
   }
 
   private renderRarityBadge(rarity?: string) {
@@ -384,6 +437,7 @@ export class MfResultsPanel extends LitElement {
       <div class="panel-track">
         <div class="panel" role="region" aria-label="${getString('results-aria-label')}" aria-live="polite">
           <h2>${this.result.word} ${this.renderRarityBadge(this.result.rarity)}</h2>
+          ${this.renderRelationToggles()}
           ${this.result.senses.map(s => this.renderSense(s))}
         </div>
       </div>
