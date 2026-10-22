@@ -21,7 +21,11 @@ let capturedControlType: string | undefined = undefined
 let capturedExtraRenderers: unknown[] | undefined = undefined
 
 const mockCamera = { position: { x: 0, y: 0, z: 100 } }
-const mockControls = { enableDamping: false, dampingFactor: 0 }
+// Carries the OrbitControls internals guardOrbitPointerUp swaps.
+const mockControls = {
+  enableDamping: false, dampingFactor: 0,
+  domElement: document.createElement('div'), _pointers: [] as number[], _onPointerUp: () => {},
+}
 // Backs the chainable Proxy's graphData() getter so tests can stub the node set
 // the library reports back (visibility mirror reads graph.graphData().nodes).
 let mockGraphData: { nodes: unknown[]; links: unknown[] } = { nodes: [], links: [] }
@@ -297,6 +301,10 @@ describe('MfForceGraph', () => {
   it('sets touch-action none on graph container', () => {
     const container = el.shadowRoot!.querySelector('#graph-container') as HTMLElement
     expect(container.style.touchAction).toBe('none')
+  })
+
+  it('guards the orbit controls against the drag-end synthetic pointerup', () => {
+    expect((mockControls as { __pointerUpGuarded?: boolean }).__pointerUpGuarded).toBe(true)
   })
 
   it('uses orbit controls', () => {

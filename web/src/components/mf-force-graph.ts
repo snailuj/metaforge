@@ -3,6 +3,7 @@ import { customElement, property } from 'lit/decorators.js'
 import type { PropertyValues } from 'lit'
 import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
+import { guardOrbitPointerUp } from '@/graph/orbit-guard'
 import type { GraphData, GraphLink, GraphNode, Rarity } from '@/graph/types'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR, FOREST_COLOURS, withAlpha } from '@/graph/colours'
 import { makeLabelRenderer, makeLabelObject, makeGroundLabel, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle, type BacklinkRow } from '@/graph/label-layer'
@@ -926,6 +927,9 @@ export class MfForceGraph extends LitElement {
         }
         this.previousHoveredNode = node
       })
+
+    // Before the first press: see guardOrbitPointerUp.
+    guardOrbitPointerUp(this.graph.controls())
 
     // Grade mode: tighter constellation + bigger hit-spheres so nodes are
     // closer together and easier to click. (Browse mode keeps its defaults —
