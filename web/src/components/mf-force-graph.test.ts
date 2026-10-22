@@ -372,12 +372,22 @@ describe('MfForceGraph', () => {
       expect(ms).toBeGreaterThan(0)
     })
 
-    it('does nothing for a node the graph does not hold or has not placed yet', () => {
+    it('does nothing for a node the graph does not hold', () => {
       delete lastArgs.cameraPosition
-      mockGraphData = { nodes: [{ id: 'unplaced' }], links: [] }
+      mockGraphData = { nodes: [{ id: 'gloom', x: 1, y: 1, z: 1 }], links: [] }
       expect(el.focusNode('missing')).toBe(false)
-      expect(el.focusNode('unplaced')).toBe(false)
       expect(lastArgs.cameraPosition).toBeUndefined()
+    })
+
+    it('aims at the origin for a node not placed yet, where a fresh layout centres', () => {
+      mockCamera.position = { x: 10, y: 20, z: 130 }
+      Object.assign(mockControls, { target: { x: 10, y: 20, z: 30 } })
+      mockGraphData = { nodes: [{ id: 'unplaced' }], links: [] }
+
+      expect(el.focusNode('unplaced')).toBe(true)
+      const [position, lookAt] = lastArgs.cameraPosition as [unknown, unknown]
+      expect(position).toEqual({ x: 0, y: 0, z: 100 })
+      expect(lookAt).toEqual({ x: 0, y: 0, z: 0 })
     })
   })
 

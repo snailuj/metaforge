@@ -839,6 +839,13 @@ describe('MfApp re-centre and navigation history', () => {
     expect(focus).toHaveBeenCalledWith('blaze')
   })
 
+  it('a start-over flies the camera to the new source too', async () => {
+    const graph = el.shadowRoot!.querySelector('mf-force-graph') as any
+    const focus = vi.spyOn(graph, 'focusNode').mockReturnValue(true)
+    await navigate('flame', flameLookup)
+    expect(focus).toHaveBeenCalledWith('flame')
+  })
+
   it('keeps the forest of the original word', async () => {
     await select(el, 'blaze', blazeLookup)
     await recentre()

@@ -23,6 +23,15 @@ export class MfUndoToast extends LitElement {
       max-width: calc(100vw - 2rem);
     }
 
+    /* On a phone the forest panel holds the foot of the screen, so the plaque
+       sits up top, under the filters, in the slot Re-Centre has just vacated. */
+    @media (max-width: 768px) {
+      :host {
+        bottom: auto;
+        top: calc(var(--space-md, 1rem) + 84px);
+      }
+    }
+
     .plaque {
       position: relative;
       display: flex;

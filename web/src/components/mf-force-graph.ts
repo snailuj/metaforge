@@ -507,19 +507,21 @@ export class MfForceGraph extends LitElement {
   }
 
   /** Fly the camera to a node, keeping its current distance and angle to what
-   *  it was looking at, so the view re-centres without zooming. Returns false
-   *  when the node is absent or the simulation has not placed it yet. */
+   *  it was looking at, so the view re-centres without zooming. A node the
+   *  simulation has not placed yet is aimed at the origin, where a fresh layout
+   *  centres. Returns false when the graph does not hold the node. */
   focusNode(id: string): boolean {
     if (!this.graph) return false
     const nodes = (this.graph.graphData() as unknown as { nodes?: GraphNode[] }).nodes ?? []
     const node = nodes.find(n => n.id === id)
-    if (!node || node.x === undefined || node.y === undefined || node.z === undefined) {
-      console.debug('[mf-force-graph] focusNode: node not placed', { id, found: !!node })
+    if (!node) {
+      console.debug('[mf-force-graph] focusNode: no such node', { id })
       return false
     }
+    const placed = node.x !== undefined && node.y !== undefined && node.z !== undefined
+    const to = placed ? { x: node.x!, y: node.y!, z: node.z! } : { x: 0, y: 0, z: 0 }
     const camera = (this.graph.camera() as { position: Vec3 }).position
     const target = (this.graph.controls() as { target?: Vec3 }).target ?? { x: 0, y: 0, z: 0 }
-    const to = { x: node.x, y: node.y, z: node.z }
     const position = { x: to.x + camera.x - target.x, y: to.y + camera.y - target.y, z: to.z + camera.z - target.z }
     this.graph.cameraPosition(position, to, this.reducedMotion ? 0 : FOCUS_FLY_MS)
     return true

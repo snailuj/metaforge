@@ -1503,6 +1503,7 @@ export class MfApp extends LitElement {
       this.recomposeGraph()
       this.appState = 'ready'
       this.enterView(word, entry)
+      void this.focusSource() // a Re-Centre may have aimed the camera elsewhere
       return true
     } catch (err) {
       if (id !== this.lookupId) return false // stale
