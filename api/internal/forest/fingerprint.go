@@ -10,7 +10,7 @@ import (
 // what the models are shown or how verdicts become a forest (the judge
 // message format, path validation, Build). Bump it with such a change so
 // cached forests from the old pipeline stop being served.
-const pipelineRevision = "2026-10-21.1"
+const pipelineRevision = "2026-10-22.1" // every distinct route kept; streamed per-facet judging
 
 // Fingerprint identifies the pipeline that makes a forest: prompts, output
 // schemas, models, effort, gates and pipelineRevision. Forest caches key on

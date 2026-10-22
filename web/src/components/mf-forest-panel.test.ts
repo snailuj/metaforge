@@ -5,6 +5,10 @@ import patience from '@/fixtures/forest-patience.json'
 import { initStrings } from '@/lib/strings'
 import { initialForestState, reduceForest, type ForestEvent, type ForestState } from '@/forest/state'
 import { MfForestPanel } from './mf-forest-panel'
+import { pathKey, pathTarget } from '@/graph/forest'
+const key = (id: string) => pathKey(forest.endpoints.find(e => e.id === id)!)
+const pt = (id: string) => pathTarget(forest.endpoints.find(e => e.id === id)!)
+
 
 const forest = patience as ForestResponse
 const run = (s: ForestState, ...events: ForestEvent[]) => events.reduce(reduceForest, s)
@@ -227,7 +231,7 @@ describe('MfForestPanel', () => {
       item.dispatchEvent(Object.assign(new Event('pointerleave'), { pointerType: 'mouse' }))
       item.dispatchEvent(Object.assign(new Event('pointerenter'), { pointerType: 'touch' }))
       expect(events).toEqual([
-        { type: 'hover', target: { kind: 'path', endpointId: 'seed vault' } },
+        { type: 'hover', target: pt('seed vault') },
         { type: 'hover', target: null },
       ])
     })
@@ -237,7 +241,7 @@ describe('MfForestPanel', () => {
       button.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
       button.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
       expect(events).toEqual([
-        { type: 'focus', target: { kind: 'path', endpointId: 'varve' } },
+        { type: 'focus', target: pt('varve') },
         { type: 'focus', target: null },
       ])
     })
@@ -252,19 +256,19 @@ describe('MfForestPanel', () => {
       const toggle = () => items()[2].querySelector<HTMLButtonElement>('[data-testid="forest-highlight"]')!
       expect(toggle().getAttribute('aria-pressed')).toBe('false')
       toggle().click()
-      expect(events).toEqual([{ type: 'select', target: { kind: 'path', endpointId: 'bog body' } }])
-      await render(run(shown(), { type: 'select', target: { kind: 'path', endpointId: 'bog body' } }))
+      expect(events).toEqual([{ type: 'select', target: pt('bog body') }])
+      await render(run(shown(), { type: 'select', target: pt('bog body') }))
       expect(toggle().getAttribute('aria-pressed')).toBe('true')
     })
 
     it('Escape from the head controls clears the selection too', async () => {
-      await render(run(shown(), { type: 'select', target: { kind: 'path', endpointId: 'bog body' } }))
+      await render(run(shown(), { type: 'select', target: pt('bog body') }))
       $<HTMLSelectElement>('select')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }))
       expect(events).toEqual([{ type: 'select', target: null }])
     })
 
     it('Escape in the list clears the selection', async () => {
-      await render(run(shown(), { type: 'select', target: { kind: 'path', endpointId: 'bog body' } }))
+      await render(run(shown(), { type: 'select', target: pt('bog body') }))
       items()[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       expect(events).toEqual([{ type: 'select', target: null }])
     })
@@ -275,7 +279,7 @@ describe('MfForestPanel', () => {
     })
 
     it('marks the items whose paths are lit', async () => {
-      await render(shown(), new Set(['seed vault', 'controlled burn']))
+      await render(shown(), new Set([key('seed vault'), key('controlled burn')]))
       expect(items().filter(i => i.hasAttribute('data-lit')).map(i => text(i.querySelector('h3')))).toEqual(['seed vault', 'controlled burn'])
     })
   })
@@ -296,6 +300,24 @@ describe('MfForestPanel', () => {
       }
       expect($$('[role="button"], [onclick]')).toHaveLength(0)
     }
+  })
+
+  // Rule: each route to an endpoint is its own item, lit and selected on its own.
+  describe('two routes to one endpoint', () => {
+    const second = { ...forest.endpoints[0], path: [forest.source, 'another way', forest.endpoints[0].id], line: 'Another route.' }
+    const routes: ForestResponse = { ...forest, endpoints: [forest.endpoints[0], second] }
+    const twoRoutes = () => { const s = loading(); return reduceForest(s, { type: 'settled', seq: s.seq, response: routes }) }
+
+    it('lights and selects only the chosen route', async () => {
+      await render(twoRoutes(), new Set([pathKey(second)]))
+      expect(items().length).toBe(2)
+      expect(items().map(i => i.hasAttribute('data-lit'))).toEqual([false, true])
+      items()[1].querySelector<HTMLButtonElement>('[data-testid="forest-highlight"]')!.click()
+      expect(events).toEqual([{ type: 'select', target: pathTarget(second) }])
+      await render(run(twoRoutes(), { type: 'select', target: pathTarget(second) }))
+      const pressed = items().map(i => i.querySelector('[data-testid="forest-highlight"]')!.getAttribute('aria-pressed'))
+      expect(pressed).toEqual(['false', 'true'])
+    })
   })
 
   describe('phone sheet', () => {

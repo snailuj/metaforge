@@ -210,23 +210,27 @@ func TestStreamSnapshotsHoldOnlyKeptPaths(t *testing.T) {
 	}
 }
 
-// Rule: across facets the first kept path to an endpoint keeps it.
-func TestStreamRejectsLaterDuplicateEndpoints(t *testing.T) {
-	dup := `{"facets":[
+// Rule: across facets every distinct route to an endpoint is kept; only a
+// path with the same words as one already kept is a duplicate.
+func TestStreamKeepsEveryRouteToAnEndpoint(t *testing.T) {
+	routes := `{"facets":[
 	 {"word":"seed","ground":"waits","line":"","branches":[{"hops":[{"word":"vault","ground":"keeps"}],"line":"A."}]},
-	 {"word":"bank","ground":"holds","line":"","branches":[{"hops":[{"word":"vault","ground":"locks"}],"line":"B."}]}]}`
-	f := &fakeStreamer{gens: []fakeResult{ok(dup, 1, 1, 0)}, scores: map[string]int{"A.": 7, "B.": 9}}
-	evs, forest, err := runStream(t, f, 3, func(c *Config) {})
+	 {"word":"bank","ground":"holds","line":"","branches":[{"hops":[{"word":"vault","ground":"locks"}],"line":"B."}]},
+	 {"word":"seed","ground":"sleeps","line":"","branches":[{"hops":[{"word":"vault","ground":"guards"}],"line":"C."}]}]}`
+	f := &fakeStreamer{gens: []fakeResult{ok(routes, 1, 1, 0)}, scores: map[string]int{"A.": 7, "B.": 9, "C.": 8}}
+	evs, forest, err := runStream(t, f, 3, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, resolved := resolutions(t, evs)
-	k0, k1 := resolved["f0b0"], resolved["f1b0"]
-	got := []string{k0[0], k1[0]}
-	if !(reflect.DeepEqual(got, []string{"kept", "rejected:duplicate"}) || reflect.DeepEqual(got, []string{"rejected:duplicate", "kept"})) {
-		t.Errorf("resolved = %v, want one kept and one duplicate", resolved)
+	if resolved["f1b0"][0] != "kept" {
+		t.Errorf("a second route to vault was not kept: %v", resolved)
 	}
-	if len(forest.Endpoints) != 1 || forest.Stats.Rejected.Duplicate != 1 {
+	a, c := resolved["f0b0"][0], resolved["f2b0"][0]
+	if !((a == "kept" && c == "rejected:duplicate") || (a == "rejected:duplicate" && c == "kept")) {
+		t.Errorf("resolved = %v, want one of the two seed>vault routes kept", resolved)
+	}
+	if len(forest.Endpoints) != 2 || forest.Endpoints[0].ID != "vault" || forest.Endpoints[1].ID != "vault" || forest.Stats.Rejected.Duplicate != 1 {
 		t.Errorf("forest = %+v", forest)
 	}
 }

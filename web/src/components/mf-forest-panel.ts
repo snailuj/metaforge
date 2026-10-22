@@ -2,7 +2,7 @@ import { LitElement, html, css, nothing, type PropertyValues } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 import { getString } from '@/lib/strings'
 import type { ForestEndpoint, ForestResponse } from '@/types/api'
-import { LIVE_SCORE, type ForestTarget } from '@/graph/forest'
+import { LIVE_SCORE, pathKey, pathTarget, type ForestTarget } from '@/graph/forest'
 import { MAX_HOPS, MIN_HOPS, inFlight, initialForestState, sameTarget, type ForestEvent, type ForestState } from '@/forest/state'
 
 const HOP_OPTIONS = Array.from({ length: MAX_HOPS - MIN_HOPS + 1 }, (_, i) => MIN_HOPS + i)
@@ -443,7 +443,7 @@ export class MfForestPanel extends LitElement {
   }
 
   private pathTarget(e: ForestEndpoint): ForestTarget {
-    return { kind: 'path', endpointId: e.id }
+    return pathTarget(e)
   }
 
   private statusText(): string {
@@ -480,7 +480,7 @@ export class MfForestPanel extends LitElement {
       <li
         class="item"
         data-testid="forest-item"
-        ?data-lit=${this.lit?.has(e.id) ?? false}
+        ?data-lit=${this.lit?.has(pathKey(e)) ?? false}
         @pointerenter=${(ev: PointerEvent) => { if (ev.pointerType !== 'touch') this.emit({ type: 'hover', target }) }}
         @pointerleave=${(ev: PointerEvent) => { if (ev.pointerType !== 'touch') this.emit({ type: 'hover', target: null }) }}
         @focusin=${() => this.emit({ type: 'focus', target })}

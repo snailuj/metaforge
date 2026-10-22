@@ -277,26 +277,25 @@ func TestApplyVerdictsIgnoresUnknownAndDuplicateIndices(t *testing.T) {
 	}
 }
 
-// Rule: one endpoint is kept once: the higher score, then the shorter
-// path, then the earlier one. The losers count as duplicate so the counts
-// still add up.
-func TestApplyVerdictsDeduplicatesEndpoints(t *testing.T) {
+// Rule: every distinct route to an endpoint is kept, so one endpoint can be
+// reached several ways. Of paths with the same words in the same order, the
+// higher score, then the earlier one, is kept; the losers count as duplicate
+// so the counts still add up.
+func TestApplyVerdictsKeepsEveryDistinctRoute(t *testing.T) {
 	mk := func(line string, words ...string) Path {
 		return Path{Words: words, Grounds: make([]string, len(words)), Line: line}
 	}
 	paths := []Path{
-		mk("a", "x", "vault"),  // 1: score 7
-		mk("b", "y", "vault"),  // 2: score 9, wins
-		mk("c", "vault"),       // 3: score 9, shorter: beats 2
-		mk("d", "z", "orrery"), // 4: score 7
-		mk("e", "orrery"),      // 5: score 7, shorter: wins
-		mk("f", "q", "anvil"),  // 6: score 8
-		mk("g", "r", "anvil"),  // 7: score 8, same length: first wins
+		mk("a", "x", "vault"), // 1: score 7, loses to 3
+		mk("b", "y", "vault"), // 2: another route to vault, kept
+		mk("c", "x", "vault"), // 3: same words as 1, score 9, wins
+		mk("d", "vault"),      // 4: a third route, kept
+		mk("e", "q", "anvil"), // 5: score 8, earlier: wins
+		mk("f", "q", "anvil"), // 6: score 8, same words
 	}
 	verdicts := []Verdict{
-		{Index: 1, Score: 7}, {Index: 2, Score: 9}, {Index: 3, Score: 9},
-		{Index: 4, Score: 7}, {Index: 5, Score: 7},
-		{Index: 6, Score: 8}, {Index: 7, Score: 8},
+		{Index: 1, Score: 7}, {Index: 2, Score: 7}, {Index: 3, Score: 9},
+		{Index: 4, Score: 6}, {Index: 5, Score: 8}, {Index: 6, Score: 8},
 	}
 
 	kept, rej, _ := ApplyVerdicts(paths, verdicts, 6)
@@ -305,10 +304,10 @@ func TestApplyVerdictsDeduplicatesEndpoints(t *testing.T) {
 	for _, k := range kept {
 		lines = append(lines, k.Line)
 	}
-	if !reflect.DeepEqual(lines, []string{"c", "e", "f"}) {
-		t.Errorf("kept lines = %v, want [c e f]", lines)
+	if !reflect.DeepEqual(lines, []string{"b", "c", "d", "e"}) {
+		t.Errorf("kept lines = %v, want [b c d e]", lines)
 	}
-	if rej != (Rejected{Duplicate: 4}) || len(kept)+rejectedTotal(rej) != len(paths) {
+	if rej != (Rejected{Duplicate: 2}) || len(kept)+rejectedTotal(rej) != len(paths) {
 		t.Errorf("rejected = %+v", rej)
 	}
 }
@@ -482,10 +481,11 @@ func TestBuildProperties(t *testing.T) {
 			if ep.Path[0] != "src" || ep.Path[len(ep.Path)-1] != ep.ID || len(ep.Grounds) != len(ep.Path)-1 {
 				t.Fatalf("seed %d: malformed endpoint %+v", seed, ep)
 			}
-			if seenEnd[ep.ID] {
-				t.Fatalf("seed %d: endpoint %q appears twice", seed, ep.ID)
+			route := strings.Join(ep.Path, "/")
+			if seenEnd[route] {
+				t.Fatalf("seed %d: path %q appears twice", seed, route)
 			}
-			seenEnd[ep.ID] = true
+			seenEnd[route] = true
 			if ep.Score < minScore || ep.Score > prev {
 				t.Fatalf("seed %d: score %d out of order or below minimum", seed, ep.Score)
 			}
