@@ -42,6 +42,8 @@ type Emphasis = 'lit' | 'dim' | 'normal'
 // 300ms matches typical OS double-click threshold; balances responsiveness
 // with avoiding false double-click detection on slower clickers
 const DBLCLICK_THRESHOLD_MS = 300
+// Re-centre camera flight: long enough to read as a move, not a cut.
+const FOCUS_FLY_MS = 900
 
 // Grade-mode node/edge styling (spec "Force-graph node visuals"). Browse mode
 // uses rarity colours; grade nodes carry a `role` instead, so they need their
@@ -383,9 +385,9 @@ export class MfForceGraph extends LitElement {
         const e = this.emphasis(link.metaphor.pathKeys)
         return e === 'lit' ? FOREST_COLOURS.spark : withAlpha(FOREST_COLOURS.branch, e === 'dim' ? 0.16 : 0.85)
       }
-      return link.order === 2 || this.forestLit ? FOREST_EDGE_THESAURUS_DIM : FOREST_EDGE_THESAURUS
+      return link.order >= 2 || this.forestLit ? FOREST_EDGE_THESAURUS_DIM : FOREST_EDGE_THESAURUS
     }
-    return link.order === 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR
+    return link.order >= 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR
   }
 
   private particleCountFn = (l: unknown): number => {
@@ -403,7 +405,7 @@ export class MfForceGraph extends LitElement {
   private linkWidthFn = (l: unknown): number => {
     if (this.mode === 'grade') return (l as GradeLink).chainSig === this.hoveredChainSig ? 3 : 1.5
     const link = l as GraphLink
-    if (!link.metaphor) return link.order === 2 ? 0.5 : 1
+    if (!link.metaphor) return link.order >= 2 ? 0.5 : 1
     return this.activeForest && this.emphasis(link.metaphor.pathKeys) === 'lit' ? 2.4 : 1.1
   }
 
@@ -502,6 +504,25 @@ export class MfForceGraph extends LitElement {
     this.forestFrameTimers = FOREST_FRAME_AT_MS.map(ms => setTimeout(() => {
       this.graph?.zoomToFit(this.reducedMotion ? 0 : 800, padding)
     }, ms))
+  }
+
+  /** Fly the camera to a node, keeping its current distance and angle to what
+   *  it was looking at, so the view re-centres without zooming. Returns false
+   *  when the node is absent or the simulation has not placed it yet. */
+  focusNode(id: string): boolean {
+    if (!this.graph) return false
+    const nodes = (this.graph.graphData() as unknown as { nodes?: GraphNode[] }).nodes ?? []
+    const node = nodes.find(n => n.id === id)
+    if (!node || node.x === undefined || node.y === undefined || node.z === undefined) {
+      console.debug('[mf-force-graph] focusNode: node not placed', { id, found: !!node })
+      return false
+    }
+    const camera = (this.graph.camera() as { position: Vec3 }).position
+    const target = (this.graph.controls() as { target?: Vec3 }).target ?? { x: 0, y: 0, z: 0 }
+    const to = { x: node.x, y: node.y, z: node.z }
+    const position = { x: to.x + camera.x - target.x, y: to.y + camera.y - target.y, z: to.z + camera.z - target.z }
+    this.graph.cameraPosition(position, to, this.reducedMotion ? 0 : FOCUS_FLY_MS)
+    return true
   }
 
   private emitForest(name: 'mf-forest-hover' | 'mf-forest-select', target: ForestTarget | null): void {
@@ -849,13 +870,6 @@ export class MfForceGraph extends LitElement {
               this.clickTimer = null
               this.emitForest('mf-forest-select', { kind: 'node', id: info.forestId })
             }, DBLCLICK_THRESHOLD_MS)
-          }
-          return
-        }
-        if (node.order === 2) {
-          if (this.clickTimer) {
-            clearTimeout(this.clickTimer)
-            this.clickTimer = null
           }
           return
         }

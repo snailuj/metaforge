@@ -77,6 +77,28 @@ const blazeLookup: LookupResult = {
   }],
 }
 
+async function settle(el: MfApp): Promise<void> {
+  await new Promise(r => setTimeout(r, 0))
+  await el.updateComplete
+}
+
+async function search(el: MfApp, word: string): Promise<void> {
+  el.shadowRoot!.querySelector('mf-search-bar')?.dispatchEvent(new CustomEvent('mf-search', {
+    detail: { word }, bubbles: true, composed: true,
+  }))
+  await settle(el)
+}
+
+/** Single-click a graph node: it expands with `result` as its lookup. */
+async function select(el: MfApp, id: string, result: LookupResult): Promise<void> {
+  vi.mocked(lookupWord).mockResolvedValueOnce(result)
+  const node = (el as any).graphData.nodes.find((n: any) => n.id === id) ?? { id, word: id, relationType: 'synonym', val: 1, order: 1 }
+  el.shadowRoot!.querySelector('mf-force-graph')?.dispatchEvent(new CustomEvent('mf-node-select', {
+    detail: node, bubbles: true, composed: true,
+  }))
+  await settle(el)
+}
+
 describe('MfApp', () => {
   let el: MfApp
 
@@ -485,7 +507,7 @@ describe('MfApp', () => {
       expect(inferno.order).toBe(2)
     })
 
-    it('strips previous second-order nodes when selecting a different node', async () => {
+    it('keeps earlier expansions when expanding another node', async () => {
       vi.mocked(lookupWord).mockResolvedValue(mockResult)
 
       const searchBar = el.shadowRoot!.querySelector('mf-search-bar')
@@ -529,10 +551,40 @@ describe('MfApp', () => {
       await el.updateComplete
 
       const graphData = (el as any).graphData
-      // "inferno" should be gone (was blaze's second-order)
-      expect(graphData.nodes.find((n: any) => n.word === 'inferno')).toBeUndefined()
-      // "spark" should be present (flame's second-order)
+      // Both expansions stay on the graph, and the source does not move.
+      expect(graphData.nodes.find((n: any) => n.word === 'inferno')).toBeDefined()
       expect(graphData.nodes.find((n: any) => n.word === 'spark')).toBeDefined()
+      expect(graphData.nodes.find((n: any) => n.relationType === 'central').id).toBe('fire')
+      expect((el as any).currentWord).toBe('fire')
+    })
+
+    it('expands a second-order node in turn, one level deeper', async () => {
+      vi.mocked(lookupWord).mockResolvedValue(mockResult)
+      await search(el, 'fire')
+      await select(el, 'blaze', blazeLookup)
+      await select(el, 'inferno', {
+        word: 'inferno',
+        senses: [{
+          synset_id: '10', pos: 'noun', definition: 'a large fire',
+          synonyms: [{ word: 'holocaust', synset_id: '11' }],
+          relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+        }],
+      })
+
+      const graphData = (el as any).graphData
+      expect(graphData.nodes.find((n: any) => n.word === 'holocaust')?.order).toBe(3)
+      expect(graphData.nodes.find((n: any) => n.word === 'inferno')).toBeDefined()
+      expect((el as any).currentWord).toBe('fire')
+    })
+
+    it('does not refetch a node that is already expanded', async () => {
+      vi.mocked(lookupWord).mockResolvedValue(mockResult)
+      await search(el, 'fire')
+      await select(el, 'blaze', blazeLookup)
+      vi.mocked(lookupWord).mockClear()
+
+      await select(el, 'blaze', blazeLookup)
+      expect(lookupWord).not.toHaveBeenCalled()
     })
 
     it('logs a warning when second-order lookup fails', async () => {

@@ -1,7 +1,7 @@
 import { LitElement, html, css, type PropertyValues } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { lookupWord, ApiError, streamForest, ForestError } from '@/api/client'
-import { transformLookupToGraph, mergeSecondOrderGraph, stripSecondOrderNodes } from '@/graph/transform'
+import { transformLookupToGraph, mergeExpansion } from '@/graph/transform'
 import {
   composeForest, fadeMarks, forestToGraph, litPaths, nextFadeEnd, streamMarks, FOREST_FADE_MS,
   type ForestGraph, type ForestNodePool, type ForestOverlay, type ForestTarget, type StreamMarks,
@@ -484,11 +484,16 @@ export class MfApp extends LitElement {
 
   private currentWord = ''
   private lookupId = 0
-  private selectId = 0
-  private baseGraphData: GraphData = { nodes: [], links: [] }
-  // The thesaurus graph on screen (base plus any second-order expansion); the
-  // forest is overlaid on it to give graphData.
+  // Bumped whenever the graph is replaced wholesale, so an expansion that
+  // resolves afterwards is dropped instead of merged into the wrong graph.
+  private graphGen = 0
+  // The thesaurus graph on screen (the lookup plus every expansion the user
+  // has clicked open); the forest is overlaid on it to give graphData.
   private thesaurusGraph: GraphData = { nodes: [], links: [] }
+  // Node ids whose relations are on the graph (the source counts), and those
+  // still being fetched, so a re-click never refetches or merges twice.
+  private expanded: ReadonlySet<string> = new Set()
+  private expanding = new Set<string>()
   private gradingClient = new GradingClient()
 
   private hiddenRarities: Set<Rarity> = new Set()
@@ -619,19 +624,29 @@ export class MfApp extends LitElement {
     }
   }
 
+  /** Single click: open the node's own relations onto the graph, keeping the
+   *  source and every earlier expansion where they are. */
   private async handleNodeSelect(e: CustomEvent<GraphNode>) {
     const node = e.detail
     if (node.relationType === 'central') return
+    if (this.expanded.has(node.id) || this.expanding.has(node.id)) {
+      console.debug('[mf-app] node already expanded', { nodeId: node.id })
+      return
+    }
 
-    const id = ++this.selectId
+    const gen = this.graphGen
+    this.expanding.add(node.id)
     try {
       const result = await lookupWord(node.word)
-      if (id !== this.selectId) return // stale — a newer select superseded this one
-      const stripped = stripSecondOrderNodes(this.baseGraphData)
-      this.thesaurusGraph = mergeSecondOrderGraph(stripped, node.id, result)
+      if (gen !== this.graphGen) return // stale — the graph was replaced meanwhile
+      this.thesaurusGraph = mergeExpansion(this.thesaurusGraph, node.id, result)
+      this.expanded = new Set(this.expanded).add(node.id)
+      console.debug('[mf-app] expanded node', { nodeId: node.id, nodes: this.thesaurusGraph.nodes.length })
       this.recomposeGraph()
     } catch (err) {
       console.warn('[mf-app] second-order expansion failed', { nodeId: node.id, word: node.word }, err)
+    } finally {
+      this.expanding.delete(node.id)
     }
   }
 
@@ -1278,7 +1293,6 @@ export class MfApp extends LitElement {
    *  words are often phrases the thesaurus does not have. */
   private async doLookup(word: string, { soft = false }: { soft?: boolean } = {}) {
     const id = ++this.lookupId
-    ++this.selectId // invalidate any in-flight second-order select
     if (!soft) this.currentWord = word
     this.appState = 'loading'
     this.errorMessage = ''
@@ -1291,8 +1305,10 @@ export class MfApp extends LitElement {
       const graph = transformLookupToGraph(result)
       const nodeIds = new Set(graph.nodes.map(n => n.id))
       const crossLinks = computeCrossLinks(result, nodeIds)
-      this.baseGraphData = { nodes: graph.nodes, links: [...graph.links, ...crossLinks] }
-      this.thesaurusGraph = this.baseGraphData
+      ++this.graphGen // invalidate any in-flight expansion
+      this.thesaurusGraph = { nodes: graph.nodes, links: [...graph.links, ...crossLinks] }
+      this.expanded = new Set([result.word])
+      this.expanding = new Set()
       this.dispatchForest({ type: 'word-committed', word: result.word })
       this.recomposeGraph()
       this.appState = 'ready'
