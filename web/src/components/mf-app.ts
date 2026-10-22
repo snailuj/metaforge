@@ -1,7 +1,7 @@
 import { LitElement, html, css, type PropertyValues } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { lookupWord, ApiError, streamForest, ForestError } from '@/api/client'
-import { transformLookupToGraph, mergeExpansion, recentreGraph } from '@/graph/transform'
+import { transformLookupToGraph, mergeExpansion, recentreGraph, mergeGlimpse, solidify, relationReach, resolveEndpoint } from '@/graph/transform'
 import {
   composeForest, fadeMarks, forestToGraph, litPaths, nextFadeEnd, streamMarks, FOREST_FADE_MS,
   type ForestGraph, type ForestNodePool, type ForestOverlay, type ForestTarget, type StreamMarks,
@@ -11,7 +11,7 @@ import { computeCrossLinks } from '@/graph/cross-links'
 import { initStrings, getString } from '@/lib/strings'
 import { GradingClient } from '@/api/grading-client'
 import type { LookupResult } from '@/types/api'
-import type { GraphData, GraphNode, Rarity } from '@/graph/types'
+import type { GraphData, GraphNode, Rarity, RelationType } from '@/graph/types'
 import type {
   ChainRecord,
   JudgementRecord,
@@ -61,11 +61,18 @@ interface ViewSnapshot {
   expanded: ReadonlyMap<string, LookupResult>
   lastClickedId: string | null
   forestWord: string
+  glimpsed: ReadonlyMap<string, LookupResult>
+  fillTargets: ReadonlySet<string>
 }
 
 // Views kept for Back/Forward; older entries fall back to a fresh lookup.
 const MAX_VIEWS = 50
 const UNDO_TOAST_MS = 6000
+// Second-level glimpses are one lookup each; a few at a time keeps the API and
+// the layout calm while they stream in.
+const MAX_GLIMPSE_LOOKUPS = 4
+// Synonyms always show; these join them only when ticked on the results panel.
+const DEFAULT_HIDDEN_RELATIONS: ReadonlySet<RelationType> = new Set(['hyponym', 'hypernym', 'similar'])
 
 /** The paths a streaming request has drawn, or null when nothing streams. */
 function streamPaths(s: ForestState): Readonly<Record<string, StreamPath>> | null {
@@ -566,6 +573,14 @@ export class MfApp extends LitElement {
   // re-click never refetches and Re-Centre can show its results at once.
   private expanded: ReadonlyMap<string, LookupResult> = new Map()
   private expanding = new Set<string>()
+  // Two levels per word: every word a search or click adds is owed a glimpse
+  // of its own synonyms (fillTargets). glimpsed holds each word's lookup once
+  // drawn, reused if the word is clicked. Only visible words are glimpsed.
+  private glimpsed: ReadonlyMap<string, LookupResult> = new Map()
+  private fillTargets: ReadonlySet<string> = new Set()
+  private filling = new Set<string>()
+  private fillFailed = new Set<string>()
+  @state() private hiddenRelations: ReadonlySet<RelationType> = DEFAULT_HIDDEN_RELATIONS
   // The node a Re-Centre would centre on: the last one clicked.
   @state() private lastClickedId: string | null = null
   // Back/Forward: every history entry the app makes carries a view id, and the
@@ -590,6 +605,7 @@ export class MfApp extends LitElement {
       if (!this.showUnusual) hidden.add('unusual')
       if (!this.showRare) hidden.add('rare')
       this.hiddenRarities = hidden
+      this.pumpGlimpses() // words a rarity hid may now be shown
     }
     // Lazily fetch sense inventories for whichever chain the active grade view
     // shows (fire-and-forget; results merge into senseInventories as they land).
@@ -711,6 +727,8 @@ export class MfApp extends LitElement {
       expanded: this.expanded,
       lastClickedId: this.lastClickedId,
       forestWord: this.forestState.word,
+      glimpsed: this.glimpsed,
+      fillTargets: this.fillTargets,
     })
     while (this.views.size > MAX_VIEWS) {
       const oldest = this.views.keys().next().value as string
@@ -739,6 +757,10 @@ export class MfApp extends LitElement {
     this.thesaurusGraph = v.graph
     this.expanded = v.expanded
     this.expanding = new Set()
+    this.glimpsed = v.glimpsed
+    this.fillTargets = v.fillTargets
+    this.filling = new Set()
+    this.fillFailed = new Set()
     this.lastClickedId = v.lastClickedId
     this.appState = 'ready'
     this.errorMessage = ''
@@ -746,6 +768,7 @@ export class MfApp extends LitElement {
     this.dispatchForest({ type: 'word-committed', word: v.forestWord })
     this.recomposeGraph()
     console.info('[mf-app] restored view', { id, word: v.word, nodes: v.graph.nodes.length })
+    this.pumpGlimpses() // a view left mid-stream picks up where it stopped
     void this.focusSource()
   }
 
@@ -833,17 +856,68 @@ export class MfApp extends LitElement {
     const gen = this.graphGen
     this.expanding.add(node.id)
     try {
-      const result = await lookupWord(node.word)
+      const result = this.glimpsed.get(node.id) ?? await lookupWord(node.word)
       if (gen !== this.graphGen) return // stale — the graph was replaced meanwhile
-      this.thesaurusGraph = mergeExpansion(this.thesaurusGraph, node.id, result)
+      const merged = mergeExpansion(this.thesaurusGraph, node.id, result)
+      // Everything the node now leads to is a word this click added: it turns
+      // solid, and each is owed its own glimpse.
+      const children = merged.links.filter(l => resolveEndpoint(l.source) === node.id).map(l => resolveEndpoint(l.target))
+      this.thesaurusGraph = solidify(merged, [node.id, ...children])
       this.expanded = new Map(this.expanded).set(node.id, result)
+      this.fillTargets = new Set([...this.fillTargets, ...children])
       console.debug('[mf-app] expanded node', { nodeId: node.id, nodes: this.thesaurusGraph.nodes.length })
       this.recomposeGraph()
+      this.pumpGlimpses()
     } catch (err) {
       console.warn('[mf-app] second-order expansion failed', { nodeId: node.id, word: node.word }, err)
     } finally {
       this.expanding.delete(node.id)
     }
+  }
+
+  /** Start glimpses for owed words the graph shows, up to the lookup limit. */
+  private pumpGlimpses(): void {
+    if (this.filling.size >= MAX_GLIMPSE_LOOKUPS || this.fillTargets.size === 0) return
+    const reach = relationReach(this.thesaurusGraph, this.hiddenRelations)
+    const byId = new Map(this.thesaurusGraph.nodes.map(n => [n.id, n]))
+    for (const id of this.fillTargets) {
+      if (this.filling.size >= MAX_GLIMPSE_LOOKUPS) break
+      if (this.glimpsed.has(id) || this.expanded.has(id) || this.filling.has(id) || this.fillFailed.has(id)) continue
+      if (reach && !reach.has(id)) continue // hidden: glimpsed if a toggle reveals it
+      const node = byId.get(id)
+      if (!node || this.hiddenRarities.has(node.rarity ?? 'unusual')) continue
+      void this.glimpse(node)
+    }
+  }
+
+  private async glimpse(node: GraphNode): Promise<void> {
+    const gen = this.graphGen
+    this.filling.add(node.id)
+    try {
+      const result = await lookupWord(node.word)
+      if (gen !== this.graphGen) return // stale — the graph was replaced meanwhile
+      // A click may have expanded it meanwhile; its lookup is still worth keeping.
+      if (!this.expanded.has(node.id)) this.thesaurusGraph = mergeGlimpse(this.thesaurusGraph, node.id, result)
+      this.glimpsed = new Map(this.glimpsed).set(node.id, result)
+      const targets = new Set(this.fillTargets)
+      targets.delete(node.id)
+      this.fillTargets = targets
+      this.recomposeGraph()
+    } catch (err) {
+      console.warn('[mf-app] glimpse failed', { nodeId: node.id, word: node.word }, err)
+      if (gen === this.graphGen) this.fillFailed.add(node.id)
+    } finally {
+      if (gen === this.graphGen) {
+        this.filling.delete(node.id)
+        this.pumpGlimpses()
+      }
+    }
+  }
+
+  private handleRelationsChange(e: CustomEvent<{ hidden: ReadonlySet<RelationType> }>): void {
+    this.hiddenRelations = e.detail.hidden
+    console.debug('[mf-app] hidden relations', { hidden: [...this.hiddenRelations] })
+    this.pumpGlimpses()
   }
 
   private handleWordNavigate(e: CustomEvent<{ word: string }>) {
@@ -1513,11 +1587,16 @@ export class MfApp extends LitElement {
       this.thesaurusGraph = { nodes: graph.nodes, links: [...graph.links, ...crossLinks] }
       this.expanded = new Map([[result.word, result]])
       this.expanding = new Set()
+      this.glimpsed = new Map()
+      this.fillTargets = new Set(graph.nodes.filter(n => n.relationType !== 'central').map(n => n.id))
+      this.filling = new Set()
+      this.fillFailed = new Set()
       this.lastClickedId = null
       this.dispatchForest({ type: 'word-committed', word: result.word })
       this.recomposeGraph()
       this.appState = 'ready'
       this.enterView(word, entry)
+      this.pumpGlimpses()
       void this.focusSource() // a Re-Centre may have aimed the camera elsewhere
       return true
     } catch (err) {
@@ -1606,6 +1685,7 @@ export class MfApp extends LitElement {
       <mf-force-graph
         .graphData=${this.graphData}
         .hiddenRarities=${this.hiddenRarities}
+        .hiddenRelations=${this.hiddenRelations}
         .forest=${this.forestOverlay}
         .forestVisible=${this.forestState.onGraph}
         .forestLit=${this.forestLit}
@@ -1619,6 +1699,8 @@ export class MfApp extends LitElement {
 
       <mf-results-panel
         .result=${this.result}
+        .hiddenRelations=${this.hiddenRelations}
+        @mf-relations-change=${this.handleRelationsChange}
         @mf-word-navigate=${this.handleWordNavigate}
         @mf-word-copy=${this.handleCopy}
       ></mf-results-panel>
