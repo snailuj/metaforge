@@ -273,7 +273,7 @@ export class MfGradeSensecheck extends LitElement {
                                 <span class="role">${c.topic_pos ?? ''}</span>
                                 ${c.topic_gloss ? html`<span class="gloss">${c.topic_gloss}</span>` : ''}
                             ` : ''}
-                            ${c.chain.map((s, i) => html`${s.head}${i < c.chain.length - 1 ? html`<span class="ctx-arrow">→</span>` : ''}`)}
+                            ${c.chain.map((s, i) => html`${s.phrase}${i < c.chain.length - 1 ? html`<span class="ctx-arrow">→</span>` : ''}`)}
                         </div>`)}
                 </div>` : ''}`;
     }

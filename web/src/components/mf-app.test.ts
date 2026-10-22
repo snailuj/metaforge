@@ -805,7 +805,7 @@ describe('mf-app grade-mode integration', () => {
     expect(mobileLayout).toBeNull()
   })
 
-  it('mobile chain-card label shows snapped heads, not prose phrases (bad_head visibility)', async () => {
+  it('mobile chain-card label shows prose phrases, not snapped heads (phrase-as-node)', async () => {
     ;(el as any).mode = 'grade'
     ;(el as any).viewportWidth = 600
     ;(el as any).pathFilter = 'both'
@@ -824,8 +824,8 @@ describe('mf-app grade-mode integration', () => {
     await el.updateComplete
     const card = el.shadowRoot!.querySelector('[data-testid="chain-card"]')!
     const text = card.textContent || ''
-    expect(text).toContain('resistance')        // the snapped head
-    expect(text).not.toContain('resists change') // not the prose phrase
+    expect(text).toContain('resists change')  // phrase is now the primary label
+    expect(text).not.toContain('resistance')  // snapped head not shown in card label
   })
 
   it('topic-selected event fetches chains and judgements then populates gradeChains', async () => {
@@ -1150,6 +1150,35 @@ describe('mf-app grade-mode integration', () => {
       getJudgementsSpy.mockRestore()
     })
 
+    it('threads step_apt_senses from the submit detail into the POSTed record', async () => {
+      // The panel serialises operator ticks into the detail; dropping them at
+      // record assembly silently destroys careful per-hop grading work.
+      ;(el as any).mode = 'grade'
+      ;(el as any).selectedChain = CHAIN
+      await el.updateComplete
+      const clientSpy = vi.spyOn((el as any).gradingClient, 'postJudgement').mockResolvedValue({
+        schema_version: 'judgement.v2', ts: '2026-01-01T00:00:00Z',
+      } as any)
+      const getJudgementsSpy = vi.spyOn((el as any).gradingClient, 'getJudgements').mockResolvedValue({ count: 0, records: [] })
+
+      await (el as any).handleVerdictSubmit(
+        new CustomEvent('verdict-submit', {
+          detail: {
+            linkage: 'good', metaphor: 'live', tiers: [], tags: [],
+            confidence: 'high', notes: '',
+            step_apt_senses: [{ step_idx: 1, synset_id: '70002' }, { step_idx: 2, synset_id: '80001' }],
+          },
+          bubbles: true, composed: true,
+        })
+      )
+      const posted = clientSpy.mock.calls[0][0]
+      expect(posted.step_apt_senses).toEqual([
+        { step_idx: 1, synset_id: '70002' }, { step_idx: 2, synset_id: '80001' },
+      ])
+      clientSpy.mockRestore()
+      getJudgementsSpy.mockRestore()
+    })
+
     it('initGradeMode loads pending queue from localStorage', async () => {
       const existing = [{ schema_version: 'judgement.v1', chain_signature: 'queued1' }]
       localStorage.setItem('pending_judgements', JSON.stringify(existing))
@@ -1221,6 +1250,80 @@ describe('mf-app grade-mode integration', () => {
       linkage: 'good', metaphor: 'dead', tiers: [],
       confidence: 'high', notes: '', supersedes_ts: null,
       ...overrides,
+    })
+
+    it('guided walk is BLIND: priorVerdict stays null even when a judgement exists', async () => {
+      // The guided-walk anchoring guard withholds judge_verdict + cohort server-side,
+      // but the client was re-anchoring from its own judgements store — showing the
+      // operator their prior verdict/notes mid re-grade. Guided must render cold.
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeView = 'guided'
+      ;(el as any).guidedEntries = [{
+        chain_signature: 'sig1', topic: 'fire', vehicle: 'blaze', order: 0, record: chain,
+      }]
+      ;(el as any).guidedPos = 0
+      ;(el as any).guidedJudgements = [
+        judgement({ linkage: 'bad', metaphor: 'live', notes: 'prior pass — must not leak', ts: '2026-06-01T00:00:00Z' }),
+      ]
+      await el.updateComplete
+      const walk = el.shadowRoot!.querySelector('[data-testid=grade-guided]') as any
+      expect(walk).not.toBeNull()
+      expect(walk.priorVerdict).toBeNull()
+
+      // Opt-in prefill (amendment passes): toggling ON threads the prior verdict.
+      ;(el as any).guidedPrefill = true
+      await el.updateComplete
+      expect(walk.priorVerdict).toMatchObject({ linkage: 'bad', metaphor: 'live' })
+      ;(el as any).guidedPrefill = false
+      await el.updateComplete
+      expect(walk.priorVerdict).toBeNull()
+    })
+
+    it('fetches sense inventories for the current chain steps and threads them to the guided walk', async () => {
+      const getSenses = vi.fn(async (key: string) => ({
+        key, senses: key === 'fire' ? [{ synset_id: 's1', sensenum: 1, tagcount: 4, definition: 'combustion', pos: 'n' }] : [],
+      }))
+      ;(el as any).gradingClient.getSenses = getSenses
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeView = 'guided'
+      ;(el as any).guidedEntries = [{
+        chain_signature: 'sig1', topic: 'fire', vehicle: 'blaze', order: 0, record: chain,
+      }]
+      ;(el as any).guidedPos = 0
+      await el.updateComplete
+      await new Promise((r) => setTimeout(r, 0)) // let the async inventory fetch settle
+      await el.updateComplete
+      // one fetch per unique canonical step phrase (fire, blaze)
+      const keys = getSenses.mock.calls.map((c) => c[0]).sort()
+      expect(keys).toEqual(['blaze', 'fire'])
+      const walk = el.shadowRoot!.querySelector('[data-testid=grade-guided]') as any
+      expect(walk.senseInventories['fire']).toHaveLength(1)
+      expect(walk.senseInventories['blaze']).toEqual([])
+    })
+
+    it('fetches the HEAD lemma inventory too for multi-word steps (fan fallback)', async () => {
+      const getSenses = vi.fn(async (key: string) => ({ key, senses: [] }))
+      ;(el as any).gradingClient.getSenses = getSenses
+      ;(el as any).mode = 'grade'
+      ;(el as any).viewportWidth = 1200
+      ;(el as any).gradeView = 'guided'
+      const multiword = {
+        ...chain,
+        chain: [
+          { phrase: 'fire', head: 'fire', synset_id: 's1' },
+          { phrase: 'buried wound', head: 'wound', synset_id: 's9' },
+        ],
+      }
+      ;(el as any).guidedEntries = [{
+        chain_signature: 'sig1', topic: 'fire', vehicle: 'buried wound', order: 0, record: multiword,
+      }]
+      ;(el as any).guidedPos = 0
+      await el.updateComplete
+      await new Promise((r) => setTimeout(r, 0))
+      const keys = getSenses.mock.calls.map((c) => c[0]).sort()
+      expect(keys).toEqual(['buried wound', 'fire', 'wound'])
     })
 
     it('threads the latest judgement axes, tiers and notes into the priorVerdict prop', async () => {

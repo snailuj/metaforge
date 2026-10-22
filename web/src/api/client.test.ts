@@ -300,7 +300,8 @@ describe('streamForest', () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse(body([all.slice(0, cut), all.slice(cut)]))))
       expect(await collect(), `split at byte ${cut}`).toEqual(EXPECTED)
     }
-  })
+    // One full stream read per byte offset; over the 5s default on a 2-core box.
+  }, 20_000)
 
   it('reads CRLF line ends and data split over several data lines', async () => {
     const text = 'event: rejected\r\ndata: {"path_id":\r\ndata: "f2", "reason": "drift"}\r\n\r\n' + frame('done', forest)

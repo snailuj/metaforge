@@ -9,14 +9,36 @@ export type Tier = 'strong' | 'ironic' | 'surprising';
 // Structured issue tags — orthogonal to the verdict axes. `bad_head` flags a
 // mis-extracted head concept (a data-prep error), kept distinct from a `bad`
 // linkage verdict so head-extraction noise stays out of the metaphor signal.
-export type Tag = 'merge' | 'padding' | 'leap' | 'bad_head' | 'other';
-export const TAGS: readonly Tag[] = ['merge', 'padding', 'leap', 'bad_head', 'other'] as const;
+// `bad_sense` flags a wrong-sense snap (head lemma right, synset wrong): a
+// data-quality flag that marks the row sense-suspect, NOT linkage-forcing.
+export type Tag = 'merge' | 'padding' | 'leap' | 'bad_head' | 'bad_sense' | 'other';
+export const TAGS: readonly Tag[] = ['merge', 'padding', 'leap', 'bad_head', 'bad_sense', 'other'] as const;
 export type Confidence = 'high' | 'med' | 'low';
+
+// Per-occurrence sense that has been confirmed as apt at a chain position.
+// `intended` = the emit-the-sense gloss-match recorded by the pipeline.
+// `operator` = a grading tick applied via the sense fan UI.
+export interface AptSense {
+    synset_id: string;
+    source: 'intended' | 'operator';
+}
+
+// Operator-ticked sense at a specific chain step index, carried in the verdict POST body.
+// Only OPERATOR ticks are included; the intended sense is already in ChainStep.apt_senses.
+export interface StepAptSense {
+    step_idx: number;
+    synset_id: string;
+}
 
 export interface ChainStep {
     phrase: string;
     head: string;
     synset_id: string | null;
+    // Phrase-as-Node: explicit graph-node reference. Absent on chain.v1 records;
+    // resolved at read-time via resolved_node_ref() logic in the pipeline.
+    node_ref?: string | null;
+    // Per-occurrence apt sense-set populated by the pipeline / operator.
+    apt_senses?: AptSense[];
 }
 
 export interface ChainRecord {
@@ -52,11 +74,44 @@ export interface JudgementRecord {
     tags: Tag[];
     confidence: Confidence;
     notes: string;
+    // Operator per-hop co-aptness ticks (optional: absent on pre-fan records).
+    step_apt_senses?: StepAptSense[];
     supersedes_ts: string | null;
+}
+
+// One entry in the precomputed sense inventory fan served by GET /api/grading/senses.
+// Ranked by (tagcount DESC, sensenum ASC) in the inventory; intended sense is
+// pre-lit in the UI regardless of rank.
+export interface SenseInventoryItem {
+    synset_id: string;
+    sensenum: number;
+    tagcount: number | null;
+    definition: string | null;
+    pos: string | null;
+}
+
+// Response shape from GET /api/grading/senses?key=<canonical_phrase>.
+export interface SenseInventoryResponse {
+    key: string;
+    senses: SenseInventoryItem[];
+}
+
+// Map from canonical phrase key → ranked sense list (mirrors the JSONL inventory).
+// Passed into mf-grade-panel as `senseInventories`; mf-app is responsible for
+// pre-loading this map so the panel stays fetch-free and testable without mocks.
+export type SenseInventoryMap = Record<string, SenseInventoryItem[]>;
+
+// THE canonical inventory key — mirrors the sidecar's normalise_phrase (NFC,
+// trimmed, lowercased, spaces KEPT). One canonicaliser: underscoring here
+// (vec_ref style) would silently orphan every multi-word phrase's fan.
+export function senseInventoryKey(phrase: string): string {
+    return phrase.normalize('NFC').trim().toLowerCase();
 }
 
 // Emitted by mf-grade-panel on a metaphor submit. Carries both axes, multi-select tiers,
 // confidence and notes — mf-app assembles the v2 JudgementRecord from this.
+// `step_apt_senses` carries OPERATOR ticks only (the intended sense from each step's
+// `synset_id` is excluded — it is already in the ChainStep record).
 export interface VerdictSubmitDetail {
     linkage: Linkage;
     metaphor: MetaphorVerdict;
@@ -64,6 +119,7 @@ export interface VerdictSubmitDetail {
     tags: Tag[];
     confidence: Confidence;
     notes: string;
+    step_apt_senses: StepAptSense[];
 }
 
 export interface TopicSummary {
@@ -99,6 +155,23 @@ export interface WalkEntry {
 export interface WalkResponse {
     count: number;
     entries: WalkEntry[];
+}
+
+// Guided walk (GET /api/grading/guided-walk): an exact prefilled candidate order.
+// No dwell/triage priors — the server withholds the stored judge_verdict + cohort
+// (anchoring guard), so the client only ever sees the chain + its list position.
+export interface GuidedEntry {
+    chain_signature: string;
+    topic: string;
+    vehicle: string;
+    order: number;
+    record: ChainRecord;
+}
+
+export interface GuidedWalkResponse {
+    count: number;
+    batch: string | null;
+    entries: GuidedEntry[];
 }
 
 // On-demand signal/coverage report (GET /api/grading/signal). Re-read after a

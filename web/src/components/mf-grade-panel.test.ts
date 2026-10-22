@@ -43,7 +43,7 @@ describe('mf-grade-panel', () => {
         expect(text).toContain('→');
     });
 
-    it('shows the snapped head primary, with the prose phrase only when it differs (bad_head judging)', async () => {
+    it('shows phrase as primary label, with the snapped head as subscript when they differ (phrase-as-node)', async () => {
         el.chain = {
             ...CHAIN,
             chain: [
@@ -54,12 +54,12 @@ describe('mf-grade-panel', () => {
         };
         await el.updateComplete;
         const text = el.shadowRoot!.textContent || '';
-        expect(text).toContain('resistance');     // snapped head — primary
-        expect(text).toContain('resists change');  // original phrase shown because head differs
-        // Only the differing step carries a phrase sub-label; equal steps don't duplicate.
+        expect(text).toContain('resists change');  // phrase is now the primary label
+        expect(text).toContain('resistance');      // snapped head appears in the subscript
+        // Only the differing step carries a head sub-label; equal steps don't duplicate.
         const subs = el.shadowRoot!.querySelectorAll('.phrase-sub');
         expect(subs.length).toBe(1);
-        expect(subs[0].textContent).toContain('resists change');
+        expect(subs[0].textContent).toContain('resistance');
     });
 
     it('L submits linkage:good + metaphor:live by default', async () => {
@@ -256,6 +256,29 @@ describe('mf-grade-panel', () => {
         expect(el.shadowRoot!.querySelector('[data-testid="chip-bad_head"]')).toBeTruthy();
     });
 
+    it('exposes bad_sense as a tag chip', () => {
+        expect(el.shadowRoot!.querySelector('[data-testid="chip-bad_sense"]')).toBeTruthy();
+    });
+
+    it('selecting bad_sense does NOT force linkage bad (grader reads the intended sense)', async () => {
+        await clickTag('bad_sense');
+        expect(tagSelected('bad_sense')).toBe(true);
+        expect(linkageBad()).toBe(false);
+    });
+
+    it('bad_sense scaffolds a space-normalised "bad sense: " prefix', async () => {
+        await clickTag('bad_sense');
+        expect(notesValue()).toBe('bad sense: ');
+    });
+
+    it('a submit carries the bad_sense tag', async () => {
+        let d: any = null;
+        el.addEventListener('verdict-submit', (e: any) => d = e.detail);
+        await clickTag('bad_sense');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' })); await tick();
+        expect(d.tags).toEqual(['bad_sense']);
+    });
+
     it('clicking tag chips multi-selects (toggle on/off)', async () => {
         await clickTag('padding');
         await clickTag('bad_head');
@@ -425,5 +448,362 @@ describe('mf-grade-panel', () => {
     it('renders no senses block when no glosses are available', async () => {
         // default: el.glosses is {} (beforeEach sets no glosses)
         expect(el.shadowRoot!.querySelector('[data-testid="senses"]')).toBeNull();
+    });
+
+    // --- Per-link glosses: hover or tap any chain node to read its snapped-synset
+    // gloss. Lets the grader spot a wrong-sense snap (e.g. livery) at any hop, not
+    // just the topic/vehicle endpoints. Reuses the glosses map keyed by synset_id. ---
+    const node = (i: number) =>
+        el.shadowRoot!.querySelector(`[data-testid="step-node-${i}"]`) as HTMLElement | null;
+    const linkGloss = () =>
+        el.shadowRoot!.querySelector('[data-testid="link-gloss"]');
+    const CHAIN_GLOSSES = {
+        '1': { pos: 'n', definition: 'a strong feeling of displeasure' },
+        '2': { pos: 'n', definition: 'violent unfriendly feelings' },
+        '3': { pos: 'n', definition: 'a poison secreted by some animals' },
+    };
+
+    it('renders each chain step as an interactive node', () => {
+        expect(node(0)).toBeTruthy();
+        expect(node(1)).toBeTruthy();
+        expect(node(2)).toBeTruthy();
+        expect(node(3)).toBeNull(); // only 3 steps
+    });
+
+    it('no link gloss is shown until a node is hovered or tapped', () => {
+        el.glosses = CHAIN_GLOSSES;
+        expect(linkGloss()).toBeNull();
+    });
+
+    it('tapping a chain node reveals its snapped-synset gloss below the chain', async () => {
+        el.glosses = CHAIN_GLOSSES;
+        await el.updateComplete;
+        node(1)!.click();               // hostility, synset '2'
+        await el.updateComplete;
+        const text = linkGloss()!.textContent || '';
+        expect(text).toContain('hostility');                 // node head
+        expect(text).toContain('violent unfriendly feelings'); // its gloss
+        expect(text).toContain('noun');                       // POS label
+    });
+
+    it('tapping the active node again hides its gloss (toggle)', async () => {
+        el.glosses = CHAIN_GLOSSES;
+        await el.updateComplete;
+        node(1)!.click(); await el.updateComplete;
+        expect(linkGloss()).toBeTruthy();
+        node(1)!.click(); await el.updateComplete;
+        expect(linkGloss()).toBeNull();
+    });
+
+    it('hovering a chain node reveals its gloss; leaving reverts', async () => {
+        el.glosses = CHAIN_GLOSSES;
+        await el.updateComplete;
+        node(2)!.dispatchEvent(new MouseEvent('mouseenter'));
+        await el.updateComplete;
+        expect(linkGloss()!.textContent).toContain('a poison secreted');
+        node(2)!.dispatchEvent(new MouseEvent('mouseleave'));
+        await el.updateComplete;
+        expect(linkGloss()).toBeNull();
+    });
+
+    it('hover transiently overrides a pinned node, then reverts to the pin on leave', async () => {
+        el.glosses = CHAIN_GLOSSES;
+        await el.updateComplete;
+        node(0)!.click();               // pin step 0 (index 0 — must survive ?? )
+        await el.updateComplete;
+        node(2)!.dispatchEvent(new MouseEvent('mouseenter'));
+        await el.updateComplete;
+        expect(linkGloss()!.textContent).toContain('a poison secreted'); // hovered step 2
+        node(2)!.dispatchEvent(new MouseEvent('mouseleave'));
+        await el.updateComplete;
+        expect(linkGloss()!.textContent).toContain('a strong feeling'); // reverts to pinned step 0
+    });
+
+    it('degrades gracefully when the node has no gloss (still shows the head)', async () => {
+        // default glosses {} — no synset resolves
+        node(1)!.click();
+        await el.updateComplete;
+        const g = linkGloss();
+        expect(g).toBeTruthy();
+        expect(g!.textContent).toContain('hostility');   // head still shown
+        expect(g!.textContent!.toLowerCase()).toContain('no gloss');
+    });
+
+    it('switching to a different chain clears the pinned gloss', async () => {
+        el.glosses = CHAIN_GLOSSES;
+        await el.updateComplete;
+        node(1)!.click();
+        await el.updateComplete;
+        expect(linkGloss()).toBeTruthy();
+        el.chain = { ...CHAIN, chain_signature: 'f'.repeat(64) };
+        await el.updateComplete;
+        expect(linkGloss()).toBeNull();
+    });
+
+    // --- Phrase-first chain labels (chain.v2 / phrase-as-node) ---
+    // The step button's primary text is now the PHRASE; when phrase !== head the snapped
+    // head moves to the subscript (.phrase-sub). This dissolves the bad_head display-loss
+    // problem: graders see the exact phrase the model wrote, not just the snapped lemma.
+
+    it('renders phrase as primary label and head as subscript when they differ', async () => {
+        el.chain = {
+            ...CHAIN,
+            chain: [
+                { phrase: 'grief', head: 'grief', synset_id: '1' },
+                { phrase: 'buried wound', head: 'wound', synset_id: '200' },
+                { phrase: 'scar', head: 'scar', synset_id: '3' },
+            ],
+        };
+        await el.updateComplete;
+
+        const btn1 = el.shadowRoot!.querySelector('[data-testid="step-node-1"]') as HTMLElement;
+        // Phrase is the primary visible text of the button.
+        expect(btn1.textContent).toContain('buried wound');
+        // Subscript contains the snapped head, not the phrase.
+        const sub = btn1.querySelector('.phrase-sub');
+        expect(sub).toBeTruthy();
+        expect(sub!.textContent).toContain('wound');
+        expect(sub!.textContent).not.toContain('buried wound');
+
+        // Single-word steps where phrase === head must render no subscript.
+        const btn0 = el.shadowRoot!.querySelector('[data-testid="step-node-0"]') as HTMLElement;
+        expect(btn0.querySelector('.phrase-sub')).toBeNull();
+    });
+
+    it('link-gloss shows phrase (not head) as the primary bold label', async () => {
+        el.chain = {
+            ...CHAIN,
+            chain: [
+                { phrase: 'grief', head: 'grief', synset_id: '1' },
+                { phrase: 'buried wound', head: 'wound', synset_id: '2' },
+                { phrase: 'scar', head: 'scar', synset_id: '3' },
+            ],
+        };
+        el.glosses = {
+            '1': { pos: 'n', definition: 'deep sorrow' },
+            '2': { pos: 'n', definition: 'an injury to the body' },
+            '3': { pos: 'n', definition: 'a mark left by a wound' },
+        };
+        await el.updateComplete;
+        // Tap step 1 ("buried wound") to reveal link-gloss.
+        (el.shadowRoot!.querySelector('[data-testid="step-node-1"]') as HTMLElement).click();
+        await el.updateComplete;
+        const text = el.shadowRoot!.querySelector('[data-testid="link-gloss"]')!.textContent || '';
+        expect(text).toContain('buried wound'); // phrase is the bold primary label
+        expect(text).toContain('an injury to the body');
+    });
+
+    // --- Sense fan + operator ticks (Task 8 / phrase-as-node) ---
+    // When a chain step node is tapped, a sense fan appears inside the link-gloss
+    // popover. The intended sense (step.synset_id) is pre-lit; the operator may
+    // tap any additional sense to tick it as co-apt. On submit, operator ticks
+    // serialise to `step_apt_senses`; the intended sense is NOT duplicated there.
+
+    const INVENTORIES = {
+        'glance': [
+            { synset_id: '100', sensenum: 1, tagcount: 9, definition: 'a brief look', pos: 'n' },
+            { synset_id: '102', sensenum: 3, tagcount: 0, definition: 'a deflection', pos: 'n' },
+        ],
+    };
+
+    const CHAIN_WITH_FAN = {
+        schema_version: 'chain.v1' as const,
+        topic: 'anger', vehicle: 'scar',
+        topic_synset_id: '1', vehicle_synset_id: '3',
+        chain_signature: 'c'.repeat(64),
+        chain: [
+            { phrase: 'anger', head: 'anger', synset_id: '1' },
+            { phrase: 'glance', head: 'glance', synset_id: '100' },
+            { phrase: 'scar', head: 'scar', synset_id: '3' },
+        ],
+        proposer: 'sonnet_v1', round: 1, generated_at: 'x',
+    };
+
+    const CHAIN_VEC = {
+        schema_version: 'chain.v2' as const,
+        topic: 'grief', vehicle: 'pressed flower',
+        topic_synset_id: '1', vehicle_synset_id: null as unknown as string,
+        vehicle_node_ref: 'vec:pressed_flower',
+        chain_signature: 'd'.repeat(64),
+        chain: [
+            { phrase: 'grief', head: 'grief', synset_id: '1' },
+            { phrase: 'pressed flower', head: 'flower', synset_id: null, node_ref: 'vec:pressed_flower' },
+        ],
+        proposer: 'sonnet_v1', round: 1, generated_at: 'x',
+    };
+
+    const tapNode = async (i: number) => {
+        (el.shadowRoot!.querySelector(`[data-testid="step-node-${i}"]`) as HTMLElement).click();
+        await el.updateComplete;
+    };
+
+    const senseFan = () => el.shadowRoot!.querySelector('[data-testid="sense-fan"]');
+    const senseOption = (synset_id: string) =>
+        el.shadowRoot!.querySelector(`[data-testid="sense-option-${synset_id}"]`) as HTMLElement | null;
+
+    it('the snapped sense renders as explicitly SELECTED (✓ + snapped badge, aria-pressed)', async () => {
+        // The intended sense is always part of the judged reading; the fan must SAY so
+        // or the operator is left unsure whether the snap is being included.
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        await el.updateComplete;
+        await tapNode(1);
+        const intended = senseOption('100')!;
+        expect(intended.getAttribute('aria-pressed')).toBe('true');
+        expect(intended.textContent).toContain('✓');
+        expect(intended.textContent).toContain('snapped');
+        const other = senseOption('102')!;
+        expect(other.getAttribute('aria-pressed')).toBe('false');
+        expect(other.textContent).not.toContain('snapped');
+    });
+
+    it('multi-word steps fall back to the HEAD lemma inventory, labelled', async () => {
+        const multiword = {
+            ...CHAIN_WITH_FAN,
+            chain: [
+                CHAIN_WITH_FAN.chain[0],
+                { phrase: 'buried wound', head: 'wound', synset_id: '300' },
+                CHAIN_WITH_FAN.chain[2],
+            ],
+        };
+        el.chain = multiword as any;
+        (el as any).senseInventories = {
+            // no 'buried wound' entry — phrase inventory empty
+            'wound': [
+                { synset_id: '300', sensenum: 1, tagcount: 5, definition: 'an injury to living tissue', pos: 'n' },
+                { synset_id: '301', sensenum: 2, tagcount: 1, definition: 'a casualty to military personnel', pos: 'n' },
+            ],
+        };
+        await el.updateComplete;
+        await tapNode(1);
+        expect(senseFan()).toBeTruthy();
+        expect(senseOption('300')).toBeTruthy();     // head senses shown
+        expect(senseOption('300')!.textContent).toContain('snapped');  // intended matches within head inventory
+        const label = el.shadowRoot!.querySelector('[data-testid="sense-fan-source"]');
+        expect(label).toBeTruthy();
+        expect(label!.textContent).toContain('wound');  // "senses of 'wound'"
+    });
+
+    it('multi-word phrases look up inventories by their SPACED key (one canonicaliser)', async () => {
+        // The inventory file keys via normalise_phrase (spaces KEPT); underscoring
+        // here (vec_ref style) silently orphans every multi-word phrase's fan.
+        const multiword = {
+            ...CHAIN_WITH_FAN,
+            chain: [
+                CHAIN_WITH_FAN.chain[0],
+                { phrase: 'Red  Tape', head: 'tape', synset_id: '200' },
+                CHAIN_WITH_FAN.chain[2],
+            ],
+        };
+        el.chain = multiword as any;
+        (el as any).senseInventories = {
+            'red  tape': [{ synset_id: '200', sensenum: 1, tagcount: 2, definition: 'needless bureaucracy', pos: 'n' }],
+        };
+        await el.updateComplete;
+        await tapNode(1);
+        expect(senseFan()).toBeTruthy();
+        expect(senseOption('200')).toBeTruthy();
+    });
+
+    it('sense fan renders inventory senses when step is tapped', async () => {
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        await el.updateComplete;
+        await tapNode(1); // glance
+        const fan = senseFan();
+        expect(fan).toBeTruthy();
+        expect(fan!.textContent).toContain('a brief look');
+        expect(fan!.textContent).toContain('a deflection');
+    });
+
+    it('intended sense is pre-lit in the fan (has intended class/attribute)', async () => {
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        await el.updateComplete;
+        await tapNode(1); // glance, synset_id '100' is the intended sense
+        const opt = senseOption('100');
+        expect(opt).toBeTruthy();
+        expect(opt!.classList.contains('intended')).toBe(true);
+        // Non-intended sense is not pre-lit
+        const opt102 = senseOption('102');
+        expect(opt102!.classList.contains('intended')).toBe(false);
+    });
+
+    it('tapping a non-intended sense in the fan toggles a tick', async () => {
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        await el.updateComplete;
+        await tapNode(1);
+        const opt102 = senseOption('102')!;
+        opt102.click();
+        await el.updateComplete;
+        expect(opt102.classList.contains('ticked')).toBe(true);
+        // Toggle off
+        opt102.click();
+        await el.updateComplete;
+        expect(opt102.classList.contains('ticked')).toBe(false);
+    });
+
+    it('submit payload contains step_apt_senses with only operator ticks (intended excluded)', async () => {
+        let d: any = null;
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        el.addEventListener('verdict-submit', (e: any) => { d = e.detail; });
+        await el.updateComplete;
+        await tapNode(1);
+        senseOption('102')!.click(); // operator tick on synset 102
+        await el.updateComplete;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }));
+        await tick();
+        expect(d).toBeTruthy();
+        // Only operator tick (102), NOT the intended (100)
+        expect(d.step_apt_senses).toEqual([{ step_idx: 1, synset_id: '102' }]);
+    });
+
+    it('a submit with no operator ticks carries an empty step_apt_senses', async () => {
+        let d: any = null;
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        el.addEventListener('verdict-submit', (e: any) => { d = e.detail; });
+        await el.updateComplete;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }));
+        await tick();
+        expect(d.step_apt_senses).toEqual([]);
+    });
+
+    it('ticks reset when switching to a different chain', async () => {
+        let d: any = null;
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        el.addEventListener('verdict-submit', (e: any) => { d = e.detail; });
+        await el.updateComplete;
+        await tapNode(1);
+        senseOption('102')!.click();
+        await el.updateComplete;
+        // Switch to a different chain
+        el.chain = { ...CHAIN_WITH_FAN, chain_signature: 'e'.repeat(64) };
+        await el.updateComplete;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }));
+        await tick();
+        expect(d.step_apt_senses).toEqual([]);
+    });
+
+    it('vec: step shows "vector node — no synset" affordance in the fan', async () => {
+        el.chain = CHAIN_VEC as any;
+        (el as any).senseInventories = {};
+        await el.updateComplete;
+        await tapNode(1); // pressed flower, synset_id null
+        const fan = senseFan();
+        expect(fan).toBeTruthy();
+        expect(fan!.textContent).toContain('vector node');
+        expect(fan!.textContent).toContain('no synset');
+    });
+
+    it('fan does not render when no step is active', async () => {
+        el.chain = CHAIN_WITH_FAN;
+        (el as any).senseInventories = INVENTORIES;
+        await el.updateComplete;
+        // No node tapped — fan should not appear
+        expect(senseFan()).toBeNull();
     });
 });

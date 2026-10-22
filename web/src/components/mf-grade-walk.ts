@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
-import type { ChainRecord, GlossMap, Linkage, MetaphorVerdict, Tier, Tag, Confidence } from '../types/grading'
+import type { ChainRecord, GlossMap, Linkage, MetaphorVerdict, SenseInventoryMap, Tier, Tag, Confidence } from '../types/grading'
 import './mf-grade-panel'
 
 // Shape of the muted "last saved" prior verdict the panel echoes — mirrors what
@@ -52,6 +52,9 @@ export class MfGradeWalk extends LitElement {
     @property({ attribute: false }) chain: ChainRecord | null = null
     @property({ attribute: false }) priorVerdict: PriorVerdict | null = null
     @property({ attribute: false }) glosses: GlossMap = {}
+    @property({ attribute: false }) senseInventories: SenseInventoryMap = {}
+    // Guided-only: whether the host is threading the prior verdict (amendment mode).
+    @property({ type: Boolean }) prefillOn = false
     @property() topic = ''
     @property({ type: Number }) index = 0
     @property({ type: Number }) total = 0
@@ -66,6 +69,10 @@ export class MfGradeWalk extends LitElement {
     @property({ type: Boolean }) graded = false
     // Ungraded chains still remaining in the whole walk — queue-progress readout.
     @property({ type: Number }) ungradedLeft = 0
+    // Guided mode: the list is an exact prefilled candidate order (not signal-ranked),
+    // so the dwell sub-indicator and skip-graded toggle — both signal-walk affordances —
+    // are hidden. Navigation, position, and the graded badge stay.
+    @property({ type: Boolean }) guided = false
 
     private boundKey = (e: KeyboardEvent) => this.onKeydown(e)
 
@@ -90,7 +97,7 @@ export class MfGradeWalk extends LitElement {
         this.emit(e.key === 'ArrowLeft' ? 'walk-prev' : 'walk-next')
     }
 
-    private emit(name: 'walk-prev' | 'walk-next' | 'walk-skip-toggle'): void {
+    private emit(name: 'walk-prev' | 'walk-next' | 'walk-skip-toggle' | 'walk-prefill-toggle'): void {
         this.dispatchEvent(new CustomEvent(name, { bubbles: true, composed: true }))
     }
 
@@ -105,15 +112,25 @@ export class MfGradeWalk extends LitElement {
                 <button data-testid="walk-next" ?disabled=${!this.canNext}
                         @click=${() => this.emit('walk-next')}>Next ›</button>
                 ${this.graded ? html`<span class="graded" data-testid="walk-graded" title="already graded — your verdict is pre-filled">✓ graded</span>` : ''}
-                <span class="dwell" data-testid="walk-dwell">${this.topic} · ${this.dwellIndex + 1}/${this.dwellN}</span>
-                <button class="skip ${this.skipGraded ? 'on' : ''}" data-testid="walk-skip"
-                        aria-pressed=${this.skipGraded}
-                        @click=${() => this.emit('walk-skip-toggle')}>Skip graded</button>
+                ${this.guided
+                    ? html`<span class="dwell" data-testid="walk-topic">${this.topic}</span>
+                        <label class="skip prefill" title="Amendment passes only — shows your saved verdict/notes so you can add sense ticks without re-grading. Leave OFF for blind batches.">
+                            <input type="checkbox" data-testid="walk-prefill"
+                                   .checked=${this.prefillOn}
+                                   @change=${() => this.emit('walk-prefill-toggle')}>
+                            Prefill my verdict
+                        </label>`
+                    : html`
+                        <span class="dwell" data-testid="walk-dwell">${this.topic} · ${this.dwellIndex + 1}/${this.dwellN}</span>
+                        <button class="skip ${this.skipGraded ? 'on' : ''}" data-testid="walk-skip"
+                                aria-pressed=${this.skipGraded}
+                                @click=${() => this.emit('walk-skip-toggle')}>Skip graded</button>`}
             </div>
             <mf-grade-panel
                 .chain=${this.chain}
                 .priorVerdict=${this.priorVerdict}
                 .glosses=${this.glosses}
+                .senseInventories=${this.senseInventories}
             ></mf-grade-panel>
         `
     }

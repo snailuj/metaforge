@@ -10,7 +10,7 @@ import unicodedata
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
-ChainSchemaVersion = Literal["chain.v1"]
+ChainSchemaVersion = Literal["chain.v1", "chain.v2"]
 JudgementSchemaVersion = Literal["judgement.v1", "judgement.v2"]
 # Flat v1 verdict — retained only for reading legacy records via normalise_judgement.
 Label = Literal["live", "dead", "bad_path", "irrelevant"]
@@ -23,7 +23,10 @@ Tier = Literal["strong", "ironic", "surprising"]
 # Structured issue tags — orthogonal to the verdict axes. `bad_head` flags a
 # mis-extracted head concept (a data-prep error), kept distinct from a `bad`
 # linkage verdict so head-extraction noise stays out of the metaphor signal.
-Tag = Literal["merge", "padding", "leap", "bad_head", "other"]
+# `bad_sense` flags a wrong-sense snap (head lemma right, synset wrong) — a
+# data-quality flag that marks the row sense-suspect for re-snap; like bad_head it
+# is NOT linkage-forcing (the operator grades the intended sense).
+Tag = Literal["merge", "padding", "leap", "bad_head", "bad_sense", "other"]
 Confidence = Literal["high", "med", "low"]
 
 
@@ -38,6 +41,20 @@ def compute_chain_signature(proposer: str, phrases: list[str]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def vec_ref(phrase: str) -> str:
+    """Canonical vec-node suffix: the SAME canonicaliser that keys
+    chain_signature (one canonicaliser, never two), spaces to underscores."""
+    return normalise_phrase(phrase).replace(" ", "_")
+
+
+class AptSense(BaseModel):
+    """A locally co-apt sense at one chain position. `intended` = the
+    emit-the-sense gloss-match; `operator` = a grading tick. The snapper never
+    writes here — co-aptness it can't validate stays out of the record."""
+    synset_id: str = Field(min_length=1)
+    source: Literal["intended", "operator"]
+
+
 class ChainStep(BaseModel):
     phrase: str = Field(min_length=1)
     head: str = Field(min_length=1)
@@ -47,14 +64,29 @@ class ChainStep(BaseModel):
     # is gloss-matched (not lowest-id guesswork) and the intent survives re-snaps.
     # Optional + default None keeps every pre-emit-the-sense record valid.
     gloss: Optional[str] = None
+    # Phrase-as-Node: explicit node kind. Absent -> derived from synset_id, so
+    # every chain.v1 record reads as v2 without rewrite.
+    node_ref: Optional[str] = None
+    # Per-occurrence apt sense-set (spec §2.2/§2.4). Optional: an empty list is
+    # a fully valid step that simply yields no derived siblings.
+    apt_senses: list[AptSense] = Field(default_factory=list)
+
+    def resolved_node_ref(self) -> str:
+        if self.node_ref:
+            return self.node_ref
+        if self.synset_id:
+            return f"syn:{self.synset_id}"
+        return f"vec:{vec_ref(self.phrase)}"
 
 
 class ChainRecord(BaseModel):
     schema_version: ChainSchemaVersion
     topic: str
-    topic_synset_id: str
+    topic_synset_id: Optional[str] = None
     vehicle: str
-    vehicle_synset_id: str
+    vehicle_synset_id: Optional[str] = None
+    topic_node_ref: Optional[str] = None
+    vehicle_node_ref: Optional[str] = None
     proposer: str
     round: int = Field(ge=1)
     chain: list[ChainStep] = Field(min_length=2)
@@ -63,19 +95,56 @@ class ChainRecord(BaseModel):
 
     @model_validator(mode="after")
     def _endpoint_canonicalisation(self) -> "ChainRecord":
-        if (self.chain[0].phrase != self.topic
-                or self.chain[0].head != self.topic
-                or self.chain[0].synset_id != self.topic_synset_id):
+        first = self.chain[0]
+        last = self.chain[-1]
+        # Topic endpoint: phrase must match the top-level topic field.
+        # v1 records have phrase==head==topic (single-word); v2 multi-word endpoints
+        # have phrase==topic but head may differ (the head noun only).
+        if first.phrase != self.topic:
             raise ValueError(
                 "endpoint canonicalisation: chain[0] must equal topic/topic_synset_id"
             )
-        if (self.chain[-1].phrase != self.vehicle
-                or self.chain[-1].head != self.vehicle
-                or self.chain[-1].synset_id != self.vehicle_synset_id):
+        if self.topic_synset_id is not None:
+            if first.synset_id != self.topic_synset_id:
+                raise ValueError(
+                    "endpoint canonicalisation: chain[0] must equal topic/topic_synset_id"
+                )
+        else:
+            # vec: endpoint — require matching node_ref
+            ref = first.resolved_node_ref()
+            if not self.topic_node_ref or self.topic_node_ref != ref:
+                raise ValueError(
+                    "endpoint canonicalisation: vec endpoint requires matching node_ref"
+                )
+        # Vehicle endpoint: phrase must match the top-level vehicle field.
+        if last.phrase != self.vehicle:
             raise ValueError(
                 "endpoint canonicalisation: chain[-1] must equal vehicle/vehicle_synset_id"
             )
+        if self.vehicle_synset_id is not None:
+            if last.synset_id != self.vehicle_synset_id:
+                raise ValueError(
+                    "endpoint canonicalisation: chain[-1] must equal vehicle/vehicle_synset_id"
+                )
+        else:
+            # vec: endpoint — require matching node_ref
+            ref = last.resolved_node_ref()
+            if not self.vehicle_node_ref or self.vehicle_node_ref != ref:
+                raise ValueError(
+                    "endpoint canonicalisation: vec endpoint requires matching node_ref"
+                )
         return self
+
+
+class StepAptSense(BaseModel):
+    """An operator-ticked apt sense at a specific chain step position.
+
+    Keyed by step index within the graded chain; the synset the operator
+    confirmed as co-apt at that position. Written by the grading UI to the
+    verdict; used by judge-harness to build per-position sense context.
+    """
+    step_idx: int = Field(ge=0)
+    synset_id: str = Field(min_length=1)
 
 
 class JudgementRecord(BaseModel):
@@ -91,9 +160,11 @@ class JudgementRecord(BaseModel):
     judged_by: str
     round: int = Field(ge=1)
     topic: str
-    topic_synset_id: str
+    topic_synset_id: Optional[str] = None
     vehicle: str
-    vehicle_synset_id: str
+    vehicle_synset_id: Optional[str] = None
+    topic_node_ref: Optional[str] = None
+    vehicle_node_ref: Optional[str] = None
     proposer: str
     chain_signature: str = Field(pattern=r"^[0-9a-f]{64}$")
     linkage: Linkage
@@ -103,6 +174,9 @@ class JudgementRecord(BaseModel):
     confidence: Confidence = "high"
     notes: str = Field(default="", max_length=1000)
     supersedes_ts: Optional[str] = None
+    # Per-step operator sense ticks (empty = no ticks; intended senses are NOT
+    # duplicated here — only operator selections beyond the pre-lit intended).
+    step_apt_senses: list[StepAptSense] = Field(default_factory=list)
 
 
 class JudgementRecordV1(BaseModel):

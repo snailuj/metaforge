@@ -18,14 +18,16 @@ import type {
   TopicSummary,
   VerdictSubmitDetail,
   WalkEntry,
+  GuidedEntry,
   Linkage,
   MetaphorVerdict,
   Tier,
   Tag,
   Confidence,
   GlossMap,
+  SenseInventoryMap,
 } from '@/types/grading'
-import { normaliseJudgement } from '@/types/grading'
+import { normaliseJudgement, senseInventoryKey } from '@/types/grading'
 import type { MfToast } from './mf-toast'
 
 // Import components so they register
@@ -432,7 +434,7 @@ export class MfApp extends LitElement {
   // through the server-ordered acquisition list (GET /api/grading/walk) one chain
   // at a time. walkGradedSigs is a SESSION set — a chain graded this session drops
   // out of the visible walk (so the next ungraded one slides in) without a refetch.
-  @state() private gradeView: 'topic' | 'walk' | 'regrade' | 'sensecheck' = 'topic'
+  @state() private gradeView: 'topic' | 'walk' | 'regrade' | 'sensecheck' | 'guided' = 'topic'
   @state() private walkEntries: WalkEntry[] = []
   @state() private walkPos = 0
   @state() private walkSkipGraded = true
@@ -445,6 +447,25 @@ export class MfApp extends LitElement {
   // unrelated mf-app re-render.
   private _walkGraphSig = ''
   private _walkGraphChains: ChainRecord[] = []
+
+  // Guided walk sub-mode: an EXACT operator-prefilled candidate order
+  // (GET /api/grading/guided-walk). Literal Prev/Next — no skip-graded, no dwell.
+  // BLIND: the server withholds the stored judge verdict; agreement is computed
+  // off-band after the round, so grading here stays unanchored.
+  @state() private guidedEntries: GuidedEntry[] = []
+  @state() private guidedPos = 0
+  @state() private guidedGradedSigs: Set<string> = new Set()
+  @state() private guidedJudgements: JudgementRecord[] = []
+  // Guided prefill opt-in (amendment passes over already-graded chains). Blind
+  // is the default and resets whenever guided mode re-initialises.
+  @state() private guidedPrefill = false
+  // canonical phrase key -> ranked noun senses, accumulated per viewed chain.
+  // Fetched lazily from /senses (per-key route); the panel's fan is dead without it.
+  @state() private senseInventories: SenseInventoryMap = {}
+  private _sensesRequested = new Set<string>()
+  @state() private guidedBatch: string | null = null
+  private _guidedGraphSig = ''
+  private _guidedGraphChains: ChainRecord[] = []
 
   // Metaphor forest. forestState is the whole UI state machine (forest/state.ts);
   // the rest is derived from it or is an effect handle.
@@ -481,6 +502,42 @@ export class MfApp extends LitElement {
       if (!this.showRare) hidden.add('rare')
       this.hiddenRarities = hidden
     }
+    // Lazily fetch sense inventories for whichever chain the active grade view
+    // shows (fire-and-forget; results merge into senseInventories as they land).
+    void this.ensureSenseInventories(this.currentGradeChain())
+  }
+
+  /** The chain the active grade view is currently showing, if any. */
+  private currentGradeChain(): ChainRecord | null {
+    if (this.mode !== 'grade') return null
+    if (this.gradeView === 'topic') return this.selectedChain
+    if (this.gradeView === 'walk') return this.walkCurrent?.record ?? null
+    if (this.gradeView === 'guided') return this.guidedCurrent?.record ?? null
+    return null
+  }
+
+  /** Fetch (once per key) the sense inventory for each step phrase of a chain.
+   *  Failures degrade to an empty fan — logged, never thrown into render. */
+  private async ensureSenseInventories(chain: ChainRecord | null): Promise<void> {
+    if (!chain) return
+    // Phrase key + head-lemma key (the fan falls back to the head's senses when a
+    // multi-word phrase has no phrase-level inventory).
+    const keys = [...new Set((chain.chain ?? []).flatMap(st =>
+      [senseInventoryKey(st.phrase), st.head ? senseInventoryKey(st.head) : '']))]
+      .filter(k => k && !this._sensesRequested.has(k))
+    if (keys.length === 0) return
+    keys.forEach(k => this._sensesRequested.add(k))
+    const results = await Promise.all(keys.map(async k => {
+      try {
+        return await this.gradingClient.getSenses(k)
+      } catch (err) {
+        console.warn('[mf-app] getSenses failed for', k, err)
+        return { key: k, senses: [] }
+      }
+    }))
+    const merged = { ...this.senseInventories }
+    for (const r of results) merged[r.key] = r.senses
+    this.senseInventories = merged
   }
 
   async connectedCallback(): Promise<void> {
@@ -757,7 +814,7 @@ export class MfApp extends LitElement {
   private async initGradeMode(): Promise<void> {
     this.loadPendingQueue()
     const storedView = localStorage.getItem('mf-grade-view')
-    if (storedView === 'walk' || storedView === 'topic' || storedView === 'regrade' || storedView === 'sensecheck') this.gradeView = storedView
+    if (storedView === 'walk' || storedView === 'topic' || storedView === 'regrade' || storedView === 'sensecheck' || storedView === 'guided') this.gradeView = storedView
     try {
       const [topicsRes, notesRes, glossesRes] = await Promise.all([
         this.gradingClient.getTopics(),
@@ -772,6 +829,7 @@ export class MfApp extends LitElement {
       this.errorMessage = 'Failed to load grading data'
     }
     if (this.gradeView === 'walk') void this.initWalk()
+    if (this.gradeView === 'guided') void this.initGuidedWalk()
   }
 
   private async handleTopicSelected(e: CustomEvent<TopicSummary>): Promise<void> {
@@ -800,13 +858,14 @@ export class MfApp extends LitElement {
 
   /** Switch grade view (topic ↔ walk). Persisted so a reload returns the operator
    *  to where they were; entering the walk (re)fetches the acquisition order. */
-  private setGradeView(view: 'topic' | 'walk' | 'regrade' | 'sensecheck'): void {
+  private setGradeView(view: 'topic' | 'walk' | 'regrade' | 'sensecheck' | 'guided'): void {
     this.gradeView = view
     localStorage.setItem('mf-grade-view', view)
     // Start each view clean; the walk repopulates selectedChain from its own list.
     // Re-grade is self-contained (owns its own sample + cursor + POSTs).
     this.selectedChain = null
     if (view === 'walk') void this.initWalk()
+    if (view === 'guided') void this.initGuidedWalk()
   }
 
   /** Fetch the server-ordered walk and land on the first ungraded chain. Also load
@@ -832,7 +891,9 @@ export class MfApp extends LitElement {
   /** Verdicts the current grade view should resolve against: the global set while
    *  walking (cross-topic), the topic-scoped set in topic view. */
   private get activeJudgements(): JudgementRecord[] {
-    return this.gradeView === 'walk' ? this.walkJudgements : this.gradeJudgements
+    if (this.gradeView === 'walk') return this.walkJudgements
+    if (this.gradeView === 'guided') return this.guidedJudgements
+    return this.gradeJudgements
   }
 
   /** The walk addresses the FULL ordered list (walkPos), not a filtered view. A
@@ -939,6 +1000,103 @@ export class MfApp extends LitElement {
     return this._walkGraphChains
   }
 
+  // --- Guided walk (prefilled blind candidate list) ---------------------------
+  // Mirrors the signal walk but with LITERAL Prev/Next (the order is fixed by the
+  // prefill, not by triage) and no skip-graded — the operator walks every
+  // candidate in the batch, in order.
+
+  private async initGuidedWalk(): Promise<void> {
+    try {
+      const [guidedRes, judgementsRes] = await Promise.all([
+        this.gradingClient.getGuidedWalk(),
+        this.gradingClient.getJudgements(),
+      ])
+      this.guidedEntries = guidedRes.entries
+      this.guidedBatch = guidedRes.batch
+      this.guidedJudgements = judgementsRes.records
+      this.guidedGradedSigs = new Set()
+      this.guidedPos = 0
+      this.syncGuidedSelection()
+    } catch (err) {
+      console.warn('[mf-app] initGuidedWalk failed', err)
+      this.errorMessage = 'Failed to load guided walk'
+    }
+  }
+
+  private get guidedCurrent(): GuidedEntry | null {
+    return this.guidedEntries[this.guidedPos] ?? null
+  }
+
+  private isGuidedGraded(e: GuidedEntry | null): boolean {
+    return !!e && this.guidedGradedSigs.has(e.chain_signature)
+  }
+
+  private get canGuidedPrev(): boolean {
+    return this.guidedPos > 0
+  }
+
+  private get canGuidedNext(): boolean {
+    return this.guidedPos < this.guidedEntries.length - 1
+  }
+
+  private get guidedUngradedRemaining(): number {
+    return this.guidedEntries.reduce((n, e) => n + (this.isGuidedGraded(e) ? 0 : 1), 0)
+  }
+
+  private syncGuidedSelection(): void {
+    if (this.guidedEntries.length === 0) {
+      this.guidedPos = 0
+      this.selectedChain = null
+      return
+    }
+    this.guidedPos = Math.max(0, Math.min(this.guidedPos, this.guidedEntries.length - 1))
+    this.selectedChain = this.guidedCurrent?.record ?? null
+  }
+
+  /** Literal forward step through the fixed candidate order (does NOT skip graded —
+   *  the operator reviews every candidate in the batch). */
+  private guidedNext(): void {
+    if (this.guidedPos < this.guidedEntries.length - 1) {
+      this.guidedPos += 1
+      this.syncGuidedSelection()
+    }
+  }
+
+  private guidedPrev(): void {
+    if (this.guidedPos > 0) {
+      this.guidedPos -= 1
+      this.syncGuidedSelection()
+    }
+  }
+
+  private async handleGuidedVerdictSubmit(e: CustomEvent<VerdictSubmitDetail>): Promise<void> {
+    const graded = this.selectedChain
+    const recorded = await this.handleVerdictSubmit(e)
+    if (!recorded || !graded) {
+      this.syncGuidedSelection()
+      return
+    }
+    this.guidedGradedSigs = new Set([...this.guidedGradedSigs, graded.chain_signature])
+    try {
+      const jr = await this.gradingClient.getJudgements()
+      this.guidedJudgements = jr.records
+    } catch (err) {
+      console.warn('[mf-app] guided judgement refresh failed', err)
+    }
+    // Literal advance — move to the next candidate in the fixed order (if any).
+    if (this.guidedPos < this.guidedEntries.length - 1) this.guidedPos += 1
+    this.syncGuidedSelection()
+  }
+
+  private guidedGraphChainsFor(record: ChainRecord | null): ChainRecord[] {
+    const sig = record?.chain_signature ?? ''
+    if (sig !== this._guidedGraphSig) {
+      this._guidedGraphSig = sig
+      this._guidedGraphChains = record ? [record] : []
+    }
+    return this._guidedGraphChains
+  }
+
   private toggleNotesPanel(): void {
     this.notesPanelCollapsed = !this.notesPanelCollapsed
   }
@@ -967,7 +1125,7 @@ export class MfApp extends LitElement {
 
   /** Topic ↔ Walk view toggle + on-demand signal report, shown in every grade view's top row. */
   private renderGradeViewToggle() {
-    const opt = (view: 'topic' | 'walk' | 'regrade' | 'sensecheck', label: string) => html`
+    const opt = (view: 'topic' | 'walk' | 'regrade' | 'sensecheck' | 'guided', label: string) => html`
       <button
         data-testid="grade-view-${view}"
         aria-pressed=${this.gradeView === view}
@@ -978,6 +1136,7 @@ export class MfApp extends LitElement {
       <div class="grade-view-toggle" role="group" aria-label="Grade view" data-testid="grade-view-toggle">
         ${opt('topic', 'By topic')}
         ${opt('walk', 'Walk')}
+        ${opt('guided', 'Guided')}
         ${opt('regrade', 'Blind re-grade')}
         ${opt('sensecheck', 'Sense-check')}
       </div>
@@ -1007,6 +1166,9 @@ export class MfApp extends LitElement {
       tags: e.detail.tags,
       confidence: e.detail.confidence,
       notes: e.detail.notes,
+      // Operator per-hop co-aptness ticks — dropping these here silently
+      // destroys careful grading work (it did, once: batch 4, 2026-07-13).
+      step_apt_senses: e.detail.step_apt_senses ?? [],
       supersedes_ts: prior?.ts ?? null,
     }
     try {
@@ -1104,11 +1266,11 @@ export class MfApp extends LitElement {
     )
   }
 
-  /** Render the flat-text chain label for mobile cards. Shows the snapped
-   *  heads (not the prose phrases) so a mis-snapped head is visible at a glance
-   *  on mobile, matching the desktop graph's head-primary labels. */
+  /** Render the flat-text chain label for mobile cards. Shows the original
+   *  phrases (phrase-as-node) so the grader sees the model's exact output, not
+   *  just the snapped lemma — consistent with the grade-panel phrase-first rule. */
   private chainLabel(chain: ChainRecord): string {
-    return chain.chain.map(s => s.head).join(' → ')
+    return chain.chain.map(s => s.phrase).join(' → ')
   }
 
   /** `soft` (lookups started from the forest): the search box changes only on
@@ -1271,6 +1433,7 @@ export class MfApp extends LitElement {
                   .chain=${this.selectedChain}
                   .priorVerdict=${this.priorVerdict(this.selectedChain)}
                   .glosses=${this.gradeGlosses}
+                  .senseInventories=${this.senseInventories}
                   @verdict-submit=${this.handleVerdictSubmit}
                 ></mf-grade-panel>
               </div>`
@@ -1336,6 +1499,7 @@ export class MfApp extends LitElement {
                 .chain=${this.selectedChain}
                 .priorVerdict=${this.priorVerdict(this.selectedChain)}
                 .glosses=${this.gradeGlosses}
+                .senseInventories=${this.senseInventories}
                 @verdict-submit=${this.handleVerdictSubmit}
               ></mf-grade-panel>
             </div>`
@@ -1375,6 +1539,7 @@ export class MfApp extends LitElement {
         .chain=${entry?.record ?? null}
         .priorVerdict=${entry ? this.priorVerdict(entry.record) : null}
         .glosses=${this.gradeGlosses}
+        .senseInventories=${this.senseInventories}
         .topic=${entry?.topic ?? ''}
         .index=${this.walkPos}
         .total=${this.walkEntries.length}
@@ -1407,6 +1572,68 @@ export class MfApp extends LitElement {
                     .mode=${'grade'}
                     .gradeChains=${this.walkGraphChainsFor(entry.record)}
                     .judgements=${this.walkJudgements}
+                    .viewportWidth=${this.viewportWidth}
+                  ></mf-force-graph>
+                </div>
+                <div class="grade-panel-pane">${shell}</div>
+              </div>`
+            : html`<div class="grade-walk-scroll">${shell}</div>`}
+      </div>
+    `
+  }
+
+  /** Guided walk view — the same shell as the signal walk (guided flag hides the
+   *  dwell + skip affordances), driven by the prefilled candidate list with literal
+   *  Prev/Next. Desktop shows the chain in graph context; mobile scrolls the panel. */
+  private renderGradeGuidedWalk() {
+    const entry = this.guidedCurrent
+    const isDesktop = this.viewportWidth >= 900
+    const shell = html`
+      <mf-grade-walk
+        data-testid="grade-guided"
+        .guided=${true}
+        .chain=${entry?.record ?? null}
+        .priorVerdict=${this.guidedPrefill && entry ? this.priorVerdict(entry.record) : null
+          /* BLIND by default: the server-side anchoring guard withholds
+             judge_verdict/cohort — leaking the operator's own prior verdict
+             re-anchors re-grade batches and inflates consistency. The prefill
+             toggle is an explicit opt-in for amendment passes (e.g. re-ticking
+             senses over already-graded chains). */}
+        .prefillOn=${this.guidedPrefill}
+        .glosses=${this.gradeGlosses}
+        .senseInventories=${this.senseInventories}
+        .topic=${entry?.topic ?? ''}
+        .index=${this.guidedPos}
+        .total=${this.guidedEntries.length}
+        .canPrev=${this.canGuidedPrev}
+        .canNext=${this.canGuidedNext}
+        .graded=${this.isGuidedGraded(entry)}
+        .ungradedLeft=${this.guidedUngradedRemaining}
+        @walk-prev=${this.guidedPrev}
+        @walk-next=${this.guidedNext}
+        @walk-prefill-toggle=${() => { this.guidedPrefill = !this.guidedPrefill }}
+        @verdict-submit=${this.handleGuidedVerdictSubmit}
+      ></mf-grade-walk>`
+    return html`
+      <div class="grade-layout" data-testid="grade-guided-layout">
+        <div class="grade-top">
+          ${this.renderGradeViewToggle()}
+          ${this.guidedBatch
+            ? html`<span class="guided-batch" data-testid="guided-batch" title="active guided batch">batch: ${this.guidedBatch}</span>`
+            : ''}
+        </div>
+
+        ${entry === null
+          ? html`<div class="grade-empty" data-testid="guided-empty">No guided batch queued — tee one up server-side.</div>`
+          : isDesktop
+            ? html`
+              <div class="grade-main">
+                <div class="grade-graph-pane">
+                  <mf-force-graph
+                    .graphData=${this.graphData}
+                    .mode=${'grade'}
+                    .gradeChains=${this.guidedGraphChainsFor(entry.record)}
+                    .judgements=${this.guidedJudgements}
                     .viewportWidth=${this.viewportWidth}
                   ></mf-force-graph>
                 </div>
@@ -1474,11 +1701,13 @@ export class MfApp extends LitElement {
       ${this.mode === 'grade'
         ? (this.gradeView === 'walk'
             ? this.renderGradeWalk()
-            : this.gradeView === 'regrade'
-              ? this.renderGradeRegrade()
-              : this.gradeView === 'sensecheck'
-                ? this.renderGradeSenseCheck()
-                : (this.viewportWidth >= 900 ? this.renderGradeModeDesktop() : this.renderGradeModeMobile()))
+            : this.gradeView === 'guided'
+              ? this.renderGradeGuidedWalk()
+              : this.gradeView === 'regrade'
+                ? this.renderGradeRegrade()
+                : this.gradeView === 'sensecheck'
+                  ? this.renderGradeSenseCheck()
+                  : (this.viewportWidth >= 900 ? this.renderGradeModeDesktop() : this.renderGradeModeMobile()))
         : this.renderBrowseMode()}
 
       <mf-toast></mf-toast>
