@@ -38,6 +38,8 @@ data-pipeline/input/brysbaert-concreteness/
 
 # SQLite databases
 *.db
+*.db-wal
+*.db-shm
 
 # Go
 api/metaforge
