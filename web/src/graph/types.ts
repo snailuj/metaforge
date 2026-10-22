@@ -17,8 +17,9 @@ export function toRarity(value?: string): Rarity | undefined {
   return value && RARITIES.has(value) ? value as Rarity : undefined
 }
 
-/** Graph depth: 0 = central, 1 = direct relation, 2 = relation of a relation */
-export type GraphOrder = 0 | 1 | 2
+/** Graph depth from the central node: 0 = central, 1 = direct relation,
+ *  2 = relation of a relation, and so on as the user expands outwards. */
+export type GraphOrder = number
 
 /** Forge tier — all tiers including curated vocabulary tiers */
 export type ForgeTier = 'legendary' | 'complex' | 'interesting' | 'ironic' | 'strong' | 'obvious' | 'unlikely'
@@ -31,7 +32,7 @@ export interface GraphNode {
   relationType: RelationType
   val: number           // Affects node size in 3d-force-graph
   rarity?: Rarity       // Frequency bucket; defaults to 'unusual' when absent
-  order: GraphOrder     // Depth from central node (0=central, 1=direct, 2=second-order)
+  order: GraphOrder     // Depth from central node (0=central, 1=direct, 2+=expanded)
   x?: number            // set by the force simulation; a new forest node may be seeded with one
   y?: number
   z?: number
@@ -57,7 +58,7 @@ export interface GraphLink {
   source: string        // GraphNode.id
   target: string        // GraphNode.id
   relationType: RelationType
-  order: GraphOrder     // Depth from central node (0=central, 1=direct, 2=second-order)
+  order: GraphOrder     // Depth from central node (0=central, 1=direct, 2+=expanded)
   metaphor?: MetaphorLinkInfo // set only on metaphor-forest links
 }
 

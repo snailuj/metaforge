@@ -21,7 +21,11 @@ let capturedControlType: string | undefined = undefined
 let capturedExtraRenderers: unknown[] | undefined = undefined
 
 const mockCamera = { position: { x: 0, y: 0, z: 100 } }
-const mockControls = { enableDamping: false, dampingFactor: 0 }
+// Carries the OrbitControls internals guardOrbitPointerUp swaps.
+const mockControls = {
+  enableDamping: false, dampingFactor: 0,
+  domElement: document.createElement('div'), _pointers: [] as number[], _onPointerUp: () => {},
+}
 // Backs the chainable Proxy's graphData() getter so tests can stub the node set
 // the library reports back (visibility mirror reads graph.graphData().nodes).
 let mockGraphData: { nodes: unknown[]; links: unknown[] } = { nodes: [], links: [] }
@@ -299,42 +303,45 @@ describe('MfForceGraph', () => {
     expect(container.style.touchAction).toBe('none')
   })
 
+  it('guards the orbit controls against the drag-end synthetic pointerup', () => {
+    expect((mockControls as { __pointerUpGuarded?: boolean }).__pointerUpGuarded).toBe(true)
+  })
+
   it('uses orbit controls', () => {
     expect(capturedControlType).toBe('orbit')
   })
 
-  it('does not dispatch mf-node-select for order-2 nodes', () => {
+  it('dispatches mf-node-select for nodes beyond the first order, so expansion recurses', () => {
     vi.useFakeTimers()
-    const order2Node = { id: 'spark', word: 'spark', relationType: 'synonym', val: 2, order: 2 }
     const spy = vi.fn()
     el.addEventListener('mf-node-select', spy)
 
-    capturedOnNodeClick!(order2Node)
-    vi.advanceTimersByTime(400)
+    for (const order of [2, 3]) {
+      capturedOnNodeClick!({ id: `deep-${order}`, word: `deep-${order}`, relationType: 'synonym', val: 1, order })
+      vi.advanceTimersByTime(400)
+    }
 
-    expect(spy).not.toHaveBeenCalled()
-
+    expect(spy.mock.calls.map(c => c[0].detail.id)).toEqual(['deep-2', 'deep-3'])
     el.removeEventListener('mf-node-select', spy)
     vi.useRealTimers()
   })
 
-  it('clears armed click timer when order-2 node is clicked', () => {
+  it('double-click on a deeper node navigates instead of expanding', () => {
     vi.useFakeTimers()
-    const order1Node = { id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1 }
-    const order2Node = { id: 'spark', word: 'spark', relationType: 'synonym', val: 2, order: 2 }
-    const selectSpy = vi.fn()
-    el.addEventListener('mf-node-select', selectSpy)
+    const deep = { id: 'spark', word: 'spark', relationType: 'synonym', val: 1, order: 2 }
+    const select = vi.fn()
+    const navigate = vi.fn()
+    el.addEventListener('mf-node-select', select)
+    el.addEventListener('mf-node-navigate', navigate)
 
-    // First click arms the timer for order-1
-    capturedOnNodeClick!(order1Node)
-    // Immediately click an order-2 node (within threshold)
-    capturedOnNodeClick!(order2Node)
-    // Advance past the threshold — timer should have been cleared
+    capturedOnNodeClick!(deep)
+    capturedOnNodeClick!(deep)
     vi.advanceTimersByTime(400)
 
-    expect(selectSpy).not.toHaveBeenCalled()
-
-    el.removeEventListener('mf-node-select', selectSpy)
+    expect(select).not.toHaveBeenCalled()
+    expect(navigate).toHaveBeenCalledOnce()
+    el.removeEventListener('mf-node-select', select)
+    el.removeEventListener('mf-node-navigate', navigate)
     vi.useRealTimers()
   })
 
@@ -351,6 +358,45 @@ describe('MfForceGraph', () => {
 
     el.removeEventListener('mf-node-select', spy)
     vi.useRealTimers()
+  })
+
+  describe('focusNode', () => {
+    afterEach(() => {
+      mockGraphData = { nodes: [], links: [] }
+      mockCamera.position = { x: 0, y: 0, z: 100 }
+      delete (mockControls as { target?: unknown }).target
+    })
+
+    it('flies the camera to the node, keeping its distance and angle to the old target', () => {
+      mockCamera.position = { x: 10, y: 20, z: 130 }
+      Object.assign(mockControls, { target: { x: 10, y: 20, z: 30 } })
+      mockGraphData = { nodes: [{ id: 'gloom', x: 5, y: -5, z: 1 }], links: [] }
+
+      expect(el.focusNode('gloom')).toBe(true)
+
+      const [position, lookAt, ms] = lastArgs.cameraPosition as [unknown, unknown, number]
+      expect(position).toEqual({ x: 5, y: -5, z: 101 })
+      expect(lookAt).toEqual({ x: 5, y: -5, z: 1 })
+      expect(ms).toBeGreaterThan(0)
+    })
+
+    it('does nothing for a node the graph does not hold', () => {
+      delete lastArgs.cameraPosition
+      mockGraphData = { nodes: [{ id: 'gloom', x: 1, y: 1, z: 1 }], links: [] }
+      expect(el.focusNode('missing')).toBe(false)
+      expect(lastArgs.cameraPosition).toBeUndefined()
+    })
+
+    it('aims at the origin for a node not placed yet, where a fresh layout centres', () => {
+      mockCamera.position = { x: 10, y: 20, z: 130 }
+      Object.assign(mockControls, { target: { x: 10, y: 20, z: 30 } })
+      mockGraphData = { nodes: [{ id: 'unplaced' }], links: [] }
+
+      expect(el.focusNode('unplaced')).toBe(true)
+      const [position, lookAt] = lastArgs.cameraPosition as [unknown, unknown]
+      expect(position).toEqual({ x: 0, y: 0, z: 100 })
+      expect(lookAt).toEqual({ x: 0, y: 0, z: 0 })
+    })
   })
 
   it('scales default camera zoom 35% closer on init', async () => {
@@ -1023,6 +1069,12 @@ describe('MfForceGraph', () => {
     it('returns dimmer alpha for order-2 links', () => {
       const link = testData.links.find(l => l.target === 'ember')!
       expect(capturedLinkColor!(link)).toBe('rgba(232, 224, 212, 0.08)')
+    })
+
+    it('dims links deeper than the second order the same way', () => {
+      const deep = { source: 'ember', target: 'cinder', relationType: 'synonym', order: 3 }
+      expect(capturedLinkColor!(deep)).toBe('rgba(232, 224, 212, 0.08)')
+      expect(capturedLinkWidth!(deep)).toBe(0.5)
     })
 
     it('sets linkWidth accessor as a function', () => {

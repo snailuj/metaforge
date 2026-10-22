@@ -41,6 +41,13 @@ filter-unusual = Unusual
 filter-rare = Rare
 filter-aria-label = Filter by word rarity
 
+## Graph navigation (Re-Centre and Undo)
+recentre-button = Re-centre on { $word }
+recentre-failed = Couldn’t re-centre on “{ $word }”. Try again in a moment.
+undo-action = Undo
+undo-recentred = Re-centred on { $word }
+undo-started-over = Started afresh at { $word }
+
 ## Metaphor forest panel
 forest-heading = Metaphor forest
 forest-intro = Grow fresh metaphors for “{ $word }”. Each one is a path of shared qualities, drawn on the graph.
