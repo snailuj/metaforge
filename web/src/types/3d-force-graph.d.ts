@@ -42,6 +42,7 @@ declare module '3d-force-graph' {
     d3AlphaDecay(decay: number): ForceGraph3DInstance
     d3VelocityDecay(decay: number): ForceGraph3DInstance
     cooldownTime(ms: number): ForceGraph3DInstance
+    onEngineTick(fn: () => void): ForceGraph3DInstance
     warmupTicks(ticks: number): ForceGraph3DInstance
     width(): number
     width(w: number): ForceGraph3DInstance

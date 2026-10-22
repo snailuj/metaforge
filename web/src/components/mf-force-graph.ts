@@ -5,7 +5,8 @@ import ForceGraph3D from '3d-force-graph'
 import type { ForceGraph3DInstance } from '3d-force-graph'
 import { guardOrbitPointerUp } from '@/graph/orbit-guard'
 import type { GraphData, GraphLink, GraphNode, Rarity, RelationType } from '@/graph/types'
-import { relationReach } from '@/graph/transform'
+import { relationReach, resolveEndpoint } from '@/graph/transform'
+import { ghostFade, ghostAlphas } from '@/graph/ghost-fade'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR, FOREST_COLOURS, withAlpha } from '@/graph/colours'
 import { makeLabelRenderer, makeLabelObject, makeGroundLabel, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle, type BacklinkRow } from '@/graph/label-layer'
 import { forestDepthForce, FOREST_FADE_MS, type ForestNodeInfo, type ForestOverlay, type ForestTarget } from '@/graph/forest'
@@ -14,9 +15,13 @@ import { normaliseJudgement } from '../types/grading'
 
 const EDGE_COLOUR = 'rgba(232, 224, 212, 0.15)'
 const EDGE_COLOUR_DIM = 'rgba(232, 224, 212, 0.08)'
-// Ghosts (glimpsed words not yet opened) are a hint of more beyond, not a reading.
-const EDGE_COLOUR_GHOST = 'rgba(232, 224, 212, 0.04)'
-const GHOST_ALPHA = 0.3
+// Ghost edges share the thesaurus edge colour; their alpha comes from ghostAlphas.
+const EDGE_RGB = '232, 224, 212'
+// Label opacity the forest's recede/dim states apply (the stylesheet's values),
+// folded into a ghost label's own inline opacity.
+const LABEL_FADE_OPACITY = { recede: 0.45, dim: 0.18 } as const
+// A settling layout moves ghosts nearer or farther; re-check this often while it runs.
+const GHOST_FADE_TICK_MS = 250
 
 // Metaphor forest emphasis. Thesaurus marks recede while a forest is shown so
 // the forest reads as the figure; anything off a lit path recedes further.
@@ -134,9 +139,9 @@ export class MfForceGraph extends LitElement {
         transition: background 120ms ease;
       }
     }
-    /* A ghost's label appears only while it is hovered. */
-    .mf-graph-label[data-ghost]:not(.label-hovered) {
-      opacity: 0;
+    /* A ghost's label fades with its node (inline opacity); hovered, it shows in full. */
+    .mf-graph-label[data-ghost].label-hovered {
+      opacity: 1 !important;
     }
     .mf-graph-label.label-hovered {
       background: rgba(255, 255, 255, 0.18);
@@ -286,6 +291,10 @@ export class MfForceGraph extends LitElement {
   private clickTimer: ReturnType<typeof setTimeout> | null = null
   private resizeObserver: ResizeObserver | null = null
   private previousHoveredNode: GraphNode | null = null
+  // Each placed ghost's fade level (ghostFade) for the current camera.
+  private ghostFades = new Map<string, number>()
+  private ghostFadeFrame: number | null = null
+  private lastGhostFadeTick = 0
   // Hover comes from the sphere raycast or, failing that, a label hit test.
   private sphereHover: GraphNode | null = null
   private labelHover: GraphNode | null = null
@@ -371,8 +380,8 @@ export class MfForceGraph extends LitElement {
     const base = node.relationType === 'central'
       ? NODE_COLOURS.central
       : RARITY_COLOURS[node.rarity ?? 'unusual'] ?? DEFAULT_NODE_COLOUR
-    const ghost = node.ghost ? GHOST_ALPHA : 1
-    if (!this.activeForest) return node.ghost ? withAlpha(base, GHOST_ALPHA) : base
+    const ghost = node.ghost ? ghostAlphas(this.fadeOf(node.id)).node : 1
+    if (!this.activeForest) return node.ghost ? withAlpha(base, ghost) : base
     const info = this.forestInfo(node)
     if (!info) return withAlpha(base, Math.round((this.forestLit ? 0.18 : 0.55) * ghost * 100) / 100)
     if (info.role === 'source') return NODE_COLOURS.central
@@ -406,7 +415,7 @@ export class MfForceGraph extends LitElement {
       }
       return link.order >= 2 || this.forestLit ? FOREST_EDGE_THESAURUS_DIM : FOREST_EDGE_THESAURUS
     }
-    if (link.ghost) return EDGE_COLOUR_GHOST
+    if (link.ghost) return `rgba(${EDGE_RGB}, ${ghostAlphas(this.ghostLinkFade(link)).edge})`
     return link.order >= 2 ? EDGE_COLOUR_DIM : EDGE_COLOUR
   }
 
@@ -472,6 +481,66 @@ export class MfForceGraph extends LitElement {
     el.style.animationDelay = stream === 'fading'
       ? `${-Math.round((1 - this.fadeLeft(this.forestInfo(n)?.fadeUntil)) * FOREST_FADE_MS)}ms`
       : ''
+    this.applyGhostLabel(el, n)
+  }
+
+  // --- Ghost zoom fade ---
+
+  private fadeOf(id: string): number {
+    return this.ghostFades.get(id) ?? 0
+  }
+
+  /** A ghost edge fades with whichever of its ends is a ghost. */
+  private ghostLinkFade(link: GraphLink): number {
+    const ends = [link.source, link.target].map(resolveEndpoint)
+    return Math.max(...ends.map(id => this.ghostFades.get(id) ?? -1), 0)
+  }
+
+  /** A ghost label carries its fade as inline opacity, scaled by any forest
+   *  recede/dim so a forest can only dim it further, never reveal it. */
+  private applyGhostLabel(el: HTMLElement, n: unknown): void {
+    const node = n as GraphNode
+    if (this.mode !== 'browse' || !node.ghost) return
+    const forest = el.hasAttribute('data-dim') ? LABEL_FADE_OPACITY.dim : el.hasAttribute('data-recede') ? LABEL_FADE_OPACITY.recede : 1
+    const opacity = String(Math.round(ghostAlphas(this.fadeOf(node.id)).label * forest * 1000) / 1000)
+    if (el.style.opacity !== opacity) el.style.opacity = opacity
+  }
+
+  private scheduleGhostFades = (): void => {
+    if (this.ghostFadeFrame === null) this.ghostFadeFrame = requestAnimationFrame(this.updateGhostFades)
+  }
+
+  private onEngineTickFn = (): void => {
+    const now = performance.now()
+    if (now - this.lastGhostFadeTick < GHOST_FADE_TICK_MS) return
+    this.lastGhostFadeTick = now
+    this.scheduleGhostFades()
+  }
+
+  /** Re-read each ghost's camera distance. Labels update directly; the colour
+   *  accessors re-run only when some ghost crossed a fade step. O(n). */
+  private updateGhostFades = (): void => {
+    this.ghostFadeFrame = null
+    if (!this.graph || this.mode !== 'browse') return
+    const camera = (this.graph.camera() as { position: Vec3 }).position
+    const nodes = (this.graph.graphData() as unknown as { nodes?: GraphNode[] }).nodes ?? []
+    const fades = new Map<string, number>()
+    let changed = false
+    for (const n of nodes) {
+      if (!n.ghost || n.x === undefined || n.y === undefined || n.z === undefined) continue
+      const fade = ghostFade(Math.hypot(n.x - camera.x, n.y - camera.y, n.z - camera.z), this.labelRefDist)
+      fades.set(n.id, fade)
+      if (this.ghostFades.get(n.id) !== fade) changed = true
+    }
+    if (!changed && fades.size === this.ghostFades.size) return
+    this.ghostFades = fades
+    for (const n of nodes) {
+      if (!n.ghost) continue
+      const label = (n as { __threeObj?: { children?: Array<{ isCSS2DObject?: boolean; element: HTMLElement }> } })
+        .__threeObj?.children?.find(c => c.isCSS2DObject)
+      if (label) this.applyGhostLabel(label.element, n)
+    }
+    this.graph.nodeColor(this.nodeColorFn).linkColor(this.linkColorFn)
   }
 
   /** Run the stream animation while any streamed link is pending or fading,
@@ -938,6 +1007,7 @@ export class MfForceGraph extends LitElement {
       .d3VelocityDecay(0.85)
       .d3AlphaDecay(0.005)
       .cooldownTime(30000)
+      .onEngineTick(this.onEngineTickFn)
       .warmupTicks(50)
       .linkColor(this.linkColorFn)
       .linkWidth(this.linkWidthFn)
@@ -1051,7 +1121,12 @@ export class MfForceGraph extends LitElement {
         controls.enableDamping = true
         controls.dampingFactor = 0.05
       }
+      this.scheduleGhostFades()
     })
+
+    // Zooming, orbiting and camera flights all move the camera relative to ghosts.
+    const controls = this.graph.controls() as { addEventListener?: (type: string, fn: () => void) => void }
+    if (typeof controls.addEventListener === 'function') controls.addEventListener('change', this.scheduleGhostFades)
 
     this.resizeObserver = new ResizeObserver(() => this.syncDimensions())
     this.resizeObserver.observe(this.container)
@@ -1091,6 +1166,7 @@ export class MfForceGraph extends LitElement {
       this.frameGradeGraph()
     } else if (data.nodes.length) {
       this.graph.graphData(data as GraphData)
+      this.scheduleGhostFades()
     }
   }
 
@@ -1188,6 +1264,7 @@ export class MfForceGraph extends LitElement {
     super.disconnectedCallback()
     if (this.clickTimer) clearTimeout(this.clickTimer)
     if (this.labelHoverFrame !== null) cancelAnimationFrame(this.labelHoverFrame)
+    if (this.ghostFadeFrame !== null) cancelAnimationFrame(this.ghostFadeFrame)
     if (this.gradeFrameTimer) clearTimeout(this.gradeFrameTimer)
     this.forestFrameTimers.forEach(clearTimeout)
     if (this.streamTimer) clearTimeout(this.streamTimer)
