@@ -85,27 +85,54 @@ export function transformLookupToGraph(
   }
 }
 
-const DEFAULT_MAX_SECOND_ORDER = 30
+const DEFAULT_MAX_EXPANSION = 30
+
+/** Node size by depth from the central node: the centre is largest, direct
+ *  synonyms next, everything further out small. */
+function valFor(order: number, relationType: RelationType): number {
+  if (order === 0) return 8
+  if (order === 1) return relationType === 'synonym' ? 4 : 2
+  return 1
+}
 
 /**
- * Merge second-order lookup results into an existing graph.
- *
- * When a user selects a first-order node, we fetch that node's thesaurus
- * data and merge it as second-order nodes/links into the existing graph.
- *
- * - Existing nodes are NOT duplicated — only a cross-link is added
- * - New nodes get `order: 2` and `val: 1` (small)
- * - The selected node itself is skipped (already in graph)
- * - Priority: synonyms > hyponyms > hypernyms > similar
- * - New second-order nodes are capped at maxSecondOrder
+ * Resolve a link endpoint to its node ID string.
+ * d3-force mutates source/target from strings to full node objects at runtime,
+ * so we must handle both representations.
  */
-export function mergeSecondOrderGraph(
+function resolveEndpoint(endpoint: unknown): string {
+  if (typeof endpoint === 'string') return endpoint
+  return (endpoint as GraphNode).id
+}
+
+function pairKey(a: string, b: string): string {
+  return a < b ? JSON.stringify([a, b]) : JSON.stringify([b, a])
+}
+
+/**
+ * Expand one node of an existing graph with that node's own lookup result.
+ *
+ * Expansion is recursive: any node can be expanded, and its new neighbours
+ * sit one level deeper than it (`order + 1`).
+ *
+ * - Existing nodes are NOT duplicated — only a link is added, and only when
+ *   the pair is not already joined
+ * - New nodes get `order: parent.order + 1` and a small `val`
+ * - Priority: synonyms > hyponyms > hypernyms > similar
+ * - New nodes are capped at maxNew, so one click adds a bounded amount
+ */
+export function mergeExpansion(
   existingGraph: GraphData,
   selectedNodeId: string,
   secondaryResult: LookupResult,
-  maxSecondOrder = DEFAULT_MAX_SECOND_ORDER,
+  maxNew = DEFAULT_MAX_EXPANSION,
 ): GraphData {
+  const parent = existingGraph.nodes.find(n => n.id === selectedNodeId)
+  if (!parent) return existingGraph
+  const order = parent.order + 1
+
   const existingNodeIds = new Set(existingGraph.nodes.map(n => n.id))
+  const joined = new Set(existingGraph.links.map(l => pairKey(resolveEndpoint(l.source), resolveEndpoint(l.target))))
   const newNodes: GraphNode[] = []
   const newLinks: GraphLink[] = []
 
@@ -124,8 +151,7 @@ export function mergeSecondOrderGraph(
     tiers[3].words.push(...sense.relations.similar)
   }
 
-  let remaining = maxSecondOrder
-  const addedNodeIds = new Set<string>()
+  let remaining = maxNew
 
   for (const tier of tiers) {
     if (remaining <= 0) break
@@ -134,44 +160,31 @@ export function mergeSecondOrderGraph(
       if (remaining <= 0) break
 
       const nodeId = rw.word
-
-      // Skip the selected node itself (already in graph as first-order)
       if (nodeId === selectedNodeId) continue
+      const key = pairKey(selectedNodeId, nodeId)
+      if (joined.has(key)) continue
+      joined.add(key)
 
-      // Skip if we already added this as a second-order node in this merge
-      if (addedNodeIds.has(nodeId)) continue
-
-      if (existingNodeIds.has(nodeId)) {
-        // Node exists — add cross-link only (no duplicate node)
-        newLinks.push({
-          source: selectedNodeId,
-          target: nodeId,
-          relationType: tier.type,
-          order: 2,
-        })
-        addedNodeIds.add(nodeId)
-      } else {
-        // New node — create as second-order
+      if (!existingNodeIds.has(nodeId)) {
         newNodes.push({
           id: nodeId,
           word: rw.word,
           synsetId: rw.synset_id,
           relationType: tier.type,
-          val: 1,
+          val: valFor(order, tier.type),
           rarity: toRarity(rw.rarity),
-          order: 2,
+          order,
         })
-
-        newLinks.push({
-          source: selectedNodeId,
-          target: nodeId,
-          relationType: tier.type,
-          order: 2,
-        })
-
-        addedNodeIds.add(nodeId)
+        existingNodeIds.add(nodeId)
         remaining--
       }
+
+      newLinks.push({
+        source: selectedNodeId,
+        target: nodeId,
+        relationType: tier.type,
+        order,
+      })
     }
   }
 
@@ -181,32 +194,71 @@ export function mergeSecondOrderGraph(
   }
 }
 
-/**
- * Resolve a link endpoint to its node ID string.
- * d3-force mutates source/target from strings to full node objects at runtime,
- * so we must handle both representations.
- */
-function resolveEndpoint(endpoint: unknown): string {
-  if (typeof endpoint === 'string') return endpoint
-  return (endpoint as GraphNode).id
-}
+/** The relation a link names, read from its target's end back to its source. */
+const INVERSE: Partial<Record<RelationType, RelationType>> = { hyponym: 'hypernym', hypernym: 'hyponym' }
+
+/** Simulation state d3-force writes onto a node; carried across so a
+ *  re-centred node stays exactly where it was. */
+const SIM_FIELDS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'fx', 'fy', 'fz'] as const
 
 /**
- * Strip all second-order nodes and their links from a graph.
- * Used when switching selection to clear previous second-order expansion.
+ * Re-centre a graph on one of its nodes, keeping every node and link.
+ *
+ * The chosen node becomes the central node; depths, sizes and link orders are
+ * recomputed breadth-first from it, and the old centre takes the relation of
+ * the link that now reaches it. Nodes come back as fresh objects (so the
+ * renderer rebuilds their labels) carrying their simulation positions, and
+ * links come back with string endpoints so d3 resolves them to those objects.
  */
-export function stripSecondOrderNodes(graph: GraphData): GraphData {
-  const secondOrderIds = new Set(
-    graph.nodes.filter(n => n.order === 2).map(n => n.id),
-  )
+export function recentreGraph(graph: GraphData, centreId: string): GraphData {
+  if (!graph.nodes.some(n => n.id === centreId)) return graph
 
-  return {
-    nodes: graph.nodes.filter(n => n.order !== 2),
-    links: graph.links.filter(
-      l =>
-        l.order !== 2 &&
-        !secondOrderIds.has(resolveEndpoint(l.source)) &&
-        !secondOrderIds.has(resolveEndpoint(l.target)),
-    ),
+  const adjacency = new Map<string, { other: string; relation: RelationType }[]>()
+  const edge = (from: string, other: string, relation: RelationType) => {
+    const list = adjacency.get(from) ?? []
+    list.push({ other, relation })
+    adjacency.set(from, list)
   }
+  for (const l of graph.links) {
+    const s = resolveEndpoint(l.source)
+    const t = resolveEndpoint(l.target)
+    edge(s, t, l.relationType)
+    edge(t, s, INVERSE[l.relationType] ?? l.relationType)
+  }
+
+  const depth = new Map<string, number>([[centreId, 0]])
+  const reachedBy = new Map<string, RelationType>()
+  const queue = [centreId]
+  for (let i = 0; i < queue.length; i++) {
+    const id = queue[i]
+    for (const { other, relation } of adjacency.get(id) ?? []) {
+      if (depth.has(other)) continue
+      depth.set(other, depth.get(id)! + 1)
+      reachedBy.set(other, relation)
+      queue.push(other)
+    }
+  }
+
+  const nodes = graph.nodes.map(n => {
+    const order = depth.get(n.id) ?? n.order
+    const relationType: RelationType = n.id === centreId
+      ? 'central'
+      : n.relationType === 'central' ? reachedBy.get(n.id) ?? 'synonym' : n.relationType
+    const node: GraphNode = {
+      id: n.id, word: n.word, synsetId: n.synsetId, relationType,
+      val: valFor(order, relationType), rarity: n.rarity, order,
+    }
+    for (const f of SIM_FIELDS) {
+      const v = (n as unknown as Record<string, unknown>)[f]
+      if (v !== undefined) (node as unknown as Record<string, unknown>)[f] = v
+    }
+    return node
+  })
+  const orderOf = new Map(nodes.map(n => [n.id, n.order]))
+  const links = graph.links.map(l => {
+    const source = resolveEndpoint(l.source)
+    const target = resolveEndpoint(l.target)
+    return { ...l, source, target, order: Math.max(orderOf.get(source) ?? 0, orderOf.get(target) ?? 0) }
+  })
+  return { nodes, links }
 }

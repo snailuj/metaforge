@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   transformLookupToGraph,
-  mergeSecondOrderGraph,
-  stripSecondOrderNodes,
+  mergeExpansion,
+  recentreGraph,
 } from './transform'
 import type { LookupResult } from '@/types/api'
 import type { GraphData, GraphLink } from './types'
@@ -214,10 +214,10 @@ const gloomLookup: LookupResult = {
   ],
 }
 
-describe('mergeSecondOrderGraph', () => {
+describe('mergeExpansion', () => {
   it('adds new second-order nodes with order 2 and val 1', () => {
     const base = makeFirstOrderGraph()
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
+    const merged = mergeExpansion(base, 'gloom', gloomLookup)
 
     const darkness = merged.nodes.find(n => n.word === 'darkness')
     expect(darkness).toBeDefined()
@@ -227,7 +227,7 @@ describe('mergeSecondOrderGraph', () => {
 
   it('does not duplicate existing first-order nodes', () => {
     const base = makeFirstOrderGraph()
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
+    const merged = mergeExpansion(base, 'gloom', gloomLookup)
 
     // "sadness" is already a first-order hypernym — should not be duplicated
     const sadnessNodes = merged.nodes.filter(n => n.word === 'sadness')
@@ -238,7 +238,7 @@ describe('mergeSecondOrderGraph', () => {
 
   it('creates cross-links to existing nodes with order 2', () => {
     const base = makeFirstOrderGraph()
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
+    const merged = mergeExpansion(base, 'gloom', gloomLookup)
 
     // "sadness" exists — should get a cross-link from "gloom" with order 2
     const crossLink = merged.links.find(
@@ -249,7 +249,7 @@ describe('mergeSecondOrderGraph', () => {
 
   it('second-order links have order 2', () => {
     const base = makeFirstOrderGraph()
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
+    const merged = mergeExpansion(base, 'gloom', gloomLookup)
 
     const secondOrderLinks = merged.links.filter(l => l.order === 2)
     expect(secondOrderLinks.length).toBeGreaterThan(0)
@@ -265,7 +265,7 @@ describe('mergeSecondOrderGraph', () => {
     // "gloom" is the selected node and also appears as the central word
     // of gloomLookup — it should not create a self-link
     const base = makeFirstOrderGraph()
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
+    const merged = mergeExpansion(base, 'gloom', gloomLookup)
 
     const selfLink = merged.links.find(
       l => l.source === 'gloom' && l.target === 'gloom',
@@ -291,7 +291,7 @@ describe('mergeSecondOrderGraph', () => {
       ],
     }
 
-    const merged = mergeSecondOrderGraph(base, 'gloom', bigLookup, 10)
+    const merged = mergeExpansion(base, 'gloom', bigLookup, 10)
     const secondOrderNodes = merged.nodes.filter(n => n.order === 2)
     expect(secondOrderNodes.length).toBeLessThanOrEqual(10)
   })
@@ -322,7 +322,7 @@ describe('mergeSecondOrderGraph', () => {
     }
 
     // Cap at 5 — should get all synonyms, no hypernyms
-    const merged = mergeSecondOrderGraph(base, 'gloom', priorityLookup, 5)
+    const merged = mergeExpansion(base, 'gloom', priorityLookup, 5)
     const secondOrderNodes = merged.nodes.filter(n => n.order === 2)
     const synNodes = secondOrderNodes.filter(n => n.relationType === 'synonym')
     expect(synNodes.length).toBe(5)
@@ -337,7 +337,7 @@ describe('mergeSecondOrderGraph', () => {
     const baseNodeCount = base.nodes.length
     const baseLinkCount = base.links.length
 
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
+    const merged = mergeExpansion(base, 'gloom', gloomLookup)
 
     // All original nodes still present
     for (const node of base.nodes) {
@@ -353,107 +353,117 @@ describe('mergeSecondOrderGraph', () => {
     const originalNodeCount = base.nodes.length
     const originalLinkCount = base.links.length
 
-    mergeSecondOrderGraph(base, 'gloom', gloomLookup)
+    mergeExpansion(base, 'gloom', gloomLookup)
 
     expect(base.nodes.length).toBe(originalNodeCount)
     expect(base.links.length).toBe(originalLinkCount)
   })
 })
 
-describe('stripSecondOrderNodes', () => {
-  it('removes all order-2 nodes', () => {
-    const base = makeFirstOrderGraph()
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
+describe('mergeExpansion, recursively', () => {
+  const darknessLookup: LookupResult = {
+    word: 'darkness',
+    senses: [{
+      synset_id: '72861',
+      pos: 'noun',
+      definition: 'absence of light',
+      synonyms: [
+        { word: 'shadow', synset_id: '72990' },
+        { word: 'gloom', synset_id: '72859' }, // already joined to darkness
+      ],
+      relations: { hypernyms: [], hyponyms: [], similar: [] },
+    }],
+  }
 
-    // Verify there are second-order nodes to strip
-    expect(merged.nodes.some(n => n.order === 2)).toBe(true)
+  it('expands a second-order node into third-order nodes and links', () => {
+    const second = mergeExpansion(makeFirstOrderGraph(), 'gloom', gloomLookup)
+    const third = mergeExpansion(second, 'darkness', darknessLookup)
 
-    const stripped = stripSecondOrderNodes(merged)
-    const remaining = stripped.nodes.filter(n => n.order === 2)
-    expect(remaining.length).toBe(0)
+    const shadow = third.nodes.find(n => n.id === 'shadow')
+    expect(shadow).toMatchObject({ order: 3, val: 1, relationType: 'synonym' })
+    expect(third.links.find(l => l.source === 'darkness' && l.target === 'shadow')?.order).toBe(3)
   })
 
-  it('removes links connected to order-2 nodes', () => {
+  it('does not add a second link between nodes already joined', () => {
+    const second = mergeExpansion(makeFirstOrderGraph(), 'gloom', gloomLookup)
+    // d3-force swaps link endpoints for node objects once the graph is fed.
+    const byId = new Map(second.nodes.map(n => [n.id, n]))
+    const fed: GraphData = {
+      nodes: second.nodes,
+      links: second.links.map(l => ({ ...l, source: byId.get(l.source)!, target: byId.get(l.target)! })) as unknown as GraphLink[],
+    }
+    const third = mergeExpansion(fed, 'darkness', darknessLookup)
+
+    const ends = (l: GraphLink) => [l.source, l.target].map(e => typeof e === 'string' ? e : (e as { id: string }).id).sort().join('|')
+    expect(third.links.filter(l => ends(l) === 'darkness|gloom')).toHaveLength(1)
+  })
+
+  it('leaves the graph as it is when the node is not in it', () => {
     const base = makeFirstOrderGraph()
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
+    expect(mergeExpansion(base, 'nowhere', gloomLookup)).toBe(base)
+  })
+})
 
-    const stripped = stripSecondOrderNodes(merged)
+describe('recentreGraph', () => {
+  /** melancholy → gloom (first order) → darkness, murk, … (second order) */
+  function expanded(): GraphData {
+    return mergeExpansion(makeFirstOrderGraph(), 'gloom', gloomLookup)
+  }
 
-    // No link should reference a node that was removed
-    const nodeIds = new Set(stripped.nodes.map(n => n.id))
-    for (const link of stripped.links) {
-      expect(nodeIds.has(link.source as string)).toBe(true)
-      expect(nodeIds.has(link.target as string)).toBe(true)
+  it('makes the chosen node the central node', () => {
+    const g = recentreGraph(expanded(), 'gloom')
+    expect(g.nodes.find(n => n.id === 'gloom')).toMatchObject({ relationType: 'central', order: 0, val: 8 })
+    expect(g.nodes.filter(n => n.relationType === 'central')).toHaveLength(1)
+  })
+
+  it('turns the old centre into an ordinary node, inverting the relation that joins them', () => {
+    // gloom is a hyponym of melancholy, so from gloom melancholy is a hypernym.
+    const g = recentreGraph(expanded(), 'gloom')
+    expect(g.nodes.find(n => n.id === 'melancholy')).toMatchObject({ relationType: 'hypernym', order: 1, val: 2 })
+  })
+
+  it('recomputes every depth from the new centre', () => {
+    const g = recentreGraph(expanded(), 'gloom')
+    const order = (id: string) => g.nodes.find(n => n.id === id)!.order
+    expect(order('darkness')).toBe(1) // was second order
+    expect(order('black bile')).toBe(2) // was first order, now via melancholy
+    expect(g.nodes.find(n => n.id === 'darkness')!.val).toBe(4) // a first-order synonym
+    for (const l of g.links) {
+      expect(l.order).toBe(Math.max(order(l.source), order(l.target)))
     }
   })
 
-  it('removes order-2 cross-links even between first-order nodes', () => {
-    const base = makeFirstOrderGraph()
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
-
-    const stripped = stripSecondOrderNodes(merged)
-
-    // All order-2 links should be gone
-    const order2Links = stripped.links.filter(l => l.order === 2)
-    expect(order2Links.length).toBe(0)
-  })
-
-  it('preserves all first-order nodes and links', () => {
-    const base = makeFirstOrderGraph()
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
-
-    const stripped = stripSecondOrderNodes(merged)
-
-    // All original first-order nodes should remain
-    for (const node of base.nodes) {
-      expect(stripped.nodes.find(n => n.id === node.id)).toBeDefined()
+  it('keeps every node and link, with string endpoints, and carries positions across', () => {
+    const base = expanded()
+    const byId = new Map(base.nodes.map(n => [n.id, n]))
+    base.nodes.forEach((n, i) => Object.assign(n, { x: i, y: i * 2, z: i * 3, vx: 0.5 }))
+    const fed: GraphData = {
+      nodes: base.nodes,
+      links: base.links.map(l => ({ ...l, source: byId.get(l.source)!, target: byId.get(l.target)! })) as unknown as GraphLink[],
     }
+    const g = recentreGraph(fed, 'gloom')
 
-    // All original links (which have no order) should remain
-    for (const link of base.links) {
-      expect(
-        stripped.links.find(
-          l =>
-            l.source === link.source &&
-            l.target === link.target &&
-            l.relationType === link.relationType,
-        ),
-      ).toBeDefined()
+    expect(g.nodes.map(n => n.id)).toEqual(base.nodes.map(n => n.id))
+    expect(g.links).toHaveLength(base.links.length)
+    for (const l of g.links) {
+      expect(typeof l.source).toBe('string')
+      expect(typeof l.target).toBe('string')
     }
-  })
-
-  it('handles d3-force mutated links where source/target are objects', () => {
-    const base = makeFirstOrderGraph()
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
-
-    // Simulate d3-force mutation: replace string IDs with node objects
-    const nodeById = new Map(merged.nodes.map(n => [n.id, n]))
-    const mutated: GraphData = {
-      nodes: merged.nodes,
-      links: merged.links.map(l => ({
-        ...l,
-        source: nodeById.get(l.source as string) ?? l.source,
-        target: nodeById.get(l.target as string) ?? l.target,
-      })) as GraphLink[],
-    }
-
-    const stripped = stripSecondOrderNodes(mutated)
-
-    // No order-2 nodes should remain
-    expect(stripped.nodes.filter(n => n.order === 2).length).toBe(0)
-    // No order-2 links should remain
-    expect(stripped.links.filter(l => l.order === 2).length).toBe(0)
+    const gloom = g.nodes.find(n => n.id === 'gloom')!
+    const before = byId.get('gloom')!
+    expect(gloom).toMatchObject({ x: before.x, y: before.y, z: before.z, vx: 0.5 })
+    expect(gloom).not.toBe(before)
   })
 
   it('does not mutate the input graph', () => {
-    const base = makeFirstOrderGraph()
-    const merged = mergeSecondOrderGraph(base, 'gloom', gloomLookup)
-    const nodeCount = merged.nodes.length
-    const linkCount = merged.links.length
+    const base = expanded()
+    recentreGraph(base, 'gloom')
+    expect(base.nodes.find(n => n.id === 'melancholy')!.relationType).toBe('central')
+    expect(base.nodes.find(n => n.id === 'gloom')!.order).toBe(1)
+  })
 
-    stripSecondOrderNodes(merged)
-
-    expect(merged.nodes.length).toBe(nodeCount)
-    expect(merged.links.length).toBe(linkCount)
+  it('leaves the graph as it is when the node is not in it', () => {
+    const base = expanded()
+    expect(recentreGraph(base, 'nowhere')).toBe(base)
   })
 })
