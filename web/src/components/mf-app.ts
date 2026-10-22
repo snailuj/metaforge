@@ -1,7 +1,7 @@
 import { LitElement, html, css, type PropertyValues } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { lookupWord, ApiError, streamForest, ForestError } from '@/api/client'
-import { transformLookupToGraph, mergeExpansion } from '@/graph/transform'
+import { transformLookupToGraph, mergeExpansion, recentreGraph } from '@/graph/transform'
 import {
   composeForest, fadeMarks, forestToGraph, litPaths, nextFadeEnd, streamMarks, FOREST_FADE_MS,
   type ForestGraph, type ForestNodePool, type ForestOverlay, type ForestTarget, type StreamMarks,
@@ -29,6 +29,8 @@ import type {
 } from '@/types/grading'
 import { normaliseJudgement, senseInventoryKey } from '@/types/grading'
 import type { MfToast } from './mf-toast'
+import type { MfUndoToast } from './mf-undo-toast'
+import type { MfForceGraph } from './mf-force-graph'
 
 // Import components so they register
 import './mf-search-bar'
@@ -36,6 +38,7 @@ import './mf-force-graph'
 import './mf-results-panel'
 import './mf-forest-panel'
 import './mf-toast'
+import './mf-undo-toast'
 import './mf-error-banner'
 import './mf-topic-picker'
 import './mf-grade-panel'
@@ -49,6 +52,20 @@ import './mf-mobile-notes-overlay'
 type AppMode = 'browse' | 'grade'
 
 type AppState = 'idle' | 'loading' | 'ready' | 'error'
+
+/** Everything Back or Forward needs to put a browse view back on screen. */
+interface ViewSnapshot {
+  word: string
+  result: LookupResult
+  graph: GraphData
+  expanded: ReadonlyMap<string, LookupResult>
+  lastClickedId: string | null
+  forestWord: string
+}
+
+// Views kept for Back/Forward; older entries fall back to a fresh lookup.
+const MAX_VIEWS = 50
+const UNDO_TOAST_MS = 6000
 
 /** The paths a streaming request has drawn, or null when nothing streams. */
 function streamPaths(s: ForestState): Readonly<Record<string, StreamPath>> | null {
@@ -138,6 +155,46 @@ export class MfApp extends LitElement {
       display: flex;
       gap: var(--space-sm, 0.5rem);
       z-index: 15;
+    }
+
+    .recentre {
+      position: absolute;
+      top: calc(var(--space-md, 1rem) + 84px);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 15;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      max-width: calc(100% - 2rem);
+      padding: 0.3rem 0.9rem 0.3rem 0.7rem;
+      border: 1px solid var(--colour-accent-gold-dim, rgba(212, 175, 55, 0.5));
+      border-radius: 999px;
+      background: var(--colour-panel-deep, rgba(14, 22, 42, 0.88));
+      box-shadow: 0 0 18px var(--colour-forest-root-glow, rgba(212, 175, 55, 0.25));
+      color: var(--colour-accent-gold, #d4af37);
+      font-family: var(--font-heading, serif);
+      font-size: 0.8rem;
+      font-variant: small-caps;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+      transition: color 0.2s ease, text-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    .recentre:hover,
+    .recentre:focus-visible {
+      color: #f3d77a;
+      text-shadow: 0 0 10px rgba(212, 175, 55, 0.6);
+      background: rgba(26, 22, 10, 0.92);
+      outline: none;
+    }
+
+    .recentre-glyph {
+      font-size: 0.95rem;
+      line-height: 1;
     }
 
     .rarity-toggle {
@@ -490,10 +547,23 @@ export class MfApp extends LitElement {
   // The thesaurus graph on screen (the lookup plus every expansion the user
   // has clicked open); the forest is overlaid on it to give graphData.
   private thesaurusGraph: GraphData = { nodes: [], links: [] }
-  // Node ids whose relations are on the graph (the source counts), and those
-  // still being fetched, so a re-click never refetches or merges twice.
-  private expanded: ReadonlySet<string> = new Set()
+  // Node ids whose relations are on the graph, and those still being fetched.
+  // Each expanded node's lookup (the source's included) is kept, so a
+  // re-click never refetches and Re-Centre can show its results at once.
+  private expanded: ReadonlyMap<string, LookupResult> = new Map()
   private expanding = new Set<string>()
+  // The node a Re-Centre would centre on: the last one clicked.
+  @state() private lastClickedId: string | null = null
+  // Back/Forward: every history entry the app makes carries a view id, and the
+  // view on screen is saved under its id whenever the app leaves it.
+  private viewId = ''
+  // The word in the view's URL. Not currentWord, which a lookup sets as soon
+  // as it starts, while the old view is still on screen.
+  private viewWord = ''
+  private viewSeq = 0
+  // Ids outlive a page load in history.state, so they must not repeat across loads.
+  private readonly viewPrefix = Date.now().toString(36)
+  private views = new Map<string, ViewSnapshot>()
   private gradingClient = new GradingClient()
 
   private hiddenRarities: Set<Rarity> = new Set()
@@ -577,26 +647,140 @@ export class MfApp extends LitElement {
     // Check URL hash for initial word
     const hashWord = this.getWordFromHash()
     if (hashWord) {
-      this.doLookup(hashWord)
+      this.doLookup(hashWord, { history: 'replace' })
     }
 
+    window.addEventListener('popstate', this.handlePopState)
     window.addEventListener('hashchange', this.handleHashChange)
     window.addEventListener('resize', this.handleResize)
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback()
+    window.removeEventListener('popstate', this.handlePopState)
     window.removeEventListener('hashchange', this.handleHashChange)
     window.removeEventListener('resize', this.handleResize)
     if (this.forestFadeTimer) clearTimeout(this.forestFadeTimer)
     this.forestFadeTimer = null
   }
 
+  // The browser already made the entry (a typed URL, or Back to an entry the
+  // app holds no view for), so the lookup takes it over rather than pushing.
   private handleHashChange = () => {
     const word = this.getWordFromHash()
     if (word && word !== this.currentWord) {
-      this.doLookup(word)
+      this.doLookup(word, { history: 'replace' })
     }
+  }
+
+  /** Back/Forward onto an entry whose view is still in memory: put it back as
+   *  it was left. Anything else falls through to the hashchange lookup. */
+  private handlePopState = () => {
+    // history.state is the popped entry's state, the same object as e.state.
+    const id = (history.state as { mfView?: unknown } | null)?.mfView
+    const snapshot = typeof id === 'string' ? this.views.get(id) : undefined
+    if (!snapshot) {
+      console.debug('[mf-app] popstate without a held view', { id })
+      return
+    }
+    this.saveView()
+    this.restoreView(id as string, snapshot)
+  }
+
+  private saveView(): void {
+    if (!this.viewId || !this.result) return
+    this.views.delete(this.viewId) // re-insert so eviction drops the least recent
+    this.views.set(this.viewId, {
+      word: this.viewWord,
+      result: this.result,
+      graph: this.thesaurusGraph,
+      expanded: this.expanded,
+      lastClickedId: this.lastClickedId,
+      forestWord: this.forestState.word,
+    })
+    while (this.views.size > MAX_VIEWS) {
+      const oldest = this.views.keys().next().value as string
+      this.views.delete(oldest)
+      console.debug('[mf-app] evicted view', { id: oldest })
+    }
+  }
+
+  /** Give the view now on screen its own history entry: a new one, or the
+   *  current entry when the browser has already made it. */
+  private enterView(word: string, mode: 'push' | 'replace'): void {
+    this.viewId = `${this.viewPrefix}-${++this.viewSeq}`
+    this.viewWord = word
+    const url = `#/word/${encodeURIComponent(word)}`
+    if (mode === 'push') history.pushState({ mfView: this.viewId }, '', url)
+    else history.replaceState({ mfView: this.viewId }, '', url)
+  }
+
+  private restoreView(id: string, v: ViewSnapshot): void {
+    ++this.lookupId // a lookup still in flight belonged to the view being left
+    ++this.graphGen
+    this.viewId = id
+    this.viewWord = v.word
+    this.currentWord = v.word
+    this.result = v.result
+    this.thesaurusGraph = v.graph
+    this.expanded = v.expanded
+    this.expanding = new Set()
+    this.lastClickedId = v.lastClickedId
+    this.appState = 'ready'
+    this.errorMessage = ''
+    this.undoToast?.hide()
+    this.dispatchForest({ type: 'word-committed', word: v.forestWord })
+    this.recomposeGraph()
+    console.info('[mf-app] restored view', { id, word: v.word, nodes: v.graph.nodes.length })
+    void this.focusSource()
+  }
+
+  private get undoToast(): MfUndoToast | null {
+    return this.shadowRoot?.querySelector('mf-undo-toast') ?? null
+  }
+
+  /** Fly the camera to the source node once the graph has the new data. */
+  private async focusSource(): Promise<void> {
+    await this.updateComplete
+    const source = this.thesaurusGraph.nodes.find(n => n.relationType === 'central')
+    const graph = this.shadowRoot?.querySelector('mf-force-graph') as MfForceGraph | null
+    if (!source || !graph) return
+    await graph.updateComplete // it feeds the library the new nodes in its own update
+    graph.focusNode(source.id)
+  }
+
+  /** Make the last-clicked node the source. Every node stays where it is; the
+   *  camera, search box and results move to it, and Back undoes it. */
+  private async recentre(): Promise<void> {
+    const node = this.thesaurusGraph.nodes.find(n => n.id === this.lastClickedId)
+    if (!node || node.relationType === 'central') return
+    const gen = this.graphGen
+    let result = this.expanded.get(node.id)
+    try {
+      result ??= await lookupWord(node.word)
+    } catch (err) {
+      console.warn('[mf-app] re-centre lookup failed', { nodeId: node.id, word: node.word }, err)
+      const toast = this.shadowRoot?.querySelector('mf-toast') as MfToast | null
+      toast?.show(getString('recentre-failed', { word: node.word }), 4000)
+      return
+    }
+    if (gen !== this.graphGen) return // the graph was replaced meanwhile
+
+    this.saveView()
+    this.thesaurusGraph = recentreGraph(this.thesaurusGraph, node.id)
+    this.expanded = new Map(this.expanded).set(node.id, result)
+    this.currentWord = node.word
+    this.result = result
+    this.lastClickedId = null
+    this.recomposeGraph()
+    this.enterView(node.word, 'push')
+    console.info('[mf-app] re-centred', { word: node.word, nodes: this.thesaurusGraph.nodes.length })
+    this.undoToast?.show(getString('undo-recentred', { word: node.word }), UNDO_TOAST_MS)
+    await this.focusSource()
+  }
+
+  private handleUndo(): void {
+    history.back()
   }
 
   private getWordFromHash(): string | null {
@@ -604,23 +788,19 @@ export class MfApp extends LitElement {
     return match ? decodeURIComponent(match[1]) : null
   }
 
-  private setWordHash(word: string) {
-    const newHash = `#/word/${encodeURIComponent(word)}`
-    if (window.location.hash !== newHash) {
-      window.location.hash = newHash
-    }
-  }
-
   private async handleSearch(e: CustomEvent<{ word: string }>) {
     this.doLookup(e.detail.word)
   }
 
+  /** Double-click: start afresh at the node's word, with Undo on offer. */
   private async handleNodeNavigate(e: CustomEvent<{ id?: string; word: string }>) {
     const node = e.detail
     if (node.word) {
       // Forest words are often phrases the thesaurus lacks; look them up softly.
       const fromForest = !!node.id && !!this.forestOverlay?.byNodeId.has(node.id)
-      this.doLookup(node.word, { soft: fromForest })
+      if (await this.doLookup(node.word, { soft: fromForest })) {
+        this.undoToast?.show(getString('undo-started-over', { word: node.word }), UNDO_TOAST_MS)
+      }
     }
   }
 
@@ -628,6 +808,7 @@ export class MfApp extends LitElement {
    *  source and every earlier expansion where they are. */
   private async handleNodeSelect(e: CustomEvent<GraphNode>) {
     const node = e.detail
+    this.lastClickedId = node.relationType === 'central' ? null : node.id
     if (node.relationType === 'central') return
     if (this.expanded.has(node.id) || this.expanding.has(node.id)) {
       console.debug('[mf-app] node already expanded', { nodeId: node.id })
@@ -640,7 +821,7 @@ export class MfApp extends LitElement {
       const result = await lookupWord(node.word)
       if (gen !== this.graphGen) return // stale — the graph was replaced meanwhile
       this.thesaurusGraph = mergeExpansion(this.thesaurusGraph, node.id, result)
-      this.expanded = new Set(this.expanded).add(node.id)
+      this.expanded = new Map(this.expanded).set(node.id, result)
       console.debug('[mf-app] expanded node', { nodeId: node.id, nodes: this.thesaurusGraph.nodes.length })
       this.recomposeGraph()
     } catch (err) {
@@ -1290,8 +1471,14 @@ export class MfApp extends LitElement {
 
   /** `soft` (lookups started from the forest): the search box changes only on
    *  success, and a 404 leaves the page as it was with a toast, because forest
-   *  words are often phrases the thesaurus does not have. */
-  private async doLookup(word: string, { soft = false }: { soft?: boolean } = {}) {
+   *  words are often phrases the thesaurus does not have.
+   *  `history`: 'push' gives the new view its own entry, so Back returns to the
+   *  one it replaces; 'replace' takes over an entry the browser already made.
+   *  Resolves true when the new view is on screen. */
+  private async doLookup(
+    word: string,
+    { soft = false, history: entry = 'push' }: { soft?: boolean; history?: 'push' | 'replace' } = {},
+  ): Promise<boolean> {
     const id = ++this.lookupId
     if (!soft) this.currentWord = word
     this.appState = 'loading'
@@ -1299,7 +1486,9 @@ export class MfApp extends LitElement {
 
     try {
       const result = await lookupWord(word)
-      if (id !== this.lookupId) return // stale — a newer lookup superseded this one
+      if (id !== this.lookupId) return false // stale — a newer lookup superseded this one
+      this.saveView()
+      this.undoToast?.hide() // its offer was about the view being replaced
       this.currentWord = word
       this.result = result
       const graph = transformLookupToGraph(result)
@@ -1307,20 +1496,22 @@ export class MfApp extends LitElement {
       const crossLinks = computeCrossLinks(result, nodeIds)
       ++this.graphGen // invalidate any in-flight expansion
       this.thesaurusGraph = { nodes: graph.nodes, links: [...graph.links, ...crossLinks] }
-      this.expanded = new Set([result.word])
+      this.expanded = new Map([[result.word, result]])
       this.expanding = new Set()
+      this.lastClickedId = null
       this.dispatchForest({ type: 'word-committed', word: result.word })
       this.recomposeGraph()
       this.appState = 'ready'
-      this.setWordHash(word)
+      this.enterView(word, entry)
+      return true
     } catch (err) {
-      if (id !== this.lookupId) return // stale
+      if (id !== this.lookupId) return false // stale
       if (soft && this.result && err instanceof ApiError && err.status === 404) {
         console.info('[forest] forest word not in the thesaurus', { word })
         this.appState = 'ready'
         const toast = this.shadowRoot?.querySelector('mf-toast') as MfToast | null
         toast?.show(getString('forest-lookup-missing', { word }), 5000)
-        return
+        return false
       }
       this.appState = 'error'
       if (err instanceof ApiError && err.status === 404) {
@@ -1328,7 +1519,18 @@ export class MfApp extends LitElement {
       } else {
         this.errorMessage = getString('error-generic')
       }
+      return false
     }
+  }
+
+  private renderRecentre() {
+    const node = this.lastClickedId ? this.thesaurusGraph.nodes.find(n => n.id === this.lastClickedId) : undefined
+    if (!node || node.relationType === 'central') return ''
+    return html`
+      <button class="recentre" type="button" @click=${() => void this.recentre()}>
+        <span class="recentre-glyph" aria-hidden="true">◎</span>${getString('recentre-button', { word: node.word })}
+      </button>
+    `
   }
 
   private renderBrowseMode() {
@@ -1382,6 +1584,8 @@ export class MfApp extends LitElement {
             </div>
           `
         : ''}
+
+      ${this.appState === 'ready' ? this.renderRecentre() : ''}
 
       <mf-force-graph
         .graphData=${this.graphData}
@@ -1727,6 +1931,7 @@ export class MfApp extends LitElement {
         : this.renderBrowseMode()}
 
       <mf-toast></mf-toast>
+      <mf-undo-toast .actionLabel=${getString('undo-action')} @mf-undo=${this.handleUndo}></mf-undo-toast>
     `
   }
 }

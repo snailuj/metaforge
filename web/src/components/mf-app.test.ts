@@ -708,6 +708,251 @@ describe('MfApp', () => {
   })
 })
 
+/**
+ * happy-dom's history.back()/forward() do nothing, so replay the entries the
+ * app pushes and fire popstate the way a browser would.
+ */
+function installFakeHistory() {
+  const realPush = history.pushState.bind(history)
+  const realReplace = history.replaceState.bind(history)
+  const entries: { state: unknown; url: string }[] = [{ state: history.state, url: location.hash || '#' }]
+  let index = 0
+  const go = (delta: number) => {
+    const next = index + delta
+    if (next < 0 || next >= entries.length) return
+    index = next
+    const { state, url } = entries[index]
+    const hashBefore = location.hash
+    realReplace(state, '', url)
+    window.dispatchEvent(new PopStateEvent('popstate', { state }))
+    if (location.hash !== hashBefore) window.dispatchEvent(new HashChangeEvent('hashchange'))
+  }
+  const spies = [
+    vi.spyOn(history, 'pushState').mockImplementation((state, _t, url) => {
+      entries.splice(index + 1)
+      entries.push({ state, url: String(url) })
+      index++
+      realPush(state, '', url)
+    }),
+    vi.spyOn(history, 'replaceState').mockImplementation((state, _t, url) => {
+      entries[index] = { state, url: url === undefined || url === null ? entries[index].url : String(url) }
+      realReplace(state, '', url)
+    }),
+    vi.spyOn(history, 'back').mockImplementation(() => go(-1)),
+    vi.spyOn(history, 'forward').mockImplementation(() => go(1)),
+  ]
+  return { entries, get index() { return index }, restore: () => spies.forEach(sp => sp.mockRestore()) }
+}
+
+describe('MfApp re-centre and navigation history', () => {
+  let el: MfApp
+  let fakeHistory: ReturnType<typeof installFakeHistory>
+
+  const flameLookup: LookupResult = {
+    word: 'flame',
+    senses: [{
+      synset_id: '1', pos: 'noun', definition: 'fire',
+      synonyms: [{ word: 'spark', synset_id: '20' }],
+      relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+    }],
+  }
+
+  const central = () => (el as any).graphData.nodes.find((n: any) => n.relationType === 'central')?.id
+  const nodeIds = () => (el as any).graphData.nodes.map((n: any) => n.id).sort()
+  const recentreButton = () => el.shadowRoot!.querySelector('.recentre') as HTMLButtonElement | null
+  const undoToast = () => el.shadowRoot!.querySelector('mf-undo-toast') as any
+
+  async function recentre(): Promise<void> {
+    recentreButton()!.click()
+    await settle(el)
+    await settle(el)
+  }
+
+  async function navigate(id: string, result: LookupResult): Promise<void> {
+    vi.mocked(lookupWord).mockResolvedValueOnce(result)
+    el.shadowRoot!.querySelector('mf-force-graph')?.dispatchEvent(new CustomEvent('mf-node-navigate', {
+      detail: { id, word: id }, bubbles: true, composed: true,
+    }))
+    await settle(el)
+    await settle(el)
+  }
+
+  beforeEach(async () => {
+    history.replaceState(null, '', '#')
+    fakeHistory = installFakeHistory()
+    el = new MfApp()
+    document.body.appendChild(el)
+    await settle(el)
+    vi.mocked(lookupWord).mockResolvedValue(mockResult)
+    await search(el, 'fire')
+  })
+
+  afterEach(() => {
+    document.body.removeChild(el)
+    fakeHistory.restore()
+    vi.restoreAllMocks()
+    history.replaceState(null, '', '#')
+  })
+
+  it('offers Re-Centre only once a non-source node has been clicked', async () => {
+    expect(recentreButton()).toBeNull()
+    await select(el, 'blaze', blazeLookup)
+    expect(recentreButton()).not.toBeNull()
+  })
+
+  it('a click on the source withdraws the offer', async () => {
+    await select(el, 'blaze', blazeLookup)
+    await select(el, 'fire', mockResult)
+    expect(recentreButton()).toBeNull()
+  })
+
+  it('re-centres on the last-clicked node, keeping every expanded node', async () => {
+    await select(el, 'blaze', blazeLookup)
+    const before = nodeIds()
+    vi.mocked(lookupWord).mockClear()
+
+    await recentre()
+
+    expect(central()).toBe('blaze')
+    expect(nodeIds()).toEqual(before)
+    expect(lookupWord).not.toHaveBeenCalled() // blaze's lookup is reused
+    expect((el.shadowRoot!.querySelector('mf-results-panel') as any).result.word).toBe('blaze')
+    expect((el.shadowRoot!.querySelector('mf-search-bar') as any).value).toBe('blaze')
+    expect(location.hash).toBe('#/word/blaze')
+    expect(recentreButton()).toBeNull() // the target is now the source
+  })
+
+  it('re-centres on an already-expanded node clicked again', async () => {
+    await select(el, 'blaze', blazeLookup)
+    await select(el, 'flame', flameLookup)
+    await select(el, 'blaze', blazeLookup)
+    await recentre()
+    expect(central()).toBe('blaze')
+    expect(nodeIds()).toContain('spark')
+  })
+
+  it('flies the camera to the new source', async () => {
+    await select(el, 'blaze', blazeLookup)
+    const graph = el.shadowRoot!.querySelector('mf-force-graph') as any
+    const focus = vi.spyOn(graph, 'focusNode').mockReturnValue(true)
+    await recentre()
+    expect(focus).toHaveBeenCalledWith('blaze')
+  })
+
+  it('keeps the forest of the original word', async () => {
+    await select(el, 'blaze', blazeLookup)
+    await recentre()
+    expect((el as any).forestState.word).toBe('fire')
+  })
+
+  it('expansion carries on outward from the new source', async () => {
+    await select(el, 'blaze', blazeLookup)
+    await recentre()
+    await select(el, 'inferno', {
+      word: 'inferno',
+      senses: [{
+        synset_id: '10', pos: 'noun', definition: 'a large fire',
+        synonyms: [{ word: 'holocaust', synset_id: '11' }],
+        relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+      }],
+    })
+    expect((el as any).graphData.nodes.find((n: any) => n.id === 'holocaust')?.order).toBe(2)
+    expect(central()).toBe('blaze')
+  })
+
+  it('offers Undo after a re-centre, and Undo goes Back to the previous source', async () => {
+    await select(el, 'blaze', blazeLookup)
+    const before = nodeIds()
+    const show = vi.spyOn(undoToast(), 'show')
+    await recentre()
+    expect(show).toHaveBeenCalledWith('undo-recentred', expect.any(Number))
+
+    vi.mocked(lookupWord).mockClear()
+    undoToast().dispatchEvent(new CustomEvent('mf-undo', { bubbles: true, composed: true }))
+    await settle(el)
+
+    expect(history.back).toHaveBeenCalledOnce()
+    expect(central()).toBe('fire')
+    expect(nodeIds()).toEqual(before)
+    expect((el as any).currentWord).toBe('fire')
+    expect(location.hash).toBe('#/word/fire')
+    expect(lookupWord).not.toHaveBeenCalled() // restored, not refetched
+  })
+
+  it('Forward after Back redoes the re-centre', async () => {
+    await select(el, 'blaze', blazeLookup)
+    await recentre()
+    history.back()
+    await settle(el)
+    history.forward()
+    await settle(el)
+    expect(central()).toBe('blaze')
+    expect((el as any).currentWord).toBe('blaze')
+  })
+
+  it('Back after a double-click start-over restores the old graph with its expansions', async () => {
+    await select(el, 'blaze', blazeLookup)
+    const before = nodeIds()
+    const show = vi.spyOn(undoToast(), 'show')
+
+    await navigate('flame', flameLookup)
+    expect(central()).toBe('flame')
+    expect(nodeIds()).not.toContain('inferno')
+    expect(show).toHaveBeenCalledWith('undo-started-over', expect.any(Number))
+
+    vi.mocked(lookupWord).mockClear()
+    history.back()
+    await settle(el)
+
+    expect(central()).toBe('fire')
+    expect(nodeIds()).toEqual(before)
+    expect(lookupWord).not.toHaveBeenCalled()
+    // The restored graph still expands as before.
+    await select(el, 'inferno', { ...blazeLookup, word: 'inferno', senses: [] })
+    expect(lookupWord).toHaveBeenCalledWith('inferno')
+  })
+
+  it('Back restores the forest of the word it returns to', async () => {
+    await navigate('flame', flameLookup)
+    expect((el as any).forestState.word).toBe('flame')
+    history.back()
+    await settle(el)
+    expect((el as any).forestState.word).toBe('fire')
+  })
+
+  it('a start-over on the source itself is still undoable', async () => {
+    await select(el, 'blaze', blazeLookup)
+    await navigate('fire', mockResult)
+    expect(nodeIds()).not.toContain('inferno')
+    history.back()
+    await settle(el)
+    expect(nodeIds()).toContain('inferno')
+  })
+
+  it('drops an expansion that resolves after Back replaced the graph', async () => {
+    await select(el, 'blaze', blazeLookup)
+    await recentre()
+    let resolve!: (r: LookupResult) => void
+    vi.mocked(lookupWord).mockReturnValueOnce(new Promise(r => { resolve = r }))
+    el.shadowRoot!.querySelector('mf-force-graph')?.dispatchEvent(new CustomEvent('mf-node-select', {
+      detail: { id: 'inferno', word: 'inferno', relationType: 'synonym', val: 4, order: 1 }, bubbles: true, composed: true,
+    }))
+    history.back()
+    await settle(el)
+    resolve({ word: 'inferno', senses: [{ synset_id: '10', pos: 'noun', definition: 'x', synonyms: [{ word: 'holocaust', synset_id: '11' }], relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] } }] })
+    await settle(el)
+    expect(nodeIds()).not.toContain('holocaust')
+  })
+
+  it('Back to an entry it holds no snapshot for looks the word up afresh', async () => {
+    history.replaceState({ mfView: 'from-an-earlier-page-load' }, '', '#/word/ember')
+    window.dispatchEvent(new PopStateEvent('popstate', { state: { mfView: 'from-an-earlier-page-load' } }))
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    await settle(el)
+    expect(lookupWord).toHaveBeenCalledWith('ember')
+  })
+})
+
 describe('mf-app grading mode', () => {
   let el: MfApp
 
