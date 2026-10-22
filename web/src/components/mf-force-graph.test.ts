@@ -22,9 +22,12 @@ let capturedExtraRenderers: unknown[] | undefined = undefined
 
 const mockCamera = { position: { x: 0, y: 0, z: 100 } }
 // Carries the OrbitControls internals guardOrbitPointerUp swaps.
+// Listeners the component adds to the orbit controls, by event type.
+const controlsListeners: Record<string, () => void> = {}
 const mockControls = {
   enableDamping: false, dampingFactor: 0,
   domElement: document.createElement('div'), _pointers: [] as number[], _onPointerUp: () => {},
+  addEventListener: (type: string, fn: () => void) => { controlsListeners[type] = fn },
 }
 // Backs the chainable Proxy's graphData() getter so tests can stub the node set
 // the library reports back (visibility mirror reads graph.graphData().nodes).
@@ -56,6 +59,7 @@ const chainable: Record<string, unknown> = new Proxy({}, {
     if (prop === 'nodeColor') {
       return (fn: (node: unknown) => string) => {
         capturedNodeColor = fn
+        setCounts.nodeColor = (setCounts.nodeColor ?? 0) + 1
         return chainable
       }
     }
@@ -1201,20 +1205,71 @@ describe('MfForceGraph', () => {
       expect(capturedLinkVisibility!(cross)).toBe(false)
     })
 
-    it('draws a ghost faint and its link fainter than a dim link', () => {
-      expect(capturedNodeColor!(node('glow'))).toMatch(/^rgba\(.*, 0\.3\)$/)
+    it('draws a ghost, its edge and its label equally faint from the default view', () => {
+      expect(capturedNodeColor!(node('glow'))).toMatch(/^rgba\(.*, 0\.06\)$/)
       const ghostLink = data.links[4]
       expect(capturedLinkColor!(ghostLink)).toBe('rgba(232, 224, 212, 0.04)')
       expect(capturedLinkWidth!(ghostLink)).toBeLessThan(0.5)
+      const label = capturedNodeThreeObject!(node('glow')) as { element: HTMLElement }
+      expect(label.element.hasAttribute('data-ghost')).toBe(true)
+      expect(label.element.style.opacity).toBe('0.06')
+      const full = capturedNodeThreeObject!(node('blaze')) as { element: HTMLElement }
+      expect(full.element.hasAttribute('data-ghost')).toBe(false)
+      expect(full.element.style.opacity).toBe('')
     })
 
-    it('marks a ghost label so it shows only on hover', () => {
-      const ghost = capturedNodeThreeObject!(node('glow')) as { element: HTMLElement }
-      const full = capturedNodeThreeObject!(node('blaze')) as { element: HTMLElement }
-      expect(ghost.element.hasAttribute('data-ghost')).toBe(true)
-      expect(full.element.hasAttribute('data-ghost')).toBe(false)
+    it('a hovered ghost label shows in full', () => {
       const css = (MfForceGraph.styles as { cssText: string }).cssText
-      expect(css).toMatch(/\.mf-graph-label\[data-ghost\]:not\(\.label-hovered\)\s*\{[^}]*opacity:\s*0/)
+      expect(css).toMatch(/\.mf-graph-label\[data-ghost\]\.label-hovered\s*\{[^}]*opacity:\s*1\s*!important/)
+    })
+
+    describe('zoom fade', () => {
+      const frame = () => new Promise<void>(r => requestAnimationFrame(() => r()))
+      let ghost: GraphNode & { __threeObj?: unknown }
+      let label: HTMLElement
+
+      beforeEach(async () => {
+        await frame() // the component takes the default view distance on its first frame (65 here)
+        ghost = { ...node('glow'), x: 0, y: 0, z: 0 }
+        label = (capturedNodeThreeObject!(ghost) as { element: HTMLElement }).element
+        ghost.__threeObj = { children: [{ isCSS2DObject: true, visible: true, element: label }] }
+        mockGraphData = { nodes: [ghost], links: [] }
+      })
+      afterEach(() => {
+        mockGraphData = { nodes: [], links: [] }
+        mockCamera.position = { x: 0, y: 0, z: 100 }
+      })
+
+      async function cameraAt(z: number): Promise<void> {
+        mockCamera.position = { x: 0, y: 0, z }
+        controlsListeners.change()
+        await frame()
+      }
+
+      it('fades a ghost, its edge and its label in together as the camera nears it', async () => {
+        await cameraAt(200)
+        expect(capturedNodeColor!(ghost)).toMatch(/, 0\.06\)$/)
+        expect(label.style.opacity).toBe('0.06')
+
+        await cameraAt(10)
+        expect(capturedNodeColor!(ghost)).toMatch(/, 0\.7\)$/)
+        expect(label.style.opacity).toBe('0.8')
+        const edge = { source: 'blaze', target: ghost, relationType: 'synonym', order: 2, ghost: true }
+        expect(capturedLinkColor!(edge)).toBe('rgba(232, 224, 212, 0.15)')
+      })
+
+      it('re-colours only when a ghost crosses a fade step', async () => {
+        await cameraAt(10)
+        const recolours = setCounts.nodeColor ?? 0
+        await cameraAt(10.1)
+        expect(setCounts.nodeColor ?? 0).toBe(recolours)
+      })
+
+      it('a receding forest dims a ghost label further rather than revealing it', async () => {
+        label.setAttribute('data-recede', '')
+        await cameraAt(200)
+        expect(Number(label.style.opacity)).toBeCloseTo(0.06 * 0.45, 3)
+      })
     })
   })
 
