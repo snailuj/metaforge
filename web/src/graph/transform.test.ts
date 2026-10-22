@@ -3,6 +3,9 @@ import {
   transformLookupToGraph,
   mergeExpansion,
   recentreGraph,
+  mergeGlimpse,
+  solidify,
+  relationReach,
 } from './transform'
 import type { LookupResult } from '@/types/api'
 import type { GraphData, GraphLink } from './types'
@@ -465,5 +468,132 @@ describe('recentreGraph', () => {
   it('leaves the graph as it is when the node is not in it', () => {
     const base = expanded()
     expect(recentreGraph(base, 'nowhere')).toBe(base)
+  })
+})
+
+describe('mergeGlimpse', () => {
+  const synonyms = (word: string, n: number): LookupResult => ({
+    word,
+    senses: [{
+      synset_id: 's', pos: 'noun', definition: 'd',
+      synonyms: Array.from({ length: n }, (_, i) => ({ word: `${word}-syn-${i}`, synset_id: `${i}` })),
+      relations: {
+        hypernyms: [{ word: `${word}-hyper`, synset_id: 'h' }],
+        hyponyms: [{ word: `${word}-hypo`, synset_id: 'o' }],
+        similar: [{ word: `${word}-sim`, synset_id: 'm' }],
+      },
+    }],
+  })
+
+  it('adds the first 3 synonyms in full and the next 5 as ghosts, one level down', () => {
+    const g = mergeGlimpse(makeFirstOrderGraph(), 'gloom', synonyms('gloom', 12))
+    const added = g.nodes.filter(n => n.word.startsWith('gloom-syn-'))
+    expect(added.map(n => n.word)).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map(i => `gloom-syn-${i}`))
+    expect(added.slice(0, 3).every(n => !n.ghost && n.order === 2)).toBe(true)
+    expect(added.slice(3).every(n => n.ghost === true && n.order === 2)).toBe(true)
+    const ghostLinks = g.links.filter(l => l.source === 'gloom' && String(l.target).startsWith('gloom-syn-') && l.ghost)
+    expect(ghostLinks).toHaveLength(5)
+  })
+
+  it('takes synonyms only, never other relations', () => {
+    const g = mergeGlimpse(makeFirstOrderGraph(), 'gloom', synonyms('gloom', 2))
+    expect(g.nodes.some(n => /gloom-(hyper|hypo|sim)$/.test(n.word))).toBe(false)
+  })
+
+  it('links a synonym already on the graph without counting it', () => {
+    const base = makeFirstOrderGraph()
+    const result = synonyms('gloom', 8)
+    result.senses[0].synonyms.unshift({ word: 'sadness', synset_id: 'x' }) // already a first-order node
+    const g = mergeGlimpse(base, 'gloom', result)
+    expect(g.nodes.filter(n => n.word === 'sadness')).toHaveLength(1)
+    expect(g.links.some(l => l.source === 'gloom' && l.target === 'sadness' && !l.ghost)).toBe(true)
+    expect(g.nodes.filter(n => n.word.startsWith('gloom-syn-'))).toHaveLength(8)
+  })
+
+  it('leaves the graph as it is when the parent is not in it', () => {
+    const base = makeFirstOrderGraph()
+    expect(mergeGlimpse(base, 'nowhere', synonyms('x', 3))).toBe(base)
+  })
+})
+
+describe('solidify', () => {
+  function glimpsed(): GraphData {
+    return mergeGlimpse(makeFirstOrderGraph(), 'gloom', {
+      word: 'gloom',
+      senses: [{ synset_id: 's', pos: 'noun', definition: 'd', synonyms: Array.from({ length: 8 }, (_, i) => ({ word: `g${i}`, synset_id: `${i}` })), relations: { hypernyms: [], hyponyms: [], similar: [] } }],
+    })
+  }
+
+  it('turns ghosts into full nodes and their links into full links', () => {
+    const base = glimpsed()
+    const g = solidify(base, ['g5', 'g6'])
+    expect(g.nodes.find(n => n.id === 'g5')!.ghost).toBeFalsy()
+    expect(g.nodes.find(n => n.id === 'g7')!.ghost).toBe(true)
+    expect(g.links.find(l => l.target === 'g5')!.ghost).toBeFalsy()
+    expect(g.links.find(l => l.target === 'g7')!.ghost).toBe(true)
+  })
+
+  it('gives a solidified node a fresh object carrying its position, and fresh string-ended links', () => {
+    const base = glimpsed()
+    const before = base.nodes.find(n => n.id === 'g5')!
+    Object.assign(before, { x: 3, y: 4, z: 5 })
+    const byId = new Map(base.nodes.map(n => [n.id, n]))
+    const fed: GraphData = {
+      nodes: base.nodes,
+      links: base.links.map(l => ({ ...l, source: byId.get(l.source)!, target: byId.get(l.target)! })) as unknown as GraphLink[],
+    }
+    const g = solidify(fed, ['g5'])
+    const after = g.nodes.find(n => n.id === 'g5')!
+    expect(after).not.toBe(before)
+    expect(after).toMatchObject({ x: 3, y: 4, z: 5 })
+    const link = g.links.find(l => (typeof l.target === 'string' ? l.target : (l.target as { id: string }).id) === 'g5')!
+    expect(link.target).toBe('g5')
+    // Untouched nodes keep their objects.
+    expect(g.nodes.find(n => n.id === 'g7')).toBe(byId.get('g7'))
+  })
+
+  it('ghosts stay ghosts through a re-centre', () => {
+    const g = recentreGraph(glimpsed(), 'gloom')
+    expect(g.nodes.find(n => n.id === 'g7')!.ghost).toBe(true)
+    expect(g.nodes.find(n => n.id === 'g0')!.ghost).toBeUndefined()
+    expect(g.links.find(l => l.target === 'g7')!.ghost).toBe(true)
+  })
+
+  it('returns the same graph when nothing is a ghost', () => {
+    const base = makeFirstOrderGraph()
+    expect(solidify(base, ['gloom'])).toBe(base)
+  })
+})
+
+describe('relationReach', () => {
+  it('is null when nothing is hidden', () => {
+    expect(relationReach(makeFirstOrderGraph(), new Set())).toBeNull()
+  })
+
+  it('reaches only what enabled relations connect to the source', () => {
+    // melancholy: synonym "black bile"; hypernym "bodily fluid"; gloom is a hyponym
+    let g = makeFirstOrderGraph()
+    g = mergeExpansion(g, 'gloom', gloomLookup) // gloom → darkness (synonym), …
+    const reach = relationReach(g, new Set(['hyponym', 'hypernym', 'similar']))!
+    expect(reach.has('melancholy')).toBe(true)
+    expect(reach.has('black bile')).toBe(true)
+    expect(reach.has('bodily fluid')).toBe(false)
+    expect(reach.has('gloom')).toBe(false)
+    expect(reach.has('darkness')).toBe(false) // a synonym, but only of a hidden hyponym
+  })
+
+  it('reaches through a re-enabled relation', () => {
+    let g = makeFirstOrderGraph()
+    g = mergeExpansion(g, 'gloom', gloomLookup)
+    const reach = relationReach(g, new Set(['hypernym', 'similar']))!
+    expect(reach.has('gloom')).toBe(true)
+    expect(reach.has('darkness')).toBe(true)
+  })
+
+  it('ignores metaphor links', () => {
+    const g = makeFirstOrderGraph()
+    g.nodes.push({ id: 'far', word: 'far', relationType: 'metaphor', val: 1, order: 1 })
+    g.links.push({ source: 'melancholy', target: 'far', relationType: 'metaphor', order: 1 })
+    expect(relationReach(g, new Set(['hyponym']))!.has('far')).toBe(false)
   })
 })
