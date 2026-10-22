@@ -1153,6 +1153,71 @@ describe('MfForceGraph', () => {
     })
   })
 
+  describe('relation filter and ghosts', () => {
+    // fire —synonym→ blaze —hyponym→ spark —synonym→ ember; fire —hypernym→ heat
+    const data: GraphData = {
+      nodes: [
+        { id: 'fire', word: 'fire', relationType: 'central', val: 8, order: 0 },
+        { id: 'blaze', word: 'blaze', relationType: 'synonym', val: 4, order: 1 },
+        { id: 'heat', word: 'heat', relationType: 'hypernym', val: 2, order: 1 },
+        { id: 'spark', word: 'spark', relationType: 'hyponym', val: 1, order: 2 },
+        { id: 'ember', word: 'ember', relationType: 'synonym', val: 1, order: 3 },
+        { id: 'glow', word: 'glow', relationType: 'synonym', val: 0.5, order: 2, ghost: true },
+      ],
+      links: [
+        { source: 'fire', target: 'blaze', relationType: 'synonym', order: 1 },
+        { source: 'fire', target: 'heat', relationType: 'hypernym', order: 1 },
+        { source: 'blaze', target: 'spark', relationType: 'hyponym', order: 2 },
+        { source: 'spark', target: 'ember', relationType: 'synonym', order: 3 },
+        { source: 'blaze', target: 'glow', relationType: 'synonym', order: 2, ghost: true },
+      ],
+    }
+    const node = (id: string) => data.nodes.find(n => n.id === id)!
+
+    beforeEach(async () => {
+      el.graphData = data
+      await el.updateComplete
+    })
+
+    it('shows everything while no relation is hidden', () => {
+      expect(data.nodes.every(n => capturedNodeVisibility!(n))).toBe(true)
+    })
+
+    it('hides what only a hidden relation reaches, in place, without re-feeding', async () => {
+      const feeds = graphDataSetCount
+      el.hiddenRelations = new Set(['hyponym', 'hypernym', 'similar'])
+      await el.updateComplete
+      expect(graphDataSetCount).toBe(feeds)
+      const shown = data.nodes.filter(n => capturedNodeVisibility!(n)).map(n => n.id)
+      expect(shown).toEqual(['fire', 'blaze', 'glow'])
+      expect(capturedLinkVisibility!(data.links[1])).toBe(false)
+    })
+
+    it('hides a link of a hidden relation even between shown nodes', async () => {
+      const cross = { source: 'fire', target: 'glow', relationType: 'similar', order: 1 }
+      el.graphData = { nodes: data.nodes, links: [...data.links, cross as never] }
+      el.hiddenRelations = new Set(['similar'])
+      await el.updateComplete
+      expect(capturedLinkVisibility!(cross)).toBe(false)
+    })
+
+    it('draws a ghost faint and its link fainter than a dim link', () => {
+      expect(capturedNodeColor!(node('glow'))).toMatch(/^rgba\(.*, 0\.3\)$/)
+      const ghostLink = data.links[4]
+      expect(capturedLinkColor!(ghostLink)).toBe('rgba(232, 224, 212, 0.04)')
+      expect(capturedLinkWidth!(ghostLink)).toBeLessThan(0.5)
+    })
+
+    it('marks a ghost label so it shows only on hover', () => {
+      const ghost = capturedNodeThreeObject!(node('glow')) as { element: HTMLElement }
+      const full = capturedNodeThreeObject!(node('blaze')) as { element: HTMLElement }
+      expect(ghost.element.hasAttribute('data-ghost')).toBe(true)
+      expect(full.element.hasAttribute('data-ghost')).toBe(false)
+      const css = (MfForceGraph.styles as { cssText: string }).cssText
+      expect(css).toMatch(/\.mf-graph-label\[data-ghost\]:not\(\.label-hovered\)\s*\{[^}]*opacity:\s*0/)
+    })
+  })
+
   describe('order-2 visual differentiation', () => {
     it('sets nodeOpacity as a static number', () => {
       // nodeOpacity must be a number — 3d-force-graph v1.79 uses it
