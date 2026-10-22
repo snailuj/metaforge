@@ -886,6 +886,21 @@ describe('MfApp re-centre and navigation history', () => {
     expect(lookupWord).not.toHaveBeenCalled() // restored, not refetched
   })
 
+  it('the toast gives the slot back to Re-Centre when another node is clicked', async () => {
+    await select(el, 'blaze', blazeLookup)
+    await recentre()
+    const hide = vi.spyOn(undoToast(), 'hide')
+    await select(el, 'inferno', { ...blazeLookup, word: 'inferno', senses: [] })
+    expect(hide).toHaveBeenCalled()
+    expect(recentreButton()).not.toBeNull()
+  })
+
+  it('places the toast in the Re-Centre slot', () => {
+    const css = (MfApp.styles as { cssText: string }).cssText
+    const slot = /\.recentre,\s*mf-undo-toast\s*\{[^}]*top:\s*var\(--recentre-slot-top\)/
+    expect(css).toMatch(slot)
+  })
+
   it('Forward after Back redoes the re-centre', async () => {
     await select(el, 'blaze', blazeLookup)
     await recentre()
