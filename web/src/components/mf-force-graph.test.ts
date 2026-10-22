@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { GraphData } from '@/graph/types'
+import type { GraphData, GraphNode } from '@/graph/types'
 import { RARITY_COLOURS, NODE_COLOURS, FOREST_COLOURS, withAlpha } from '@/graph/colours'
 import type { ForestResponse } from '@/types/api'
 import { composeForest, forestToGraph, streamMarks, fadeMarks, FOREST_FADE_MS } from '@/graph/forest'
@@ -358,6 +358,110 @@ describe('MfForceGraph', () => {
 
     el.removeEventListener('mf-node-select', spy)
     vi.useRealTimers()
+  })
+
+  describe('labels as click targets', () => {
+    /** Give a node a rendered label occupying the given viewport box. */
+    function withLabel<T extends object>(node: T, box: { left: number; top: number; width: number; height: number }): T {
+      const element = document.createElement('div')
+      element.className = 'mf-graph-label'
+      element.getBoundingClientRect = () => ({
+        ...box, x: box.left, y: box.top, right: box.left + box.width, bottom: box.top + box.height, toJSON: () => ({}),
+      }) as DOMRect
+      return Object.assign(node, { __threeObj: { children: [{ isCSS2DObject: true, visible: true, element }] } })
+    }
+    const labelEl = (n: object) => (n as { __threeObj: { children: [{ element: HTMLElement }] } }).__threeObj.children[0].element
+    const backgroundClick = (x: number, y: number) =>
+      (lastArgs.onBackgroundClick[0] as (e: MouseEvent) => void)(new MouseEvent('click', { clientX: x, clientY: y }))
+    const backgroundRightClick = (x: number, y: number) =>
+      (lastArgs.onBackgroundRightClick[0] as (e: MouseEvent) => void)(new MouseEvent('contextmenu', { clientX: x, clientY: y }))
+
+    let blaze: GraphNode & object
+    let flame: GraphNode & object
+    beforeEach(() => {
+      blaze = withLabel({ ...testData.nodes[1] }, { left: 100, top: 100, width: 60, height: 16 })
+      flame = withLabel({ ...testData.nodes[3] }, { left: 300, top: 200, width: 50, height: 16 })
+      mockGraphData = { nodes: [blaze, flame], links: [] }
+    })
+    afterEach(() => {
+      mockGraphData = { nodes: [], links: [] }
+      vi.useRealTimers()
+    })
+
+    it('a click on a label expands its node, as a click on the node does', () => {
+      vi.useFakeTimers()
+      const select = vi.fn()
+      el.addEventListener('mf-node-select', select)
+      backgroundClick(120, 108)
+      vi.advanceTimersByTime(400)
+      expect(select).toHaveBeenCalledOnce()
+      expect(select.mock.calls[0][0].detail.id).toBe('blaze')
+      el.removeEventListener('mf-node-select', select)
+    })
+
+    it('a double click on a label navigates', () => {
+      vi.useFakeTimers()
+      const navigate = vi.fn()
+      el.addEventListener('mf-node-navigate', navigate)
+      backgroundClick(310, 205)
+      backgroundClick(310, 205)
+      vi.advanceTimersByTime(400)
+      expect(navigate).toHaveBeenCalledOnce()
+      expect(navigate.mock.calls[0][0].detail.id).toBe('flame')
+      el.removeEventListener('mf-node-navigate', navigate)
+    })
+
+    it('a click clear of every label stays a background click', () => {
+      vi.useFakeTimers()
+      const select = vi.fn()
+      el.addEventListener('mf-node-select', select)
+      backgroundClick(10, 10)
+      vi.advanceTimersByTime(400)
+      expect(select).not.toHaveBeenCalled()
+      el.removeEventListener('mf-node-select', select)
+    })
+
+    it('ignores the label of a hidden node', () => {
+      vi.useFakeTimers()
+      ;(blaze as { __threeObj: { children: [{ visible: boolean }] } }).__threeObj.children[0].visible = false
+      const select = vi.fn()
+      el.addEventListener('mf-node-select', select)
+      backgroundClick(120, 108)
+      vi.advanceTimersByTime(400)
+      expect(select).not.toHaveBeenCalled()
+      el.removeEventListener('mf-node-select', select)
+    })
+
+    it('a right click on a label copies its word', () => {
+      const copy = vi.fn()
+      el.addEventListener('mf-node-copy', copy)
+      vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+      backgroundRightClick(120, 108)
+      expect(copy.mock.calls[0]?.[0].detail.word).toBe('blaze')
+      el.removeEventListener('mf-node-copy', copy)
+    })
+
+    it('hovering a label highlights it and shows the pointer cursor, and leaving clears both', async () => {
+      const container = el.shadowRoot!.querySelector('#graph-container') as HTMLElement
+      container.dispatchEvent(new PointerEvent('pointermove', { clientX: 120, clientY: 108, pointerType: 'mouse' }))
+      await new Promise<void>(r => requestAnimationFrame(() => r()))
+      expect(labelEl(blaze).classList.contains('label-hovered')).toBe(true)
+      expect(container.style.cursor).toBe('pointer')
+
+      container.dispatchEvent(new PointerEvent('pointermove', { clientX: 10, clientY: 10, pointerType: 'mouse' }))
+      await new Promise<void>(r => requestAnimationFrame(() => r()))
+      expect(labelEl(blaze).classList.contains('label-hovered')).toBe(false)
+      expect(container.style.cursor).toBe('default')
+    })
+
+    it('a sphere under the pointer keeps the hover while the pointer also sits on a label', async () => {
+      const container = el.shadowRoot!.querySelector('#graph-container') as HTMLElement
+      capturedOnNodeHover!(flame, null)
+      container.dispatchEvent(new PointerEvent('pointermove', { clientX: 120, clientY: 108, pointerType: 'mouse' }))
+      await new Promise<void>(r => requestAnimationFrame(() => r()))
+      expect(labelEl(flame).classList.contains('label-hovered')).toBe(true)
+      expect(labelEl(blaze).classList.contains('label-hovered')).toBe(false)
+    })
   })
 
   describe('focusNode', () => {

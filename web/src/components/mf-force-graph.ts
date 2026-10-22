@@ -278,6 +278,11 @@ export class MfForceGraph extends LitElement {
   private clickTimer: ReturnType<typeof setTimeout> | null = null
   private resizeObserver: ResizeObserver | null = null
   private previousHoveredNode: GraphNode | null = null
+  // Hover comes from the sphere raycast or, failing that, a label hit test.
+  private sphereHover: GraphNode | null = null
+  private labelHover: GraphNode | null = null
+  private labelPointer: { x: number; y: number } | null = null
+  private labelHoverFrame: number | null = null
   private gradeFrameTimer: ReturnType<typeof setTimeout> | null = null
   // Distance at which distance-floor labels render at full basePx (captured from
   // the framing camera in Task 6; the sensible default here keeps the getter pure).
@@ -528,6 +533,127 @@ export class MfForceGraph extends LitElement {
     return true
   }
 
+  /** A node click from the sphere raycast or a label hit. */
+  private onNodeClickFn = (n: unknown): void => {
+    // In grade mode, node clicks route to handleNodeClick for chain-selected emission.
+    // The grade graph uses `id` keys of the form `syn:<id>` or `head:<name>`.
+    if (this.mode === 'grade') {
+      const gn = this.gradeNodes.find(node => node.id === (n as { id?: string }).id)
+      if (gn && gn.role === 'vehicle') {
+        this.handleNodeClick({ id: gn.id, isVehicle: true })
+      }
+      return
+    }
+    const node = n as GraphNode
+    const info = this.forestInfo(node)
+    // A forest word is drawn as part of the forest, so it behaves as one:
+    // single click selects its paths, double-click navigates, never expands.
+    if (info) {
+      if (this.clickTimer) {
+        clearTimeout(this.clickTimer)
+        this.clickTimer = null
+        this.dispatchEvent(new CustomEvent('mf-node-navigate', { detail: node, bubbles: true, composed: true }))
+      } else {
+        this.clickTimer = setTimeout(() => {
+          this.clickTimer = null
+          this.emitForest('mf-forest-select', { kind: 'node', id: info.forestId })
+        }, DBLCLICK_THRESHOLD_MS)
+      }
+      return
+    }
+    if (this.clickTimer) {
+      // Double click — navigate
+      clearTimeout(this.clickTimer)
+      this.clickTimer = null
+      this.dispatchEvent(
+        new CustomEvent('mf-node-navigate', {
+          detail: node, bubbles: true, composed: true,
+        }),
+      )
+    } else {
+      // Maybe single click — wait to see if double
+      this.clickTimer = setTimeout(() => {
+        this.clickTimer = null
+        this.dispatchEvent(
+          new CustomEvent('mf-node-select', {
+            detail: node, bubbles: true, composed: true,
+          }),
+        )
+      }, DBLCLICK_THRESHOLD_MS)
+    }
+  }
+
+  private onNodeRightClickFn = (n: unknown, event: MouseEvent): void => {
+    const node = n as GraphNode
+    event.preventDefault()
+    navigator.clipboard.writeText(node.word).catch(() => { /* clipboard unavailable */ })
+    this.dispatchEvent(
+      new CustomEvent('mf-node-copy', {
+        detail: { word: node.word },
+        bubbles: true,
+        composed: true,
+      }),
+    )
+  }
+
+  /** Hover is the sphere under the pointer, else the label under it. */
+  private applyHover(): void {
+    const node = this.sphereHover ?? this.labelHover
+    if (this.container) {
+      this.container.style.cursor = node ? 'pointer' : 'default'
+    }
+    if (this.activeForest) {
+      const info = node ? this.forestInfo(node) : undefined
+      this.setForestHover(info ? { kind: 'node', id: info.forestId } : null)
+    }
+
+    if (this.previousHoveredNode) {
+      this.setLabelHover(this.previousHoveredNode, false)
+    }
+    if (node) {
+      this.setLabelHover(node, true)
+    }
+    this.previousHoveredNode = node
+  }
+
+  /** The node whose label holds a viewport point. Labels take no pointer
+   *  events, so the canvas keeps orbit, zoom and drag; they are hit-tested by
+   *  their boxes instead, the last drawn (topmost) winning. Hidden labels never hit. */
+  private nodeAtLabel(x: number, y: number): GraphNode | null {
+    if (!this.graph) return null
+    const nodes = (this.graph.graphData() as unknown as { nodes?: unknown[] }).nodes ?? []
+    let hit: GraphNode | null = null
+    for (const n of nodes) {
+      const label = (n as { __threeObj?: { children?: Array<{ isCSS2DObject?: boolean; visible?: boolean; element: HTMLElement }> } })
+        .__threeObj?.children?.find(c => c.isCSS2DObject)
+      if (!label || label.visible === false || label.element.style.display === 'none') continue
+      const r = label.element.getBoundingClientRect()
+      if (r.width > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) hit = n as GraphNode
+    }
+    return hit
+  }
+
+  /** Track the label under the pointer, at most once a frame. */
+  private onContainerPointerMove = (e: PointerEvent): void => {
+    this.labelPointer = { x: e.clientX, y: e.clientY }
+    if (this.labelHoverFrame !== null) return
+    this.labelHoverFrame = requestAnimationFrame(() => {
+      this.labelHoverFrame = null
+      const p = this.labelPointer
+      const node = p ? this.nodeAtLabel(p.x, p.y) : null
+      if (node === this.labelHover) return
+      this.labelHover = node
+      this.applyHover()
+    })
+  }
+
+  private onContainerPointerLeave = (): void => {
+    this.labelPointer = null
+    if (this.labelHover === null) return
+    this.labelHover = null
+    this.applyHover()
+  }
+
   private emitForest(name: 'mf-forest-hover' | 'mf-forest-select', target: ForestTarget | null): void {
     this.dispatchEvent(new CustomEvent(name, { detail: { target }, bubbles: true, composed: true }))
   }
@@ -772,6 +898,8 @@ export class MfForceGraph extends LitElement {
     const notePointer = (e: Event) => { this.lastPointerType = (e as PointerEvent).pointerType || 'mouse' }
     this.container.addEventListener('pointerdown', notePointer, { capture: true })
     this.container.addEventListener('pointermove', notePointer, { capture: true })
+    this.container.addEventListener('pointermove', this.onContainerPointerMove)
+    this.container.addEventListener('pointerleave', this.onContainerPointerLeave)
 
     this.labelRenderer = makeLabelRenderer(this.container.clientWidth, this.container.clientHeight)
     this.graph = ForceGraph3D({ controlType: 'orbit', extraRenderers: [this.labelRenderer] })(this.container)
@@ -818,8 +946,15 @@ export class MfForceGraph extends LitElement {
         }
         return false
       })
-      .onBackgroundClick(() => {
-        if (this.activeForest) this.emitForest('mf-forest-select', null)
+      .onBackgroundClick((e?: MouseEvent) => {
+        // Labels sit clear of their spheres, so a click on one reaches here.
+        const labelled = e ? this.nodeAtLabel(e.clientX, e.clientY) : null
+        if (labelled) this.onNodeClickFn(labelled)
+        else if (this.activeForest) this.emitForest('mf-forest-select', null)
+      })
+      .onBackgroundRightClick((e: MouseEvent) => {
+        const labelled = this.nodeAtLabel(e.clientX, e.clientY)
+        if (labelled) this.onNodeRightClickFn(labelled, e)
       })
       .onLinkHover((l: unknown) => {
         if (this.mode !== 'grade') {
@@ -849,83 +984,11 @@ export class MfForceGraph extends LitElement {
           }))
         }
       })
-      .onNodeClick((n: unknown) => {
-        // In grade mode, node clicks route to handleNodeClick for chain-selected emission.
-        // The grade graph uses `id` keys of the form `syn:<id>` or `head:<name>`.
-        if (this.mode === 'grade') {
-          const gn = this.gradeNodes.find(node => node.id === (n as { id?: string }).id)
-          if (gn && gn.role === 'vehicle') {
-            this.handleNodeClick({ id: gn.id, isVehicle: true })
-          }
-          return
-        }
-        const node = n as GraphNode
-        const info = this.forestInfo(node)
-        // A forest word is drawn as part of the forest, so it behaves as one:
-        // single click selects its paths, double-click navigates, never expands.
-        if (info) {
-          if (this.clickTimer) {
-            clearTimeout(this.clickTimer)
-            this.clickTimer = null
-            this.dispatchEvent(new CustomEvent('mf-node-navigate', { detail: node, bubbles: true, composed: true }))
-          } else {
-            this.clickTimer = setTimeout(() => {
-              this.clickTimer = null
-              this.emitForest('mf-forest-select', { kind: 'node', id: info.forestId })
-            }, DBLCLICK_THRESHOLD_MS)
-          }
-          return
-        }
-        if (this.clickTimer) {
-          // Double click — navigate
-          clearTimeout(this.clickTimer)
-          this.clickTimer = null
-          this.dispatchEvent(
-            new CustomEvent('mf-node-navigate', {
-              detail: node, bubbles: true, composed: true,
-            }),
-          )
-        } else {
-          // Maybe single click — wait to see if double
-          this.clickTimer = setTimeout(() => {
-            this.clickTimer = null
-            this.dispatchEvent(
-              new CustomEvent('mf-node-select', {
-                detail: node, bubbles: true, composed: true,
-              }),
-            )
-          }, DBLCLICK_THRESHOLD_MS)
-        }
-      })
-      .onNodeRightClick((n: unknown, event: MouseEvent) => {
-        const node = n as GraphNode
-        event.preventDefault()
-        navigator.clipboard.writeText(node.word).catch(() => { /* clipboard unavailable */ })
-        this.dispatchEvent(
-          new CustomEvent('mf-node-copy', {
-            detail: { word: node.word },
-            bubbles: true,
-            composed: true,
-          }),
-        )
-      })
+      .onNodeClick(this.onNodeClickFn)
+      .onNodeRightClick(this.onNodeRightClickFn)
       .onNodeHover((n: unknown) => {
-        const node = n as GraphNode | null
-        if (this.container) {
-          this.container.style.cursor = node ? 'pointer' : 'default'
-        }
-        if (this.activeForest) {
-          const info = node ? this.forestInfo(node) : undefined
-          this.setForestHover(info ? { kind: 'node', id: info.forestId } : null)
-        }
-
-        if (this.previousHoveredNode) {
-          this.setLabelHover(this.previousHoveredNode, false)
-        }
-        if (node) {
-          this.setLabelHover(node, true)
-        }
-        this.previousHoveredNode = node
+        this.sphereHover = n as GraphNode | null
+        this.applyHover()
       })
 
     // Before the first press: see guardOrbitPointerUp.
@@ -1101,6 +1164,7 @@ export class MfForceGraph extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback()
     if (this.clickTimer) clearTimeout(this.clickTimer)
+    if (this.labelHoverFrame !== null) cancelAnimationFrame(this.labelHoverFrame)
     if (this.gradeFrameTimer) clearTimeout(this.gradeFrameTimer)
     this.forestFrameTimers.forEach(clearTimeout)
     if (this.streamTimer) clearTimeout(this.streamTimer)

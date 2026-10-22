@@ -34,6 +34,7 @@ declare module '3d-force-graph' {
     linkThreeObjectExtend(extend: boolean): ForceGraph3DInstance
     linkPositionUpdate(fn: (obj: unknown, ends: { start: { x: number; y: number; z: number }; end: { x: number; y: number; z: number } }, link: unknown) => boolean): ForceGraph3DInstance
     onBackgroundClick(fn: (event: MouseEvent) => void): ForceGraph3DInstance
+    onBackgroundRightClick(fn: (event: MouseEvent) => void): ForceGraph3DInstance
     zoomToFit(ms?: number, px?: number): ForceGraph3DInstance
     cameraPosition(position: { x: number; y: number; z: number }, lookAt?: { x: number; y: number; z: number }, ms?: number): ForceGraph3DInstance
     emitParticle(link: object): ForceGraph3DInstance

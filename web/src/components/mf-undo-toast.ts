@@ -8,7 +8,8 @@ const DEFAULT_DURATION_MS = 6000
  * A small brass-rimmed plaque offering to undo the last navigation. A gold
  * fuse burns along its foot for as long as the offer stands; pointing at it or
  * focusing it holds the fuse, so nobody loses the offer while reaching for it.
- * Pressing Undo fires `mf-undo`; the host decides what undoing means.
+ * Pressing Undo fires `mf-undo`; the host decides what undoing means, and may
+ * place it anywhere (it defaults to bottom centre).
  */
 @customElement('mf-undo-toast')
 export class MfUndoToast extends LitElement {
@@ -21,15 +22,6 @@ export class MfUndoToast extends LitElement {
       z-index: 110;
       pointer-events: none;
       max-width: calc(100vw - 2rem);
-    }
-
-    /* On a phone the forest panel holds the foot of the screen, so the plaque
-       sits up top, under the filters, in the slot Re-Centre has just vacated. */
-    @media (max-width: 768px) {
-      :host {
-        bottom: auto;
-        top: calc(var(--space-md, 1rem) + 84px);
-      }
     }
 
     .plaque {

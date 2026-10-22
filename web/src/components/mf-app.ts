@@ -157,11 +157,25 @@ export class MfApp extends LitElement {
       z-index: 15;
     }
 
-    .recentre {
+    /* Re-Centre and the Undo toast share one slot under the filters: the toast
+       takes it as Re-Centre is used, and gives it back on the next node click. */
+    :host {
+      --recentre-slot-top: calc(var(--space-md, 1rem) + 84px);
+    }
+
+    .recentre,
+    mf-undo-toast {
       position: absolute;
-      top: calc(var(--space-md, 1rem) + 84px);
+      top: var(--recentre-slot-top);
       left: 50%;
       transform: translateX(-50%);
+    }
+
+    mf-undo-toast {
+      bottom: auto;
+    }
+
+    .recentre {
       z-index: 15;
       display: inline-flex;
       align-items: center;
@@ -810,6 +824,7 @@ export class MfApp extends LitElement {
     const node = e.detail
     this.lastClickedId = node.relationType === 'central' ? null : node.id
     if (node.relationType === 'central') return
+    this.undoToast?.hide() // Re-Centre is back in the slot the toast shares
     if (this.expanded.has(node.id) || this.expanding.has(node.id)) {
       console.debug('[mf-app] node already expanded', { nodeId: node.id })
       return
