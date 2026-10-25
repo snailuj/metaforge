@@ -1,4 +1,6 @@
 metaforge.julianit.me {
+    # Shared access-log block defined in /etc/caddy/Caddyfile; every site imports it.
+    import access_log
     handle /thesaurus/* {
         reverse_proxy 127.0.0.1:8080
     }
