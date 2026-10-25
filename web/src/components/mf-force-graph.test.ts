@@ -140,16 +140,19 @@ vi.mock('3d-force-graph', () => ({
     return () => chainable
   },
 }))
+// vitest 4 requires a function or class implementation for mocks invoked with `new`.
 vi.mock('three/addons/renderers/CSS2DRenderer.js', () => ({
-  CSS2DRenderer: vi.fn().mockImplementation(() => ({
-    domElement: document.createElement('div'), setSize: vi.fn(), render: vi.fn(),
-  })),
-  CSS2DObject: vi.fn().mockImplementation((el?: HTMLElement) => ({
-    element: el ?? document.createElement('div'), isCSS2DObject: true, visible: true,
-    position: { x: 0, y: 0, z: 0, set() {} },
-    center: { x: 0.5, y: 0.5, set(this: { x: number; y: number }, x: number, y: number) { this.x = x; this.y = y } },
-    onBeforeRender: undefined,
-  })),
+  CSS2DRenderer: vi.fn().mockImplementation(function () {
+    return { domElement: document.createElement('div'), setSize: vi.fn(), render: vi.fn() }
+  }),
+  CSS2DObject: vi.fn().mockImplementation(function (el?: HTMLElement) {
+    return {
+      element: el ?? document.createElement('div'), isCSS2DObject: true, visible: true,
+      position: { x: 0, y: 0, z: 0, set() {} },
+      center: { x: 0.5, y: 0.5, set(this: { x: number; y: number }, x: number, y: number) { this.x = x; this.y = y } },
+      onBeforeRender: undefined,
+    }
+  }),
 }))
 import { MfForceGraph } from './mf-force-graph'
 import { pathKey, pathTarget } from '@/graph/forest'
