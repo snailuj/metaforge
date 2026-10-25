@@ -8,7 +8,7 @@ require github.com/mattn/go-sqlite3 v1.14.33
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.84.0
-	github.com/go-chi/chi/v5 v5.2.5
+	github.com/go-chi/chi/v5 v5.3.0
 )
 
 require (
