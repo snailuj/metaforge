@@ -337,6 +337,42 @@ func TestStreamRetryContinuesFacetNumbering(t *testing.T) {
 	}
 }
 
+// Rule: "retrying" is sent when the thin-output retry starts its generator
+// call, before that call's first hop, and never when no retry runs.
+func TestStreamSendsRetryingOnlyWhenRetryRuns(t *testing.T) {
+	f := &fakeStreamer{gens: []fakeResult{ok(stubJSON, 1, 1, 0), ok(generatedJSON, 1, 1, 0)}, scores: streamScores}
+	evs, _, err := runStream(t, f, 3, func(c *Config) { c.MinPaths = 2 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []StageEvent{{Stage: "drafting"}, {Stage: "retrying"}}
+	if got := stagesOf(evs); !reflect.DeepEqual(got, want) {
+		t.Fatalf("stages = %+v, want %+v", got, want)
+	}
+	retrying := indexOf(evs, func(e StreamEvent) bool { return e.Name == "stage" && e.Data.(StageEvent).Stage == "retrying" })
+	retryHop := indexOf(evs, func(e StreamEvent) bool { h, ok := e.Data.(HopEvent); return ok && h.PathID == "f1" })
+	if retryHop < 0 {
+		t.Fatal("the retry sent no hop: the comparison would be vacuous")
+	}
+	if retrying > retryHop {
+		t.Errorf("retrying at %d, after the retry's first hop at %d", retrying, retryHop)
+	}
+
+	f = &fakeStreamer{gens: []fakeResult{ok(generatedJSON, 1, 1, 0)}, scores: streamScores}
+	evs, _, err = runStream(t, f, 3, func(c *Config) { c.MinPaths = 1 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.genCalls != 1 {
+		t.Fatalf("genCalls = %d, want no retry", f.genCalls)
+	}
+	for _, s := range stagesOf(evs) {
+		if s.Stage == "retrying" {
+			t.Errorf("retrying sent without a retry: %+v", stagesOf(evs))
+		}
+	}
+}
+
 func TestStreamGeneratorErrorIsReturned(t *testing.T) {
 	f := &fakeStreamer{gens: []fakeResult{{err: context.DeadlineExceeded}}}
 	if _, _, err := runStream(t, f, 3, nil); !errors.Is(err, context.DeadlineExceeded) {
