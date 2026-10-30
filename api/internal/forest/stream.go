@@ -325,13 +325,13 @@ func (r *streamRun) facetDone(ctx context.Context, fi int, f Facet, sent map[str
 
 	if len(valid) > 0 {
 		r.wg.Add(1)
-		go r.judgeFacet(ctx, fi, ids, valid)
+		go r.judgeFacet(ctx, fi, head, ids, valid)
 	}
 	return len(valid)
 }
 
 // judgeFacet judges one facet's screened paths and resolves each of them.
-func (r *streamRun) judgeFacet(ctx context.Context, fi int, ids []string, paths []Path) {
+func (r *streamRun) judgeFacet(ctx context.Context, fi int, word string, ids []string, paths []Path) {
 	defer r.wg.Done()
 	select {
 	case r.sem <- struct{}{}:
@@ -339,6 +339,10 @@ func (r *streamRun) judgeFacet(ctx context.Context, fi int, ids []string, paths 
 	case <-ctx.Done():
 		return
 	}
+
+	r.mu.Lock()
+	r.send("stage", StageEvent{Stage: stageJudging, Facet: &fi, Word: word})
+	r.mu.Unlock()
 
 	var rec callRecord
 	resp, err := r.s.call(ctx, "forest_judge", &rec, llm.Request{

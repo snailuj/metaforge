@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -337,6 +338,108 @@ func TestStreamRetryContinuesFacetNumbering(t *testing.T) {
 	}
 }
 
+// facetOf is the facet index of a path id such as "f2" or "f2b1".
+func facetOf(t *testing.T, id string) int {
+	t.Helper()
+	m := regexp.MustCompile(`^f(\d+)`).FindStringSubmatch(id)
+	if m == nil {
+		t.Fatalf("path id %q has no facet", id)
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+// checkJudgingPrecedesVerdicts asserts that every facet in judged has exactly
+// one judging stage carrying its index and word, ahead of all of that facet's
+// kept and rejected events, and that no other facet has one.
+func checkJudgingPrecedesVerdicts(t *testing.T, evs []recorded, judged map[int]string) {
+	t.Helper()
+	at := map[int]int{}
+	for i, r := range evs {
+		s, ok := r.ev.Data.(StageEvent)
+		if !ok || s.Stage != "judging" {
+			continue
+		}
+		if s.Facet == nil {
+			t.Errorf("judging stage without a facet: %+v", s)
+			continue
+		}
+		if _, dup := at[*s.Facet]; dup {
+			t.Errorf("facet %d has two judging stages", *s.Facet)
+		}
+		at[*s.Facet] = i
+		if want, ok := judged[*s.Facet]; !ok {
+			t.Errorf("judging stage for facet %d, which needs no judge call", *s.Facet)
+		} else if s.Word != want {
+			t.Errorf("facet %d judging word = %q, want %q", *s.Facet, s.Word, want)
+		}
+	}
+	for fi := range judged {
+		if _, ok := at[fi]; !ok {
+			t.Errorf("no judging stage for facet %d", fi)
+		}
+	}
+	verdicts := 0
+	for i, r := range evs {
+		var id string
+		switch d := r.ev.Data.(type) {
+		case KeptEvent:
+			id = d.PathID
+		case RejectedEvent:
+			id = d.PathID
+		default:
+			continue
+		}
+		fi := facetOf(t, id)
+		if _, isJudged := judged[fi]; !isJudged {
+			continue
+		}
+		// A screening rejection of a judged facet's other path may come first;
+		// only paths the judge decided must follow the stage.
+		if j, ok := at[fi]; ok && i < j {
+			if rj, isRej := r.ev.Data.(RejectedEvent); isRej && rj.Reason == "invalid" {
+				continue
+			}
+			t.Errorf("%s resolved at %d, before facet %d's judging stage at %d", id, i, fi, j)
+		}
+		verdicts++
+	}
+	if verdicts == 0 {
+		t.Error("no verdict events: the ordering check would be vacuous")
+	}
+}
+
+const judgingFacetsJSON = `{"facets":[
+ {"word":"Dormant Seed","ground":"waits","line":"Patience is a seed.","branches":[
+   {"hops":[{"word":"seed vault","ground":"keeps"}],"line":"Patience is a seed vault."}]},
+ {"word":"glacier","ground":"slow","line":"Patience is a glacier.","branches":[]},
+ {"word":"Bank","ground":"holds","line":"","branches":[]}]}`
+
+// Rule: a facet's judging stage, with its index and normalised word, arrives
+// before any of that facet's kept or rejected events; a facet resolved without
+// a judge call gets none.
+func TestStreamSendsJudgingBeforeFacetVerdicts(t *testing.T) {
+	f := &fakeStreamer{gens: []fakeResult{ok(judgingFacetsJSON, 1, 1, 0)},
+		scores: map[string]int{"Patience is a seed.": 8, "Patience is a seed vault.": 7, "Patience is a glacier.": 3}}
+	evs, _, err := runStream(t, f, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.judges) != 2 {
+		t.Fatalf("%d judge calls, want 2 (facet 2 has no candidate path)", len(f.judges))
+	}
+	checkJudgingPrecedesVerdicts(t, evs, map[int]string{0: "dormant seed", 1: "glacier"})
+	zero := 0
+	want := StageEvent{Stage: "judging", Facet: &zero, Word: "dormant seed"}
+	found := false
+	for _, s := range stagesOf(evs) {
+		found = found || reflect.DeepEqual(s, want)
+	}
+	if !found {
+		t.Errorf("no stage equal to %+v in %+v", want, stagesOf(evs))
+	}
+}
+
 // Rule: "retrying" is sent when the thin-output retry starts its generator
 // call, before that call's first hop, and never when no retry runs.
 func TestStreamSendsRetryingOnlyWhenRetryRuns(t *testing.T) {
@@ -346,7 +449,13 @@ func TestStreamSendsRetryingOnlyWhenRetryRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []StageEvent{{Stage: "drafting"}, {Stage: "retrying"}}
-	if got := stagesOf(evs); !reflect.DeepEqual(got, want) {
+	var got []StageEvent
+	for _, s := range stagesOf(evs) {
+		if s.Stage != "judging" {
+			got = append(got, s)
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("stages = %+v, want %+v", got, want)
 	}
 	retrying := indexOf(evs, func(e StreamEvent) bool { return e.Name == "stage" && e.Data.(StageEvent).Stage == "retrying" })
