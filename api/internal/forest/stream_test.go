@@ -124,15 +124,69 @@ func TestStreamSendsHopsWhileGenerating(t *testing.T) {
 		t.Fatal(err)
 	}
 	total := (len(generatedJSON) + f.chunk - 1) / f.chunk
-	if len(evs) == 0 || evs[0].ev.Name != "hop" {
-		t.Fatalf("first event = %+v, want a hop", evs)
+	h := indexOf(evs, func(e StreamEvent) bool { return e.Name == "hop" })
+	if h < 0 {
+		t.Fatalf("no hop event in %+v", evs)
 	}
-	if evs[0].atChunk >= total/2 {
-		t.Errorf("first hop sent after chunk %d of %d", evs[0].atChunk, total)
+	if evs[h].atChunk >= total/2 {
+		t.Errorf("first hop sent after chunk %d of %d", evs[h].atChunk, total)
 	}
-	first := evs[0].ev.Data.(HopEvent)
+	first := evs[h].ev.Data.(HopEvent)
 	if first != (HopEvent{PathID: "f0", Facet: 0, From: "patience", To: "dormant seed", Ground: "waits"}) {
 		t.Errorf("first hop = %+v", first)
+	}
+}
+
+// stagesOf returns the stage events in arrival order.
+func stagesOf(evs []recorded) (out []StageEvent) {
+	for _, r := range evs {
+		if d, ok := r.ev.Data.(StageEvent); ok {
+			if r.ev.Name != "stage" {
+				panic("StageEvent sent as " + r.ev.Name)
+			}
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// indexOf returns the position of the first event matching, or -1.
+func indexOf(evs []recorded, match func(StreamEvent) bool) int {
+	for i, r := range evs {
+		if match(r.ev) {
+			return i
+		}
+	}
+	return -1
+}
+
+// Rule: the client is told the generator call has started before the first
+// hop, and only once when no retry runs.
+func TestStreamSendsDraftingBeforeFirstHop(t *testing.T) {
+	f := &fakeStreamer{gens: []fakeResult{ok(generatedJSON, 1, 1, 0)}, scores: streamScores}
+	evs, _, err := runStream(t, f, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stagesOf(evs); len(got) == 0 || got[0] != (StageEvent{Stage: "drafting"}) {
+		t.Fatalf("stages = %+v, want drafting first", got)
+	}
+	drafting := indexOf(evs, func(e StreamEvent) bool { return e.Name == "stage" && e.Data.(StageEvent).Stage == "drafting" })
+	hop := indexOf(evs, func(e StreamEvent) bool { return e.Name == "hop" })
+	if hop < 0 {
+		t.Fatal("no hop event: the comparison would be vacuous")
+	}
+	if drafting != 0 || drafting > hop {
+		t.Errorf("drafting at %d, first hop at %d", drafting, hop)
+	}
+	n := 0
+	for _, s := range stagesOf(evs) {
+		if s.Stage == "drafting" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d drafting events, want 1", n)
 	}
 }
 
