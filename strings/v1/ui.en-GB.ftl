@@ -147,7 +147,7 @@ progress-line-lookup = Looked up { $word }: { $senses ->
     [one] 1 word
    *[other] { $words } words
 }.
-progress-line-lookup-failed = Could not look up “{ $word }”.
+progress-line-lookup-failed = Could not look up “{ $word }”. Search for it again to retry.
 progress-line-nearby = Fetching nearby words: { $done } of { $total }.
 progress-line-nearby-failed = { $n ->
     [one] 1 nearby word
