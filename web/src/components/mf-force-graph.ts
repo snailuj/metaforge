@@ -10,6 +10,7 @@ import { ghostFade, ghostAlphas } from '@/graph/ghost-fade'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR, FOREST_COLOURS, withAlpha } from '@/graph/colours'
 import { makeLabelRenderer, makeLabelObject, makeGroundLabel, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle, type BacklinkRow } from '@/graph/label-layer'
 import { forestDepthForce, FOREST_FADE_MS, type ForestNodeInfo, type ForestOverlay, type ForestTarget } from '@/graph/forest'
+import { arrivals, holdSettled, releaseHeld, seedArrivals, shouldRelease, type SimNode } from '@/graph/growth'
 import type { ChainRecord, JudgementRecord } from '../types/grading'
 import { normaliseJudgement } from '../types/grading'
 
@@ -21,6 +22,10 @@ const EDGE_RGB = '232, 224, 212'
 const LABEL_FADE_OPACITY = { recede: 0.45, dim: 0.18 } as const
 // A settling layout moves ghosts nearer or farther; re-check this often while it runs.
 const GHOST_FADE_TICK_MS = 250
+// Words on screen are held still while newcomers settle: released once arrivals
+// have been quiet this long and the newcomers have slowed, or after the cap.
+const HOLD_QUIET_MS = 1000
+const HOLD_MAX_QUIET_MS = 6000
 
 // Metaphor forest emphasis. Thesaurus marks recede while a forest is shown so
 // the forest reads as the figure; anything off a lit path recedes further.
@@ -313,6 +318,13 @@ export class MfForceGraph extends LitElement {
   private streamTimer: ReturnType<typeof setTimeout> | null = null
   // Current flicker brightness of each pending link, keyed by its forest ends.
   private flicker = new Map<string, { alpha: number; until: number }>()
+  // Steady growth (graph/growth.ts), browse mode: the ids and nodes last fed,
+  // the ids held still for the latest arrival, and that arrival's newcomers.
+  private fedIds: ReadonlySet<string> = new Set()
+  private fedNodes: SimNode[] = []
+  private held = new Set<string>()
+  private newcomers: SimNode[] = []
+  private lastArrivalAt = 0
 
   @property({ type: Object }) graphData: GraphData = { nodes: [], links: [] }
   @property({ type: Object }) hiddenRarities: Set<Rarity> = new Set()
@@ -511,6 +523,7 @@ export class MfForceGraph extends LitElement {
   }
 
   private onEngineTickFn = (): void => {
+    this.releaseWhenQuiet()
     const now = performance.now()
     if (now - this.lastGhostFadeTick < GHOST_FADE_TICK_MS) return
     this.lastGhostFadeTick = now
@@ -1008,6 +1021,7 @@ export class MfForceGraph extends LitElement {
       .d3AlphaDecay(0.005)
       .cooldownTime(30000)
       .onEngineTick(this.onEngineTickFn)
+      .onEngineStop(() => this.releaseHeld('engine stopped'))
       .warmupTicks(50)
       .linkColor(this.linkColorFn)
       .linkWidth(this.linkWidthFn)
@@ -1165,9 +1179,43 @@ export class MfForceGraph extends LitElement {
       this.graph.graphData(data as GraphData)
       this.frameGradeGraph()
     } else if (data.nodes.length) {
+      // Before graphData(): its warm-up ticks run inside the call.
+      this.prepareArrival(data as GraphData)
       this.graph.graphData(data as GraphData)
       this.scheduleGhostFades()
     }
+  }
+
+  /** A feed reheats the whole simulation. Seed its newcomers beside their
+   *  parents and hold every word already on screen still while they settle. */
+  private prepareArrival(data: GraphData): void {
+    const nodes = data.nodes as SimNode[]
+    const newcomers = arrivals(nodes, this.fedIds)
+    seedArrivals(newcomers, data.links, nodes)
+    for (const id of holdSettled(nodes, new Set(newcomers.map(n => n.id)))) this.held.add(id)
+    this.fedIds = new Set(nodes.map(n => n.id))
+    this.fedNodes = nodes
+    this.newcomers = newcomers
+    this.lastArrivalAt = performance.now()
+    console.debug('[mf-force-graph] arrival', { newcomers: newcomers.length, held: this.held.size })
+  }
+
+  private releaseWhenQuiet(): void {
+    if (this.held.size === 0) return
+    if (!shouldRelease({
+      now: performance.now(), lastArrivalAt: this.lastArrivalAt, newcomers: this.newcomers,
+      quietMs: HOLD_QUIET_MS, maxQuietMs: HOLD_MAX_QUIET_MS,
+    })) return
+    this.releaseHeld('arrivals settled')
+  }
+
+  /** Let the held words relax again (they go free at whatever heat is left). */
+  private releaseHeld(why: string): void {
+    if (this.held.size === 0) return
+    console.debug('[mf-force-graph] releasing held words', { why, held: this.held.size })
+    releaseHeld(this.fedNodes, this.held)
+    this.held = new Set()
+    this.newcomers = []
   }
 
   /**
