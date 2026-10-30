@@ -113,3 +113,7 @@ forest-sheet-show = { $n ->
   }
 forest-sheet-hide = Hide metaphors
 forest-lookup-missing = “{ $word }” isn’t in the thesaurus. Your forest is unchanged.
+
+## Source link (bottom left, browse mode)
+source-link = Source on GitHub
+source-link-new-tab = (opens in a new tab)

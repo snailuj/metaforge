@@ -72,6 +72,9 @@ const UNDO_TOAST_MS = 6000
 // Second-level glimpses are one lookup each; a few at a time keeps the API and
 // the layout calm while they stream in.
 const MAX_GLIMPSE_LOOKUPS = 4
+// The phone layout (forest bottom sheet) applies at this width and below.
+const PHONE_MAX_WIDTH = 768
+const SOURCE_URL = 'https://github.com/snailuj/metaforge'
 // Synonyms always show; these join them only when ticked on the results panel.
 const DEFAULT_HIDDEN_RELATIONS: ReadonlySet<RelationType> = new Set(['hyponym', 'hypernym', 'similar'])
 
@@ -123,6 +126,42 @@ export class MfApp extends LitElement {
       mf-results-panel {
         z-index: 26;
       }
+    }
+
+    /* Bottom left, under the results panel (z 10) so it never covers a control.
+       On a phone it rides above the forest sheet (--forest-sheet-height). */
+    .source-link {
+      position: absolute;
+      inset-inline-start: var(--space-sm, 0.5rem);
+      inset-block-end: calc(var(--forest-sheet-height, 0px) + env(safe-area-inset-bottom, 0px));
+      z-index: 5;
+      display: inline-flex;
+      align-items: center;
+      min-block-size: 2.75rem;
+      padding-inline: var(--space-sm, 0.5rem);
+      border-radius: var(--hud-radius, 4px);
+      color: var(--colour-text-secondary);
+      font-family: var(--font-body, serif);
+      font-size: 0.75rem;
+      text-decoration: underline;
+      text-decoration-color: var(--colour-text-muted);
+      text-underline-offset: 0.2em;
+    }
+
+    .source-link:hover { color: var(--colour-text-primary); }
+
+    .source-link:focus-visible {
+      outline: 2px solid var(--colour-accent-gold);
+      outline-offset: 2px;
+    }
+
+    .vh {
+      position: absolute;
+      inline-size: 1px;
+      block-size: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
     }
 
     .status-message {
@@ -600,7 +639,33 @@ export class MfApp extends LitElement {
   private gradingClient = new GradingClient()
 
   private hiddenRarities: Set<Rarity> = new Set()
+  // The forest sheet's height on a phone, published as --forest-sheet-height so
+  // the bottom-corner controls sit above it.
+  private forestSheetObserver: ResizeObserver | null = null
+  private observedSheet: Element | null = null
   private handleResize = () => { this.viewportWidth = window.innerWidth }
+
+  protected updated(changed: PropertyValues): void {
+    const sheet = this.shadowRoot?.querySelector('mf-forest-panel') ?? null
+    if (sheet !== this.observedSheet) {
+      this.forestSheetObserver?.disconnect()
+      this.forestSheetObserver = null
+      this.observedSheet = sheet
+      if (sheet && typeof ResizeObserver !== 'undefined') {
+        this.forestSheetObserver = new ResizeObserver(this.syncForestSheetHeight)
+        this.forestSheetObserver.observe(sheet)
+      }
+      this.syncForestSheetHeight()
+    } else if (changed.has('viewportWidth')) {
+      this.syncForestSheetHeight()
+    }
+  }
+
+  private syncForestSheetHeight = (): void => {
+    const sheet = this.observedSheet ?? this.shadowRoot?.querySelector('mf-forest-panel')
+    const height = sheet && this.viewportWidth <= PHONE_MAX_WIDTH ? Math.round(sheet.getBoundingClientRect().height) : 0
+    this.style.setProperty('--forest-sheet-height', `${height}px`)
+  }
 
   protected willUpdate(changed: PropertyValues): void {
     if (changed.has('showCommon') || changed.has('showUnusual') || changed.has('showRare')) {
@@ -691,6 +756,9 @@ export class MfApp extends LitElement {
 
   disconnectedCallback(): void {
     super.disconnectedCallback()
+    this.forestSheetObserver?.disconnect()
+    this.forestSheetObserver = null
+    this.observedSheet = null
     window.removeEventListener('popstate', this.handlePopState)
     window.removeEventListener('hashchange', this.handleHashChange)
     window.removeEventListener('resize', this.handleResize)
@@ -1721,6 +1789,9 @@ export class MfApp extends LitElement {
             @mf-forest-lookup=${this.handleForestLookup}
           ></mf-forest-panel>`
         : ''}
+
+      <a class="source-link" href=${SOURCE_URL} target="_blank" rel="noopener noreferrer"
+        >${getString('source-link')}<span class="vh"> ${getString('source-link-new-tab')}</span></a>
     `
   }
 

@@ -141,6 +141,38 @@ describe('MfApp', () => {
     expect(status?.textContent).toContain('status-idle')
   })
 
+  // Rule: browse mode offers the source repository in a new tab, opened without an opener;
+  // grade mode, which uses the bottom corners, does not show it.
+  it('links to the source on GitHub in a new tab, in browse mode only', async () => {
+    const link = () => el.shadowRoot!.querySelector<HTMLAnchorElement>('a.source-link')
+    expect(link()!.href).toBe('https://github.com/snailuj/metaforge')
+    expect(link()!.target).toBe('_blank')
+    expect(link()!.rel.split(' ').sort()).toEqual(['noopener', 'noreferrer'])
+    expect(link()!.textContent).toContain('source-link')
+    expect(link()!.textContent).toContain('source-link-new-tab')
+    el.mode = 'grade'
+    await el.updateComplete
+    expect(link()).toBeNull()
+  })
+
+  // Rule: on a phone the bottom-corner controls sit above the forest sheet, however tall it is;
+  // on a desktop the forest panel is top right and reserves nothing.
+  it('publishes the forest sheet height for the bottom corners on a phone only', async () => {
+    vi.mocked(lookupWord).mockResolvedValue(mockResult)
+    vi.mocked(streamForest).mockImplementation(() => new Promise(() => {}))
+    await search(el, 'fire')
+    const sheet = el.shadowRoot!.querySelector('mf-forest-panel')!
+    sheet.getBoundingClientRect = () => ({ height: 120 }) as DOMRect
+    ;(el as any).viewportWidth = 375
+    await el.updateComplete
+    ;(el as any).syncForestSheetHeight()
+    expect(el.style.getPropertyValue('--forest-sheet-height')).toBe('120px')
+    ;(el as any).viewportWidth = 1200
+    await el.updateComplete
+    ;(el as any).syncForestSheetHeight()
+    expect(el.style.getPropertyValue('--forest-sheet-height')).toBe('0px')
+  })
+
   it('transitions to ready state on successful lookup', async () => {
     vi.mocked(lookupWord).mockResolvedValue(mockResult)
 
