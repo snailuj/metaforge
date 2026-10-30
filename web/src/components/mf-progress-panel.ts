@@ -184,7 +184,9 @@ export class MfProgressPanel extends LitElement {
         align-items: stretch;
         gap: 0;
         padding-block-end: env(safe-area-inset-bottom, 0);
-        background: var(--colour-panel-deep);
+        /* panel-deep is translucent; the opaque base stops the forest sheet
+           underneath showing through. */
+        background: linear-gradient(var(--colour-panel-deep), var(--colour-panel-deep)), var(--colour-bg-secondary);
         border-block-start: 1px solid var(--colour-forest-branch-dim);
         border-radius: 10px 10px 0 0;
       }
