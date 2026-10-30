@@ -117,6 +117,10 @@ export type ForestStreamEvent =
   | { type: 'forest'; forest: ForestResponse }
   | { type: 'done'; forest: ForestResponse }
   | { type: 'error'; kind: 'failed' | 'timeout' }
+  // What the server is waiting on: a generator call, the thin-output retry, or a facet's judge.
+  // Optional: a server that sends none still streams a working forest.
+  | { type: 'stage'; stage: 'drafting' | 'retrying' }
+  | { type: 'stage'; stage: 'judging'; facet: number; word: string }
 
 /**
  * Stream a metaphor forest: each event goes to `onEvent` as it arrives, and the
@@ -278,6 +282,10 @@ function toStreamEvent(frame: SseFrame, word: string, status: number): ForestStr
       return { type: 'done', forest: checkedForest(d, word, status) }
     case 'error':
       return { type: 'error', kind: d?.kind === 'timeout' ? 'timeout' : 'failed' }
+    case 'stage':
+      if (d?.stage === 'drafting' || d?.stage === 'retrying') return { type: 'stage', stage: d.stage }
+      if (d?.stage === 'judging' && typeof d.facet === 'number' && isString(d.word)) return { type: 'stage', stage: 'judging', facet: d.facet, word: d.word }
+      return skip('stage')
     default:
       console.debug('[forest] ignored an unknown stream event', { event: frame.event })
       return null
