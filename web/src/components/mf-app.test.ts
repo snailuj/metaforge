@@ -1001,6 +1001,41 @@ describe('MfApp two levels of synonyms', () => {
     expect(pending).toHaveLength(4)
   })
 
+  // Rule: glimpses that finish within about 300 ms of each other reach the graph in one
+  // update, and the last of a wave is never held back.
+  it('sends glimpses that finish close together to the graph in one update', async () => {
+    const release: Record<string, () => void> = {}
+    vi.mocked(lookupWord).mockImplementation(w => w === 'sun'
+      ? Promise.resolve(word('sun', ['ray', 'glow', 'beam']))
+      : new Promise(r => { release[w] = () => r(word(w, [`${w}1`])) }))
+    await search(el, 'sun')
+    await flush()
+    expect(Object.keys(release).sort()).toEqual(['beam', 'glow', 'ray'])
+    const feeds = vi.fn()
+    const proto = Object.getPrototypeOf(graph())
+    const desc = Object.getOwnPropertyDescriptor(proto, 'graphData')!
+    Object.defineProperty(graph(), 'graphData', {
+      configurable: true,
+      get() { return desc.get!.call(this) },
+      set(v) { feeds(); desc.set!.call(this, v) },
+    })
+    release.ray()
+    await flush()
+    release.glow()
+    await flush()
+    expect(feeds).not.toHaveBeenCalled() // beam is still in flight, so the window is open
+    await new Promise(r => setTimeout(r, 320))
+    await flush()
+    expect(feeds).toHaveBeenCalledTimes(1)
+    expect(node('ray1')).toBeDefined()
+    expect(node('glow1')).toBeDefined()
+    release.beam()
+    await flush()
+    expect(feeds).toHaveBeenCalledTimes(2) // the last of the wave goes at once
+    expect(node('beam1')).toBeDefined()
+    delete (graph() as Record<string, unknown>).graphData
+  })
+
   it('clicking a glimpsed word reuses its lookup, solidifies its ghosts and glimpses each of its words', async () => {
     vi.mocked(lookupWord).mockClear()
     await click('blaze')

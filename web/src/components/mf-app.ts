@@ -8,6 +8,7 @@ import {
 } from '@/graph/forest'
 import { initialForestState, reduceForest, litTarget, sameTarget, type ForestEvent, type ForestState, type StreamPath } from '@/forest/state'
 import { computeCrossLinks } from '@/graph/cross-links'
+import { arrivalBatch, ARRIVAL_WINDOW_MS } from '@/graph/batch'
 import { initStrings, getString } from '@/lib/strings'
 import { GradingClient } from '@/api/grading-client'
 import type { LookupResult } from '@/types/api'
@@ -580,6 +581,9 @@ export class MfApp extends LitElement {
   private fillTargets: ReadonlySet<string> = new Set()
   private filling = new Set<string>()
   private fillFailed = new Set<string>()
+  // Glimpses merge into thesaurusGraph at once but reach the graph in batches, so
+  // a wave of them reheats the layout once. Any other recomposition carries them.
+  private glimpseBatch = arrivalBatch(ARRIVAL_WINDOW_MS, () => this.recomposeGraph())
   @state() private hiddenRelations: ReadonlySet<RelationType> = DEFAULT_HIDDEN_RELATIONS
   // The node a Re-Centre would centre on: the last one clicked.
   @state() private lastClickedId: string | null = null
@@ -692,6 +696,7 @@ export class MfApp extends LitElement {
     window.removeEventListener('resize', this.handleResize)
     if (this.forestFadeTimer) clearTimeout(this.forestFadeTimer)
     this.forestFadeTimer = null
+    this.glimpseBatch.cancel()
   }
 
   // The browser already made the entry (a typed URL, or Back to an entry the
@@ -892,6 +897,7 @@ export class MfApp extends LitElement {
 
   private async glimpse(node: GraphNode): Promise<void> {
     const gen = this.graphGen
+    let merged = false
     this.filling.add(node.id)
     try {
       const result = await lookupWord(node.word)
@@ -902,7 +908,7 @@ export class MfApp extends LitElement {
       const targets = new Set(this.fillTargets)
       targets.delete(node.id)
       this.fillTargets = targets
-      this.recomposeGraph()
+      merged = true
     } catch (err) {
       console.warn('[mf-app] glimpse failed', { nodeId: node.id, word: node.word }, err)
       if (gen === this.graphGen) this.fillFailed.add(node.id)
@@ -910,6 +916,7 @@ export class MfApp extends LitElement {
       if (gen === this.graphGen) {
         this.filling.delete(node.id)
         this.pumpGlimpses()
+        if (merged) this.glimpseBatch.arrive(this.filling.size > 0)
       }
     }
   }
@@ -1017,6 +1024,7 @@ export class MfApp extends LitElement {
   }
 
   private recomposeGraph(): void {
+    this.glimpseBatch.cancel() // this composition carries any glimpses waiting for the batch
     const { data, overlay } = composeForest(this.thesaurusGraph, this.forestGraph, { marks: this.forestMarks, pool: this.forestPool })
     this.graphData = data
     this.forestOverlay = overlay
