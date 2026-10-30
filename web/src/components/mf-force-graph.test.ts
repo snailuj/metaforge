@@ -35,6 +35,8 @@ let mockGraphData: { nodes: unknown[]; links: unknown[] } = { nodes: [], links: 
 // Counts graphData(data) SETTER calls (feed events). The "no re-heat" regression
 // guard asserts this does not increment when only pathFilter changes.
 let graphDataSetCount = 0
+// Runs inside each graphData(data) feed, where the library runs its warm-up ticks.
+let onFeed: ((data: { nodes: unknown[]; links: unknown[] }) => void) | null = null
 // Counts visibility-accessor (re-)applications. The "no re-heat" guard asserts
 // these DO increment on pathFilter change while graphData stays flat.
 let nodeVisibilitySetCount = 0
@@ -114,6 +116,7 @@ const chainable: Record<string, unknown> = new Proxy({}, {
       return (data?: { nodes: unknown[]; links: unknown[] }) => {
         if (data === undefined) return mockGraphData
         graphDataSetCount++
+        onFeed?.(data)
         return chainable
       }
     }
@@ -196,6 +199,7 @@ describe('MfForceGraph', () => {
     lastArgs = {}
     setCounts = {}
     graphDataSetCount = 0
+    onFeed = null
     nodeVisibilitySetCount = 0
     linkVisibilitySetCount = 0
     mockCamera.position.z = 100
@@ -1157,6 +1161,75 @@ describe('MfForceGraph', () => {
       gradeEl.judgements = [v1('irrelevant')]
       await gradeEl.updateComplete
       expect(gradeEl.getEdgeColour(sig)).toBe('irrelevant')
+    })
+  })
+
+  describe('steady growth', () => {
+    type Sim = GraphNode & { fx?: number; fy?: number; fz?: number; vx?: number }
+    const at = (id: string, order: number, x: number): Sim =>
+      ({ id, word: id, relationType: order === 0 ? 'central' : 'synonym', val: 1, order, x, y: 0, z: 0 })
+    const ln = (source: string, target: string) => ({ source, target, relationType: 'synonym' as const, order: 1 })
+    let seededAt: Record<string, number | undefined>
+    const tick = () => (lastArgs.onEngineTick[0] as () => void)()
+
+    beforeEach(() => {
+      seededAt = {}
+      // A stand-in warm-up: every node not fixed drifts 10 units, as a reheat would move it.
+      onFeed = data => {
+        for (const n of data.nodes as Sim[]) {
+          seededAt[n.id] ??= n.x
+          if (n.fx === undefined && n.x !== undefined) n.x += 10
+        }
+      }
+    })
+
+    // Rule: on an arrival, words already on screen hold still through the warm-up,
+    // and the newcomer starts at its parent.
+    it('holds words on screen and seeds the newcomer at its parent', async () => {
+      const centre = at('sun', 0, 0)
+      const ray = at('ray', 1, 50)
+      el.graphData = { nodes: [centre, ray], links: [ln('sun', 'ray')] }
+      await el.updateComplete
+      // Baseline: on its own first feed nothing was held, so the warm-up moved it.
+      expect(ray.x).toBe(60)
+
+      const glow: Sim = { id: 'glow', word: 'glow', relationType: 'synonym', val: 1, order: 2 }
+      el.graphData = { nodes: [centre, ray, glow], links: [ln('sun', 'ray'), ln('ray', 'glow')] }
+      await el.updateComplete
+      expect(ray.x).toBe(60)
+      expect(centre.x).toBe(10)
+      expect(Math.abs(seededAt.glow! - 60)).toBeLessThanOrEqual(2)
+    })
+
+    // Rule: held words go free once arrivals stop and newcomers settle; until then they stay held.
+    it('releases held words after the quiet, not before', async () => {
+      const now = vi.spyOn(performance, 'now').mockReturnValue(0)
+      const centre = at('sun', 0, 0)
+      el.graphData = { nodes: [centre], links: [] }
+      await el.updateComplete
+      const glow: Sim = { ...at('glow', 1, 0), vx: 0 }
+      el.graphData = { nodes: [centre, glow], links: [ln('sun', 'glow')] }
+      await el.updateComplete
+      expect(centre.fx).toBe(10)
+      now.mockReturnValue(200)
+      tick()
+      expect(centre.fx).toBe(10)
+      now.mockReturnValue(5000)
+      tick()
+      expect(centre.fx).toBeUndefined()
+      now.mockRestore()
+    })
+
+    // Rule: when the engine stops, nothing stays held.
+    it('releases held words when the engine stops', async () => {
+      const centre = at('sun', 0, 0)
+      el.graphData = { nodes: [centre], links: [] }
+      await el.updateComplete
+      el.graphData = { nodes: [centre, at('glow', 1, 3)], links: [] }
+      await el.updateComplete
+      expect(centre.fx).toBeDefined()
+      ;(lastArgs.onEngineStop[0] as () => void)()
+      expect(centre.fx).toBeUndefined()
     })
   })
 

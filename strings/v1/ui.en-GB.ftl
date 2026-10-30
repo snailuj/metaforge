@@ -113,3 +113,61 @@ forest-sheet-show = { $n ->
   }
 forest-sheet-hide = Hide metaphors
 forest-lookup-missing = “{ $word }” isn’t in the thesaurus. Your forest is unchanged.
+
+## Source link (bottom left, browse mode)
+source-link = Source on GitHub
+source-link-new-tab = (opens in a new tab)
+
+## Activity (progress) panel, bottom right in browse mode
+progress-heading = Activity
+progress-toggle = Activity
+progress-toggle-busy = Activity: still loading
+progress-label-foraging = Foraging ...
+progress-label-forging = Forging ...
+progress-label-fording = Fording ...
+progress-label-foresting = Foresting ...
+progress-log-label = Activity log
+progress-summary = Still loading { $items }. More will appear on the graph.
+progress-summary-idle = Everything has loaded.
+progress-empty = Nothing has loaded yet. Look up a word and its progress shows here.
+progress-pending-lookup = the word “{ $word }”
+progress-pending-nearby = { $n ->
+    [one] 1 nearby word
+   *[other] { $n } nearby words
+}
+progress-pending-opened = { $n ->
+    [one] 1 opened word
+   *[other] { $n } opened words
+}
+progress-pending-forest = the metaphor forest
+progress-line-lookup = Looked up { $word }: { $senses ->
+    [one] 1 sense
+   *[other] { $senses } senses
+}, { $words ->
+    [one] 1 word
+   *[other] { $words } words
+}.
+progress-line-lookup-failed = Could not look up “{ $word }”. Search for it again to retry.
+progress-line-nearby = Fetching nearby words: { $done } of { $total }.
+progress-line-nearby-failed = { $n ->
+    [one] 1 nearby word
+   *[other] { $n } nearby words
+} could not be fetched. Click a word to try it again.
+progress-line-expanded = Opened { $word }: { $words ->
+    [one] 1 word
+   *[other] { $words } words
+}.
+progress-line-expand-failed = Could not open “{ $word }”. Click it again to retry.
+progress-line-forging = Forging metaphors: { $drafted ->
+    [one] 1 path
+   *[other] { $drafted } paths
+} drafted, { $kept } kept, { $dropped } dropped.
+progress-line-retrying = The first draft was thin, so the forge is drafting more.
+progress-line-judging = Judging metaphors for ‘{ $word }’.
+progress-line-forest-ready = Metaphor forest ready: { $n ->
+    [one] 1 metaphor
+   *[other] { $n } metaphors
+} kept.
+progress-line-forest-failed = The metaphor forest could not be grown. The forest panel says what to try next.
+progress-line-forest-cancelled = Forging stopped.
+progress-line-all-loaded = All loaded.

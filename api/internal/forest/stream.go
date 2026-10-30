@@ -16,11 +16,27 @@ import (
 // maxJudgeCalls bounds the concurrent judge calls of one streamed request.
 const maxJudgeCalls = 4
 
-// StreamEvent is one event of a streamed forest. Data is a HopEvent,
-// KeptEvent, RejectedEvent or Forest; Name is its server-sent event name.
+// StreamEvent is one event of a streamed forest. Data is a StageEvent,
+// HopEvent, KeptEvent, RejectedEvent or Forest; Name is its server-sent event
+// name.
 type StreamEvent struct {
 	Name string
 	Data any
+}
+
+// Stage names for StageEvent.
+const (
+	stageDrafting = "drafting"
+	stageRetrying = "retrying"
+	stageJudging  = "judging"
+)
+
+// StageEvent says what the server is waiting on. Facet and Word identify the
+// facet being judged and are unset for the generator stages.
+type StageEvent struct {
+	Stage string `json:"stage"`
+	Facet *int   `json:"facet,omitempty"`
+	Word  string `json:"word,omitempty"`
 }
 
 // HopEvent is one hop as the generator wrote it, before any judging.
@@ -77,14 +93,14 @@ func (s *Service) GenerateStream(ctx context.Context, source string, maxHops int
 	// Judge goroutines must finish before return, whatever the outcome.
 	defer r.wg.Wait()
 
-	facets, valid, err := r.attempt(ctx, 0, &r.gen)
+	facets, valid, err := r.attempt(ctx, 0, stageDrafting, &r.gen)
 	if err != nil {
 		return Forest{}, err
 	}
 	if valid < s.cfg.MinPaths {
 		s.Logger.Warn("forest: thin generator output, retrying", "word", source, "valid", valid, "min_paths", s.cfg.MinPaths)
 		var retry callRecord
-		_, _, err := r.attempt(ctx, facets, &retry)
+		_, _, err := r.attempt(ctx, facets, stageRetrying, &retry)
 		r.mu.Lock()
 		r.gen.add(retry)
 		r.mu.Unlock()
@@ -134,7 +150,7 @@ func (r *streamRun) send(name string, data any) { r.emit(StreamEvent{Name: name,
 // attempt streams one generator call. Facets are numbered from base, so ids
 // never repeat across attempts. It returns how many facets it saw and how
 // many of their paths passed screening.
-func (r *streamRun) attempt(ctx context.Context, base int, rec *callRecord) (facets, valid int, err error) {
+func (r *streamRun) attempt(ctx context.Context, base int, stage string, rec *callRecord) (facets, valid int, err error) {
 	var sc Scanner
 	scanOK := true
 	words := map[int]string{}   // facet index -> normalised facet word
@@ -155,6 +171,10 @@ func (r *streamRun) attempt(ctx context.Context, base int, rec *callRecord) (fac
 			valid += v
 		}
 	}
+
+	r.mu.Lock()
+	r.send("stage", StageEvent{Stage: stage})
+	r.mu.Unlock()
 
 	stop := observe.Start("forest_generate")
 	start := time.Now()
@@ -305,13 +325,13 @@ func (r *streamRun) facetDone(ctx context.Context, fi int, f Facet, sent map[str
 
 	if len(valid) > 0 {
 		r.wg.Add(1)
-		go r.judgeFacet(ctx, fi, ids, valid)
+		go r.judgeFacet(ctx, fi, head, ids, valid)
 	}
 	return len(valid)
 }
 
 // judgeFacet judges one facet's screened paths and resolves each of them.
-func (r *streamRun) judgeFacet(ctx context.Context, fi int, ids []string, paths []Path) {
+func (r *streamRun) judgeFacet(ctx context.Context, fi int, word string, ids []string, paths []Path) {
 	defer r.wg.Done()
 	select {
 	case r.sem <- struct{}{}:
@@ -319,6 +339,10 @@ func (r *streamRun) judgeFacet(ctx context.Context, fi int, ids []string, paths 
 	case <-ctx.Done():
 		return
 	}
+
+	r.mu.Lock()
+	r.send("stage", StageEvent{Stage: stageJudging, Facet: &fi, Word: word})
+	r.mu.Unlock()
 
 	var rec callRecord
 	resp, err := r.s.call(ctx, "forest_judge", &rec, llm.Request{

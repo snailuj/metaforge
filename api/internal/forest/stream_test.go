@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/snailuj/metaforge/internal/llm"
 )
@@ -24,6 +26,8 @@ type fakeStreamer struct {
 	chunk     int
 	sent      int // chunks handed to onText so far, read by emit hooks
 	judges    []llm.Request
+	overlap   int // when set, each judge call waits until this many have started
+	started   int // judge calls started so far
 }
 
 func (f *fakeStreamer) Complete(ctx context.Context, req llm.Request) (llm.Response, error) {
@@ -32,7 +36,16 @@ func (f *fakeStreamer) Complete(ctx context.Context, req llm.Request) (llm.Respo
 	}
 	f.mu.Lock()
 	f.judges = append(f.judges, req)
+	f.started++
 	f.mu.Unlock()
+	for deadline := time.Now().Add(2 * time.Second); f.overlap > 0 && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		f.mu.Lock()
+		n := f.started
+		f.mu.Unlock()
+		if n >= f.overlap {
+			break
+		}
+	}
 	for line, err := range f.judgeErrs {
 		if strings.Contains(req.User, "line: "+line) {
 			return llm.Response{}, err
@@ -124,15 +137,69 @@ func TestStreamSendsHopsWhileGenerating(t *testing.T) {
 		t.Fatal(err)
 	}
 	total := (len(generatedJSON) + f.chunk - 1) / f.chunk
-	if len(evs) == 0 || evs[0].ev.Name != "hop" {
-		t.Fatalf("first event = %+v, want a hop", evs)
+	h := indexOf(evs, func(e StreamEvent) bool { return e.Name == "hop" })
+	if h < 0 {
+		t.Fatalf("no hop event in %+v", evs)
 	}
-	if evs[0].atChunk >= total/2 {
-		t.Errorf("first hop sent after chunk %d of %d", evs[0].atChunk, total)
+	if evs[h].atChunk >= total/2 {
+		t.Errorf("first hop sent after chunk %d of %d", evs[h].atChunk, total)
 	}
-	first := evs[0].ev.Data.(HopEvent)
+	first := evs[h].ev.Data.(HopEvent)
 	if first != (HopEvent{PathID: "f0", Facet: 0, From: "patience", To: "dormant seed", Ground: "waits"}) {
 		t.Errorf("first hop = %+v", first)
+	}
+}
+
+// stagesOf returns the stage events in arrival order.
+func stagesOf(evs []recorded) (out []StageEvent) {
+	for _, r := range evs {
+		if d, ok := r.ev.Data.(StageEvent); ok {
+			if r.ev.Name != "stage" {
+				panic("StageEvent sent as " + r.ev.Name)
+			}
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// indexOf returns the position of the first event matching, or -1.
+func indexOf(evs []recorded, match func(StreamEvent) bool) int {
+	for i, r := range evs {
+		if match(r.ev) {
+			return i
+		}
+	}
+	return -1
+}
+
+// Rule: the client is told the generator call has started before the first
+// hop, and only once when no retry runs.
+func TestStreamSendsDraftingBeforeFirstHop(t *testing.T) {
+	f := &fakeStreamer{gens: []fakeResult{ok(generatedJSON, 1, 1, 0)}, scores: streamScores}
+	evs, _, err := runStream(t, f, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stagesOf(evs); len(got) == 0 || got[0] != (StageEvent{Stage: "drafting"}) {
+		t.Fatalf("stages = %+v, want drafting first", got)
+	}
+	drafting := indexOf(evs, func(e StreamEvent) bool { return e.Name == "stage" && e.Data.(StageEvent).Stage == "drafting" })
+	hop := indexOf(evs, func(e StreamEvent) bool { return e.Name == "hop" })
+	if hop < 0 {
+		t.Fatal("no hop event: the comparison would be vacuous")
+	}
+	if drafting != 0 || drafting > hop {
+		t.Errorf("drafting at %d, first hop at %d", drafting, hop)
+	}
+	n := 0
+	for _, s := range stagesOf(evs) {
+		if s.Stage == "drafting" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d drafting events, want 1", n)
 	}
 }
 
@@ -280,6 +347,185 @@ func TestStreamRetryContinuesFacetNumbering(t *testing.T) {
 	}
 	if f.genCalls != 2 || len(forest.Endpoints) != 1 {
 		t.Errorf("genCalls=%d endpoints=%d", f.genCalls, len(forest.Endpoints))
+	}
+}
+
+// facetOf is the facet index of a path id such as "f2" or "f2b1".
+func facetOf(t *testing.T, id string) int {
+	t.Helper()
+	m := regexp.MustCompile(`^f(\d+)`).FindStringSubmatch(id)
+	if m == nil {
+		t.Fatalf("path id %q has no facet", id)
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+// checkJudgingPrecedesVerdicts asserts that every facet in judged has exactly
+// one judging stage carrying its index and word, ahead of all of that facet's
+// kept and rejected events, and that no other facet has one.
+func checkJudgingPrecedesVerdicts(t *testing.T, evs []recorded, judged map[int]string) {
+	t.Helper()
+	at := map[int]int{}
+	for i, r := range evs {
+		s, ok := r.ev.Data.(StageEvent)
+		if !ok || s.Stage != "judging" {
+			continue
+		}
+		if s.Facet == nil {
+			t.Errorf("judging stage without a facet: %+v", s)
+			continue
+		}
+		if _, dup := at[*s.Facet]; dup {
+			t.Errorf("facet %d has two judging stages", *s.Facet)
+		}
+		at[*s.Facet] = i
+		if want, ok := judged[*s.Facet]; !ok {
+			t.Errorf("judging stage for facet %d, which needs no judge call", *s.Facet)
+		} else if s.Word != want {
+			t.Errorf("facet %d judging word = %q, want %q", *s.Facet, s.Word, want)
+		}
+	}
+	for fi := range judged {
+		if _, ok := at[fi]; !ok {
+			t.Errorf("no judging stage for facet %d", fi)
+		}
+	}
+	verdicts := 0
+	for i, r := range evs {
+		var id string
+		switch d := r.ev.Data.(type) {
+		case KeptEvent:
+			id = d.PathID
+		case RejectedEvent:
+			id = d.PathID
+		default:
+			continue
+		}
+		fi := facetOf(t, id)
+		if _, isJudged := judged[fi]; !isJudged {
+			continue
+		}
+		// A screening rejection of a judged facet's other path may come first;
+		// only paths the judge decided must follow the stage.
+		if j, ok := at[fi]; ok && i < j {
+			if rj, isRej := r.ev.Data.(RejectedEvent); isRej && rj.Reason == "invalid" {
+				continue
+			}
+			t.Errorf("%s resolved at %d, before facet %d's judging stage at %d", id, i, fi, j)
+		}
+		verdicts++
+	}
+	if verdicts == 0 {
+		t.Error("no verdict events: the ordering check would be vacuous")
+	}
+}
+
+const judgingFacetsJSON = `{"facets":[
+ {"word":"Dormant Seed","ground":"waits","line":"Patience is a seed.","branches":[
+   {"hops":[{"word":"seed vault","ground":"keeps"}],"line":"Patience is a seed vault."}]},
+ {"word":"glacier","ground":"slow","line":"Patience is a glacier.","branches":[]},
+ {"word":"Bank","ground":"holds","line":"","branches":[]}]}`
+
+// Rule: a facet's judging stage, with its index and normalised word, arrives
+// before any of that facet's kept or rejected events; a facet resolved without
+// a judge call gets none.
+func TestStreamSendsJudgingBeforeFacetVerdicts(t *testing.T) {
+	f := &fakeStreamer{gens: []fakeResult{ok(judgingFacetsJSON, 1, 1, 0)},
+		scores: map[string]int{"Patience is a seed.": 8, "Patience is a seed vault.": 7, "Patience is a glacier.": 3}}
+	evs, _, err := runStream(t, f, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.judges) != 2 {
+		t.Fatalf("%d judge calls, want 2 (facet 2 has no candidate path)", len(f.judges))
+	}
+	checkJudgingPrecedesVerdicts(t, evs, map[int]string{0: "dormant seed", 1: "glacier"})
+	zero := 0
+	want := StageEvent{Stage: "judging", Facet: &zero, Word: "dormant seed"}
+	found := false
+	for _, s := range stagesOf(evs) {
+		found = found || reflect.DeepEqual(s, want)
+	}
+	if !found {
+		t.Errorf("no stage equal to %+v in %+v", want, stagesOf(evs))
+	}
+}
+
+// Rule: the judging-before-verdicts order holds per facet while judge calls
+// overlap, and a facet's judging stage never waits for another facet's verdicts.
+func TestStreamJudgingOrderHoldsWithConcurrentJudges(t *testing.T) {
+	var facets []string
+	scores := map[string]int{}
+	judged := map[int]string{}
+	for i := 0; i < 4; i++ {
+		w := fmt.Sprintf("word%c", 'a'+i)
+		line := fmt.Sprintf("Patience is %s.", w)
+		scores[line] = 8
+		judged[i] = w
+		facets = append(facets, fmt.Sprintf(`{"word":%q,"ground":"g","line":%q,"branches":[]}`, w, line))
+	}
+	gen := `{"facets":[` + strings.Join(facets, ",") + `]}`
+	f := &fakeStreamer{gens: []fakeResult{ok(gen, 1, 1, 0)}, scores: scores, overlap: 3}
+	evs, _, err := runStream(t, f, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkJudgingPrecedesVerdicts(t, evs, judged)
+
+	// The barrier holds the first judge calls until three have started, so
+	// three judging stages must precede every verdict if the calls overlapped.
+	firstVerdict := indexOf(evs, func(e StreamEvent) bool { return e.Name == "kept" || e.Name == "rejected" })
+	stagesBefore := 0
+	for _, r := range evs[:firstVerdict] {
+		if s, ok := r.ev.Data.(StageEvent); ok && s.Stage == "judging" {
+			stagesBefore++
+		}
+	}
+	if stagesBefore < 3 {
+		t.Errorf("%d judging stages before the first verdict, want at least 3: the judge calls did not overlap", stagesBefore)
+	}
+}
+
+// Rule: "retrying" is sent when the thin-output retry starts its generator
+// call, before that call's first hop, and never when no retry runs.
+func TestStreamSendsRetryingOnlyWhenRetryRuns(t *testing.T) {
+	f := &fakeStreamer{gens: []fakeResult{ok(stubJSON, 1, 1, 0), ok(generatedJSON, 1, 1, 0)}, scores: streamScores}
+	evs, _, err := runStream(t, f, 3, func(c *Config) { c.MinPaths = 2 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []StageEvent{{Stage: "drafting"}, {Stage: "retrying"}}
+	var got []StageEvent
+	for _, s := range stagesOf(evs) {
+		if s.Stage != "judging" {
+			got = append(got, s)
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("stages = %+v, want %+v", got, want)
+	}
+	retrying := indexOf(evs, func(e StreamEvent) bool { return e.Name == "stage" && e.Data.(StageEvent).Stage == "retrying" })
+	retryHop := indexOf(evs, func(e StreamEvent) bool { h, ok := e.Data.(HopEvent); return ok && h.PathID == "f1" })
+	if retryHop < 0 {
+		t.Fatal("the retry sent no hop: the comparison would be vacuous")
+	}
+	if retrying > retryHop {
+		t.Errorf("retrying at %d, after the retry's first hop at %d", retrying, retryHop)
+	}
+
+	f = &fakeStreamer{gens: []fakeResult{ok(generatedJSON, 1, 1, 0)}, scores: streamScores}
+	evs, _, err = runStream(t, f, 3, func(c *Config) { c.MinPaths = 1 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.genCalls != 1 {
+		t.Fatalf("genCalls = %d, want no retry", f.genCalls)
+	}
+	for _, s := range stagesOf(evs) {
+		if s.Stage == "retrying" {
+			t.Errorf("retrying sent without a retry: %+v", stagesOf(evs))
+		}
 	}
 }
 

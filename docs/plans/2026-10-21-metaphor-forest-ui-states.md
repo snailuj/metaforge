@@ -369,3 +369,52 @@ Mode switch to grade: the panel and browse graph unmount; hover and focus are cl
 | Model text never renders as markup. | `label-layer.test.ts` "renders model text…", "a ground label shows each ground…"; `mf-forest-panel.test.ts` "renders model text as text, never as markup"; `mf-force-graph.test.ts` hostile word and ground cases |
 | A server error string never reaches the UI. | `client.test.ts` "maps HTTP %i to the %s kind" |
 | A contract-breaking 200 is a failure, never data. | `client.test.ts` "treats a 200 with %s as a failed forest, never as data" |
+
+## 15. Activity panel (added 2026-10-30)
+
+Spec: `docs/plans/2026-10-30-progress-panel.md`. Code: `web/src/progress/model.ts` (the log, a pure reducer), `web/src/components/mf-progress-panel.ts` (the surface), wired in `web/src/components/mf-app.ts` (`reportProgress`). Browse mode only; grade mode does not render it.
+
+Rulings quoted verbatim from the spec:
+
+| Quote |
+|---|
+| "While anything is loading: a throbber and a label that cycles "Foraging ...", "Forging ...", "Fording ...", "Foresting ..." every 1.5 s." |
+| "When nothing is loading: a small "Activity" button, so the log stays reachable. It shows no throbber." |
+| "When everything has arrived: "All loaded." The panel stays open if the user opened it." |
+| "With reduced motion set, the throbber does not spin and the label stays on "Foraging ..."." |
+
+### 15.1 States
+
+Busy means any of: a lookup, a glimpse started or waiting for a slot, an expansion, or a forest request in flight.
+
+| State | Presentation |
+|---|---|
+| Closed, idle | Button "Activity", no throbber. `aria-expanded="false"`. |
+| Closed, busy | Button with a throbber and the cycling label (held on "Foraging ..." under reduced motion); its name is "Activity: still loading". |
+| Open, idle, empty | Panel above the button: heading "Activity", the empty-state line "Nothing has loaded yet. Look up a word and its progress shows here." |
+| Open, idle, logged | Panel: "Everything has loaded.", then the log ending "All loaded." |
+| Open, busy | Panel: "Still loading {items}. More will appear on the graph.", then the log; the button keeps its throbber. |
+
+The two closed-idle cases (empty or logged log) look the same and behave the same on every gesture, so they are one state. Phone (768 px and below): closed, the button sits bottom right above the forest sheet (`--forest-sheet-height`); open, the panel is a sheet across the bottom, over the forest sheet.
+
+### 15.2 Events and transitions
+
+| Event | Closed, idle | Closed, busy | Open (any) |
+|---|---|---|---|
+| Click the button | -> open; remembered; forest panel shrinks. | -> open, busy. | -> closed; remembered; focus stays on the button. |
+| Escape, focus in the panel or on the button | No-op. | No-op. | -> closed; focus to the button. |
+| Work starts | -> closed, busy; label cycle starts at "Foraging ...". "All loaded." leaves the log. | Counts change; no new state. | Summary names the new work; "All loaded." leaves the log. |
+| A stage line is added (lookup done, nearby words, forging, judging, retry, failures, forest ended) | Announced politely (failures as an alert). | Same. | Same; the line appears at the end of the log. |
+| A counting line changes | Not announced. | Same. | The line updates in place. |
+| The last pending work ends | No-op. | -> closed, idle; "All loaded." is added and announced. | Stays open; summary becomes "Everything has loaded."; "All loaded." added. |
+| A new lookup lands, or Back/Forward restores a view | The log is replaced by the new view's. | Same. | Same; stays open. |
+| Label timer (1.5 s) | No timer. | Next label; never announced. Reduced motion: no timer. | Same as the button's current state. |
+| Mode switch to grade, and back | Unmounted; on return it renders closed or open as remembered, with the log as it stands. | Same. | Same. |
+| Page load | Opens as remembered in this browser (`localStorage` `mf-progress-open`; unreadable storage starts closed and is logged). | Same. | Same. |
+
+Repeated gestures: the button is a toggle; a second Escape is a no-op. Open and close are each other's inverse. Replacing the log is not reversible by design: the log belongs to the view on screen, and a restored view starts a fresh log because the work it describes is not repeated.
+
+### 15.3 Layout rules
+
+- The forest panel (top right) reserves `--progress-reserve` below it: the closed button's height while closed, the open panel's maximum height (`--progress-panel-max`, 16 rem) plus the button while open, so the two never overlap on a desktop.
+- The source link sits bottom left, under the results panel in z-order, and above the forest sheet on a phone.

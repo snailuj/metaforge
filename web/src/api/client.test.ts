@@ -328,6 +328,31 @@ describe('streamForest', () => {
     expect(await collect()).toEqual(EXPECTED)
   })
 
+  // Rule: each stage the server names arrives as a typed stage event, in stream order.
+  it('delivers stage events: drafting, retrying, and judging with its facet and word', async () => {
+    const text = frame('stage', { stage: 'drafting' }) + frame('stage', { stage: 'retrying' }) +
+      frame('stage', { stage: 'judging', facet: 2, word: 'dormant seed' }) + STREAM
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse(body([bytes(text)]))))
+    expect(await collect()).toEqual([
+      { type: 'stage', stage: 'drafting' },
+      { type: 'stage', stage: 'retrying' },
+      { type: 'stage', stage: 'judging', facet: 2, word: 'dormant seed' },
+      ...EXPECTED,
+    ])
+  })
+
+  // Rule: a stage frame that breaks the contract is logged and skipped like any other.
+  it.each([
+    ['an unknown stage', { stage: 'pondering' }],
+    ['a judging stage with no word', { stage: 'judging', facet: 1 }],
+    ['a judging stage with no facet', { stage: 'judging', word: 'seed' }],
+  ])('skips %s and keeps reading', async (_label, data) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse(body([bytes(frame('stage', data) + STREAM)]))))
+    expect(await collect()).toEqual(EXPECTED)
+    expect(warn).toHaveBeenCalled()
+  })
+
   it('delivers a mid-stream error with its kind, and stops there', async () => {
     const text = frame('forest', twoKept) + frame('error', { error: 'judge failed', kind: 'timeout' }) + frame('done', forest)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse(body([bytes(text)]))))

@@ -171,6 +171,8 @@ function settle(s: ForestState, response: ForestResponse): ForestState {
 function reduceStream(s: ForestState, e: ForestStreamEvent): ForestState {
   if (e.type === 'done') return settle(s, e.forest)
   if (e.type === 'error') return { ...s, request: { kind: 'failed', error: e.kind, retryAfterSeconds: null }, notice: null }
+  // Stages feed the activity log (progress/model.ts), not the forest.
+  if (e.type === 'stage') return s
 
   const request = s.request.kind === 'streaming' ? s.request : { kind: 'streaming' as const, snapshot: null, paths: {} }
   const { paths } = request

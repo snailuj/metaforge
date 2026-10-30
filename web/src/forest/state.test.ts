@@ -252,6 +252,21 @@ describe('forest state: streaming', () => {
     expect(s.seq).toBe(loading().seq)
   })
 
+  // Rule: a stage event is progress for the activity log only; the forest state ignores it,
+  // so a stream with or without stage events reaches the same state.
+  it('ignores stage events wherever they arrive, so a stream without them works the same', () => {
+    const drafting: StreamEvent = { type: 'stage', stage: 'drafting' }
+    const judging: StreamEvent = { type: 'stage', stage: 'judging', facet: 0, word: 'dormant seed' }
+    const before = loading()
+    expect(reduceForest(before, { type: 'stream', seq: before.seq, event: drafting })).toBe(before)
+    const mid = stream(loading(), hop('f0', 'patience', 'dormant seed'))
+    expect(reduceForest(mid, { type: 'stream', seq: mid.seq, event: judging })).toBe(mid)
+    const withStages = stream(loading(), drafting, hop('f0', 'patience', 'dormant seed'), judging, kept('f0', 'dormant seed'))
+    const without = stream(loading(), hop('f0', 'patience', 'dormant seed'), kept('f0', 'dormant seed'))
+    expect(withStages.request.kind).toBe('streaming')
+    expect(withStages).toEqual(without)
+  })
+
   it('hops for one path id extend that path in order', () => {
     const s = stream(loading(), hop('f0', 'patience', 'dormant seed'), hop('f0b0', 'dormant seed', 'seed vault'), hop('f0b0', 'seed vault', 'ark'))
     expect(pathsOf(s).f0b0.hops.map(h => h.to)).toEqual(['seed vault', 'ark'])
