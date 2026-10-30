@@ -7,7 +7,7 @@ import {
   type ForestGraph, type ForestNodePool, type ForestOverlay, type ForestTarget, type StreamMarks,
 } from '@/graph/forest'
 import { initialForestState, inFlight, reduceForest, litTarget, sameTarget, type ForestEvent, type ForestState, type StreamPath } from '@/forest/state'
-import { initialProgress, reduceProgress, type ProgressEvent, type ProgressState } from '@/progress/model'
+import { initialProgress, isBusy, reduceProgress, type ProgressEvent, type ProgressState } from '@/progress/model'
 import { startTimer } from '@/lib/timing'
 import { rememberedOpen } from './mf-progress-panel'
 import { computeCrossLinks } from '@/graph/cross-links'
@@ -79,6 +79,8 @@ const MAX_GLIMPSE_LOOKUPS = 4
 // The phone layout (forest bottom sheet) applies at this width and below.
 const PHONE_MAX_WIDTH = 768
 const SOURCE_URL = 'https://github.com/snailuj/metaforge'
+// GitHub's own mark (Primer Octicons mark-github, MIT), path unmodified.
+const GITHUB_MARK = 'M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z'
 // Synonyms always show; these join them only when ticked on the results panel.
 const DEFAULT_HIDDEN_RELATIONS: ReadonlySet<RelationType> = new Set(['hyponym', 'hypernym', 'similar'])
 
@@ -148,39 +150,41 @@ export class MfApp extends LitElement {
 
     /* Bottom left, under the results panel (z 10) so it never covers a control.
        On a phone it rides above the forest sheet (--forest-sheet-height). */
+    /* GitHub's mark as a link to the repository, which its brand rules allow.
+       Those rules forbid recolouring or reshaping it: white on the dark UI,
+       no words joined to it. Top left on desktop; on phones it rides above the
+       forest sheet, bottom left, clear of the search bar. */
     .source-link {
       position: absolute;
-      inset-inline-start: var(--space-sm, 0.5rem);
-      inset-block-end: calc(var(--forest-sheet-height, 0px) + env(safe-area-inset-bottom, 0px));
+      inset-inline-start: var(--space-md, 1rem);
+      inset-block-start: var(--space-md, 1rem);
       z-index: 5;
       display: inline-flex;
       align-items: center;
-      min-block-size: 2.75rem;
-      padding-inline: var(--space-sm, 0.5rem);
+      justify-content: center;
+      inline-size: 2.75rem;
+      block-size: 2.75rem;
       border-radius: var(--hud-radius, 4px);
-      color: var(--colour-text-secondary);
-      font-family: var(--font-body, serif);
-      font-size: 0.75rem;
-      text-decoration: underline;
-      text-decoration-color: var(--colour-text-muted);
-      text-underline-offset: 0.2em;
+      color: #fff;
     }
 
-    .source-link:hover { color: var(--colour-text-primary); }
+    .source-link svg { fill: currentColor; }
+
+    .source-link:hover { background: var(--colour-panel-deep); }
 
     .source-link:focus-visible {
       outline: 2px solid var(--colour-accent-gold);
       outline-offset: 2px;
     }
 
-    .vh {
-      position: absolute;
-      inline-size: 1px;
-      block-size: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-      white-space: nowrap;
+    @media (max-width: 768px) {
+      .source-link {
+        inset-block-start: auto;
+        inset-inline-start: var(--space-sm, 0.5rem);
+        inset-block-end: calc(var(--forest-sheet-height, 0px) + env(safe-area-inset-bottom, 0px));
+      }
     }
+
 
     .status-message {
       position: absolute;
@@ -1824,6 +1828,7 @@ export class MfApp extends LitElement {
         .forestVisible=${this.forestState.onGraph}
         .forestLit=${this.forestLit}
         .forestSelectedId=${this.forestSelectedId}
+        .loading=${isBusy(this.progress)}
         @mf-node-select=${this.handleNodeSelect}
         @mf-node-navigate=${this.handleNodeNavigate}
         @mf-node-copy=${this.handleCopy}
@@ -1855,7 +1860,9 @@ export class MfApp extends LitElement {
       ></mf-progress-panel>
 
       <a class="source-link" href=${SOURCE_URL} target="_blank" rel="noopener noreferrer"
-        >${getString('source-link')}<span class="vh"> ${getString('source-link-new-tab')}</span></a>
+        aria-label="${getString('source-link')} ${getString('source-link-new-tab')}"
+        title=${getString('source-link')}
+        ><svg aria-hidden="true" viewBox="0 0 16 16" width="24" height="24"><path d=${GITHUB_MARK} /></svg></a>
     `
   }
 

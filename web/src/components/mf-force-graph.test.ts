@@ -1220,6 +1220,29 @@ describe('MfForceGraph', () => {
       now.mockRestore()
     })
 
+    // Rule: when loading ends, nothing stays held, so the layout relaxes as the
+    // throbber stops, even if the last arrival came in that same update.
+    it('releases held words as soon as loading ends', async () => {
+      const now = vi.spyOn(performance, 'now').mockReturnValue(0)
+      const centre = at('sun', 0, 0)
+      el.loading = true
+      el.graphData = { nodes: [centre], links: [] }
+      await el.updateComplete
+      el.graphData = { nodes: [centre, { ...at('glow', 1, 0), vx: 1 }], links: [ln('sun', 'glow')] }
+      await el.updateComplete
+      // Baseline: the arrival holds the centre, and a tick inside the quiet keeps it held.
+      expect(centre.fx).toBe(10)
+      tick()
+      expect(centre.fx).toBe(10)
+      el.graphData = { nodes: [centre, at('glow', 1, 0), at('beam', 1, 0)], links: [ln('sun', 'glow'), ln('sun', 'beam')] }
+      el.loading = false
+      await el.updateComplete
+      // The last arrival's warm-up still ran with the centre held, then it went free.
+      expect(centre.x).toBe(10)
+      expect(centre.fx).toBeUndefined()
+      now.mockRestore()
+    })
+
     // Rule: when the engine stops, nothing stays held.
     it('releases held words when the engine stops', async () => {
       const centre = at('sun', 0, 0)

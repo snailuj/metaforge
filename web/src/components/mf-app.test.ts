@@ -154,8 +154,12 @@ describe('MfApp', () => {
     expect(link()!.href).toBe('https://github.com/snailuj/metaforge')
     expect(link()!.target).toBe('_blank')
     expect(link()!.rel.split(' ').sort()).toEqual(['noopener', 'noreferrer'])
-    expect(link()!.textContent).toContain('source-link')
-    expect(link()!.textContent).toContain('source-link-new-tab')
+    // GitHub's mark, unmodified and hidden from assistive tech; the name says where it goes.
+    const mark = link()!.querySelector('svg')!
+    expect(mark.getAttribute('aria-hidden')).toBe('true')
+    expect(mark.querySelector('path')!.getAttribute('d')).toMatch(/^M8 0c4\.42 0 8 3\.58 8 8/)
+    expect(link()!.getAttribute('aria-label')).toBe('source-link source-link-new-tab')
+    expect(link()!.textContent!.trim()).toBe('')
     el.mode = 'grade'
     await el.updateComplete
     expect(link()).toBeNull()
@@ -1037,6 +1041,23 @@ describe('MfApp two levels of synonyms', () => {
     pending.splice(0).forEach(go => go())
     await flush()
     expect(pending).toHaveLength(4)
+  })
+
+  // Rule: the graph is told it is loading exactly while the activity panel is busy,
+  // so held words go free as the throbber stops.
+  it('tells the graph it is loading until the last glimpse lands', async () => {
+    const pending: Array<() => void> = []
+    vi.mocked(lookupWord).mockImplementation(w => w === 'many'
+      ? lookup('x').then(() => word('many', range('m', 2)))
+      : new Promise(r => pending.push(() => r(word(w, [])))))
+    await search(el, 'many')
+    await flush()
+    expect(pending).toHaveLength(2)
+    const fg = el.shadowRoot!.querySelector('mf-force-graph') as unknown as { loading: boolean }
+    expect(fg.loading).toBe(true)
+    pending.splice(0).forEach(go => go())
+    await flush()
+    expect(fg.loading).toBe(false)
   })
 
   // Rule: glimpses that finish within about 300 ms of each other reach the graph in one
