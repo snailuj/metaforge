@@ -123,6 +123,30 @@ func TestForestStreamFramesEventsThenDone(t *testing.T) {
 	}
 }
 
+// Rule: a stage event reaches the client as `event: stage` with the contract's
+// exact JSON; drafting carries no facet or word, judging carries both.
+func TestForestStreamFramesStageEvents(t *testing.T) {
+	two := 2
+	gen := &fakeStreamGen{
+		events: []forest.StreamEvent{
+			{Name: "stage", Data: forest.StageEvent{Stage: "drafting"}},
+			{Name: "stage", Data: forest.StageEvent{Stage: "judging", Facet: &two, Word: "dormant seed"}},
+		},
+		fakeForestGen: fakeForestGen{forest: forestWithLine("A.")},
+	}
+	w := getForestStream(newForestTestHandler(gen, 4, 30), "word=patience")
+	evs, _ := parseSSE(t, w.Body.String())
+	if len(evs) != 3 || evs[0].name != "stage" || evs[1].name != "stage" || evs[2].name != "done" {
+		t.Fatalf("events = %+v", evs)
+	}
+	if evs[0].data != `{"stage":"drafting"}` {
+		t.Errorf("drafting data = %s", evs[0].data)
+	}
+	if evs[1].data != `{"stage":"judging","facet":2,"word":"dormant seed"}` {
+		t.Errorf("judging data = %s", evs[1].data)
+	}
+}
+
 // Rule: without an event-stream Accept header the endpoint answers JSON as before.
 func TestForestWithoutAcceptStaysJSON(t *testing.T) {
 	gen := &fakeStreamGen{events: streamEvents(), fakeForestGen: fakeForestGen{forest: forestWithLine("A.")}}
