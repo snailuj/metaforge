@@ -32,6 +32,12 @@ vi.mock('@/api/client', () => ({
   },
 }))
 
+// Timers are no-ops unless the timing flag is on; record what would be timed.
+const timerStops: Array<{ label: string; details: unknown }> = []
+vi.mock('@/lib/timing', () => ({
+  startTimer: (label: string) => (details?: unknown) => { timerStops.push({ label, details }) },
+}))
+
 // Mock the strings module
 vi.mock('@/lib/strings', () => ({
   initStrings: vi.fn().mockResolvedValue(undefined),
@@ -1049,7 +1055,8 @@ describe('MfApp two levels of synonyms', () => {
     Object.defineProperty(graph(), 'graphData', {
       configurable: true,
       get() { return desc.get!.call(this) },
-      set(v) { feeds(); desc.set!.call(this, v) },
+      // Only a new value is an update; Lit may re-set the same object, which changes nothing.
+      set(v) { if (v !== desc.get!.call(this)) feeds(); desc.set!.call(this, v) },
     })
     release.ray()
     await flush()
@@ -2625,5 +2632,179 @@ describe('mf-app metaphor forest', () => {
       expect(metaphorLinks()).toHaveLength(0)
       expect(graph().forest).toBeNull()
     })
+  })
+})
+
+describe('mf-app activity panel', () => {
+  let el: MfApp
+  const word = (w: string, synonyms: string[]): LookupResult => ({
+    word: w,
+    senses: [{
+      synset_id: `${w}-s`, pos: 'noun', definition: w,
+      synonyms: synonyms.map(x => ({ word: x, synset_id: `${x}-s` })),
+      relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+    }],
+  })
+  const dict: Record<string, LookupResult> = {
+    fire: word('fire', ['blaze', 'flame']),
+    blaze: word('blaze', ['b1', 'b2']),
+    flame: word('flame', ['f1']),
+    water: word('water', ['aqua']),
+  }
+  const progress = () => el.shadowRoot!.querySelector('mf-progress-panel') as (HTMLElement & { state: any; open: boolean }) | null
+  const lines = () => (progress()!.state.lines as Array<{ key: string; [k: string]: unknown }>)
+  const lineOf = (key: string) => lines().find(l => l.key === key)
+  const forestPanel = () => el.shadowRoot!.querySelector('mf-forest-panel') as HTMLElement
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 6; i++) await settle(el)
+  }
+  async function find(w: string): Promise<void> {
+    el.shadowRoot!.querySelector('mf-search-bar')!.dispatchEvent(new CustomEvent('mf-search', { detail: { word: w }, bubbles: true, composed: true }))
+    await flush()
+  }
+  function deferredStream() {
+    const calls: { emit: (e: ForestStreamEvent) => void; finish: () => void }[] = []
+    vi.mocked(streamForest).mockImplementation((_w, _h, onEvent, signal) => new Promise<void>((resolve, reject) => {
+      calls.push({ emit: onEvent, finish: resolve })
+      signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+    }))
+    return calls
+  }
+  async function forge() {
+    forestPanel().dispatchEvent(new CustomEvent('mf-forest-event', { detail: { type: 'forge' }, bubbles: true, composed: true }))
+    await flush()
+  }
+
+  beforeEach(async () => {
+    history.replaceState(null, '', '#')
+    localStorage.clear()
+    vi.mocked(lookupWord).mockReset()
+    vi.mocked(lookupWord).mockImplementation(async w => dict[w] ?? word(w, []))
+    vi.mocked(streamForest).mockReset()
+    el = new MfApp()
+    document.body.appendChild(el)
+    await settle(el)
+  })
+
+  afterEach(() => {
+    el.remove()
+    vi.restoreAllMocks()
+    history.replaceState(null, '', '#')
+  })
+
+  // Rule: a lookup and every glimpse it owes reach the activity log, and the log
+  // ends in "All loaded" once all of them have arrived.
+  it('logs the lookup and counts its glimpses to the end', async () => {
+    await find('fire')
+    expect(lineOf('lookup')).toMatchObject({ word: 'fire', senses: 1, words: 2 })
+    expect(lineOf('nearby')).toMatchObject({ done: 2, total: 2 })
+    expect(lines().at(-1)!.key).toBe('all-loaded')
+  })
+
+  // Rule: every lookup and every glimpse is timed, named by its word.
+  it('times each lookup and glimpse', async () => {
+    timerStops.length = 0
+    await find('fire')
+    expect(timerStops).toEqual(expect.arrayContaining([
+      { label: 'lookup', details: { word: 'fire', stale: false } },
+      { label: 'glimpse', details: { word: 'blaze', stale: false } },
+      { label: 'glimpse', details: { word: 'flame', stale: false } },
+    ]))
+  })
+
+  // Rule: words waiting for a lookup slot count toward the total from the start.
+  it('counts glimpses waiting for a slot in the total', async () => {
+    vi.mocked(lookupWord).mockImplementation(w => w === 'many'
+      ? Promise.resolve(word('many', ['m1', 'm2', 'm3', 'm4', 'm5', 'm6']))
+      : new Promise(() => {}))
+    await find('many')
+    expect(lineOf('nearby')).toMatchObject({ done: 0, total: 6 })
+  })
+
+  // Rule: an expansion is pending while it loads and logged when it lands.
+  it('logs an opened word', async () => {
+    await find('fire')
+    const node = (el as any).graphData.nodes.find((n: { id: string }) => n.id === 'blaze')
+    el.shadowRoot!.querySelector('mf-force-graph')!.dispatchEvent(new CustomEvent('mf-node-select', { detail: node, bubbles: true, composed: true }))
+    await flush()
+    // b1, b2 and flame (a cross-link from fire's shared sense): every word blaze now leads to.
+    expect(lineOf('expanded:blaze')).toMatchObject({ word: 'blaze', words: 3 })
+  })
+
+  // Rule: a failed glimpse is counted on the failure line.
+  it('counts failed glimpses', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.mocked(lookupWord).mockImplementation(async w => {
+      if (w === 'flame') throw new Error('down')
+      return dict[w] ?? word(w, [])
+    })
+    await find('fire')
+    expect(lineOf('nearby-failed')).toMatchObject({ n: 1 })
+  })
+
+  // Rule: a lookup that replaces the view replaces the log.
+  it('clears the log when a new lookup lands', async () => {
+    await find('fire')
+    await find('water')
+    expect(lineOf('lookup')).toMatchObject({ word: 'water' })
+    expect(lineOf('nearby')).toMatchObject({ done: 1, total: 1 })
+  })
+
+  // Rule: the forest stream feeds the log, stage events included; a stream without stages still ends it.
+  it('logs the forest stream, with and without stage events', async () => {
+    await find('fire')
+    const calls = deferredStream()
+    await forge()
+    calls[0].emit({ type: 'stage', stage: 'drafting' })
+    calls[0].emit({ type: 'hop', pathId: 'f0', facet: 0, from: 'fire', to: 'hearth', ground: 'warm' })
+    calls[0].emit({ type: 'stage', stage: 'judging', facet: 0, word: 'hearth' })
+    await flush()
+    expect(lineOf('forging')).toMatchObject({ drafted: 1, kept: 0, dropped: 0 })
+    expect(lineOf('judging:0')).toMatchObject({ word: 'hearth' })
+    expect(progress()!.state.forest.running).toBe(true)
+    calls[0].emit({ type: 'kept', pathId: 'f0', endpoint: 'hearth', score: 8 })
+    calls[0].emit({ type: 'done', forest: { ...(patienceFixture as ForestResponse), source: 'fire' } })
+    calls[0].finish()
+    await flush()
+    expect(lineOf('forging')).toMatchObject({ kept: 1 })
+    expect(lineOf('forest-ready')).toBeDefined()
+
+    const again = deferredStream()
+    forestPanel().dispatchEvent(new CustomEvent('mf-forest-event', { detail: { type: 'forge' }, bubbles: true, composed: true }))
+    await flush()
+    again[0].emit({ type: 'hop', pathId: 'f0', facet: 0, from: 'fire', to: 'ember', ground: 'glows' })
+    again[0].emit({ type: 'done', forest: { ...(patienceFixture as ForestResponse), source: 'fire' } })
+    again[0].finish()
+    await flush()
+    expect(progress()!.state.forest.running).toBe(false)
+    expect(lines().at(-1)!.key).toBe('all-loaded')
+  })
+
+  // Rule: cancelling the forge ends the forest in the log.
+  it('logs a cancelled forest', async () => {
+    await find('fire')
+    deferredStream()
+    await forge()
+    forestPanel().dispatchEvent(new CustomEvent('mf-forest-event', { detail: { type: 'cancel' }, bubbles: true, composed: true }))
+    await flush()
+    expect(lineOf('forest-cancelled')).toBeDefined()
+    expect(progress()!.state.forest.running).toBe(false)
+  })
+
+  // Rule: while the activity panel is open the forest panel is told to leave room for it.
+  it('makes the forest panel leave room while the activity panel is open', async () => {
+    await find('fire')
+    expect(forestPanel().classList.contains('progress-open')).toBe(false)
+    progress()!.dispatchEvent(new CustomEvent('mf-progress-toggle', { detail: { open: true }, bubbles: true, composed: true }))
+    await settle(el)
+    expect(forestPanel().classList.contains('progress-open')).toBe(true)
+  })
+
+  // Rule: grade mode, which has its own controls in that corner, shows no activity panel.
+  it('shows the panel in browse mode only', async () => {
+    expect(progress()).not.toBeNull()
+    el.mode = 'grade'
+    await el.updateComplete
+    expect(progress()).toBeNull()
   })
 })

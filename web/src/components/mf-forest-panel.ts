@@ -22,7 +22,8 @@ export class MfForestPanel extends LitElement {
       top: calc(var(--space-md, 1rem) + 3.5rem);
       inset-inline-end: var(--space-md, 1rem);
       width: min(23rem, calc(100% - 2 * var(--space-md, 1rem)));
-      max-height: calc(100% - 3.5rem - 3 * var(--space-md, 1rem));
+      /* --progress-reserve: room mf-app keeps clear for the activity panel below. */
+      max-height: calc(100% - 3.5rem - 3 * var(--space-md, 1rem) - var(--progress-reserve, 0px));
       z-index: 25;
       display: flex;
       background: var(--colour-panel-deep);

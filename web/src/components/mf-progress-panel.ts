@@ -36,7 +36,8 @@ function lineText(l: ProgressLine): string {
   }
 }
 
-function readOpen(): boolean {
+/** Whether the panel was left open in this browser. */
+export function rememberedOpen(): boolean {
   try {
     return localStorage.getItem(STORAGE_KEY) === '1'
   } catch (err) {
@@ -203,7 +204,7 @@ export class MfProgressPanel extends LitElement {
   `
 
   @property({ attribute: false }) state: ProgressState = initialProgress()
-  @property({ type: Boolean, reflect: true }) open = readOpen()
+  @property({ type: Boolean, reflect: true }) open = rememberedOpen()
   @state() private labelIndex = 0
   @state() private announcement = ''
   @state() private alertText = ''

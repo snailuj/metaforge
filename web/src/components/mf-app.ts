@@ -6,7 +6,10 @@ import {
   composeForest, fadeMarks, forestToGraph, litPaths, nextFadeEnd, streamMarks, FOREST_FADE_MS,
   type ForestGraph, type ForestNodePool, type ForestOverlay, type ForestTarget, type StreamMarks,
 } from '@/graph/forest'
-import { initialForestState, reduceForest, litTarget, sameTarget, type ForestEvent, type ForestState, type StreamPath } from '@/forest/state'
+import { initialForestState, inFlight, reduceForest, litTarget, sameTarget, type ForestEvent, type ForestState, type StreamPath } from '@/forest/state'
+import { initialProgress, reduceProgress, type ProgressEvent, type ProgressState } from '@/progress/model'
+import { startTimer } from '@/lib/timing'
+import { rememberedOpen } from './mf-progress-panel'
 import { computeCrossLinks } from '@/graph/cross-links'
 import { arrivalBatch, ARRIVAL_WINDOW_MS } from '@/graph/batch'
 import { initStrings, getString } from '@/lib/strings'
@@ -38,6 +41,7 @@ import './mf-search-bar'
 import './mf-force-graph'
 import './mf-results-panel'
 import './mf-forest-panel'
+import './mf-progress-panel'
 import './mf-toast'
 import './mf-undo-toast'
 import './mf-error-banner'
@@ -118,6 +122,20 @@ export class MfApp extends LitElement {
 
     mf-results-panel {
       z-index: 20;
+    }
+
+    /* The activity panel sits bottom right, under the forest panel: the forest
+       panel keeps clear of its button, and of the whole panel while it is open. */
+    :host {
+      --progress-panel-max: 16rem;
+    }
+
+    mf-forest-panel {
+      --progress-reserve: calc(2.75rem + var(--space-md, 1rem));
+    }
+
+    mf-forest-panel.progress-open {
+      --progress-reserve: calc(var(--progress-panel-max) + 2.75rem + 2 * var(--space-md, 1rem));
     }
 
     /* Phone: the forest is a bottom sheet (z 25). An opened results panel
@@ -599,6 +617,10 @@ export class MfApp extends LitElement {
   private forestMarks: StreamMarks = { nodes: new Map(), links: new Map() }
   private forestFadeTimer: ReturnType<typeof setTimeout> | null = null
   private forestPool: ForestNodePool = new Map()
+  // The activity log (progress/model.ts) and whether its panel is open, which
+  // the forest panel makes room for.
+  @state() private progress: ProgressState = initialProgress()
+  @state() private progressOpen = rememberedOpen()
 
   private currentWord = ''
   private lookupId = 0
@@ -839,6 +861,7 @@ export class MfApp extends LitElement {
     this.errorMessage = ''
     this.undoToast?.hide()
     this.dispatchForest({ type: 'word-committed', word: v.forestWord })
+    this.reportProgress({ type: 'view-restored', keepForest: inFlight(this.forestState) })
     this.recomposeGraph()
     console.info('[mf-app] restored view', { id, word: v.word, nodes: v.graph.nodes.length })
     this.pumpGlimpses() // a view left mid-stream picks up where it stopped
@@ -928,6 +951,7 @@ export class MfApp extends LitElement {
 
     const gen = this.graphGen
     this.expanding.add(node.id)
+    this.reportProgress({ type: 'expansion-started', word: node.word })
     try {
       const result = this.glimpsed.get(node.id) ?? await lookupWord(node.word)
       if (gen !== this.graphGen) return // stale — the graph was replaced meanwhile
@@ -939,36 +963,47 @@ export class MfApp extends LitElement {
       this.expanded = new Map(this.expanded).set(node.id, result)
       this.fillTargets = new Set([...this.fillTargets, ...children])
       console.debug('[mf-app] expanded node', { nodeId: node.id, nodes: this.thesaurusGraph.nodes.length })
+      this.reportProgress({ type: 'expansion-done', word: node.word, words: children.length })
       this.recomposeGraph()
       this.pumpGlimpses()
     } catch (err) {
       console.warn('[mf-app] second-order expansion failed', { nodeId: node.id, word: node.word }, err)
+      if (gen === this.graphGen) this.reportProgress({ type: 'expansion-failed', word: node.word })
     } finally {
       this.expanding.delete(node.id)
     }
   }
 
-  /** Start glimpses for owed words the graph shows, up to the lookup limit. */
+  /** Start glimpses for owed words the graph shows, up to the lookup limit, and
+   *  tell the activity log how many more are waiting for a slot. */
   private pumpGlimpses(): void {
-    if (this.filling.size >= MAX_GLIMPSE_LOOKUPS || this.fillTargets.size === 0) return
+    if (this.fillTargets.size === 0) {
+      this.reportProgress({ type: 'glimpses-waiting', n: 0 })
+      return
+    }
     const reach = relationReach(this.thesaurusGraph, this.hiddenRelations)
     const byId = new Map(this.thesaurusGraph.nodes.map(n => [n.id, n]))
+    let waiting = 0
     for (const id of this.fillTargets) {
-      if (this.filling.size >= MAX_GLIMPSE_LOOKUPS) break
       if (this.glimpsed.has(id) || this.expanded.has(id) || this.filling.has(id) || this.fillFailed.has(id)) continue
       if (reach && !reach.has(id)) continue // hidden: glimpsed if a toggle reveals it
       const node = byId.get(id)
       if (!node || this.hiddenRarities.has(node.rarity ?? 'unusual')) continue
-      void this.glimpse(node)
+      if (this.filling.size < MAX_GLIMPSE_LOOKUPS) void this.glimpse(node)
+      else waiting++
     }
+    this.reportProgress({ type: 'glimpses-waiting', n: waiting })
   }
 
   private async glimpse(node: GraphNode): Promise<void> {
     const gen = this.graphGen
     let merged = false
     this.filling.add(node.id)
+    this.reportProgress({ type: 'glimpse-started' })
+    const stopTimer = startTimer('glimpse')
     try {
       const result = await lookupWord(node.word)
+      stopTimer({ word: node.word, stale: gen !== this.graphGen })
       if (gen !== this.graphGen) return // stale — the graph was replaced meanwhile
       // A click may have expanded it meanwhile; its lookup is still worth keeping.
       if (!this.expanded.has(node.id)) this.thesaurusGraph = mergeGlimpse(this.thesaurusGraph, node.id, result)
@@ -977,9 +1012,13 @@ export class MfApp extends LitElement {
       targets.delete(node.id)
       this.fillTargets = targets
       merged = true
+      this.reportProgress({ type: 'glimpse-done' })
     } catch (err) {
       console.warn('[mf-app] glimpse failed', { nodeId: node.id, word: node.word }, err)
-      if (gen === this.graphGen) this.fillFailed.add(node.id)
+      if (gen === this.graphGen) {
+        this.fillFailed.add(node.id)
+        this.reportProgress({ type: 'glimpse-failed' })
+      }
     } finally {
       if (gen === this.graphGen) {
         this.filling.delete(node.id)
@@ -1010,6 +1049,8 @@ export class MfApp extends LitElement {
     if (next === prev) return
     this.forestState = next
 
+    // Any seq move ends the request in flight: Cancel, or a new word.
+    if (next.seq !== prev.seq && inFlight(prev)) this.reportProgress({ type: 'forest-ended', outcome: 'cancelled' })
     if (next.seq !== prev.seq && this.forestAbort) {
       console.debug('[forest] aborting superseded request', { word: prev.word, seq: prev.seq })
       this.forestAbort.abort()
@@ -1045,8 +1086,10 @@ export class MfApp extends LitElement {
     this.forestAbort = controller
     const started = performance.now()
     console.info('[forest] request', { word, maxHops, seq, fresh })
+    this.reportProgress({ type: 'forest-started' })
     try {
       await streamForest(word, maxHops, event => {
+        if (seq === this.forestState.seq) this.reportProgress({ type: 'forest-stream', event })
         const ms = Math.round(performance.now() - started)
         if (event.type === 'done') {
           console.info('[forest] response', { word, seq, endpoints: event.forest.endpoints.length, generated: event.forest.stats.generated, ms })
@@ -1062,9 +1105,11 @@ export class MfApp extends LitElement {
         console.debug('[forest] request aborted', { word, seq })
       } else if (err instanceof ForestError) {
         console.warn('[forest] request failed', { word, seq, kind: err.kind, status: err.status })
+        if (seq === this.forestState.seq) this.reportProgress({ type: 'forest-ended', outcome: 'failed' })
         this.dispatchForest({ type: 'failed', seq, error: err.kind, retryAfterSeconds: err.retryAfterSeconds })
       } else {
         console.error('[forest] unexpected failure', { word, seq }, err)
+        if (seq === this.forestState.seq) this.reportProgress({ type: 'forest-ended', outcome: 'failed' })
         this.dispatchForest({ type: 'failed', seq, error: 'failed', retryAfterSeconds: null })
       }
     } finally {
@@ -1089,6 +1134,10 @@ export class MfApp extends LitElement {
       }, Math.max(0, end - now) + 1)
     }
     this.recomposeGraph()
+  }
+
+  private reportProgress(event: ProgressEvent): void {
+    this.progress = reduceProgress(this.progress, event)
   }
 
   private recomposeGraph(): void {
@@ -1648,9 +1697,12 @@ export class MfApp extends LitElement {
     if (!soft) this.currentWord = word
     this.appState = 'loading'
     this.errorMessage = ''
+    this.reportProgress({ type: 'lookup-started', word })
+    const stopTimer = startTimer('lookup')
 
     try {
       const result = await lookupWord(word)
+      stopTimer({ word, stale: id !== this.lookupId })
       if (id !== this.lookupId) return false // stale — a newer lookup superseded this one
       this.saveView()
       this.undoToast?.hide() // its offer was about the view being replaced
@@ -1669,6 +1721,10 @@ export class MfApp extends LitElement {
       this.fillFailed = new Set()
       this.lastClickedId = null
       this.dispatchForest({ type: 'word-committed', word: result.word })
+      this.reportProgress({
+        type: 'lookup-done', word: result.word, senses: result.senses.length,
+        words: graph.nodes.length - 1, keepForest: inFlight(this.forestState),
+      })
       this.recomposeGraph()
       this.appState = 'ready'
       this.enterView(word, entry)
@@ -1676,7 +1732,9 @@ export class MfApp extends LitElement {
       void this.focusSource() // a Re-Centre may have aimed the camera elsewhere
       return true
     } catch (err) {
+      stopTimer({ word, failed: true })
       if (id !== this.lookupId) return false // stale
+      this.reportProgress({ type: 'lookup-failed', word })
       if (soft && this.result && err instanceof ApiError && err.status === 404) {
         console.info('[forest] forest word not in the thesaurus', { word })
         this.appState = 'ready'
@@ -1783,12 +1841,18 @@ export class MfApp extends LitElement {
 
       ${this.result
         ? html`<mf-forest-panel
+            class=${this.progressOpen ? 'progress-open' : ''}
             .state=${this.forestState}
             .lit=${this.forestLit}
             @mf-forest-event=${this.handleForestEvent}
             @mf-forest-lookup=${this.handleForestLookup}
           ></mf-forest-panel>`
         : ''}
+
+      <mf-progress-panel
+        .state=${this.progress}
+        @mf-progress-toggle=${(e: CustomEvent<{ open: boolean }>) => { this.progressOpen = e.detail.open }}
+      ></mf-progress-panel>
 
       <a class="source-link" href=${SOURCE_URL} target="_blank" rel="noopener noreferrer"
         >${getString('source-link')}<span class="vh"> ${getString('source-link-new-tab')}</span></a>
