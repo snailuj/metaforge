@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/snailuj/metaforge/internal/llm"
 )
@@ -25,6 +26,8 @@ type fakeStreamer struct {
 	chunk     int
 	sent      int // chunks handed to onText so far, read by emit hooks
 	judges    []llm.Request
+	overlap   int // when set, each judge call waits until this many have started
+	started   int // judge calls started so far
 }
 
 func (f *fakeStreamer) Complete(ctx context.Context, req llm.Request) (llm.Response, error) {
@@ -33,7 +36,16 @@ func (f *fakeStreamer) Complete(ctx context.Context, req llm.Request) (llm.Respo
 	}
 	f.mu.Lock()
 	f.judges = append(f.judges, req)
+	f.started++
 	f.mu.Unlock()
+	for deadline := time.Now().Add(2 * time.Second); f.overlap > 0 && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		f.mu.Lock()
+		n := f.started
+		f.mu.Unlock()
+		if n >= f.overlap {
+			break
+		}
+	}
 	for line, err := range f.judgeErrs {
 		if strings.Contains(req.User, "line: "+line) {
 			return llm.Response{}, err
@@ -437,6 +449,41 @@ func TestStreamSendsJudgingBeforeFacetVerdicts(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("no stage equal to %+v in %+v", want, stagesOf(evs))
+	}
+}
+
+// Rule: the judging-before-verdicts order holds per facet while judge calls
+// overlap, and a facet's judging stage never waits for another facet's verdicts.
+func TestStreamJudgingOrderHoldsWithConcurrentJudges(t *testing.T) {
+	var facets []string
+	scores := map[string]int{}
+	judged := map[int]string{}
+	for i := 0; i < 4; i++ {
+		w := fmt.Sprintf("word%c", 'a'+i)
+		line := fmt.Sprintf("Patience is %s.", w)
+		scores[line] = 8
+		judged[i] = w
+		facets = append(facets, fmt.Sprintf(`{"word":%q,"ground":"g","line":%q,"branches":[]}`, w, line))
+	}
+	gen := `{"facets":[` + strings.Join(facets, ",") + `]}`
+	f := &fakeStreamer{gens: []fakeResult{ok(gen, 1, 1, 0)}, scores: scores, overlap: 3}
+	evs, _, err := runStream(t, f, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkJudgingPrecedesVerdicts(t, evs, judged)
+
+	// The barrier holds the first judge calls until three have started, so
+	// three judging stages must precede every verdict if the calls overlapped.
+	firstVerdict := indexOf(evs, func(e StreamEvent) bool { return e.Name == "kept" || e.Name == "rejected" })
+	stagesBefore := 0
+	for _, r := range evs[:firstVerdict] {
+		if s, ok := r.ev.Data.(StageEvent); ok && s.Stage == "judging" {
+			stagesBefore++
+		}
+	}
+	if stagesBefore < 3 {
+		t.Errorf("%d judging stages before the first verdict, want at least 3: the judge calls did not overlap", stagesBefore)
 	}
 }
 
