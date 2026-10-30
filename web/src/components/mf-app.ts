@@ -7,7 +7,7 @@ import {
   type ForestGraph, type ForestNodePool, type ForestOverlay, type ForestTarget, type StreamMarks,
 } from '@/graph/forest'
 import { initialForestState, inFlight, reduceForest, litTarget, sameTarget, type ForestEvent, type ForestState, type StreamPath } from '@/forest/state'
-import { initialProgress, reduceProgress, type ProgressEvent, type ProgressState } from '@/progress/model'
+import { initialProgress, isBusy, reduceProgress, type ProgressEvent, type ProgressState } from '@/progress/model'
 import { startTimer } from '@/lib/timing'
 import { rememberedOpen } from './mf-progress-panel'
 import { computeCrossLinks } from '@/graph/cross-links'
@@ -1824,6 +1824,7 @@ export class MfApp extends LitElement {
         .forestVisible=${this.forestState.onGraph}
         .forestLit=${this.forestLit}
         .forestSelectedId=${this.forestSelectedId}
+        .loading=${isBusy(this.progress)}
         @mf-node-select=${this.handleNodeSelect}
         @mf-node-navigate=${this.handleNodeNavigate}
         @mf-node-copy=${this.handleCopy}

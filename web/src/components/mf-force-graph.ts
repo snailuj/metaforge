@@ -351,6 +351,9 @@ export class MfForceGraph extends LitElement {
   @property({ attribute: false }) forestLit: ReadonlySet<string> | null = null
   // Forest id of the node whose label carries the selection ring.
   @property({ attribute: false }) forestSelectedId: string | null = null
+  /** True while words or the forest are still loading. When it turns false,
+   *  held words go free at once, so the layout relaxes as the throbber stops. */
+  @property({ attribute: false }) loading = false
 
   // Whether the 3D library should be loaded. Derived from mode + viewportWidth —
   // kept as a getter so Lit never schedules a secondary update cycle from updated().
@@ -1293,6 +1296,8 @@ export class MfForceGraph extends LitElement {
       this.reapplyVisibility()
     }
     if (forestChanged || topologyChanged) this.syncStreamAnimation()
+    // After any feed above, so the last arrival's warm-up still ran held.
+    if (changed.has('loading') && !this.loading) this.releaseHeld('loading finished')
   }
 
   /** Re-apply the visibility predicates and mirror them onto the label DOM.

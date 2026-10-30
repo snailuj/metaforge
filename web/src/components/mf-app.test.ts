@@ -1039,6 +1039,23 @@ describe('MfApp two levels of synonyms', () => {
     expect(pending).toHaveLength(4)
   })
 
+  // Rule: the graph is told it is loading exactly while the activity panel is busy,
+  // so held words go free as the throbber stops.
+  it('tells the graph it is loading until the last glimpse lands', async () => {
+    const pending: Array<() => void> = []
+    vi.mocked(lookupWord).mockImplementation(w => w === 'many'
+      ? lookup('x').then(() => word('many', range('m', 2)))
+      : new Promise(r => pending.push(() => r(word(w, [])))))
+    await search(el, 'many')
+    await flush()
+    expect(pending).toHaveLength(2)
+    const fg = el.shadowRoot!.querySelector('mf-force-graph') as unknown as { loading: boolean }
+    expect(fg.loading).toBe(true)
+    pending.splice(0).forEach(go => go())
+    await flush()
+    expect(fg.loading).toBe(false)
+  })
+
   // Rule: glimpses that finish within about 300 ms of each other reach the graph in one
   // update, and the last of a wave is never held back.
   it('sends glimpses that finish close together to the graph in one update', async () => {
