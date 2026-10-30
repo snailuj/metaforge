@@ -154,8 +154,12 @@ describe('MfApp', () => {
     expect(link()!.href).toBe('https://github.com/snailuj/metaforge')
     expect(link()!.target).toBe('_blank')
     expect(link()!.rel.split(' ').sort()).toEqual(['noopener', 'noreferrer'])
-    expect(link()!.textContent).toContain('source-link')
-    expect(link()!.textContent).toContain('source-link-new-tab')
+    // GitHub's mark, unmodified and hidden from assistive tech; the name says where it goes.
+    const mark = link()!.querySelector('svg')!
+    expect(mark.getAttribute('aria-hidden')).toBe('true')
+    expect(mark.querySelector('path')!.getAttribute('d')).toMatch(/^M8 0c4\.42 0 8 3\.58 8 8/)
+    expect(link()!.getAttribute('aria-label')).toBe('source-link source-link-new-tab')
+    expect(link()!.textContent!.trim()).toBe('')
     el.mode = 'grade'
     await el.updateComplete
     expect(link()).toBeNull()
