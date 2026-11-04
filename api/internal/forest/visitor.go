@@ -85,6 +85,9 @@ func (l *VisitorLimiter) Take(visitor string) (refund func(), retryAfter time.Du
 	return func() { once.Do(func() { l.refund(visitor) }) }, 0, true
 }
 
+// Window is the span over which a full bucket refills.
+func (l *VisitorLimiter) Window() time.Duration { return l.window }
+
 // Tracked is how many visitors the limiter holds state for.
 func (l *VisitorLimiter) Tracked() int {
 	l.mu.Lock()
