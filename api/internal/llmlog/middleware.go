@@ -3,8 +3,10 @@ package llmlog
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -77,7 +79,14 @@ func (s *Store) Middleware() option.Middleware {
 		if err != nil {
 			c.Error = err.Error()
 			c.Total = c.HeadersAfter
-			c.PriceKnown = true // nothing was billed
+			if neverSent(err) {
+				c.PriceKnown = true // nothing was billed
+			} else {
+				// It may have reached the API, which bills a call the client
+				// gave up on; whether it did is unknowable, so assume so.
+				chargeCeiling(&c, maxTokens)
+				c.CostUSD, c.PriceKnown = Cost(c.Model, c.Usage)
+			}
 			s.record(req.Context(), c)
 			return resp, err
 		}
@@ -87,6 +96,28 @@ func (s *Store) Middleware() option.Middleware {
 		resp.Body = &teeBody{rc: resp.Body, call: c, store: s, ctx: req.Context(), maxTokens: maxTokens}
 		return resp, nil
 	}
+}
+
+// chargeCeiling bills a call whose usage is unknown or under-reported at the
+// most it could have cost: every output token allowed, and at least one
+// input token per request byte.
+func chargeCeiling(c *Call, maxTokens int64) {
+	c.StopReason = "incomplete"
+	c.Usage.OutputTokens = max(c.Usage.OutputTokens, maxTokens)
+	c.Usage.InputTokens = max(c.Usage.InputTokens, int64(len(c.RequestBody)))
+	slog.Warn("llm call log: usage unknown, charged at its ceiling", "run_id", c.RunID,
+		"label", c.Label, "output_tokens", c.Usage.OutputTokens, "input_tokens", c.Usage.InputTokens)
+}
+
+// neverSent reports a transport error from before the request left: the
+// connection could not be made, so the API never saw it.
+func neverSent(err error) bool {
+	var op *net.OpError
+	if errors.As(err, &op) && op.Op == "dial" {
+		return true
+	}
+	var dns *net.DNSError
+	return errors.As(err, &dns)
 }
 
 func redact(h http.Header) map[string][]string {
@@ -160,14 +191,8 @@ func (t *teeBody) Close() error {
 			c.StopReason, c.MessageID, c.Usage = p.StopReason, p.MessageID, p.Usage
 			if !p.Complete {
 				// The API bills what the model wrote before the client went,
-				// which a cut body does not report. Charge the ceiling: every
-				// output token allowed, and at least one input token per
-				// request byte.
-				c.StopReason = "incomplete"
-				c.Usage.OutputTokens = max(c.Usage.OutputTokens, t.maxTokens)
-				c.Usage.InputTokens = max(c.Usage.InputTokens, int64(len(c.RequestBody)))
-				slog.Warn("llm call log: response cut short, charged at its ceiling", "run_id", c.RunID,
-					"label", c.Label, "output_tokens", c.Usage.OutputTokens, "input_tokens", c.Usage.InputTokens)
+				// which a cut body does not report.
+				chargeCeiling(&c, t.maxTokens)
 			}
 			c.CostUSD, c.PriceKnown = Cost(c.Model, c.Usage)
 		} else {
