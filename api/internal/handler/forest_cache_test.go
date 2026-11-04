@@ -20,6 +20,15 @@ type fakeForestCache struct {
 	readHops, addHops int
 	full              bool
 	fullErr           error
+	listErr           error
+}
+
+func (c *fakeForestCache) List(_ context.Context, word string, maxHops int) ([]forest.Forest, error) {
+	c.readWord, c.readHops = word, maxHops
+	if c.listErr != nil {
+		return nil, c.listErr
+	}
+	return append([]forest.Forest{}, c.pool...), nil
 }
 
 func (c *fakeForestCache) Full(context.Context, string, int) (bool, error) { return c.full, c.fullErr }

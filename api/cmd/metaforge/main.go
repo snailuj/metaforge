@@ -144,6 +144,7 @@ func main() {
 	forestCfg := loadForestSettings()
 	forestH := newForestHandler(forestCfg)
 	r.Get("/forge/forest", forestH.HandleForest)
+	r.Get("/forge/forest/saved", forestH.HandleSaved)
 	r.Method("GET", "/forge/budget", &handler.BudgetHandler{Budget: forestH.Budget})
 	r.Get("/thesaurus/lookup", h.HandleLookup)
 	r.Get("/thesaurus/autocomplete", h.HandleAutocomplete)
