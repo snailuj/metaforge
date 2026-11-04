@@ -441,6 +441,15 @@ describe('forest state: browsing saved forests', () => {
     expect(reduceForest(only, { type: 'browse', step: 1 })).toBe(only)
   })
 
+  // Rule: browsing only moves within a list made at the shown forest's steps.
+  it('blocks browsing when the list was made at other steps than the shown forest', () => {
+    const s = loaded()
+    const fourHops: ForestResponse = { ...third, max_hops: 4 }
+    const reforged = settle(run(s, { type: 'set-max-hops', maxHops: 4 }, { type: 'forge' }), fourHops)
+    expect(reforged.content).toEqual({ kind: 'forest', response: fourHops })
+    expect(reduceForest(reforged, { type: 'browse', step: 1 })).toBe(reforged)
+  })
+
   it('a new word drops the list; a settled forest is located in the list it already has', () => {
     const s = loaded()
     expect(run(s, { type: 'word-committed', word: 'time' })).toMatchObject({ saved: [], savedIndex: null })

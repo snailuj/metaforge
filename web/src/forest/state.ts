@@ -93,6 +93,8 @@ function savedIndexOf(saved: readonly ForestResponse[], content: ForestContent):
 /** Whether Next or Previous would show a different forest. */
 export function canBrowse(s: ForestState): boolean {
   if (inFlight(s) || s.content.kind !== 'forest' || s.saved.length === 0) return false
+  // After a forge at new steps the old list lingers until the new one lands.
+  if (s.saved[0].max_hops !== s.content.response.max_hops) return false
   return !(s.saved.length === 1 && s.savedIndex === 0)
 }
 
