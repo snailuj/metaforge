@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"math"
 	"os"
@@ -125,7 +126,8 @@ func boundedEnvInt(key string, fallback, lo, hi int) int {
 
 // newForestHandler builds the route. With no API key the route still exists
 // and answers 503, except that a cache keeps serving the forests it holds.
-func newForestHandler(s forestSettings) *handler.ForestHandler {
+// known says which words may be generated (the lexicon's lemmas).
+func newForestHandler(s forestSettings, known func(context.Context, string) (bool, error)) *handler.ForestHandler {
 	limiter := forest.NewLimiter(s.MaxConcurrent, s.PerMinute, time.Now)
 	ledger, ledgerOK := openLedger(s)
 	var h *handler.ForestHandler
@@ -155,6 +157,7 @@ func newForestHandler(s forestSettings) *handler.ForestHandler {
 		slog.Info("model spend capped", "weekly_cap_usd", s.WeeklyCapUSD, "window", llmlog.BudgetWindow.String())
 		h.Ceiling = newCeiling(ledger, s)
 	}
+	h.KnownWord = known
 	h.Visitors = forest.NewVisitorLimiter(s.PerVisitorHour, forestMaxVisitors, time.Now)
 	slog.Info("forests limited per visitor", "per_hour", s.PerVisitorHour, "max_visitors", forestMaxVisitors)
 	if cache := openForestCache(s); cache != nil {

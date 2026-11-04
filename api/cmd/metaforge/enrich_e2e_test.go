@@ -69,7 +69,7 @@ func TestEnrichmentThroughTheAPIIsRecordedAndCapped(t *testing.T) {
 
 	settings := loadForestSettings()
 	settings.AnthropicBaseURL = model.URL
-	fh := newForestHandler(settings)
+	fh := newForestHandler(settings, anyWord)
 	r := chi.NewRouter()
 	r.Get("/forge/forest", fh.HandleForest)
 	r.Method("GET", "/forge/budget", &handler.BudgetHandler{Budget: fh.Budget})

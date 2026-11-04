@@ -149,7 +149,7 @@ func main() {
 	if *anthropicBaseURL != llm.DefaultBaseURL {
 		slog.Warn("Anthropic API key will be sent to a non-default host", "base_url", *anthropicBaseURL)
 	}
-	forestH := newForestHandler(forestCfg)
+	forestH := newForestHandler(forestCfg, h.KnownWord)
 	r.Get("/forge/forest", forestH.HandleForest)
 	r.Get("/forge/forest/saved", forestH.HandleSaved)
 	r.Method("GET", "/forge/budget", &handler.BudgetHandler{Budget: forestH.Budget})
