@@ -2,7 +2,7 @@
 
 Prints one line per probe, "can:<name>" or "cannot:<name>"; the caller asserts which
 of those the sandbox should allow. Reads GRADING_DATA_DIR / GRADING_DATA_GIT_ROOT as
-the unit would, plus PROBE_CODE_DIR and PROBE_MAIN_GIT (set by the checker).
+the unit would, plus PROBE_CODE_DIR, PROBE_MAIN_GIT and PROBE_OUTSIDE_PID (set by the checker).
 """
 import os
 import subprocess
@@ -49,6 +49,18 @@ def main() -> int:
     say(writable(f"{code}/deploy/.mf-probe"), "write-code")
     say(writable(f"{os.environ['PROBE_MAIN_GIT']}/.mf-probe"), "write-main-git")
     say(os.path.exists("/home/agent/.ssh"), "see-ssh")
+
+    # An agent-owned process started OUTSIDE this sandbox: if we run as the same uid,
+    # /proc/<pid>/root is its (unsandboxed) filesystem view, with its write access.
+    outside = os.environ.get("PROBE_OUTSIDE_PID")
+    if outside:
+        say(writable(f"/proc/{outside}/root{code}/deploy/.mf-probe-proc"), "write-via-proc-root")
+
+    secret = os.environ.get("GRADING_SECRET_FILE")
+    try:
+        say(bool(secret) and bool(Path(secret).read_text().strip()), "read-secret")
+    except OSError:
+        say(False, "read-secret")
 
     before = commit_count(git_root)
     with open(data_dir / "sandbox_probe_provisional.jsonl", "a", encoding="utf-8") as f:

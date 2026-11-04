@@ -2,15 +2,23 @@
 Description=Metaforge Grading Sidecar
 After=network.target
 
-# Runs as `agent`, the owner of the code worktree, the venv and the data clone, so
-# git autocommit works without a second user. The sandbox below is what limits it:
-# the process sees the code read-only and ONE writable tree, the data clone.
+# Runs as its own user, `metaforge-grading`, which owns only the data clone. It must
+# not be agent: a process with agent's uid can open /proc/<pid>/root of any other
+# agent process and walk out of the mount sandbox below with agent's full write
+# access. Code and venv stay agent-owned and are bound read-only. agent is in group
+# metaforge-grading, so tools running as agent can read the data (not write it).
 [Service]
 Type=simple
-User=agent
+User=metaforge-grading
+Group=metaforge-grading
 WorkingDirectory=/home/agent/projects/metaforge/.worktrees/next
 EnvironmentFile=/etc/default/metaforge-grading
 Environment=GRADING_DEV=
+# The secret arrives as a systemd credential (read as root, shown to this unit only
+# under %d), so the service user needs no access to /etc/metaforge. NOTE: a
+# GRADING_SECRET_FILE in the EnvironmentFile would override this; deploy.sh strips it.
+LoadCredential=grading_secret:/etc/metaforge/grading_secret
+Environment=GRADING_SECRET_FILE=%d/grading_secret
 # CODE runs from the .worktrees/next deploy worktree, pinned by PYTHONPATH. NOTE: a
 # PYTHONPATH in the EnvironmentFile OVERRIDES this inline value at runtime, so
 # deploy.sh strips PYTHONPATH from /etc/default to leave this authoritative.
@@ -55,7 +63,8 @@ RestrictRealtime=true
 LockPersonality=true
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-UMask=0077
+# Group-readable so agent (a member of the group) can read the data and the clone.
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target

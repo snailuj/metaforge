@@ -54,6 +54,8 @@ echo "== static"
 v="$(systemd-analyze verify "$UNIT" 2>&1 | grep -F "$(basename "$UNIT")" | grep -v 'is not executable' || true)"
 if [ -z "$v" ]; then ok "systemd-analyze verify clean"; else fail "verify: $v"; fi
 REQUIRED=(
+    "User=metaforge-grading" "Group=metaforge-grading"
+    "LoadCredential=grading_secret:/etc/metaforge/grading_secret"
     "NoNewPrivileges=true" "ProtectSystem=strict" "ProtectHome=tmpfs"
     "BindReadOnlyPaths=${LIVE_CODE}" "BindPaths=${LIVE_CLONE}" "ReadWritePaths=${LIVE_CLONE}"
     "PrivateTmp=true" "PrivateDevices=true" "CapabilityBoundingSet=" "AmbientCapabilities="
@@ -62,12 +64,12 @@ REQUIRED=(
     "ProtectControlGroups=true" "ProtectClock=true" "ProtectHostname=true"
     "RestrictNamespaces=true" "RestrictSUIDSGID=true" "RestrictRealtime=true"
     "LockPersonality=true" "SystemCallArchitectures=native" "SystemCallFilter=@system-service"
-    "UMask=0077"
+    "UMask=0027"
 )
 for want in "${REQUIRED[@]}"; do
     if grep -qxF "$want" "$props"; then ok "has ${want}"; else fail "missing ${want}"; fi
 done
-for want in "GRADING_DATA_DIR=${LIVE_CLONE}/data-pipeline/grading" "GRADING_DATA_GIT_ROOT=${LIVE_CLONE}"; do
+for want in "GRADING_SECRET_FILE=%d/grading_secret" "GRADING_DATA_DIR=${LIVE_CLONE}/data-pipeline/grading" "GRADING_DATA_GIT_ROOT=${LIVE_CLONE}"; do
     if grep -qxF "$want" "${TMP}/env"; then ok "env ${want}"; else fail "env missing ${want}"; fi
 done
 if grep -qE '^ReadWritePaths=/home/agent/projects/metaforge( |$)' "$props"; then fail "whole repo is writable"; fi
@@ -81,16 +83,25 @@ if [ "$STATIC_ONLY" = 0 ]; then
         || { fail "scratch clone"; exit 1; }
     git -C "$CLONE" config user.name "sandbox probe"
     git -C "$CLONE" config user.email "probe@invalid"
+    # Same ownership the migration gives the real clone: the unit's user and group.
+    owner="$(sed -n 's/^User=//p' "$props")"; group="$(sed -n 's/^Group=//p' "$props")"
+    getent passwd metaforge-grading >/dev/null || sudo useradd --system --no-create-home --shell /usr/sbin/nologin --user-group metaforge-grading
+    sudo chown -R "${owner}:${group:-$owner}" "$CLONE"
+    sudo chmod -R g+rX,o-rwx "$CLONE"
+    sleep 300 & OUTSIDE_PID=$!
+    trap 'kill $OUTSIDE_PID 2>/dev/null; rm -f "${REPO}/deploy/.mf-probe-proc"; cleanup' EXIT
 
+    # (Specifiers are not expanded in transient properties, so %d is spelled out.)
     # Re-point the unit's live paths at the scratch ones; the old unit's data
     # worktree path maps to the clone too.
-    rewrite() { sed "s|${OLD_CLONE}|${CLONE}|g; s|${LIVE_CLONE}|${CLONE}|g; s|${LIVE_CODE}|${REPO}|g"; }
+    rewrite() { sed "s|${OLD_CLONE}|${CLONE}|g; s|${LIVE_CLONE}|${CLONE}|g; s|${LIVE_CODE}|${REPO}|g; s|%d|/run/credentials/mf-sandbox-test-grading.service|g"; }
     rewrite < "$props" > "${TMP}/props.scratch"
     # Later assignments win: the unit's own, then the probe's overrides.
     {
         rewrite < "${TMP}/env"
         echo "PROBE_CODE_DIR=${REPO}"
         echo "PROBE_MAIN_GIT=${MAIN_GIT}"
+        echo "PROBE_OUTSIDE_PID=${OUTSIDE_PID}"
         echo "PYTHONPATH=${REPO}/data-pipeline/"
     } | tac | awk -F= '!seen[$1]++' | tac > "${TMP}/env.final"
     while IFS= read -r line; do echo "Environment=${line}"; done < "${TMP}/env.final" >> "${TMP}/props.scratch"
@@ -101,7 +112,7 @@ if [ "$STATIC_ONLY" = 0 ]; then
     out="$(run_sandboxed grading "${TMP}/props.scratch" "exec ${REPO}/data-pipeline/grading_sidecar/.venv/bin/python ${HERE}/sandbox_probe.py" 2>&1)" \
         || fail "probe did not run cleanly: ${out}"
     echo "$out" | grep -E '^(can|cannot):' | sed 's/^/    /'
-    for expect in can:create-app cannot:write-code cannot:write-main-git cannot:see-ssh can:write-data can:autocommit; do
+    for expect in can:create-app cannot:write-code cannot:write-main-git cannot:see-ssh cannot:write-via-proc-root can:read-secret can:write-data can:autocommit; do
         if grep -qx "$expect" <<<"$out"; then ok "$expect"; else fail "wanted ${expect}"; fi
     done
     rm -f "${REPO}/deploy/.mf-probe"
