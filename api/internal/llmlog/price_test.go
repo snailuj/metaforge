@@ -47,3 +47,11 @@ func TestCostUnknownModelUsesDearestRate(t *testing.T) {
 		t.Fatalf("cost = %v, want 60", got)
 	}
 }
+
+// A dated snapshot id prices as its model, not at the dearest card.
+func TestCostStripsSnapshotDate(t *testing.T) {
+	got, known := Cost("claude-haiku-5-5-20261006", Usage{InputTokens: 10_000})
+	if !known || !near(got, 0.001) {
+		t.Fatalf("cost = %v known=%v, want 0.001 true", got, known)
+	}
+}

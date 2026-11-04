@@ -58,3 +58,27 @@ func TestBudgetFailsClosed(t *testing.T) {
 		t.Errorf("status %+v err %v, want exhausted with error", st, err)
 	}
 }
+
+type failingWrites struct {
+	fakeSpend
+	failedAt time.Time
+}
+
+func (f *failingWrites) WriteFailedSince(t time.Time) bool {
+	return !f.failedAt.IsZero() && !f.failedAt.Before(t)
+}
+
+// Rule: a call that could not be recorded is spend the cap cannot see, so
+// generation stops for a while after a failed write.
+func TestBudgetRefusesAfterARecentWriteFailure(t *testing.T) {
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	sp := &failingWrites{failedAt: now.Add(-time.Minute)}
+	b := NewBudget(sp, 20, func() time.Time { return now })
+	if st, err := b.Status(context.Background()); err == nil || !st.Exhausted {
+		t.Fatalf("status %+v err %v, want exhausted with error", st, err)
+	}
+	sp.failedAt = now.Add(-WriteFailureHold - time.Second)
+	if st, err := b.Status(context.Background()); err != nil || st.Exhausted {
+		t.Fatalf("after the hold: status %+v err %v", st, err)
+	}
+}

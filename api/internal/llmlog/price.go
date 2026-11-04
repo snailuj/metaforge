@@ -1,5 +1,7 @@
 package llmlog
 
+import "regexp"
+
 // Usage is the token accounting of one API response, as the API reports it.
 type Usage struct {
 	InputTokens      int64 `json:"input_tokens"`
@@ -32,6 +34,9 @@ var prices = map[string]rateCard{
 
 var haikuLong = rateCard{0.50, 2.50, 0.05}
 
+// snapshotDate is the -YYYYMMDD suffix a response may name its model by.
+var snapshotDate = regexp.MustCompile(`-\d{8}$`)
+
 // dearest prices a model missing from the table, so the weekly cap stops
 // early rather than overspends.
 var dearest = rateCard{10.00, 50.00, 1.00}
@@ -39,6 +44,7 @@ var dearest = rateCard{10.00, 50.00, 1.00}
 // Cost returns the USD cost of one response, and false when the model is
 // not in the price table and was priced at the dearest card.
 func Cost(model string, u Usage) (float64, bool) {
+	model = snapshotDate.ReplaceAllString(model, "")
 	card, known := prices[model]
 	if !known {
 		card = dearest

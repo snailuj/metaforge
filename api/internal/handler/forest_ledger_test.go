@@ -16,6 +16,7 @@ import (
 type fakeLedger struct {
 	runs    []llmlog.Run
 	cost    float64
+	costErr error
 	costFor string
 }
 
@@ -26,7 +27,7 @@ func (l *fakeLedger) RecordRun(_ context.Context, r llmlog.Run) error {
 
 func (l *fakeLedger) RunCost(_ context.Context, id string) (float64, error) {
 	l.costFor = id
-	return l.cost, nil
+	return l.cost, l.costErr
 }
 
 type fakeBudget struct {
@@ -169,5 +170,16 @@ func TestBudgetEndpointUnconfigured(t *testing.T) {
 	(&BudgetHandler{}).ServeHTTP(w, httptest.NewRequest("GET", "/forge/budget", nil))
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status %d", w.Code)
+	}
+}
+
+// Rule: a cost that could not be read is left out, never reported as zero.
+func TestForestCostHeaderOmittedWhenUnknown(t *testing.T) {
+	gen := &fakeForestGen{forest: forestWithLine("fresh")}
+	h := newForestTestHandler(gen, 4, 30)
+	h.Ledger = &fakeLedger{costErr: errors.New("disk")}
+	w := getForest(h, "word=patience")
+	if w.Code != http.StatusOK || w.Header().Get("X-Forest-Cost-USD") != "" {
+		t.Fatalf("status %d cost header %q", w.Code, w.Header().Get("X-Forest-Cost-USD"))
 	}
 }

@@ -76,7 +76,7 @@ func (c *Client) Forest(ctx context.Context, word string, maxHops int) (ForestRe
 	}
 	if s := resp.Header.Get("X-Forest-Cost-USD"); s != "" {
 		if f, err := strconv.ParseFloat(s, 64); err == nil {
-			res.CostUSD = f
+			res.CostUSD, res.CostKnown = f, true
 		} else {
 			slog.Warn("enrich: unreadable cost header", "word", word, "value", s)
 		}

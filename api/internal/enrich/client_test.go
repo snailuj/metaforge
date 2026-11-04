@@ -25,7 +25,7 @@ func TestClientForestAsksForAFreshEnrichmentForest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Status != 200 || res.CostUSD != 0.001234 || res.Endpoints != 2 || res.BudgetExhausted {
+	if res.Status != 200 || res.CostUSD != 0.001234 || !res.CostKnown || res.Endpoints != 2 || res.BudgetExhausted {
 		t.Fatalf("result %+v", res)
 	}
 }
@@ -46,7 +46,7 @@ func TestClientForestReadsRefusals(t *testing.T) {
 	c := NewClient(srv.URL, time.Second)
 
 	busy, err := c.Forest(context.Background(), "busy", 3)
-	if err != nil || busy.Status != 429 || busy.RetryAfter != 9*time.Second {
+	if err != nil || busy.Status != 429 || busy.RetryAfter != 9*time.Second || busy.CostKnown {
 		t.Errorf("busy %+v %v", busy, err)
 	}
 	spent, err := c.Forest(context.Background(), "spent", 3)

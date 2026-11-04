@@ -54,7 +54,7 @@ func capped(spent float64) llmlog.BudgetStatus {
 	return llmlog.BudgetStatus{CapUSD: 20, SpentUSD: spent, RemainingUSD: 20 - spent}
 }
 
-var okForest = ForestResult{Status: 200, CostUSD: 0.002, Endpoints: 5}
+var okForest = ForestResult{Status: 200, CostUSD: 0.002, CostKnown: true, Endpoints: 5}
 
 func TestStepGeneratesAndAdvances(t *testing.T) {
 	api := &fakeAPI{budget: capped(1), results: []ForestResult{okForest}}
@@ -223,5 +223,18 @@ func TestChangedWordListRestartsThePass(t *testing.T) {
 	}
 	if again.State().Index != 0 || again.State().Forests != 1 {
 		t.Fatalf("state %+v", again.State())
+	}
+}
+
+// Rule: a forest whose cost the server could not report leaves the pacing
+// estimate where it was.
+func TestStepIgnoresAnUnknownCost(t *testing.T) {
+	api := &fakeAPI{budget: capped(1), results: []ForestResult{{Status: 200, Endpoints: 3}}}
+	e, _ := newTest(t, api, "longing")
+	if _, err := e.Step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if st := e.State(); st.CostEstimateUSD != 0.01 || st.Forests != 1 {
+		t.Fatalf("state %+v", st)
 	}
 }

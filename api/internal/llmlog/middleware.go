@@ -170,9 +170,12 @@ func (s *Store) record(ctx context.Context, c Call) {
 		slog.Warn("llm call log: model has no price, charged at the dearest rate", "model", c.Model, "cost_usd", c.CostUSD)
 	}
 	if _, err := s.InsertCall(ctx, c); err != nil {
-		slog.Error("llm call log: call not recorded", "run_id", c.RunID, "label", c.Label, "status", c.HTTPStatus, "err", err)
+		s.lastWriteFailure.Store(time.Now().UnixMilli())
+		slog.Error("llm call log: call not recorded, generation paused", "run_id", c.RunID, "label", c.Label,
+			"status", c.HTTPStatus, "cost_usd", c.CostUSD, "err", err)
 		return
 	}
+	s.lastWriteFailure.Store(0)
 	slog.Debug("llm call recorded", "run_id", c.RunID, "label", c.Label, "status", c.HTTPStatus,
 		"total_ms", c.Total.Milliseconds(), "cost_usd", c.CostUSD)
 }

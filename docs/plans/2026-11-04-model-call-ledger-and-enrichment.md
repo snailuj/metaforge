@@ -20,7 +20,7 @@ Reading a body: `SELECT response_body_gz FROM llm_calls WHERE id = ?`, then `gzi
 
 Prices (`price.go`) are list prices as of 2026-10-06, with Haiku 5.5's long-prompt card. Usage is kept raw, so `cost_usd` can be recomputed if a price was wrong.
 
-**Weekly cap** (`llmlog.Budget`). `METAFORGE_WEEKLY_BUDGET_USD` (default 20, 0 for none) over a rolling 7 days of every recorded call. Staging and production write the same file (`/var/lib/metaforge/llm_calls.db`), so the cap covers both. When the week's spend reaches the cap, `/forge/forest` stops generating: Forge and New forest serve a pooled forest with `X-Forest-Budget: exhausted`, or answer 503 when the pool is empty. A ledger that cannot be read counts as spent; a configured ledger that will not open disables generation. Spend is checked before a forest starts, so the cap can be overshot by the forests already in flight (at most 4, about $0.003 each).
+**Weekly cap** (`llmlog.Budget`). `METAFORGE_WEEKLY_BUDGET_USD` (default 20, 0 for none) over a rolling 7 days of every recorded call. Staging and production write the same file (`/var/lib/metaforge/llm_calls.db`), so the cap covers both. When the week's spend reaches the cap, `/forge/forest` stops generating: Forge and New forest serve a pooled forest with `X-Forest-Budget: exhausted`, or answer 503 when the pool is empty. A ledger that cannot be read counts as spent, and so does a failed write for five minutes after it (that call's spend is invisible to the cap); a configured ledger that will not open disables generation. Spend is checked before a forest starts, so the cap can be overshot by the forests already in flight (at most 4, about $0.003 each).
 
 `GET /forge/budget` returns `{cap_usd, spent_usd, remaining_usd, window_start, exhausted}`. Each generated JSON forest carries `X-Forest-Cost-USD`.
 
@@ -30,12 +30,12 @@ Prices (`price.go`) are list prices as of 2026-10-06, with Haiku 5.5's long-prom
 - it spaces forests at `cost estimate / ((cap - reserve) / week)`, so enrichment alone never outspends its share; the estimate is a running average of `X-Forest-Cost-USD`;
 - it refuses to run against a server with no cap.
 
-Progress (`pass`, `index`, totals, cost estimate, last request time) is written atomically after each forest, so a restart never buys a forest twice. 429 and transport errors retry the same word; a bad word or failed generation moves on. It stops after `-passes` (default 10, the pool size); 0 runs forever.
+Progress (`pass`, `index`, totals, cost estimate, last request time) is written atomically, and synced, after each forest. Resumption is best effort: a crash between a forest and its save repeats that word, at the cost of one extra forest. A forest whose cost the server could not read leaves the estimate unchanged. 429 and transport errors retry the same word; a bad word or failed generation moves on. It stops after `-passes` (default 10, the pool size); 0 runs forever.
 
 ## Deploy
 
 1. `deploy/production/deploy.sh` and `deploy/staging/deploy.sh` now create `/var/lib/metaforge` (owned by `agent`) and point both APIs at the shared ledger.
-2. `deploy/enrich/deploy.sh` builds `api/enrich` and installs `metaforge-enrich.service` against the production API (`--no-start` to install without spending).
+2. `deploy/enrich/deploy.sh` checks the API's cap is above the reserve, builds `api/enrich` and installs `metaforge-enrich.service` against the production API (`--no-start` installs it and stops any running copy).
 3. Watch: `journalctl -u metaforge-enrich -f`, `curl -s 127.0.0.1:8080/forge/budget`.
 
 ## Sizes

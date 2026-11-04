@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -126,6 +127,16 @@ type Run struct {
 // file (staging and production both write the same ledger).
 type Store struct {
 	db *sql.DB
+	// lastWriteFailure is the unix ms of the latest failed call write, zero
+	// once a write has succeeded since.
+	lastWriteFailure atomic.Int64
+}
+
+// WriteFailedSince reports whether a call write failed at or after t with
+// no successful write since.
+func (s *Store) WriteFailedSince(t time.Time) bool {
+	f := s.lastWriteFailure.Load()
+	return f != 0 && f >= t.UnixMilli()
 }
 
 func Open(path string) (*Store, error) {

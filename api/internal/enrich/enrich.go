@@ -38,6 +38,7 @@ type API interface {
 type ForestResult struct {
 	Status          int
 	CostUSD         float64
+	CostKnown       bool // false when the server could not price the forest
 	BudgetExhausted bool
 	RetryAfter      time.Duration
 	Endpoints       int
@@ -182,7 +183,11 @@ func (e *Enricher) judge(word string, res ForestResult, err error) (time.Duratio
 	case res.Status == 200:
 		e.state.Forests++
 		e.state.SpentUSD += res.CostUSD
-		e.state.CostEstimateUSD = (1-costSmoothing)*e.state.CostEstimateUSD + costSmoothing*res.CostUSD
+		if res.CostKnown {
+			e.state.CostEstimateUSD = (1-costSmoothing)*e.state.CostEstimateUSD + costSmoothing*res.CostUSD
+		} else {
+			slog.Warn("enrich: forest cost unknown, estimate kept", "word", word)
+		}
 		slog.Info("enrich: forest grown", "word", word, "pass", e.state.Pass, "index", e.state.Index,
 			"endpoints", res.Endpoints, "cost_usd", res.CostUSD, "cost_estimate_usd", e.state.CostEstimateUSD,
 			"forests", e.state.Forests, "spent_usd", e.state.SpentUSD)
@@ -209,6 +214,8 @@ func (e *Enricher) advance() {
 }
 
 // save writes the state atomically, so a crash never leaves half a file.
+// A crash between a forest and this save repeats that word on restart, so
+// resumption costs at most one extra forest.
 func (e *Enricher) save() error {
 	b, err := json.MarshalIndent(e.state, "", "  ")
 	if err != nil {
@@ -222,6 +229,12 @@ func (e *Enricher) save() error {
 	if _, err := tmp.Write(b); err != nil {
 		tmp.Close()
 		return fmt.Errorf("write enrich state: %w", err)
+	}
+	// Without a sync, a power cut can put the rename on disk before the
+	// data and leave an empty state file.
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sync enrich state: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("write enrich state: %w", err)

@@ -122,3 +122,25 @@ func TestOpenTwiceSharesTheFile(t *testing.T) {
 		t.Fatalf("second handle saw %v, %v", got, err)
 	}
 }
+
+func TestStoreRemembersAFailedWriteUntilOneSucceeds(t *testing.T) {
+	s := openTemp(t)
+	start := time.Now()
+	if s.WriteFailedSince(start.Add(-time.Hour)) {
+		t.Fatal("fresh store reports a failure")
+	}
+	if _, err := s.db.Exec(`DROP TABLE llm_calls`); err != nil {
+		t.Fatal(err)
+	}
+	s.record(context.Background(), Call{Started: start, PriceKnown: true})
+	if !s.WriteFailedSince(start.Add(-time.Second)) {
+		t.Fatal("failed write not remembered")
+	}
+	if _, err := s.db.Exec(schema); err != nil {
+		t.Fatal(err)
+	}
+	s.record(context.Background(), Call{Started: time.Now(), PriceKnown: true})
+	if s.WriteFailedSince(start.Add(-time.Second)) {
+		t.Fatal("a later successful write did not clear the failure")
+	}
+}

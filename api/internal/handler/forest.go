@@ -177,7 +177,7 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.gen.Generate(ctx, word, maxHops)
-	cost := h.recordRun(ctx, run, started, result, err)
+	cost, costKnown := h.recordRun(ctx, run, started, result, err)
 	if err != nil {
 		// forest.Service has already logged the cause with its request context.
 		if errors.Is(err, context.Canceled) {
@@ -199,7 +199,7 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Forest-Cache", cacheState)
 		h.store(r.Context(), word, maxHops, result)
 	}
-	if h.Ledger != nil {
+	if costKnown {
 		w.Header().Set("X-Forest-Cost-USD", strconv.FormatFloat(cost, 'f', 6, 64))
 	}
 	writeForest(w, word, result)
@@ -245,10 +245,11 @@ func (h *ForestHandler) serveFromPool(w http.ResponseWriter, r *http.Request, wo
 }
 
 // recordRun keeps the request in the ledger, whatever its outcome, and
-// returns what its model calls cost. Ledger failures are logged only.
-func (h *ForestHandler) recordRun(ctx context.Context, run llmlog.RunInfo, started time.Time, f forest.Forest, genErr error) float64 {
+// returns what its model calls cost, and false when that is unknown.
+// Ledger failures are logged only.
+func (h *ForestHandler) recordRun(ctx context.Context, run llmlog.RunInfo, started time.Time, f forest.Forest, genErr error) (float64, bool) {
 	if h.Ledger == nil {
-		return 0
+		return 0, false
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), forestCacheWriteTimeout)
 	defer cancel()
@@ -269,7 +270,8 @@ func (h *ForestHandler) recordRun(ctx context.Context, run llmlog.RunInfo, start
 		rec.Forest = body
 	}
 	cost, err := h.Ledger.RunCost(ctx, run.ID)
-	if err != nil {
+	costKnown := err == nil
+	if !costKnown {
 		slog.Error("forest: run cost unreadable", "run_id", run.ID, "err", err)
 	}
 	rec.CostUSD = cost
@@ -277,8 +279,8 @@ func (h *ForestHandler) recordRun(ctx context.Context, run llmlog.RunInfo, start
 		slog.Error("forest: run not recorded", "run_id", run.ID, "word", run.Word, "err", err)
 	}
 	slog.Info("forest: run recorded", "run_id", run.ID, "word", run.Word, "origin", run.Origin,
-		"outcome", rec.Outcome, "cost_usd", cost)
-	return cost
+		"outcome", rec.Outcome, "cost_usd", cost, "cost_known", costKnown)
+	return cost, costKnown
 }
 
 // streamForest answers with a server-sent event stream: each service event

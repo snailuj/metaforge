@@ -42,6 +42,7 @@ func allCalls(t *testing.T, s *Store) []Call {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rows.Close()
 	var ids []int64
 	for rows.Next() {
 		var id int64
@@ -50,7 +51,6 @@ func allCalls(t *testing.T, s *Store) []Call {
 		}
 		ids = append(ids, id)
 	}
-	rows.Close()
 	var out []Call
 	for _, id := range ids {
 		c, err := s.GetCall(context.Background(), id)
