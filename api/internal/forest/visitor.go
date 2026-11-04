@@ -14,13 +14,15 @@ const (
 	visitorPruneEvery = time.Minute
 )
 
-// VisitorLimiter caps the forests one visitor may generate: a token bucket
-// per visitor, perHour deep, refilling evenly over an hour. It never blocks.
+// VisitorLimiter caps what one visitor may do: a token bucket per visitor,
+// allowance deep, refilling evenly over its window. It never blocks.
 // It tracks at most maxVisitors at once; while the table is full of visitors
 // still inside their hour, a new visitor is refused rather than tracked, so
 // the limiter fails closed and its memory stays bounded.
 type VisitorLimiter struct {
-	perHour     int
+	name        string // names the limiter in logs
+	allowance   int
+	window      time.Duration
 	maxVisitors int
 	now         func() time.Time
 
@@ -34,11 +36,21 @@ type visitorBucket struct {
 	at     time.Time // when tokens was last brought up to date
 }
 
-// NewVisitorLimiter takes an injectable clock so tests control refills.
-// perHour and maxVisitors below 1 are treated as 1.
+// NewVisitorLimiter limits forests per visitor per hour. It takes an
+// injectable clock so tests control refills. perHour and maxVisitors below 1
+// are treated as 1.
 func NewVisitorLimiter(perHour, maxVisitors int, now func() time.Time) *VisitorLimiter {
+	return NewWindowedLimiter("forest", perHour, maxVisitors, visitorWindow, now)
+}
+
+// NewWindowedLimiter allows each visitor perWindow takes, refilling evenly
+// over window. name appears in logs. perWindow and maxVisitors below 1 are
+// treated as 1, and a window below a millisecond as one.
+func NewWindowedLimiter(name string, perWindow, maxVisitors int, window time.Duration, now func() time.Time) *VisitorLimiter {
 	return &VisitorLimiter{
-		perHour:     max(perHour, 1),
+		name:        name,
+		allowance:   max(perWindow, 1),
+		window:      max(window, time.Millisecond),
 		maxVisitors: max(maxVisitors, 1),
 		now:         now,
 		buckets:     map[string]visitorBucket{},
@@ -60,7 +72,7 @@ func (l *VisitorLimiter) Take(visitor string) (refund func(), retryAfter time.Du
 	case len(l.buckets) >= l.maxVisitors && !l.makeRoomLocked(now):
 		return nil, visitorPruneEvery, false
 	default:
-		b = visitorBucket{tokens: float64(l.perHour), at: now}
+		b = visitorBucket{tokens: float64(l.allowance), at: now}
 	}
 
 	if b.tokens < 1 {
@@ -81,13 +93,13 @@ func (l *VisitorLimiter) Tracked() int {
 }
 
 func (l *VisitorLimiter) interval() time.Duration {
-	return visitorWindow / time.Duration(l.perHour)
+	return l.window / time.Duration(l.allowance)
 }
 
 // refilled brings b up to now, never past a full bucket.
 func (l *VisitorLimiter) refilled(b visitorBucket, now time.Time) visitorBucket {
 	if elapsed := now.Sub(b.at); elapsed > 0 {
-		b.tokens = min(b.tokens+float64(elapsed)/float64(l.interval()), float64(l.perHour))
+		b.tokens = min(b.tokens+float64(elapsed)/float64(l.interval()), float64(l.allowance))
 		b.at = now
 	}
 	return b
@@ -103,15 +115,15 @@ func (l *VisitorLimiter) makeRoomLocked(now time.Time) bool {
 	l.lastPrune = now
 	before := len(l.buckets)
 	for k, b := range l.buckets {
-		if l.refilled(b, now).tokens >= float64(l.perHour) {
+		if l.refilled(b, now).tokens >= float64(l.allowance) {
 			delete(l.buckets, k)
 		}
 	}
 	room := len(l.buckets) < l.maxVisitors
 	if !room {
-		slog.Warn("forest: visitor table full, refusing new visitors", "tracked", len(l.buckets), "max", l.maxVisitors)
+		slog.Warn(l.name+": visitor table full, refusing new visitors", "tracked", len(l.buckets), "max", l.maxVisitors)
 	} else {
-		slog.Info("forest: visitor table pruned", "dropped", before-len(l.buckets), "tracked", len(l.buckets))
+		slog.Info(l.name+": visitor table pruned", "dropped", before-len(l.buckets), "tracked", len(l.buckets))
 	}
 	return room
 }
@@ -124,6 +136,6 @@ func (l *VisitorLimiter) refund(visitor string) {
 		return // pruned meanwhile, so already full
 	}
 	b = l.refilled(b, l.now())
-	b.tokens = min(b.tokens+1, float64(l.perHour))
+	b.tokens = min(b.tokens+1, float64(l.allowance))
 	l.buckets[visitor] = b
 }

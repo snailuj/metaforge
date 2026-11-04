@@ -112,3 +112,31 @@ func TestVisitorLimiterBoundsTrackedVisitors(t *testing.T) {
 		t.Errorf("tracked after pruning = %d, want 1 (only c)", n)
 	}
 }
+
+// Rule: a limiter's tokens refill evenly over its own window, whatever its
+// length, and a different visitor has a bucket of its own.
+func TestWindowedLimiterRefillsOverItsWindow(t *testing.T) {
+	clock := newFakeClock()
+	l := NewWindowedLimiter("test", 6, 100, time.Minute, clock.Now)
+
+	for i := 0; i < 6; i++ {
+		if _, _, ok := l.Take("203.0.113.7"); !ok {
+			t.Fatalf("take %d refused within the allowance", i+1)
+		}
+	}
+	_, wait, ok := l.Take("203.0.113.7")
+	if ok || wait != 10*time.Second {
+		t.Fatalf("seventh take: ok=%v wait=%v, want refused with 10s (one minute / 6)", ok, wait)
+	}
+	if _, _, ok := l.Take("198.51.100.9"); !ok {
+		t.Error("another visitor was refused")
+	}
+
+	clock.Advance(10 * time.Second)
+	if _, _, ok := l.Take("203.0.113.7"); !ok {
+		t.Error("no token back after window/perWindow")
+	}
+	if _, _, ok := l.Take("203.0.113.7"); ok {
+		t.Error("two tokens back after window/perWindow")
+	}
+}
