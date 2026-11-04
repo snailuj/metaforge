@@ -54,10 +54,13 @@ type forestSettings struct {
 	// PerVisitorHour is how many forests one address may generate an hour.
 	PerVisitorHour int
 	APIKey         string
-	CachePath      string // empty disables the forest cache
-	PoolSize       int    // forests kept per (word, max_hops)
-	LedgerPath     string // empty: model calls are not recorded and spend is uncapped
-	WeeklyCapUSD   float64
+	// AnthropicBaseURL is where the API key is sent; empty means the real
+	// API. Only the -anthropic-base-url flag sets it.
+	AnthropicBaseURL string
+	CachePath        string // empty disables the forest cache
+	PoolSize         int    // forests kept per (word, max_hops)
+	LedgerPath       string // empty: model calls are not recorded and spend is uncapped
+	WeeklyCapUSD     float64
 	// WeeklyCeilingUSD stops everyone generating; zero switches it off.
 	WeeklyCeilingUSD float64
 }
@@ -134,7 +137,11 @@ func newForestHandler(s forestSettings) *handler.ForestHandler {
 		slog.Error("llm call log will not open: /forge/forest serves cached forests only", "path", s.LedgerPath)
 		h = handler.NewForestHandler(nil, limiter)
 	default:
-		opts := []option.RequestOption{option.WithAPIKey(s.APIKey)}
+		baseURL := s.AnthropicBaseURL
+		if baseURL == "" {
+			baseURL = llm.DefaultBaseURL
+		}
+		opts := []option.RequestOption{option.WithAPIKey(s.APIKey), option.WithBaseURL(baseURL)}
 		if ledger != nil {
 			opts = append(opts, option.WithMiddleware(ledger.Middleware()))
 		}

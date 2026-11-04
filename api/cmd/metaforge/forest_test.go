@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/snailuj/metaforge/internal/forest"
@@ -306,5 +307,41 @@ func TestForestHandlerWeeklyCeiling(t *testing.T) {
 		if got := loadForestSettings().WeeklyCeilingUSD; got != 50 {
 			t.Errorf("%q gave ceiling %v, want the default 50", v, got)
 		}
+	}
+}
+
+// Rule: the Anthropic key goes only to the configured base URL; an
+// ANTHROPIC_BASE_URL in the environment never redirects it.
+func TestForestClientIgnoresAnthropicBaseURLEnv(t *testing.T) {
+	var hitsA, hitsB atomic.Int32
+	count := func(n *atomic.Int32, next http.Handler) *httptest.Server {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			n.Add(1)
+			next.ServeHTTP(w, r)
+		}))
+		t.Cleanup(srv.Close)
+		return srv
+	}
+	configured := count(&hitsA, fakeAnthropicHandler())
+	ambient := count(&hitsB, fakeAnthropicHandler())
+
+	clearForestEnv(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	t.Setenv("ANTHROPIC_BASE_URL", ambient.URL)
+	t.Setenv("METAFORGE_FOREST_MIN_PATHS", "0")
+	s := loadForestSettings()
+	s.AnthropicBaseURL = configured.URL
+
+	w := httptest.NewRecorder()
+	newForestHandler(s).HandleForest(w, httptest.NewRequest("GET", "/forge/forest?word=patience&max_hops=3", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body)
+	}
+	if hitsA.Load() == 0 {
+		t.Error("the configured base URL was never called")
+	}
+	if got := hitsB.Load(); got != 0 {
+		t.Errorf("the environment's base URL received %d requests", got)
 	}
 }

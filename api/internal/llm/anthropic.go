@@ -18,9 +18,15 @@ type Anthropic struct {
 	client anthropic.Client
 }
 
-// NewAnthropic builds a client. With no options the SDK reads
-// ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL from the environment.
+// DefaultBaseURL is the only host an API key goes to unless a caller passes
+// option.WithBaseURL.
+const DefaultBaseURL = "https://api.anthropic.com"
+
+// NewAnthropic builds a client. The SDK would read ANTHROPIC_BASE_URL from
+// the environment, so DefaultBaseURL is set first: an ambient variable must
+// never redirect the key. A later option.WithBaseURL still wins.
 func NewAnthropic(opts ...option.RequestOption) *Anthropic {
+	opts = append([]option.RequestOption{option.WithBaseURL(DefaultBaseURL)}, opts...)
 	return &Anthropic{client: anthropic.NewClient(opts...)}
 }
 

@@ -238,3 +238,29 @@ func TestAnthropicCompleteHonoursContextCancellation(t *testing.T) {
 		t.Errorf("error = %v, want context.Canceled", err)
 	}
 }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// Rule: a client built without a base URL sends to the real API, whatever
+// ANTHROPIC_BASE_URL says.
+func TestNewAnthropicIgnoresBaseURLEnv(t *testing.T) {
+	ambient := serve(t, 200, messageJSON("end_turn", `[{"type":"text","text":"{}"}]`), nil)
+	t.Setenv("ANTHROPIC_BASE_URL", ambient.URL)
+
+	var host string
+	c := NewAnthropic(
+		option.WithAPIKey("test"),
+		option.WithMaxRetries(0),
+		option.WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			host = r.URL.Scheme + "://" + r.URL.Host
+			return nil, errors.New("no network in tests")
+		})}),
+	)
+	_, _ = c.Complete(context.Background(), testRequest())
+
+	if host != DefaultBaseURL {
+		t.Errorf("request went to %q, want %q", host, DefaultBaseURL)
+	}
+}
