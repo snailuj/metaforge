@@ -6,9 +6,12 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# shellcheck source=../lib/grading-host.sh
+. "${REPO_ROOT}/deploy/lib/grading-host.sh"
 
-# The sidecar runs as `agent` (see metaforge-grading.service: the unit's sandbox,
-# not a second user, is what confines it). The secret file is therefore owned by agent.
+# The sidecar runs as metaforge-grading (see the unit). agent owns the code, the venv
+# and the secret file: systemd reads the secret as root (LoadCredential) and hands it
+# to the unit, so agent's tools can still read it too.
 SIDECAR_USER="${SIDECAR_USER:-agent}"
 
 # The unit pins its code and venv to .worktrees/next, so only that checkout can
@@ -26,6 +29,11 @@ if [ ! -d "${DATA_CLONE}/.git" ]; then
     echo "ERROR: ${DATA_CLONE} is not a git clone yet. Run deploy/grading/migrate-data-clone.sh first." >&2
     exit 1
 fi
+
+# The sidecar's own user owns the clone; agent gets read access through the group.
+ensure_grading_user
+ensure_group_member "$SIDECAR_USER"
+own_data_clone "$DATA_CLONE"
 
 # Own hashed venv (idempotent); built before the unit that points at it restarts.
 # Run as the sidecar user even under `sudo deploy.sh`, so the venv and uv's cache
@@ -58,15 +66,11 @@ if [ ! -f /etc/default/metaforge-grading ]; then
     echo "Wrote /etc/default/metaforge-grading from template. Review and adjust if needed."
 fi
 
-# 3b. The unit pins the deploy worktree via Environment=PYTHONPATH=. Observed
-# gotcha: a PYTHONPATH in THIS EnvironmentFile OVERRIDES the unit's inline value at
-# runtime (systemd applies EnvironmentFile after Environment= for duplicate keys),
-# silently sending the sidecar's code + grading-data resolution back to whatever
-# path the file names. Strip it so the unit is the sole authority. Idempotent.
-if [ -f /etc/default/metaforge-grading ] && grep -q '^PYTHONPATH=' /etc/default/metaforge-grading; then
-    sudo sed -i '/^PYTHONPATH=/d' /etc/default/metaforge-grading
-    echo "Stripped PYTHONPATH from /etc/default/metaforge-grading (unit Environment= is authoritative)."
-fi
+# 3b. EnvironmentFile= OVERRIDES the unit's inline Environment= for the same key
+# (observed with PYTHONPATH: it silently sent the sidecar's code and data resolution
+# back to whatever path the file named). The unit is the sole authority for these
+# keys, including the secret path, which must stay the systemd credential.
+strip_env_keys /etc/default/metaforge-grading PYTHONPATH GRADING_SECRET_FILE GRADING_DATA_DIR GRADING_DATA_GIT_ROOT
 
 # 4. Install systemd unit (idempotent — overwrites).
 sudo install -m 0644 "$REPO_ROOT/deploy/grading/metaforge-grading.service" \
@@ -82,25 +86,32 @@ sleep 2
 curl -fsS http://127.0.0.1:53775/api/grading/healthz
 echo ""
 
-# 7. Verify the cutover actually pinned the deploy worktree. paths.py + the git
-# autocommit derive code AND grading-data location from PYTHONPATH, so if the live
-# process resolves it to anything other than .worktrees/next, the sidecar is
-# silently running off the main checkout (the EnvironmentFile gotcha above). Fail
-# loudly rather than appear-deployed-but-wrong.
-PID="$(pgrep -f 'grading_sidecar.main' | head -1)"
-if [ -n "$PID" ] && grep -qz '^PYTHONPATH=.*\.worktrees/next' "/proc/$PID/environ" 2>/dev/null; then
-    echo "Verified: live sidecar (PID $PID) PYTHONPATH is pinned to .worktrees/next."
-else
-    echo "ERROR: sidecar PYTHONPATH is NOT pinned to .worktrees/next — code + grading data" >&2
-    echo "       are resolving from the main checkout, not the deploy worktree." >&2
-    echo "       Inspect: tr '\\0' '\\n' < /proc/${PID}/environ | grep PYTHONPATH" >&2
+# 7. Verify the process actually runs with the intended environment. The sidecar's
+# user differs from ours, so its environ is read through sudo. paths.py and the git
+# autocommit derive code and data locations from these variables, so a wrong value
+# means it is silently running off another checkout.
+PID="$(systemctl show -p MainPID --value metaforge-grading)"
+if [ -z "$PID" ] || [ "$PID" = 0 ]; then
+    echo "ERROR: metaforge-grading has no running main process after the restart." >&2
+    echo "       Inspect: journalctl -u metaforge-grading -n 50 --no-pager" >&2
     exit 1
 fi
-
-if [ -n "$PID" ] && grep -qz "^GRADING_DATA_GIT_ROOT=${DATA_CLONE}\$" "/proc/$PID/environ" 2>/dev/null; then
-    echo "Verified: live sidecar (PID $PID) writes grading data to ${DATA_CLONE}."
+ENVIRON="$(sudo cat "/proc/${PID}/environ" | tr '\0' '\n')"
+check_env() { # <regex> <what>
+    if grep -q "$1" <<<"$ENVIRON"; then
+        echo "Verified: sidecar (PID ${PID}) $2"
+    else
+        echo "ERROR: sidecar (PID ${PID}) environment is wrong: $2 failed." >&2
+        exit 1
+    fi
+}
+check_env '^PYTHONPATH=.*\.worktrees/next' "PYTHONPATH is pinned to .worktrees/next"
+check_env "^GRADING_DATA_GIT_ROOT=${DATA_CLONE}\$" "writes grading data to ${DATA_CLONE}"
+check_env '^GRADING_SECRET_FILE=/run/credentials/metaforge-grading.service/' "reads its secret from the systemd credential"
+if [ "$(sudo stat -c %U "/proc/${PID}")" = "metaforge-grading" ]; then
+    echo "Verified: sidecar runs as metaforge-grading."
 else
-    echo "ERROR: sidecar GRADING_DATA_GIT_ROOT is not ${DATA_CLONE}." >&2
+    echo "ERROR: sidecar is not running as metaforge-grading." >&2
     exit 1
 fi
 
