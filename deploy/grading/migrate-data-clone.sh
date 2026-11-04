@@ -11,7 +11,10 @@
 # Git work on agent's repos (the old worktree, the main repo, the new clone before
 # deploy.sh hands it over) runs as the worktree's owner via `sudo -u`, never as root.
 #
-# Idempotent: every step is safe to repeat, so a failed run is fixed by re-running.
+# Idempotent: a failed run is fixed by re-running, and once the cutover has happened
+# a further run exits at once without touching anything (the clone is live and has
+# moved on from the frozen old worktree, so comparing them would only fail and then
+# "restore" a stale unit).
 # The sidecar is stopped while the data moves (stopping is the only way to know no
 # write is mid-flight), so grading pauses briefly. If anything fails after the stop,
 # the previous unit is put back and started again automatically. The old worktree
@@ -39,7 +42,7 @@ SUBDIR=data-pipeline/grading
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-STOPPED=0 DONE=0
+STOPPED=0 DONE=0 BACKUP_TAKEN=0
 # Runs on every exit. After the stop and before the cutover is verified, put the
 # previous unit back and start it, so a failed run never leaves grading down.
 on_exit() {
@@ -48,7 +51,8 @@ on_exit() {
     if [ "$STOPPED" = 1 ] && [ "$DONE" != 1 ]; then
         echo "" >&2
         echo "MIGRATION FAILED (exit ${rc}). Restoring the previous sidecar." >&2
-        if [ -e "$UNIT_BACKUP" ] \
+        # Only a unit captured by THIS run is trusted; an older backup may be stale.
+        if [ "$BACKUP_TAKEN" = 1 ] \
            && as_user "$OWNER" git -C "$OLD_WT" checkout -q "$BRANCH" \
            && sudo cp "$UNIT_BACKUP" "$UNIT_FILE" \
            && sudo systemctl daemon-reload \
@@ -75,10 +79,26 @@ if [ "${MF_SKIP_CHECKOUT_CHECK:-0}" != 1 ] && [ "$REPO_ROOT" != "${SRC_REPO}/.wo
 fi
 [ -f "${OLD_WT}/.git" ] || die "${OLD_WT} is not a git worktree"
 OWNER="$(stat -c %U "$OLD_WT")"
+
 trap on_exit EXIT
 
-# Line count per file under a dir (every file the sidecar might append to).
-inventory() { (cd "$1/${SUBDIR}" && find . -type f -print0 | sort -z | xargs -0 wc -l); }
+# True once the cutover has been done: the installed unit runs as the sidecar user or
+# points at the clone, the clone belongs to the sidecar user, or the old worktree is
+# detached (the last step of a successful run).
+already_migrated() {
+    local unit; unit="$(sudo cat "$UNIT_FILE" 2>/dev/null || true)"
+    grep -q "^User=${SIDECAR_USER}\$" <<<"$unit" && return 0
+    grep -qF "GRADING_DATA_GIT_ROOT=${CLONE}" <<<"$unit" && return 0
+    [ -d "${CLONE}/.git" ] && [ "$(stat -c %U "$CLONE")" = "$SIDECAR_USER" ] && return 0
+    [ "$(as_user "$OWNER" git -C "$OLD_WT" rev-parse --abbrev-ref HEAD)" = HEAD ] && return 0
+    return 1
+}
+
+# Line count per file under a dir (every file the sidecar might append to), read as
+# the dir's owner: the clone is 0750 and the invoking user may not be able to enter it.
+inventory() { # <dir> <owner>
+    as_user "$2" sh -c 'cd "$1" && find . -type f -print0 | sort -z | xargs -0 wc -l' _ "$1/${SUBDIR}"
+}
 
 # What the sidecar's /stats reports: non-empty lines of the judgements file that parse.
 count_judgements() { # <dir>
@@ -99,8 +119,14 @@ stats_count() { # authenticated read-only GET, secret kept out of argv
         | python3 -c 'import json,sys; print(json.load(sys.stdin)["judgement_count"])'
 }
 
+if already_migrated; then
+    log "Already migrated (${CLONE} is live); nothing to do."
+    exit 0
+fi
+
 log "1. Back up the live unit, then stop the sidecar"
-if [ ! -e "$UNIT_BACKUP" ]; then sudo cp "$UNIT_FILE" "$UNIT_BACKUP"; fi
+sudo cp "$UNIT_FILE" "$UNIT_BACKUP"
+BACKUP_TAKEN=1
 STOPPED=1
 sudo systemctl stop "$SERVICE"
 
@@ -135,13 +161,15 @@ cgit config user.name "$IDENT_N"
 cgit config user.email "$IDENT_E"
 
 log "5. Check the clone holds exactly the data the worktree has (every file, by line count)"
-if ! diff <(inventory "$OLD_WT") <(inventory "$CLONE") > /dev/null; then
-    diff <(inventory "$OLD_WT") <(inventory "$CLONE") >&2 || true
+INV_OLD="$(inventory "$OLD_WT" "$OWNER")"
+INV_NEW="$(inventory "$CLONE" "$CLONE_OWNER")"
+if [ "$INV_OLD" != "$INV_NEW" ]; then
+    diff <(echo "$INV_OLD") <(echo "$INV_NEW") >&2 || true
     die "the clone and the worktree differ (see above; a file may be gitignored)"
 fi
 
 log "6. Redeploy the sidecar (user, ownership, venv, unit, restart, checks)"
-"$DEPLOY"
+MF_MIGRATING=1 "$DEPLOY"
 
 log "7. Verify"
 curl -fsS "${BASE_URL}/api/grading/healthz"; echo

@@ -59,10 +59,24 @@ echo secret > "${T}/secret"; echo "[Service]" > "${T}/unit.service"
 
 export PATH="${BIN}:${PATH}" FAKE_LOG="${T}/log" FAKE_STATE="${T}/state"
 export MF_SRC_REPO="$SRC" MF_OLD_WT="$OLD" MF_CLONE="${T}/clone" MF_UNIT_FILE="${T}/unit.service" \
-       MF_DEPLOY="${T}/deploy.sh" MF_SECRET_FILE="${T}/secret" MF_SKIP_CHECKOUT_CHECK=1 \
-       MF_SIDECAR_USER="$(id -un)"
+       MF_DEPLOY="${T}/deploy.sh" MF_SECRET_FILE="${T}/secret" MF_SKIP_CHECKOUT_CHECK=1
 mkdir -p "$FAKE_STATE"; : > "$FAKE_LOG"
 RUN() { "${HERE}/migrate-data-clone.sh"; }
+# Back to the state before a cutover: old worktree on its branch, the old unit
+# installed, no backup, nothing deployed.
+PRE() {
+    git -C "$OLD" checkout -q grading-data
+    [ ! -d "${MF_CLONE}/.git" ] || git -C "$MF_CLONE" reset -q --hard "$(git -C "$OLD" rev-parse grading-data)"
+    echo "OLD UNIT" > "${T}/unit.service"; rm -f "${MF_CLONE}.service.pre-migration" "${FAKE_STATE}/deployed"
+    cat > "${T}/deploy.sh" <<'EOS'
+#!/usr/bin/env bash
+[ "${FAKE_DEPLOY_FAILS:-0}" = 1 ] && exit 1
+echo "[Service]
+User=metaforge-grading" > "$MF_UNIT_FILE"
+touch "$FAKE_STATE/deployed"
+EOS
+}
+PRE
 
 echo "== first run"
 OUT="$(RUN 2>&1)" && ok "exit 0" || { fail "exit non-zero"; echo "$OUT" | tail -8; }
@@ -76,21 +90,46 @@ OUT="$(RUN 2>&1)" && ok "exit 0" || { fail "exit non-zero"; echo "$OUT" | tail -
 grep -q "systemctl stop metaforge-grading" "$FAKE_LOG" && ok "sidecar stopped" || fail "sidecar not stopped"
 [ -e "${MF_CLONE}.service.pre-migration" ] && ok "unit backed up" || fail "unit not backed up"
 
-echo "== re-run is safe"
-rm -f "${FAKE_STATE}/deployed"
+echo "== a second run after the cutover is a no-op that never stops the sidecar"
+echo '{"a":4}' >> "${MF_CLONE}/data-pipeline/grading/judgements_provisional.jsonl"   # the clone is live now
+git -C "$MF_CLONE" commit -qam "wip(grading): autosave after cutover"
+UNIT_BEFORE="$(cat "${T}/unit.service")"; : > "$FAKE_LOG"
+OUT="$(RUN 2>&1)" && ok "exit 0" || { fail "second run failed"; echo "$OUT" | tail -12; }
+grep -qi "already migrated" <<<"$OUT" && ok "says so" || fail "does not say it is already migrated"
+grep -q "systemctl stop" "$FAKE_LOG" && fail "stopped the sidecar" || ok "sidecar never stopped"
+[ "$(cat "${T}/unit.service")" = "$UNIT_BEFORE" ] && ok "installed unit untouched" || fail "unit rewritten"
+[ "$(git -C "$OLD" rev-parse --abbrev-ref HEAD)" = HEAD ] && ok "old worktree still detached" || fail "old worktree re-attached"
+[ "$(grep -c . "${MF_CLONE}/data-pipeline/grading/judgements_provisional.jsonl")" = 4 ] && ok "clone verdicts kept" || fail "clone verdicts lost"
+
+echo "== each sign of a finished cutover is enough on its own"
+for sign in unit owner detached; do
+    PRE; : > "$FAKE_LOG"
+    case "$sign" in
+        unit)     printf '[Service]\nUser=metaforge-grading\n' > "${T}/unit.service"; E=() ;;
+        owner)    E=(MF_SIDECAR_USER="$(id -un)") ;;
+        detached) git -C "$OLD" checkout -q --detach; E=() ;;
+    esac
+    env "${E[@]}" "${HERE}/migrate-data-clone.sh" >/dev/null 2>&1 && ! grep -q "systemctl stop" "$FAKE_LOG" \
+        && ok "${sign}: skipped" || fail "${sign}: ran the migration"
+done
+PRE
+
+echo "== a re-run after a half-finished first run completes it"
 OUT="$(RUN 2>&1)" && ok "exit 0" || { fail "re-run failed"; echo "$OUT" | tail -8; }
+grep -q "systemctl stop" "$FAKE_LOG" && ok "did the migration" || fail "skipped an unfinished migration"
 
 echo "== refuses a worktree standing in for the clone"
+PRE
 rm -rf "${T}/clone2"; git -C "$SRC" worktree add -q "${T}/clone2" -b other
 MF_CLONE="${T}/clone2" RUN >/dev/null 2>&1 && fail "accepted a worktree" || ok "worktree refused"
 
 echo "== failed deploy prints rollback steps"
-rm -f "${FAKE_STATE}/deployed"
+PRE
 OUT="$(FAKE_DEPLOY_FAILS=1 RUN 2>&1)" && fail "ignored a failed deploy" || ok "failed deploy fails the run"
 grep -q "MIGRATION FAILED" <<<"$OUT" && ok "rollback steps printed" || fail "no rollback steps"
 
 echo "== count mismatch is caught"
-rm -f "${FAKE_STATE}/deployed"
+PRE
 cat > "${T}/deploy.sh" <<'EOS'
 #!/usr/bin/env bash
 touch "$FAKE_STATE/deployed"; echo '{"a":9}' >> "$MF_CLONE/data-pipeline/grading/judgements_provisional.jsonl"
@@ -102,7 +141,7 @@ echo "== git on agent-owned repos runs as agent, not as root"
 grep -q "^as:$(id -un) git" "$FAKE_LOG" && ok "git ran via sudo -u owner" || fail "git ran as the invoking user"
 
 echo "== failed deploy puts the old unit back and restarts it"
-rm -f "${FAKE_STATE}/deployed"; echo "OLD UNIT" > "${T}/unit.service"; rm -f "${MF_CLONE}.service.pre-migration"
+PRE
 cat > "${T}/deploy.sh" <<'EOS'
 #!/usr/bin/env bash
 echo "NEW UNIT" > "$MF_UNIT_FILE"; exit 1
@@ -113,15 +152,25 @@ OUT="$(RUN 2>&1)" && fail "ignored a failed deploy" || ok "run fails"
 grep -q "systemctl start metaforge-grading" "$FAKE_LOG" && ok "sidecar started again" || fail "sidecar left stopped"
 grep -q "restored the previous unit" <<<"$OUT" && ok "says what it did" || fail "silent about the restore"
 
+echo "== a stale backup from an earlier run is never restored"
+PRE; echo "STALE UNIT (User=agent, whole repo writable)" > "${MF_CLONE}.service.pre-migration"
+cat > "${T}/deploy.sh" <<'EOS'
+#!/usr/bin/env bash
+echo "NEW UNIT" > "$MF_UNIT_FILE"; exit 1
+EOS
+RUN >/dev/null 2>&1 && fail "ignored a failed deploy" || ok "run fails"
+[ "$(cat "${T}/unit.service")" = "OLD UNIT" ] && ok "restored the unit captured in this run" || fail "restored: $(cat "${T}/unit.service")"
+grep -q '^as:.* sh -c' "$FAKE_LOG" && ok "the data inventory is read as the dir owner" || fail "inventory ran as the invoking user"
+
 echo "== an explicit exit after the stop also restarts the sidecar"
-rm -f "${FAKE_STATE}/deployed" "${MF_CLONE}.service.pre-migration"; : > "$FAKE_LOG"
+PRE; : > "$FAKE_LOG"
 chmod 000 "${MF_CLONE}/data-pipeline/grading/judgements_provisional.jsonl"  # step 6 cannot read it
 RUN >/dev/null 2>&1 && fail "run succeeded" || ok "run fails"
 chmod 644 "${MF_CLONE}/data-pipeline/grading/judgements_provisional.jsonl"
 grep -q "systemctl start metaforge-grading" "$FAKE_LOG" && ok "sidecar started again" || fail "sidecar left stopped"
 
 echo "== every appended file is compared, not just the judgements"
-rm -f "${FAKE_STATE}/deployed" "${MF_CLONE}.service.pre-migration"; echo "OLD UNIT" > "${T}/unit.service"
+PRE
 echo "note" >> "${OLD}/data-pipeline/grading/design_notes_provisional.md"
 git -C "$OLD" add -A data-pipeline >/dev/null; git -C "$OLD" commit -q -m notes
 echo "extra" >> "${MF_CLONE}/data-pipeline/grading/design_notes_provisional.md"   # clone diverges on a non-judgement file
@@ -133,14 +182,14 @@ RUN >/dev/null 2>&1 && fail "accepted a clone with different notes" || ok "diffe
 git -C "$MF_CLONE" checkout -q -- . ; git -C "$MF_CLONE" clean -fdq
 
 echo "== the write check fails when the sidecar user cannot write the clone"
-rm -f "${FAKE_STATE}/deployed" "${MF_CLONE}.service.pre-migration"
+PRE
 git -C "$MF_CLONE" pull -q --ff-only "$SRC" grading-data
 chmod a-w "${MF_CLONE}/data-pipeline/grading"
 RUN >/dev/null 2>&1 && fail "accepted an unwritable data dir" || ok "unwritable data dir refused"
 chmod u+w "${MF_CLONE}/data-pipeline/grading"
 
 echo "== a good run detaches the old worktree so the branch can be fast-forwarded"
-rm -f "${FAKE_STATE}/deployed" "${MF_CLONE}.service.pre-migration"
+PRE
 RUN >/dev/null 2>&1 && ok "run succeeds" || fail "good run failed"
 [ "$(git -C "$OLD" rev-parse --abbrev-ref HEAD)" = HEAD ] && ok "old worktree detached" || fail "old worktree still on the branch"
 
