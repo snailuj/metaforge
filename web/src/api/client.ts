@@ -74,6 +74,7 @@ export class ForestError extends Error {
 
 const FOREST_STATUS_KINDS: Record<number, ForestErrorKind> = {
   400: 'invalid-word',
+  404: 'invalid-word', // a word that is not a lexicon lemma
   429: 'busy',
   502: 'failed',
   503: 'not-configured',

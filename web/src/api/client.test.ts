@@ -153,6 +153,7 @@ describe('fetchForest', () => {
 
   it.each([
     [400, 'invalid-word'],
+    [404, 'invalid-word'], // the word is not a lexicon lemma
     [429, 'busy'],
     [502, 'failed'],
     [503, 'not-configured'],
@@ -402,6 +403,7 @@ describe('streamForest', () => {
   // Rule: errors before the stream starts map to the same kinds as the JSON request.
   it.each([
     [400, 'invalid-word'],
+    [404, 'invalid-word'], // the word is not a lexicon lemma
     [429, 'busy'],
     [503, 'not-configured'],
     [500, 'failed'],
