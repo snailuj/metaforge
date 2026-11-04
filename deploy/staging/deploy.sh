@@ -65,6 +65,7 @@ echo ""
 echo "--- Install API service ---"
 sed "s|__WORKTREE__|${WORKTREE}|g" "${SCRIPT_DIR}/metaforge-api-staging.service" \
     | sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null
+mark_unit_installed
 echo "Installed: ${SERVICE_NAME}.service"
 
 # 6. Drop Caddy snippet
@@ -101,6 +102,7 @@ echo "--- Reload services ---"
 sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE_NAME}"
 sudo systemctl restart "${SERVICE_NAME}"
+mark_service_restarted
 sleep 2
 sudo systemctl reload julianit-caddy
 echo ""

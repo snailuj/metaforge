@@ -101,19 +101,35 @@ expect_log "systemctl start svc"
 exists "$NEW" && fail "half-copied cache left looking finished" || ok "no cache left behind"
 mv "${OLD}.good" "$OLD"
 
-echo "== a script that dies after the stop restarts the service"
-command sudo rm -f "$NEW" "${NEW}-wal"
-: > "$LOG"
-# A separate process, so no trap or variable leaks in from this shell.
-cat > "${T}/dies.sh" <<EOS
+# Each case runs in a separate process so no trap or variable leaks in from this shell.
+dies() { # <lines run after the migration> -> exit status in $rc
+    command sudo rm -f "$NEW" "${NEW}-wal" "${NEW}-shm"
+    : > "$LOG"
+    cat > "${T}/dies.sh" <<EOS
 sudo() { case "\$1" in systemctl) echo "sudo \$*" >> "$LOG" ;; *) command sudo "\$@" ;; esac; }
 . "${HERE}/api-host.sh"
 migrate_forest_cache production svc "$WT" >/dev/null
-exit 3
+$1
 EOS
-bash "${T}/dies.sh"; rc=$?
+    bash "${T}/dies.sh" 2>/dev/null; rc=$?
+}
+
+echo "== dying after the stop and before the new unit is installed"
+dies "exit 3"
 [ "$rc" = 3 ] && ok "exit status preserved" || fail "exit status was $rc"
 expect_log "systemctl start svc"
+exists "$NEW" && fail "copied cache kept although the old unit will write to the old one" || ok "copy removed so the next deploy re-copies"
+
+echo "== dying after the new unit is installed"
+dies "mark_unit_installed; exit 3"
+expect_log "systemctl daemon-reload"
+expect_log "systemctl start svc"
+exists "$NEW" && ok "copy kept: the new unit uses it" || fail "copy removed under a running new unit"
+
+echo "== a deploy that finishes does not start anything extra"
+dies "mark_unit_installed; mark_service_restarted; exit 0"
+[ "$rc" = 0 ] && ok "exit 0" || fail "exit status was $rc"
+expect_nolog "systemctl start"
 
 echo "== install_root_binary"
 BIN_DIR="${T}/libdir"

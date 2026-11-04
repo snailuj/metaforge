@@ -45,6 +45,14 @@ secure_key_files() { # <file>...
 # Restarts a service that a migration stopped. Runs on any exit, so a deploy that
 # dies between the stop and its own restart does not leave the site down.
 _mf_restart_stopped() {
+    # The cache was copied but the new unit never took over, so the service about to be
+    # restarted is the OLD unit, which writes rows to the OLD cache. Drop the copy so
+    # the next deploy copies again instead of skipping it and losing those rows.
+    if [ -n "${MF_MIGRATED_CACHE:-}" ]; then
+        echo "WARNING: deploy died before the new unit was installed; removing the copied cache ${MF_MIGRATED_CACHE} (the next deploy re-copies it)" >&2
+        sudo rm -f "$MF_MIGRATED_CACHE" "${MF_MIGRATED_CACHE}-wal" "${MF_MIGRATED_CACHE}-shm" || true
+        MF_MIGRATED_CACHE=
+    fi
     if [ -n "${MF_STOPPED_SERVICE:-}" ]; then
         echo "Restarting ${MF_STOPPED_SERVICE} that this run stopped" >&2
         sudo systemctl start "$MF_STOPPED_SERVICE" || true
@@ -104,7 +112,18 @@ migrate_forest_cache() { # <site> <service> <worktree>
         sudo systemctl start "$service" || true
         return 1
     fi
+    MF_MIGRATED_CACHE="$new"
     echo "Forest cache migrated"
+}
+
+# deploy.sh calls these once the new unit is installed (and reloaded, so a restart
+# from here on runs it) and once the service has been restarted on it.
+mark_unit_installed() {
+    sudo systemctl daemon-reload
+    MF_MIGRATED_CACHE=
+}
+mark_service_restarted() {
+    MF_STOPPED_SERVICE=
 }
 
 # Binaries that run with the API key live under /usr/local/lib/metaforge, owned by
