@@ -11,6 +11,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../lib/api-host.sh
+. "${SCRIPT_DIR}/../lib/api-host.sh"
 WORKTREE="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CADDY_SNIPPETS="/etc/caddy/conf.d"
 DOMAIN="metaforge-next.julianit.me"
@@ -48,7 +50,15 @@ npm ci --prefer-offline
 npm run build
 echo ""
 
-# 5. Install API systemd service
+# 5. Service user, state, key files, then the API systemd service. The unit runs
+# as ${MF_USER} (see the unit), so these come first.
+echo "--- Prepare service user and state ---"
+ensure_service_user
+ensure_state_dir staging
+secure_key_files forest.env forest-staging.env
+migrate_forest_cache staging "${SERVICE_NAME}" "${WORKTREE}"
+echo ""
+
 echo "--- Install API service ---"
 sed "s|__WORKTREE__|${WORKTREE}|g" "${SCRIPT_DIR}/metaforge-api-staging.service" \
     | sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null
@@ -85,8 +95,6 @@ echo ""
 
 # 7. Reload services
 echo "--- Reload services ---"
-# Shared model-call ledger; a unit whose ReadWritePaths is missing fails to start.
-sudo install -d -o agent -g agent -m 0750 /var/lib/metaforge
 sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE_NAME}"
 sudo systemctl restart "${SERVICE_NAME}"
