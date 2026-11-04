@@ -90,6 +90,10 @@ type ForestHandler struct {
 	Visitors *forest.VisitorLimiter
 	// Fingerprint is the pipeline version recorded with each run.
 	Fingerprint string
+	// KnownWord reports whether word is a lexicon lemma. Only lemmas are
+	// generated, which keeps free text out of the model prompt; cached
+	// forests are served regardless. Unset refuses every generation.
+	KnownWord func(ctx context.Context, word string) (bool, error)
 }
 
 // NewForestHandler takes a nil gen when the server has no API key; the
@@ -149,6 +153,9 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.gen == nil {
 		writeForestUnconfigured(w)
+		return
+	}
+	if !h.admitKnownWord(w, r, word) {
 		return
 	}
 	if refuseOtherSite(w, r, word) {
@@ -237,6 +244,28 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Forest-Cost-USD", strconv.FormatFloat(cost, 'f', 6, 64))
 	}
 	writeForest(w, word, result)
+}
+
+// admitKnownWord returns false after writing a refusal. It fails closed: a
+// word that cannot be checked is not generated.
+func (h *ForestHandler) admitKnownWord(w http.ResponseWriter, r *http.Request, word string) bool {
+	if h.KnownWord == nil {
+		slog.Error("forest: no lemma check is configured, refusing to generate", "word", word)
+		writeForestError(w, http.StatusInternalServerError, "metaphor forest cannot check the word right now")
+		return false
+	}
+	known, err := h.KnownWord(r.Context(), word)
+	if err != nil {
+		slog.Error("forest: lemma check failed, refusing to generate", "word", word, "err", err)
+		writeForestError(w, http.StatusInternalServerError, "metaphor forest cannot check the word right now")
+		return false
+	}
+	if !known {
+		slog.Warn("forest: word is not in the lexicon, refusing to generate", "word", word)
+		writeForestError(w, http.StatusNotFound, "word not found in the lexicon: the forge works from words the thesaurus knows")
+		return false
+	}
+	return true
 }
 
 // enrichmentOrigin marks the background enricher. Only it yields to the
