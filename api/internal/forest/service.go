@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/snailuj/metaforge/internal/llm"
+	"github.com/snailuj/metaforge/internal/llmlog"
 	"github.com/snailuj/metaforge/internal/observe"
 )
 
@@ -182,7 +183,7 @@ func (s *Service) grow(ctx context.Context, rec *callRecord, source string, maxH
 func (s *Service) call(ctx context.Context, label string, rec *callRecord, req llm.Request) (llm.Response, error) {
 	stop := observe.Start(label)
 	start := time.Now()
-	resp, err := s.llm.Complete(ctx, req)
+	resp, err := s.llm.Complete(llmlog.WithLabel(ctx, label), req)
 	rec.latency, rec.usage = time.Since(start), resp.Usage
 	stop("model", req.Model, "input_tokens", resp.Usage.InputTokens,
 		"output_tokens", resp.Usage.OutputTokens, "cache_read_tokens", resp.Usage.CacheReadTokens)

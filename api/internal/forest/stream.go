@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/snailuj/metaforge/internal/llm"
+	"github.com/snailuj/metaforge/internal/llmlog"
 	"github.com/snailuj/metaforge/internal/observe"
 )
 
@@ -178,7 +179,7 @@ func (r *streamRun) attempt(ctx context.Context, base int, stage string, rec *ca
 
 	stop := observe.Start("forest_generate")
 	start := time.Now()
-	resp, err := r.streamer.Stream(ctx, llm.Request{
+	resp, err := r.streamer.Stream(llmlog.WithLabel(ctx, "forest_generate"), llm.Request{
 		Model:     r.s.cfg.Model,
 		System:    GeneratorSystemPrompt,
 		User:      GeneratorUserMessage(r.source, r.maxHops),

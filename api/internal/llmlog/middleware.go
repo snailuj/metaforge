@@ -176,3 +176,9 @@ func (s *Store) record(ctx context.Context, c Call) {
 	slog.Debug("llm call recorded", "run_id", c.RunID, "label", c.Label, "status", c.HTTPStatus,
 		"total_ms", c.Total.Milliseconds(), "cost_usd", c.CostUSD)
 }
+
+// LabelFrom returns the label set by WithLabel, or "".
+func LabelFrom(ctx context.Context) string {
+	l, _ := ctx.Value(labelKey{}).(string)
+	return l
+}
