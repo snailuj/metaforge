@@ -194,7 +194,11 @@ func TestMiddlewareDoesNotChargeACallCanceledBeforeSending(t *testing.T) {
 	if _, err := client(t, s, srv.URL).Complete(ctx, req()); err == nil {
 		t.Fatal("want an error")
 	}
-	for _, c := range allCalls(t, s) {
+	calls := allCalls(t, s)
+	if len(calls) == 0 {
+		t.Fatal("canceled call was not recorded")
+	}
+	for _, c := range calls {
 		if c.CostUSD != 0 || !c.PriceKnown || c.StopReason == "incomplete" {
 			t.Fatalf("unsent call charged %+v cost %v", c.Usage, c.CostUSD)
 		}
