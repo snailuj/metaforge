@@ -58,7 +58,7 @@ export async function autocompleteWord(prefix: string, limit = 10): Promise<Auto
 }
 
 /** The failure kinds the forest UI distinguishes (one recovery action each). */
-export const FOREST_ERROR_KINDS = ['invalid-word', 'busy', 'failed', 'not-configured', 'timeout', 'network'] as const
+export const FOREST_ERROR_KINDS = ['invalid-word', 'unknown-word', 'busy', 'failed', 'not-configured', 'timeout', 'network'] as const
 export type ForestErrorKind = typeof FOREST_ERROR_KINDS[number]
 
 export class ForestError extends Error {
@@ -74,7 +74,7 @@ export class ForestError extends Error {
 
 const FOREST_STATUS_KINDS: Record<number, ForestErrorKind> = {
   400: 'invalid-word',
-  404: 'invalid-word', // a word that is not a lexicon lemma
+  404: 'unknown-word', // a word that is not a lexicon lemma
   429: 'busy',
   502: 'failed',
   503: 'not-configured',
@@ -227,7 +227,10 @@ function isAbort(err: unknown): boolean {
 }
 
 function statusError(response: Response, word: string): ForestError {
-  const kind = FOREST_STATUS_KINDS[response.status] ?? 'failed'
+  let kind = FOREST_STATUS_KINDS[response.status] ?? 'failed'
+  // The server's own "busy, back in a moment" 503 carries Retry-After; the
+  // 503 for a forest that is not turned on does not.
+  if (response.status === 503 && parseRetryAfter(response.headers.get('Retry-After')) !== null) kind = 'busy'
   if (!(response.status in FOREST_STATUS_KINDS)) {
     console.warn('[forest] unexpected status, shown as a failed forest', { word, status: response.status })
   }

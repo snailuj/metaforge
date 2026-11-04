@@ -153,7 +153,7 @@ describe('fetchForest', () => {
 
   it.each([
     [400, 'invalid-word'],
-    [404, 'invalid-word'], // the word is not a lexicon lemma
+    [404, 'unknown-word'], // the word is not a lexicon lemma
     [429, 'busy'],
     [502, 'failed'],
     [503, 'not-configured'],
@@ -167,6 +167,17 @@ describe('fetchForest', () => {
     expect(err.kind).toBe(kind)
     expect(err.status).toBe(status)
     expect(err.message).not.toContain('server text')
+  })
+
+  // Rule: a 503 that carries Retry-After is the server being busy (it will
+  // be back shortly); a bare 503 is the forest not being turned on.
+  it('maps a 503 with Retry-After to busy and without it to not-configured', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(errResponse(503, { 'Retry-After': '1' })))
+    const busy = await fetchForest('patience', 3).catch(e => e)
+    expect(busy.kind).toBe('busy')
+    expect(busy.retryAfterSeconds).toBe(1)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(errResponse(503)))
+    expect((await fetchForest('patience', 3).catch(e => e)).kind).toBe('not-configured')
   })
 
   it('reads Retry-After seconds on a 429', async () => {
@@ -403,14 +414,14 @@ describe('streamForest', () => {
   // Rule: errors before the stream starts map to the same kinds as the JSON request.
   it.each([
     [400, 'invalid-word'],
-    [404, 'invalid-word'], // the word is not a lexicon lemma
+    [404, 'unknown-word'], // the word is not a lexicon lemma
     [429, 'busy'],
     [503, 'not-configured'],
     [500, 'failed'],
   ] as const)('maps HTTP %i before the stream to the %s kind', async (status, kind) => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'server text' }), {
-      status, headers: { 'Content-Type': 'application/json', 'Retry-After': '12' },
+      status, headers: { 'Content-Type': 'application/json', ...(status === 429 ? { 'Retry-After': '12' } : {}) },
     })))
     const events: ForestStreamEvent[] = []
     const err = await streamForest('patience', 3, e => { events.push(e) }).catch(e => e)
