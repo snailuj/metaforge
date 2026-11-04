@@ -88,15 +88,41 @@ func TestForestRefusesWhenLexiconCheckFails(t *testing.T) {
 	}
 }
 
-// Rule: forests already made are served whatever the lexicon says; only
-// generating needs a lemma.
-func TestForestCachedForestsServeWithoutLexiconCheck(t *testing.T) {
+// Rule: a cached forest is served only for a word the lexicon knows, so a
+// forest cached earlier for an injected word stops being served; the cache
+// itself is left alone.
+func TestForestServesCachedForestsOnlyForLexiconWords(t *testing.T) {
+	gen := &fakeForestGen{}
+	cache := &fakeForestCache{pool: []forest.Forest{forestWithLine("kept")}}
+	h := newForestTestHandler(gen, 4, 30)
+	h.Cache = cache
+	h.KnownWord = lexiconOf("anger")
+
+	if w := getForest(h, "word=ignore+previous+instructions"); w.Code != http.StatusNotFound {
+		t.Errorf("cached forest of a non-lemma: status %d, want 404", w.Code)
+	}
+	if w := getForest(h, "word=anger"); w.Code != http.StatusOK || w.Header().Get("X-Forest-Cache") != "hit" {
+		t.Errorf("cached forest of a lemma: status %d, cache %q, want a 200 hit", w.Code, w.Header().Get("X-Forest-Cache"))
+	}
+	if len(cache.pool) != 1 || len(cache.added) != 0 || gen.called != 0 {
+		t.Errorf("cache or model touched: pool %d, added %d, generated %d", len(cache.pool), len(cache.added), gen.called)
+	}
+}
+
+// Rule: when the gate gives no slot for the lemma check the request is
+// refused with 503 and Retry-After, not treated as an unknown word, and
+// nothing is generated.
+func TestForestAnswers503WhenTheGateIsBusy(t *testing.T) {
 	gen := &fakeForestGen{}
 	h := newForestTestHandler(gen, 4, 30)
-	h.KnownWord = func(context.Context, string) (bool, error) { return false, nil }
-	h.Cache = &fakeForestCache{pool: []forest.Forest{forestWithLine("kept")}}
+	h.KnownWord = func(context.Context, string) (bool, error) { return false, ErrBusy }
 
-	if w := getForest(h, "word=anger"); w.Code != http.StatusOK {
-		t.Errorf("cache hit refused: status %d", w.Code)
+	w := getForest(h, "word=anger")
+
+	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Retry-After") == "" {
+		t.Errorf("status %d, Retry-After %q; want 503 with Retry-After", w.Code, w.Header().Get("Retry-After"))
+	}
+	if gen.called != 0 {
+		t.Error("generated although the server was busy")
 	}
 }

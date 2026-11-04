@@ -91,8 +91,9 @@ type ForestHandler struct {
 	// Fingerprint is the pipeline version recorded with each run.
 	Fingerprint string
 	// KnownWord reports whether word is a lexicon lemma. Only lemmas are
-	// generated, which keeps free text out of the model prompt; cached
-	// forests are served regardless. Unset refuses every generation.
+	// served or generated, which keeps free text out of the model prompt and
+	// stops a forest cached for such text being served. It may return
+	// ErrBusy. Unset refuses every request.
 	KnownWord func(ctx context.Context, word string) (bool, error)
 }
 
@@ -131,6 +132,10 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.admitKnownWord(w, r, word) {
+		return
+	}
+
 	fresh := r.URL.Query().Get("fresh") == "1"
 	cacheState := "fresh"
 	if h.Cache != nil && !fresh {
@@ -153,9 +158,6 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.gen == nil {
 		writeForestUnconfigured(w)
-		return
-	}
-	if !h.admitKnownWord(w, r, word) {
 		return
 	}
 	if refuseOtherSite(w, r, word) {
@@ -247,7 +249,7 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 }
 
 // admitKnownWord returns false after writing a refusal. It fails closed: a
-// word that cannot be checked is not generated.
+// word that cannot be checked is neither served nor generated.
 func (h *ForestHandler) admitKnownWord(w http.ResponseWriter, r *http.Request, word string) bool {
 	if h.KnownWord == nil {
 		slog.Error("forest: no lemma check is configured, refusing to generate", "word", word)
@@ -255,6 +257,10 @@ func (h *ForestHandler) admitKnownWord(w http.ResponseWriter, r *http.Request, w
 		return false
 	}
 	known, err := h.KnownWord(r.Context(), word)
+	if errors.Is(err, ErrBusy) {
+		writeBusy(w)
+		return false
+	}
 	if err != nil {
 		slog.Error("forest: lemma check failed, refusing to generate", "word", word, "err", err)
 		writeForestError(w, http.StatusInternalServerError, "metaphor forest cannot check the word right now")
