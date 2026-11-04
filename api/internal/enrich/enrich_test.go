@@ -211,9 +211,14 @@ func TestStateResumesAfterRestart(t *testing.T) {
 
 func TestChangedWordListRestartsThePass(t *testing.T) {
 	api := &fakeAPI{budget: capped(1), results: []ForestResult{okForest}}
-	e, _ := newTest(t, api, "longing", "dread")
+	// One word, so the step finishes a pass and the new list would otherwise
+	// start part-way through the pass budget.
+	e, _ := newTest(t, api, "longing")
 	if _, err := e.Step(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	if e.State().Pass != 1 {
+		t.Fatalf("setup: pass %d", e.State().Pass)
 	}
 	cfg := e.cfg
 	cfg.Words = []string{"hope", "fear", "joy"}
@@ -221,8 +226,8 @@ func TestChangedWordListRestartsThePass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.State().Index != 0 || again.State().Forests != 1 {
-		t.Fatalf("state %+v", again.State())
+	if st := again.State(); st.Index != 0 || st.Pass != 0 || st.Forests != 1 {
+		t.Fatalf("state %+v", st)
 	}
 }
 

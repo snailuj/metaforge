@@ -96,7 +96,7 @@ func New(api API, cfg Config, now func() time.Time) (*Enricher, error) {
 		}
 		if e.state.WordsHash != hash {
 			slog.Warn("enrich: word list changed, restarting the pass", "was_index", e.state.Index, "pass", e.state.Pass)
-			e.state.WordsHash, e.state.Index = hash, 0
+			e.state.WordsHash, e.state.Pass, e.state.Index = hash, 0, 0
 		}
 		if e.state.CostEstimateUSD <= 0 {
 			e.state.CostEstimateUSD = cfg.InitialCostUSD
