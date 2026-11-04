@@ -81,6 +81,8 @@ type ForestHandler struct {
 	Keepalive time.Duration
 	Ledger    ForestLedger // nil: runs are not recorded
 	Budget    ForestBudget // nil: no spending cap
+	// Visitors caps the forests one visitor may generate; nil: no cap.
+	Visitors *forest.VisitorLimiter
 	// Fingerprint is the pipeline version recorded with each run.
 	Fingerprint string
 }
@@ -144,6 +146,9 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		writeForestUnconfigured(w)
 		return
 	}
+	if refuseOtherSite(w, r, word) {
+		return
+	}
 	origin := parseOrigin(r)
 	if origin == enrichmentOrigin && h.budgetSpent(r.Context(), word) {
 		w.Header().Set("X-Forest-Budget", "exhausted")
@@ -154,8 +159,13 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	refundVisit, ok := h.admitVisitor(w, r, word)
+	if !ok {
+		return
+	}
 	release, retryAfter, ok := h.limiter.Acquire()
 	if !ok {
+		refundVisit()
 		secs := max(1, int(math.Ceil(retryAfter.Seconds())))
 		slog.Warn("forest: rate limited", "word", word, "retry_after_s", secs)
 		w.Header().Set("Retry-After", strconv.Itoa(secs))
