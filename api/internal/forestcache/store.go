@@ -88,6 +88,34 @@ func (s *Store) Random(ctx context.Context, word string, maxHops int) (forest.Fo
 	return f, true, nil
 }
 
+// List returns the pool, newest first. It reads at most poolSize rows, so a
+// response stays bounded however the file was written.
+func (s *Store) List(ctx context.Context, word string, maxHops int) ([]forest.Forest, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT body FROM forests WHERE version = ? AND word = ? AND max_hops = ? ORDER BY id DESC LIMIT ?`,
+		s.version, word, maxHops, s.poolSize)
+	if err != nil {
+		return nil, fmt.Errorf("list cached forests for %q: %w", word, err)
+	}
+	defer rows.Close()
+	forests := []forest.Forest{}
+	for rows.Next() {
+		var body string
+		if err := rows.Scan(&body); err != nil {
+			return nil, fmt.Errorf("read cached forest for %q: %w", word, err)
+		}
+		var f forest.Forest
+		if err := json.Unmarshal([]byte(body), &f); err != nil {
+			return nil, fmt.Errorf("decode cached forest for %q: %w", word, err)
+		}
+		forests = append(forests, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list cached forests for %q: %w", word, err)
+	}
+	return forests, nil
+}
+
 // Full reports whether the pool already holds poolSize forests, so another
 // would only evict one.
 func (s *Store) Full(ctx context.Context, word string, maxHops int) (bool, error) {

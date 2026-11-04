@@ -203,3 +203,44 @@ func TestFullReportsAPoolAtPoolSize(t *testing.T) {
 	check("patience", 2, false)
 	check("dread", 3, false)
 }
+
+// Rule: List returns exactly the store's own version's pool for the word and
+// hops, newest first, never more than poolSize.
+func TestListReturnsThePoolNewestFirst(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "c.db")
+	old := openTest(t, path, "v0", 4)
+	if err := old.Add(ctx, "patience", 3, sampleForest("other version")); err != nil {
+		t.Fatal(err)
+	}
+	s := openTest(t, path, "v1", 2)
+	if got, err := s.List(ctx, "patience", 3); err != nil || len(got) != 0 {
+		t.Fatalf("empty pool: got %d forests, err %v; want none", len(got), err)
+	}
+	for _, line := range []string{"first", "second", "third"} {
+		if err := s.Add(ctx, "patience", 3, sampleForest(line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Add(ctx, "patience", 2, sampleForest("other hops")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add(ctx, "time", 3, sampleForest("other word")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.List(ctx, "patience", 3)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var lines []string
+	for _, f := range got {
+		lines = append(lines, f.Endpoints[0].Line)
+	}
+	if want := []string{"third", "second"}; !reflect.DeepEqual(lines, want) {
+		t.Errorf("lines = %v, want %v", lines, want)
+	}
+	if !reflect.DeepEqual(got[0], sampleForest("third")) {
+		t.Errorf("listed forest does not round-trip: %+v", got[0])
+	}
+}

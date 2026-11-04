@@ -3,7 +3,7 @@ import { customElement, property } from 'lit/decorators.js'
 import { getString } from '@/lib/strings'
 import type { ForestEndpoint, ForestResponse } from '@/types/api'
 import { LIVE_SCORE, pathKey, pathTarget, type ForestTarget } from '@/graph/forest'
-import { MAX_HOPS, MIN_HOPS, inFlight, initialForestState, sameTarget, type ForestEvent, type ForestState } from '@/forest/state'
+import { MAX_HOPS, MIN_HOPS, canBrowse, inFlight, initialForestState, sameTarget, type ForestEvent, type ForestState } from '@/forest/state'
 
 const HOP_OPTIONS = Array.from({ length: MAX_HOPS - MIN_HOPS + 1 }, (_, i) => MIN_HOPS + i)
 
@@ -125,6 +125,26 @@ export class MfForestPanel extends LitElement {
     }
 
     .secondary:hover, select:hover { border-color: var(--colour-forest-branch); }
+
+    .saved {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm, 0.5rem);
+      margin-block-start: var(--space-sm, 0.5rem);
+      font-size: 0.8rem;
+      color: var(--colour-text-secondary);
+    }
+
+    .saved button {
+      min-width: 2.75rem;
+      background: transparent;
+      color: var(--colour-text-primary);
+      border: 1px solid var(--colour-forest-branch-dim);
+      font-size: 1.1rem;
+    }
+
+    .saved button:hover { border-color: var(--colour-forest-branch); }
+    .saved button[aria-disabled='true'] { cursor: progress; color: var(--colour-text-secondary); }
 
     .on-graph {
       display: inline-flex;
@@ -395,7 +415,9 @@ export class MfForestPanel extends LitElement {
     // A stream's later snapshots and its final forest only add to the first,
     // so they never reopen a sheet the user closed.
     const sameStream = prev?.request.kind === 'streaming' && !!prev.request.snapshot && !!this.forestResponse(prev)
-    if (response && response !== (prev && this.forestResponse(prev)) && !sameStream) this.sheetOpen = true
+    // Browsing swaps the forest in place: the sheet keeps whatever the user chose.
+    const browsed = this.state.notice === 'browsed'
+    if (response && response !== (prev && this.forestResponse(prev)) && !sameStream && !browsed) this.sheetOpen = true
     if (!response) this.sheetOpen = false
     // The control that had focus is about to disappear.
     const active = this.shadowRoot?.activeElement
@@ -456,6 +478,13 @@ export class MfForestPanel extends LitElement {
       const endpoints = content.response.endpoints
       return getString('forest-found', { n: endpoints.length, live: endpoints.filter(e => e.score >= LIVE_SCORE).length, word })
     }
+    if (notice === 'browsed' && kept && this.state.savedIndex !== null) {
+      const endpoints = content.response.endpoints
+      return getString('forest-browsed', {
+        index: this.state.savedIndex + 1, total: this.state.saved.length,
+        n: endpoints.length, live: endpoints.filter(e => e.score >= LIVE_SCORE).length,
+      })
+    }
     if (notice === 'empty-kept') return getString('forest-empty-kept')
     if (notice === 'cancelled') return kept ? getString('forest-cancelled-kept') : getString('forest-cancelled')
     if (content.kind === 'empty') return getString('forest-empty', { word, generated: content.response.stats.generated })
@@ -471,6 +500,38 @@ export class MfForestPanel extends LitElement {
         : getString('forest-error-busy-soon')
       : getString(`forest-error-${request.error}`, { word })
     return content.kind === 'forest' ? `${message} ${getString('forest-error-kept')}` : message
+  }
+
+  private onBrowse(step: 1 | -1): void {
+    if (!canBrowse(this.state)) return
+    this.emit({ type: 'browse', step })
+  }
+
+  /** Previous and Next through the word's saved forests. Shown while a list
+   *  offers another forest; inert (not removed) during a request, so focus stays put. */
+  private renderSaved() {
+    const { saved, savedIndex, content } = this.state
+    if (content.kind !== 'forest' || saved.length === 0 || (saved.length === 1 && savedIndex === 0)) return nothing
+    const inert = !canBrowse(this.state)
+    const position = savedIndex === null
+      ? getString('forest-saved-count', { total: saved.length })
+      : getString('forest-saved-position', { index: savedIndex + 1, total: saved.length })
+    return html`
+      <div class="saved" role="group" aria-label=${getString('forest-saved-label')} data-testid="forest-saved">
+        <button
+          data-testid="forest-saved-prev"
+          aria-label=${getString('forest-saved-prev')}
+          aria-disabled=${inert ? 'true' : 'false'}
+          @click=${() => this.onBrowse(-1)}
+        ><span aria-hidden="true">‹</span></button>
+        <span data-testid="forest-saved-position">${position}</span>
+        <button
+          data-testid="forest-saved-next"
+          aria-label=${getString('forest-saved-next')}
+          aria-disabled=${inert ? 'true' : 'false'}
+          @click=${() => this.onBrowse(1)}
+        ><span aria-hidden="true">›</span></button>
+      </div>`
   }
 
   private renderItem(e: ForestEndpoint) {
@@ -566,6 +627,8 @@ export class MfForestPanel extends LitElement {
             ? html`<button class="secondary" data-testid="forest-cancel" @click=${this.onCancel}>${getString('forest-cancel')}</button>`
             : nothing}
         </div>
+
+        ${this.renderSaved()}
 
         ${response
           ? html`<label class="on-graph" for="forest-on-graph">

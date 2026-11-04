@@ -55,6 +55,7 @@ type ForestCache interface {
 	Random(ctx context.Context, word string, maxHops int) (forest.Forest, bool, error)
 	Add(ctx context.Context, word string, maxHops int, f forest.Forest) error
 	Full(ctx context.Context, word string, maxHops int) (bool, error)
+	List(ctx context.Context, word string, maxHops int) ([]forest.Forest, error)
 }
 
 // ForestLedger keeps every forest request for good (llmlog.Store).
@@ -458,6 +459,41 @@ func (h *ForestHandler) store(ctx context.Context, word string, maxHops int, f f
 		return
 	}
 	slog.Info("forest: cached", "word", word, "max_hops", maxHops, "endpoints", len(f.Endpoints))
+}
+
+// HandleSaved handles GET /forge/forest/saved?word=<word>&max_hops=<1..5>:
+// the word's pool of saved forests, newest first, as {"forests": [...]}.
+// It only reads the cache, so it needs no API key, limiter slot or budget.
+// No cache answers an empty list: there is nothing to browse.
+func (h *ForestHandler) HandleSaved(w http.ResponseWriter, r *http.Request) {
+	word, err := forest.ParseSourceWord(r.URL.Query().Get("word"))
+	if err != nil {
+		slog.Warn("forest saved: invalid word", "err", err)
+		writeForestError(w, http.StatusBadRequest, "invalid 'word' parameter: 1-40 letters, spaces, hyphens or apostrophes")
+		return
+	}
+	maxHops, err := parseForestHops(r)
+	if err != nil {
+		slog.Warn("forest saved: invalid max_hops", "word", word, "err", err)
+		writeForestError(w, http.StatusBadRequest, "invalid 'max_hops' parameter: must be an integer from 1 to 5")
+		return
+	}
+	forests := []forest.Forest{}
+	if h.Cache != nil {
+		if forests, err = h.Cache.List(r.Context(), word, maxHops); err != nil {
+			slog.Error("forest saved: cache read failed", "word", word, "max_hops", maxHops, "err", err)
+			writeForestError(w, http.StatusInternalServerError, "saved forests could not be read")
+			return
+		}
+	}
+	slog.Info("forest saved: listed", "word", word, "max_hops", maxHops, "forests", len(forests))
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(w).Encode(struct {
+		Forests []forest.Forest `json:"forests"`
+	}{forests}); err != nil {
+		slog.Error("failed to encode saved forests", "word", word, "err", err)
+	}
 }
 
 func writeForest(w http.ResponseWriter, word string, f forest.Forest) {

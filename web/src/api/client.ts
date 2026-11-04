@@ -109,6 +109,36 @@ export async function fetchForest(word: string, maxHops: number, signal?: AbortS
   return checkedForest(data, word, response.status)
 }
 
+/**
+ * A word's saved forests, newest first (GET /forge/forest/saved). Read-only on
+ * the server: it never generates or spends. A forest that breaks the contract
+ * is dropped with a warning so the rest stay browsable; any other failure is a
+ * ForestError, and an abort rejects with the fetch AbortError unchanged.
+ */
+export async function fetchSavedForests(word: string, maxHops: number, signal?: AbortSignal): Promise<ForestResponse[]> {
+  const url = `/forge/forest/saved?word=${encodeURIComponent(word)}&max_hops=${maxHops}`
+  let response: Response
+  try {
+    response = await fetch(url, { signal })
+  } catch (err) {
+    if (isAbort(err)) throw err
+    console.warn('[forest] saved forests did not reach the server', { word, maxHops }, err)
+    throw new ForestError('network', 0)
+  }
+  if (!response.ok) throw statusError(response, word)
+  const data: unknown = await response.json().catch(() => null)
+  const forests = (data as { forests?: unknown } | null)?.forests
+  if (!Array.isArray(forests)) {
+    console.warn('[forest] saved-forest body breaks the contract', { word })
+    throw new ForestError('failed', response.status)
+  }
+  return forests.filter((f, i): f is ForestResponse => {
+    const problem = forestShapeProblem(f)
+    if (problem) console.warn('[forest] saved forest breaks the contract, skipped', { word, index: i, problem })
+    return !problem
+  })
+}
+
 /** One event of a streamed forest (docs/plans/2026-10-21-forest-streaming.md, API contract). */
 export type ForestStreamEvent =
   | { type: 'hop'; pathId: string; facet: number; from: string; to: string; ground: string }
