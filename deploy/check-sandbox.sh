@@ -56,6 +56,7 @@ REQUIRED=(
     "ProtectHome=tmpfs" "BindReadOnlyPaths=__WT__" "PrivateTmp=true" "PrivateDevices=true"
     "CapabilityBoundingSet=" "AmbientCapabilities="
     "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX"
+    "ProtectProc=invisible" "ProcSubset=pid"
     "ProtectKernelTunables=true" "ProtectKernelModules=true" "ProtectKernelLogs=true"
     "ProtectControlGroups=true" "ProtectClock=true" "ProtectHostname=true"
     "RestrictNamespaces=true" "RestrictSUIDSGID=true" "RestrictRealtime=true"

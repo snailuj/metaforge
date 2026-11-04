@@ -17,7 +17,7 @@ sandbox_props() { # <rendered unit>
         { line = $0
           while (line ~ /\\$/) { sub(/\\$/, "", line); if ((getline nxt) <= 0) break; line = line " " nxt }
           print line }
-    ' "$1" | grep -E '^(User|Group|NoNewPrivileges|Protect[A-Za-z]*|BindReadOnlyPaths|BindPaths|ReadWritePaths|ReadOnlyPaths|InaccessiblePaths|StateDirectory|StateDirectoryMode|Private[A-Za-z]*|CapabilityBoundingSet|AmbientCapabilities|Restrict[A-Za-z]*|LockPersonality|SystemCallArchitectures|SystemCallFilter|UMask|LoadCredential)=' || true
+    ' "$1" | grep -E '^(User|Group|NoNewPrivileges|Protect[A-Za-z]*|BindReadOnlyPaths|BindPaths|ReadWritePaths|ReadOnlyPaths|InaccessiblePaths|StateDirectory|StateDirectoryMode|Private[A-Za-z]*|CapabilityBoundingSet|AmbientCapabilities|Restrict[A-Za-z]*|LockPersonality|SystemCallArchitectures|SystemCallFilter|UMask|LoadCredential|ProcSubset)=' || true
 }
 
 # Re-point /var/lib/metaforge at the scratch state dir so a probe never touches

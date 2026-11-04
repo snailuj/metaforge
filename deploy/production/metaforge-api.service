@@ -46,6 +46,9 @@ PrivateDevices=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Other processes are invisible in /proc, and only per-process entries are shown.
+ProtectProc=invisible
+ProcSubset=pid
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
