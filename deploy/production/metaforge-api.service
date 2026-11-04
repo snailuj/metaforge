@@ -4,13 +4,17 @@ After=network.target
 
 [Service]
 Type=simple
-User=agent
+# Dedicated user: the key in forest.env and the ledger must not be reachable by
+# agent's own processes. Created by deploy.sh.
+User=metaforge
+Group=metaforge
 WorkingDirectory=__WORKTREE__
 # Optional: ANTHROPIC_API_KEY (and METAFORGE_FOREST_* overrides) for /forge/forest.
+# Keep the file root:root 0600: systemd reads it as root before dropping privileges.
 # Without it the route answers 503 and the rest of the API is unaffected.
 EnvironmentFile=-/etc/metaforge/forest.env
 # Pool of finished forests per word, served by Forge without a model call.
-Environment=METAFORGE_FOREST_CACHE=__WORKTREE__/data-pipeline/output/forest_cache.db
+Environment=METAFORGE_FOREST_CACHE=/var/lib/metaforge/production/forest_cache.db
 # Every model call, kept forever, shared by staging and production: the
 # weekly cap (METAFORGE_WEEKLY_BUDGET_USD, default 20, stops enrichment) and
 # the ceiling (METAFORGE_WEEKLY_CEILING_USD, default 50, stops everyone) cover both.
@@ -27,7 +31,32 @@ StandardError=journal
 SyslogIdentifier=metaforge-api
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=__WORKTREE__/data-pipeline/output /var/lib/metaforge
+# Sandbox. Home is replaced by an empty tmpfs and only the worktree is bound back,
+# read-only, so a compromised API sees neither ~/.ssh nor anything else of agent's.
+# (ProtectSystem=strict alone leaves /home writable.) Writable state is only
+# /var/lib/metaforge, created and owned by the unit via StateDirectory.
+ProtectHome=tmpfs
+BindReadOnlyPaths=__WORKTREE__
+StateDirectory=metaforge metaforge/production
+StateDirectoryMode=0750
+PrivateTmp=true
+PrivateDevices=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
