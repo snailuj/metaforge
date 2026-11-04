@@ -20,9 +20,9 @@ Reading a body: `SELECT response_body_gz FROM llm_calls WHERE id = ?`, then `gzi
 
 Prices (`price.go`) are list prices as of 2026-10-06, with Haiku 5.5's long-prompt card. Usage is kept raw, so `cost_usd` can be recomputed if a price was wrong.
 
-**Weekly cap** (`llmlog.Budget`). `METAFORGE_WEEKLY_BUDGET_USD` (default 20, 0 for none) over a rolling 7 days of every recorded call. Staging and production write the same file (`/var/lib/metaforge/llm_calls.db`), so the cap covers both. When the week's spend reaches the cap, `/forge/forest` stops generating: Forge and New forest serve a pooled forest with `X-Forest-Budget: exhausted`, or answer 503 when the pool is empty. A ledger that cannot be read counts as spent, and so does a failed write for five minutes after it (that call's spend is invisible to the cap); a configured ledger that will not open disables generation. Spend is checked before a forest starts, so the cap can be overshot by the forests already in flight (at most 4, about $0.003 each).
+**Weekly cap** (`llmlog.Budget`). `METAFORGE_WEEKLY_BUDGET_USD` (default 20, 0 for none) over a rolling 7 days of every recorded call. Staging and production write the same file (`/var/lib/metaforge/llm_calls.db`), so the cap covers both. Live users are never stopped (owner's call, 2026-11-04); their spend counts toward the cap, so heavy live use slows enrichment. When the week's spend reaches the cap, enrichment requests (`X-Metaforge-Origin: enrichment`) stop generating: they get a pooled forest with `X-Forest-Budget: exhausted`, or 503 when the pool is empty. The cap can therefore be exceeded by live use alone. For enrichment, a ledger that cannot be read counts as spent, and so does a failed write for five minutes after it (that call's spend is invisible to the cap); a configured ledger that will not open disables generation. Spend is checked before a forest starts, so the cap can be overshot by the forests already in flight (at most 4, about $0.003 each).
 
-`GET /forge/budget` returns `{cap_usd, spent_usd, remaining_usd, window_start, exhausted}`. Each generated JSON forest carries `X-Forest-Cost-USD`.
+`GET /forge/budget` (direct loopback only: requests with `X-Forwarded-For` or from another host get 404) returns `{cap_usd, spent_usd, remaining_usd, window_start, exhausted}`. Each generated JSON forest carries `X-Forest-Cost-USD`.
 
 **Enricher** (`api/cmd/enrich`, `api/internal/enrich`). Walks a word list (`-words FILE`, or `-lexicon DB -top N`: the most frequent words with a noun or adjective sense), asking for one `fresh=1` forest per word per pass, with `X-Metaforge-Origin: enrichment`. Before each forest it reads `/forge/budget`:
 
@@ -45,5 +45,4 @@ At Haiku 5.5 prices a forest is about $0.001-0.003, so a $15 enrichment allowanc
 ## Open
 
 - Spend made outside this API (the grading sidecar, scripts using the same key) is not in the ledger and not under the cap.
-- `/forge/budget` is public and reports the week's spend; gate it if that matters.
 - Prices are hand-kept; check them when models change.
