@@ -47,15 +47,17 @@ func getForestWith(h *ForestHandler, query string, hdr map[string]string) *httpt
 	return w
 }
 
-// Rule: once the week's spend reaches the cap, New forest is served from
-// the pool instead of generating, and says why.
+var enrichment = map[string]string{"X-Metaforge-Origin": "enrichment"}
+
+// Rule: once the week's spend reaches the cap, enrichment is served from the
+// pool instead of generating, and is told why.
 func TestForestBudgetSpentServesCacheEvenWhenFresh(t *testing.T) {
 	gen := &fakeForestGen{forest: forestWithLine("fresh")}
 	h := newForestTestHandler(gen, 4, 30)
 	h.Cache = &fakeForestCache{pool: []forest.Forest{forestWithLine("cached")}}
 	h.Budget = fakeBudget{st: llmlog.BudgetStatus{CapUSD: 20, SpentUSD: 20, Exhausted: true}}
 
-	w := getForest(h, "word=patience&fresh=1")
+	w := getForestWith(h, "word=patience&fresh=1", enrichment)
 	if w.Code != http.StatusOK || w.Header().Get("X-Forest-Budget") != "exhausted" || w.Header().Get("X-Forest-Cache") != "hit" {
 		t.Fatalf("status %d budget %q cache %q", w.Code, w.Header().Get("X-Forest-Budget"), w.Header().Get("X-Forest-Cache"))
 	}
@@ -70,7 +72,7 @@ func TestForestBudgetSpentWithEmptyPoolRefuses(t *testing.T) {
 	h.Cache = &fakeForestCache{}
 	h.Budget = fakeBudget{st: llmlog.BudgetStatus{CapUSD: 20, SpentUSD: 21, Exhausted: true}}
 
-	w := getForest(h, "word=patience")
+	w := getForestWith(h, "word=patience", enrichment)
 	if w.Code != http.StatusServiceUnavailable || !strings.Contains(errorBody(t, w), "budget") || w.Header().Get("X-Forest-Budget") != "exhausted" {
 		t.Fatalf("status %d body %s", w.Code, w.Body.String())
 	}
@@ -84,8 +86,31 @@ func TestForestBudgetUnreadableRefusesGeneration(t *testing.T) {
 	h := newForestTestHandler(gen, 4, 30)
 	h.Budget = fakeBudget{st: llmlog.BudgetStatus{CapUSD: 20, Exhausted: true}, err: errors.New("disk")}
 
-	if w := getForest(h, "word=patience"); w.Code != http.StatusServiceUnavailable || gen.called != 0 {
+	if w := getForestWith(h, "word=patience", enrichment); w.Code != http.StatusServiceUnavailable || gen.called != 0 {
 		t.Fatalf("status %d, gen called %d", w.Code, gen.called)
+	}
+}
+
+// Rule (owner, 2026-11-04): live users are never blocked by the cap; only
+// enrichment yields. Their spend still counts toward it.
+func TestForestBudgetNeverBlocksLiveUsers(t *testing.T) {
+	for name, b := range map[string]fakeBudget{
+		"spent":      {st: llmlog.BudgetStatus{CapUSD: 20, SpentUSD: 25, Exhausted: true}},
+		"unreadable": {st: llmlog.BudgetStatus{CapUSD: 20, Exhausted: true}, err: errors.New("disk")},
+	} {
+		gen := &fakeForestGen{forest: forestWithLine("fresh")}
+		h := newForestTestHandler(gen, 4, 30)
+		h.Cache = &fakeForestCache{pool: []forest.Forest{forestWithLine("cached")}}
+		h.Budget = b
+		for _, hdr := range []map[string]string{nil, {"X-Metaforge-Origin": "web"}} {
+			w := getForestWith(h, "word=patience&fresh=1", hdr)
+			if w.Code != http.StatusOK || w.Header().Get("X-Forest-Budget") != "" {
+				t.Errorf("%s %v: status %d budget %q", name, hdr, w.Code, w.Header().Get("X-Forest-Budget"))
+			}
+		}
+		if gen.called != 2 {
+			t.Errorf("%s: generator called %d times, want 2", name, gen.called)
+		}
 	}
 }
 
@@ -155,19 +180,42 @@ func TestForestOriginIsSanitised(t *testing.T) {
 	}
 }
 
+func localBudgetRequest() *http.Request {
+	r := httptest.NewRequest("GET", "/forge/budget", nil)
+	r.RemoteAddr = "127.0.0.1:41000"
+	return r
+}
+
 func TestBudgetEndpoint(t *testing.T) {
 	h := &BudgetHandler{Budget: fakeBudget{st: llmlog.BudgetStatus{CapUSD: 20, SpentUSD: 5, RemainingUSD: 15}}}
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/forge/budget", nil))
+	h.ServeHTTP(w, localBudgetRequest())
 	var st llmlog.BudgetStatus
 	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &st) != nil || st.RemainingUSD != 15 {
 		t.Fatalf("status %d body %s", w.Code, w.Body.String())
 	}
 }
 
+// Rule: spend is for the operator and the enricher on the same host, not
+// the public. Caddy proxies from loopback but always sets X-Forwarded-For.
+func TestBudgetEndpointIsLoopbackOnly(t *testing.T) {
+	h := &BudgetHandler{Budget: fakeBudget{st: llmlog.BudgetStatus{CapUSD: 20}}}
+	remote := httptest.NewRequest("GET", "/forge/budget", nil)
+	remote.RemoteAddr = "203.0.113.9:5000"
+	proxied := localBudgetRequest()
+	proxied.Header.Set("X-Forwarded-For", "203.0.113.9")
+	for name, r := range map[string]*http.Request{"remote": remote, "proxied": proxied} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s: status %d", name, w.Code)
+		}
+	}
+}
+
 func TestBudgetEndpointUnconfigured(t *testing.T) {
 	w := httptest.NewRecorder()
-	(&BudgetHandler{}).ServeHTTP(w, httptest.NewRequest("GET", "/forge/budget", nil))
+	(&BudgetHandler{}).ServeHTTP(w, localBudgetRequest())
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status %d", w.Code)
 	}

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -143,7 +144,8 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		writeForestUnconfigured(w)
 		return
 	}
-	if h.budgetSpent(r.Context(), word) {
+	origin := parseOrigin(r)
+	if origin == enrichmentOrigin && h.budgetSpent(r.Context(), word) {
 		w.Header().Set("X-Forest-Budget", "exhausted")
 		if h.serveFromPool(w, r, word, maxHops) {
 			return
@@ -164,7 +166,7 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), h.Timeout)
 	defer cancel()
-	run := llmlog.RunInfo{ID: newRunID(), Origin: parseOrigin(r), Word: word, MaxHops: maxHops}
+	run := llmlog.RunInfo{ID: newRunID(), Origin: origin, Word: word, MaxHops: maxHops}
 	ctx = llmlog.WithRun(ctx, run)
 	started := time.Now()
 
@@ -205,8 +207,15 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 	writeForest(w, word, result)
 }
 
-// budgetSpent reports whether the weekly cap forbids generating. A budget
-// that cannot be read counts as spent.
+// enrichmentOrigin marks the background enricher. Only it yields to the
+// weekly cap: the owner chose (2026-11-04) never to block live users, whose
+// spend still counts toward the cap and so slows enrichment. The header is
+// self-declared, which is safe here because claiming another origin only
+// exempts a caller from a stop that live users never get.
+const enrichmentOrigin = "enrichment"
+
+// budgetSpent reports whether the weekly cap forbids enrichment generating.
+// A budget that cannot be read counts as spent.
 func (h *ForestHandler) budgetSpent(ctx context.Context, word string) bool {
 	if h.Budget == nil {
 		return false
@@ -428,12 +437,31 @@ func newRunID() string {
 	return hex.EncodeToString(b)
 }
 
+// isDirectLoopback reports a request made on this host, not through the
+// proxy: Caddy connects from loopback but always sets X-Forwarded-For.
+func isDirectLoopback(r *http.Request) bool {
+	if r.Header.Get("X-Forwarded-For") != "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // BudgetHandler serves GET /forge/budget: the rolling-week spend and cap.
 type BudgetHandler struct {
 	Budget ForestBudget // nil: no ledger configured
 }
 
 func (h *BudgetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !isDirectLoopback(r) {
+		// The public sees no such route; spend is the operator's business.
+		http.NotFound(w, r)
+		return
+	}
 	if h.Budget == nil {
 		writeForestError(w, http.StatusServiceUnavailable, "model spend is not tracked on this server")
 		return
