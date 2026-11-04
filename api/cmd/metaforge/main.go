@@ -143,7 +143,7 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(handler.CORSMiddleware(*corsOrigin))
 
-	r.Get("/forge/suggest", h.HandleSuggest)
+	registerDatabaseRoutes(r, h, loadRouteLimits())
 	forestCfg := loadForestSettings()
 	forestCfg.AnthropicBaseURL = *anthropicBaseURL
 	if *anthropicBaseURL != llm.DefaultBaseURL {
@@ -153,8 +153,6 @@ func main() {
 	r.Get("/forge/forest", forestH.HandleForest)
 	r.Get("/forge/forest/saved", forestH.HandleSaved)
 	r.Method("GET", "/forge/budget", &handler.BudgetHandler{Budget: forestH.Budget})
-	r.Get("/thesaurus/lookup", h.HandleLookup)
-	r.Get("/thesaurus/autocomplete", h.HandleAutocomplete)
 	r.Get("/strings/*", h.HandleStrings)
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
