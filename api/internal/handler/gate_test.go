@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -124,5 +125,25 @@ func TestGateLogsRefusalsOncePerWindow(t *testing.T) {
 	}
 	if got := countLines(buf.String(), "in-flight cap reached"); got != 1 {
 		t.Errorf("%d log lines for 30 refusals, want 1:\n%s", got, buf)
+	}
+}
+
+// Rule: a gated lemma check holds a slot only while it runs, and gives
+// ErrBusy, not an answer, when no slot comes free.
+func TestGatedKnownWordHoldsASlotOnlyDuringTheCheck(t *testing.T) {
+	g := NewGate(1, 20*time.Millisecond, time.Now)
+	known := g.WrapKnownWord(func(context.Context, string) (bool, error) { return true, nil })
+
+	if ok, err := known(context.Background(), "anger"); !ok || err != nil {
+		t.Fatalf("first check = %v, %v", ok, err)
+	}
+	if ok, err := known(context.Background(), "anger"); !ok || err != nil {
+		t.Errorf("slot not released after the check: %v, %v", ok, err)
+	}
+
+	release, _ := g.Acquire(context.Background())
+	defer release()
+	if _, err := known(context.Background(), "anger"); !errors.Is(err, ErrBusy) {
+		t.Errorf("full gate gave err %v, want ErrBusy", err)
 	}
 }

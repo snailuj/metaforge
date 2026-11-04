@@ -143,15 +143,15 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(handler.CORSMiddleware(*corsOrigin))
 
-	registerDatabaseRoutes(r, h, loadRouteLimits())
+	limits, gate := loadRouteLimits(), newDatabaseGate()
+	registerDatabaseRoutes(r, h, limits, gate)
 	forestCfg := loadForestSettings()
 	forestCfg.AnthropicBaseURL = *anthropicBaseURL
 	if *anthropicBaseURL != llm.DefaultBaseURL {
 		slog.Warn("Anthropic API key will be sent to a non-default host", "base_url", *anthropicBaseURL)
 	}
-	forestH := newForestHandler(forestCfg, h.KnownWord)
-	r.Get("/forge/forest", forestH.HandleForest)
-	r.Get("/forge/forest/saved", forestH.HandleSaved)
+	forestH := newForestHandler(forestCfg, gate.WrapKnownWord(h.KnownWord))
+	registerForestRoute(r, forestH, limits)
 	r.Method("GET", "/forge/budget", &handler.BudgetHandler{Budget: forestH.Budget})
 	r.Get("/strings/*", h.HandleStrings)
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
