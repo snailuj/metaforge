@@ -51,3 +51,16 @@ as_user() { # <user> <cmd>...
     local u="$1"; shift
     sudo -u "$u" -H "$@"
 }
+
+# deploy.sh would switch the unit to the data clone, which does not exist (or holds
+# stale data) until migrate-data-clone.sh has moved the verdicts. Refuse unless the
+# installed unit already uses the clone, or the migration itself is calling (it sets
+# MF_MIGRATING=1).
+refuse_unmigrated() { # <installed unit file>
+    [ "${MF_MIGRATING:-0}" = 1 ] && return 0
+    if sudo grep -q 'worktrees/grading-data' "$1" 2>/dev/null; then
+        echo "ERROR: the installed unit still writes grading data to .worktrees/grading-data." >&2
+        echo "       Run deploy/grading/migrate-data-clone.sh, which moves the data and then calls this script." >&2
+        return 1
+    fi
+}

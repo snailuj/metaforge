@@ -51,5 +51,14 @@ strip_env_keys "${T}/env" GRADING_SECRET_FILE PYTHONPATH >/dev/null
 strip_env_keys "${T}/env" GRADING_SECRET_FILE >/dev/null && ok "idempotent" || fail "second run failed"
 strip_env_keys "${T}/missing" GRADING_SECRET_FILE >/dev/null && ok "absent file is fine" || fail "absent file failed"
 
+echo "== refuse_unmigrated"
+printf 'GRADING_DATA_DIR=/x/.worktrees/grading-data/data-pipeline/grading\n' > "${T}/old.service"
+printf 'GRADING_DATA_DIR=/x/metaforge-grading-data/data-pipeline/grading\n' > "${T}/new.service"
+refuse_unmigrated "${T}/old.service" 2>/dev/null && fail "switched an unmigrated install" || ok "unit still on the old worktree is refused"
+MF_MIGRATING=1 refuse_unmigrated "${T}/old.service" && ok "allowed from the migration" || fail "migration blocked"
+refuse_unmigrated "${T}/new.service" && ok "migrated unit passes" || fail "migrated unit refused"
+refuse_unmigrated "${T}/absent.service" && ok "no unit yet passes" || fail "fresh install refused"
+HINT="$(refuse_unmigrated "${T}/old.service" 2>&1)"; grep -q migrate-data-clone.sh <<<"$HINT" && ok "names the script to run" || fail "no hint"
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then echo "All tests passed."; else echo "${FAILS} test(s) failed."; exit 1; fi

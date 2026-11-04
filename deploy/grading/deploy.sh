@@ -9,9 +9,9 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 # shellcheck source=../lib/grading-host.sh
 . "${REPO_ROOT}/deploy/lib/grading-host.sh"
 
-# The sidecar runs as metaforge-grading (see the unit). agent owns the code, the venv
-# and the secret file: systemd reads the secret as root (LoadCredential) and hands it
-# to the unit, so agent's tools can still read it too.
+# The sidecar runs as metaforge-grading (see the unit); agent owns the code and the
+# venv. The secret file is root-only: systemd reads it as root (LoadCredential) and
+# hands it to the unit, and anything else that needs it must use sudo.
 SIDECAR_USER="${SIDECAR_USER:-agent}"
 
 # The unit pins its code and venv to .worktrees/next, so only that checkout can
@@ -21,6 +21,10 @@ if [ "${ALLOW_ANY_CHECKOUT:-0}" != 1 ] && [ "$REPO_ROOT" != "$LIVE_CODE" ]; then
     echo "ERROR: run this from ${LIVE_CODE} (merged and pulled), not ${REPO_ROOT}." >&2
     exit 1
 fi
+
+# Switching to the clone before migrate-data-clone.sh has moved the verdicts there
+# would start the sidecar on stale data; the migration sets MF_MIGRATING=1.
+refuse_unmigrated /etc/systemd/system/metaforge-grading.service
 
 # The data lives in a standalone clone outside the repo (see the unit). Without it
 # the unit's BindPaths= fails the start, so fail here with the fix instead.
@@ -44,20 +48,19 @@ else
     "$REPO_ROOT/deploy/grading/build-venv.sh"
 fi
 
-# 1. Ensure secret-file path exists. Dir is 0711 (NOT 0700): agent must traverse
-# this root-owned dir to read its own 0600 secret by exact path; 0700 blocks the
-# traversal → PermissionError. 0711 allows traversal without enumeration.
+# 1. Ensure the secret file exists. The dir stays 0711 (traversable, not listable):
+# other files here are root-only by their own mode.
 sudo install -d -m 0711 -o root -g root /etc/metaforge
 if [ ! -f /etc/metaforge/grading_secret ]; then
     echo "ERROR: /etc/metaforge/grading_secret does not exist." >&2
     echo "Create it manually (and match the GRADING_SECRET in the rendered Caddy snippet):" >&2
     echo "  openssl rand -hex 32 | sudo tee /etc/metaforge/grading_secret >/dev/null" >&2
     echo "  sudo chmod 600 /etc/metaforge/grading_secret" >&2
-    echo "  sudo chown ${SIDECAR_USER}:${SIDECAR_USER} /etc/metaforge/grading_secret" >&2
+    echo "  sudo chown root:root /etc/metaforge/grading_secret" >&2
     exit 1
 fi
 sudo chmod 0600 /etc/metaforge/grading_secret
-sudo chown "${SIDECAR_USER}:${SIDECAR_USER}" /etc/metaforge/grading_secret
+sudo chown root:root /etc/metaforge/grading_secret
 
 # 3. Ensure /etc/default/metaforge-grading exists (operator populates).
 if [ ! -f /etc/default/metaforge-grading ]; then
