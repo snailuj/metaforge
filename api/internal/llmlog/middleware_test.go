@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go/option"
 
@@ -175,5 +176,47 @@ func TestMiddlewareRecordsTransportFailure(t *testing.T) {
 	}
 	if calls[0].Error == "" || calls[0].HTTPStatus != 0 || !strings.Contains(string(calls[0].RequestBody), "user text") {
 		t.Fatalf("failure row wrong: %+v", calls[0])
+	}
+}
+
+// Rule: a stream the client abandoned is still billed for what the model
+// wrote, which its partial body does not report; it is charged at the
+// request's ceiling (max_tokens out, request bytes in) so the cap never
+// under-counts.
+func TestMiddlewareChargesAnAbandonedStreamAtItsCeiling(t *testing.T) {
+	s := openTemp(t)
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "event: message_start\n"+
+			`data: {"type":"message_start","message":{"id":"msg_c","type":"message","role":"assistant","model":"claude-haiku-5-5","content":[],"stop_reason":null,"usage":{"input_tokens":40,"output_tokens":1}}}`+"\n\n")
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	// message_start carries no text, so cancel on a timer once the head is in.
+	ctx, cancel := context.WithCancel(callCtx())
+	defer cancel()
+	time.AfterFunc(200*time.Millisecond, cancel)
+	if _, err := client(t, s, srv.URL).Stream(ctx, req(), func(string) {}); err == nil {
+		t.Fatal("a canceled stream returned no error")
+	}
+	var calls []Call
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if calls = allCalls(t, s); len(calls) > 0 {
+			break
+		}
+	}
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d", len(calls))
+	}
+	c := calls[0]
+	if c.Usage.OutputTokens != 16000 || c.Usage.InputTokens < int64(len(c.RequestBody)) || c.StopReason != "incomplete" {
+		t.Fatalf("abandoned stream charged %+v stop %q", c.Usage, c.StopReason)
 	}
 }

@@ -13,6 +13,9 @@ type parsed struct {
 	StopReason string
 	MessageID  string
 	Usage      Usage
+	// Complete is false for a body cut short: a stream with no final
+	// message_delta, or JSON that does not decode. Its usage under-counts.
+	Complete bool
 }
 
 type wireMessage struct {
@@ -31,7 +34,7 @@ func parseResponse(body []byte, stream bool) parsed {
 		if json.Unmarshal(body, &m) != nil || m.Usage == nil {
 			return parsed{}
 		}
-		return parsed{Model: m.Model, StopReason: m.StopReason, MessageID: m.ID, Usage: *m.Usage}
+		return parsed{Model: m.Model, StopReason: m.StopReason, MessageID: m.ID, Usage: *m.Usage, Complete: true}
 	}
 
 	var p parsed
@@ -62,6 +65,7 @@ func parseResponse(body []byte, stream bool) parsed {
 		case "message_delta":
 			if ev.Delta.StopReason != "" {
 				p.StopReason = ev.Delta.StopReason
+				p.Complete = true
 			}
 			// output_tokens in a delta is cumulative; input fields, when
 			// present, restate the total.
@@ -77,8 +81,9 @@ func parseResponse(body []byte, stream bool) parsed {
 }
 
 type requestFields struct {
-	Model  string `json:"model"`
-	Stream bool   `json:"stream"`
+	Model     string `json:"model"`
+	Stream    bool   `json:"stream"`
+	MaxTokens int64  `json:"max_tokens"`
 }
 
 // parseRequestModel reads the model and stream flag from a request body.

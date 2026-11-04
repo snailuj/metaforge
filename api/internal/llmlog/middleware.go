@@ -70,6 +70,7 @@ func (s *Store) Middleware() option.Middleware {
 		}
 		rf := parseRequestModel(c.RequestBody)
 		c.Model, c.Streamed = rf.Model, rf.Stream
+		maxTokens := rf.MaxTokens
 
 		resp, err := next(req)
 		c.HeadersAfter = time.Since(c.Started)
@@ -83,7 +84,7 @@ func (s *Store) Middleware() option.Middleware {
 		c.HTTPStatus = resp.StatusCode
 		c.RequestID = resp.Header.Get("request-id")
 		c.ResponseHeaders = resp.Header.Clone()
-		resp.Body = &teeBody{rc: resp.Body, call: c, store: s, ctx: req.Context()}
+		resp.Body = &teeBody{rc: resp.Body, call: c, store: s, ctx: req.Context(), maxTokens: maxTokens}
 		return resp, nil
 	}
 }
@@ -109,6 +110,9 @@ type teeBody struct {
 	ctx   context.Context
 	once  sync.Once
 	rerr  error
+	// maxTokens is the request's output ceiling, used to bound the bill of
+	// a response cut short.
+	maxTokens int64
 }
 
 func (t *teeBody) Read(p []byte) (int, error) {
@@ -154,6 +158,17 @@ func (t *teeBody) Close() error {
 				c.Model = p.Model
 			}
 			c.StopReason, c.MessageID, c.Usage = p.StopReason, p.MessageID, p.Usage
+			if !p.Complete {
+				// The API bills what the model wrote before the client went,
+				// which a cut body does not report. Charge the ceiling: every
+				// output token allowed, and at least one input token per
+				// request byte.
+				c.StopReason = "incomplete"
+				c.Usage.OutputTokens = max(c.Usage.OutputTokens, t.maxTokens)
+				c.Usage.InputTokens = max(c.Usage.InputTokens, int64(len(c.RequestBody)))
+				slog.Warn("llm call log: response cut short, charged at its ceiling", "run_id", c.RunID,
+					"label", c.Label, "output_tokens", c.Usage.OutputTokens, "input_tokens", c.Usage.InputTokens)
+			}
 			c.CostUSD, c.PriceKnown = Cost(c.Model, c.Usage)
 		} else {
 			c.PriceKnown = true // nothing was billed

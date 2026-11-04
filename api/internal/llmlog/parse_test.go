@@ -7,7 +7,7 @@ func TestParseJSONResponse(t *testing.T) {
 		"usage":{"input_tokens":120,"output_tokens":340,"cache_read_input_tokens":2000,"cache_creation_input_tokens":0}}`)
 	got := parseResponse(body, false)
 	want := parsed{Model: "claude-haiku-5-5", StopReason: "end_turn", MessageID: "msg_1",
-		Usage: Usage{InputTokens: 120, OutputTokens: 340, CacheReadTokens: 2000}}
+		Usage: Usage{InputTokens: 120, OutputTokens: 340, CacheReadTokens: 2000}, Complete: true}
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
@@ -25,7 +25,7 @@ func TestParseStreamResponse(t *testing.T) {
 		"event: message_stop\n" + `data: {"type":"message_stop"}` + "\n\n")
 	got := parseResponse(body, true)
 	want := parsed{Model: "claude-haiku-5-5", StopReason: "end_turn", MessageID: "msg_2",
-		Usage: Usage{InputTokens: 50, OutputTokens: 700, CacheReadTokens: 900, CacheWriteTokens: 10}}
+		Usage: Usage{InputTokens: 50, OutputTokens: 700, CacheReadTokens: 900, CacheWriteTokens: 10}, Complete: true}
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
@@ -41,6 +41,25 @@ func TestParseErrorBodyYieldsNoUsage(t *testing.T) {
 func TestParseRequest(t *testing.T) {
 	got := parseRequestModel([]byte(`{"model":"claude-haiku-5-5","max_tokens":16000,"stream":true}`))
 	if got.Model != "claude-haiku-5-5" || !got.Stream {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestParseMarksCompleteness(t *testing.T) {
+	if !parseResponse([]byte(`{"model":"m","usage":{"input_tokens":1,"output_tokens":1}}`), false).Complete {
+		t.Error("a whole JSON message is complete")
+	}
+	if parseResponse([]byte(`{"model":"m","usa`), false).Complete {
+		t.Error("a cut JSON body is not complete")
+	}
+	cut := "event: message_start\n" + `data: {"type":"message_start","message":{"model":"m","usage":{"input_tokens":5,"output_tokens":1}}}` + "\n\n"
+	if parseResponse([]byte(cut), true).Complete {
+		t.Error("a stream with no final message_delta is not complete")
+	}
+}
+
+func TestParseRequestMaxTokens(t *testing.T) {
+	if got := parseRequestModel([]byte(`{"model":"m","max_tokens":16000}`)); got.MaxTokens != 16000 {
 		t.Fatalf("got %+v", got)
 	}
 }
