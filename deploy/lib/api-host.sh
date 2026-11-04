@@ -42,31 +42,67 @@ secure_key_files() { # <file>...
     done
 }
 
+# Restarts a service that a migration stopped. Runs on any exit, so a deploy that
+# dies between the stop and its own restart does not leave the site down.
+_mf_restart_stopped() {
+    if [ -n "${MF_STOPPED_SERVICE:-}" ]; then
+        echo "Restarting ${MF_STOPPED_SERVICE} that this run stopped" >&2
+        sudo systemctl start "$MF_STOPPED_SERVICE" || true
+    fi
+}
+
+# Adds _mf_restart_stopped to the EXIT trap once, keeping any trap already set.
+_mf_arm_restart() {
+    [ -z "${MF_EXIT_ARMED:-}" ] || return 0
+    local prev
+    prev="$(trap -p EXIT | sed "s/^trap -- '\(.*\)' EXIT\$/\1/")"
+    # shellcheck disable=SC2064
+    trap "${prev:+${prev}; }_mf_restart_stopped" EXIT
+    MF_EXIT_ARMED=1
+}
+
+# The state dir is 0750 metaforge, so everything inside it goes through sudo; the old
+# db is read as the invoking user, staged in a temp dir, then installed owned by
+# MF_USER under a .partial name. Returns non-zero on any failure.
+_mf_copy_cache() { # <old> <new>
+    local old="$1" new="$2" tmp rc=0
+    tmp="$(mktemp -d)" || return 1
+    {
+        sudo rm -f "${new}.partial" "${new}.partial-wal" "${new}-wal" "${new}-shm" &&
+        if have_sqlite3; then
+            sqlite3 "$old" ".backup '${tmp}/db'"
+        else
+            cp "$old" "${tmp}/db" && { [ ! -e "${old}-wal" ] || cp "${old}-wal" "${tmp}/db-wal"; }
+        fi &&
+        sudo install -o "$MF_USER" -g "$MF_USER" -m 0600 "${tmp}/db" "${new}.partial" &&
+        { [ ! -e "${tmp}/db-wal" ] || sudo install -o "$MF_USER" -g "$MF_USER" -m 0600 "${tmp}/db-wal" "${new}.partial-wal"; } &&
+        # wal first: an orphan wal is cleared above on the next run, but a db
+        # without its wal would look finished and lose rows.
+        { ! sudo test -e "${new}.partial-wal" || sudo mv "${new}.partial-wal" "${new}-wal"; } &&
+        sudo mv "${new}.partial" "$new"
+    } || rc=1
+    rm -rf "$tmp"
+    return "$rc"
+}
+
 # Forest caches used to live in the worktree. Copy the old one to the state dir once:
-# stop the service so nothing writes mid-copy, copy to a .partial name and rename, so
-# a failed run leaves no file that looks finished. The old file is never deleted.
+# stop the service so nothing writes mid-copy, copy under a .partial name and rename,
+# so a failed run leaves no file that looks finished. The old file is never deleted.
+# If anything fails after the stop the service is started again.
 migrate_forest_cache() { # <site> <service> <worktree>
     local site="$1" service="$2" old="$3/data-pipeline/output/forest_cache.db"
     local new="${MF_STATE_DIR}/${site}/forest_cache.db"
-    if [ -e "$new" ]; then echo "Forest cache already at ${new}"; return 0; fi
+    if sudo test -e "$new"; then echo "Forest cache already at ${new}"; return 0; fi
     if [ ! -e "$old" ]; then echo "No old forest cache to migrate"; return 0; fi
 
     echo "Migrating ${old} -> ${new}"
-    sudo systemctl stop "$service"
-    rm -f "${new}.partial" "${new}.partial-wal" "${new}-wal" "${new}-shm"
-    if have_sqlite3; then
-        sqlite3 "$old" ".backup '${new}.partial'"
-    else
-        cp "$old" "${new}.partial"
-        [ -e "${old}-wal" ] && cp "${old}-wal" "${new}.partial-wal"
+    MF_STOPPED_SERVICE="$service"
+    _mf_arm_restart
+    sudo systemctl stop "$service" || return 1
+    if ! _mf_copy_cache "$old" "$new"; then
+        echo "ERROR: could not copy the forest cache; starting ${service} again" >&2
+        sudo systemctl start "$service" || true
+        return 1
     fi
-    # wal first: an orphan wal is cleared above on the next run, a db without
-    # its wal would look finished and lose rows.
-    [ -e "${new}.partial-wal" ] && mv "${new}.partial-wal" "${new}-wal"
-    mv "${new}.partial" "$new"
-    local f
-    for f in "$new" "${new}-wal"; do
-        [ -e "$f" ] && sudo chown "${MF_USER}:${MF_USER}" "$f"
-    done
-    return 0
+    echo "Forest cache migrated"
 }

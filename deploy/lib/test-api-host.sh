@@ -1,28 +1,28 @@
 #!/usr/bin/env bash
-# Tests for deploy/lib/api-host.sh, run against a scratch tree with sudo,
-# systemctl and chown faked, so nothing real is touched:  deploy/lib/test-api-host.sh
+# Tests for deploy/lib/api-host.sh against a scratch state dir under /var/lib, owned
+# by the real metaforge user as on the host. useradd and systemctl are faked and
+# logged; needs sudo and the metaforge user:  deploy/lib/test-api-host.sh
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 T="$(mktemp -d)"
-trap 'rm -rf "$T"' EXIT
 LOG="${T}/calls.log"
 : > "$LOG"
 
-# Faked privileged commands: log them, and only run what is safe unprivileged.
+# Real sudo, so ownership and modes behave as on the host (the state dir must be
+# unreachable by the invoking user, which a faked sudo hid). Only the commands that
+# change the host outside the scratch dirs are faked and logged.
 sudo() {
     case "$1" in
-        chown|chmod|useradd) echo "sudo $*" >> "$LOG" ;;
-        systemctl)           echo "sudo $*" >> "$LOG" ;;
-        stat)                shift; stat "$@" ;;
-        install)             shift; a=(); while [ $# -gt 0 ]; do case "$1" in -o|-g) shift 2 ;; *) a+=("$1"); shift ;; esac; done
-                             install "${a[@]}" ;;
-        *)                   "$@" ;;
+        useradd|systemctl) echo "sudo $*" >> "$LOG" ;;
+        *)                 command sudo "$@" ;;
     esac
 }
 
-export MF_STATE_DIR="${T}/state" MF_KEY_DIR="${T}/etc" MF_USER=mf-test-absent-user
-mkdir -p "$MF_STATE_DIR" "$MF_KEY_DIR"
+export MF_STATE_DIR=/var/lib/mf-sandbox-test-api-host MF_KEY_DIR="${T}/etc" MF_USER=metaforge
+mkdir -p "$MF_KEY_DIR"
+trap 'sudo rm -rf "$MF_STATE_DIR" "$MF_KEY_DIR"; rm -rf "$T"' EXIT
+command sudo rm -rf "$MF_STATE_DIR"
 # shellcheck source=api-host.sh
 . "${HERE}/api-host.sh"
 
@@ -33,58 +33,80 @@ expect_log()  { if grep -qF -- "$1" "$LOG"; then ok "logged: $1"; else fail "not
 expect_nolog(){ if grep -qF -- "$1" "$LOG"; then fail "unexpectedly logged: $1"; else ok "not logged: $1"; fi; }
 
 echo "== ensure_service_user"
-ensure_service_user >/dev/null
+(MF_USER=mf-test-absent-user; ensure_service_user >/dev/null)
 expect_log "useradd --system --no-create-home --shell /usr/sbin/nologin --user-group mf-test-absent-user"
-: > "$LOG"; MF_USER=root ensure_service_user >/dev/null
+: > "$LOG"; ensure_service_user >/dev/null
 expect_nolog "useradd"
 
 echo "== ensure_state_dir"
-: > "$LOG"
 ensure_state_dir production >/dev/null
-[ -d "${MF_STATE_DIR}/production" ] && ok "site dir created" || fail "site dir missing"
-expect_log "chown -R mf-test-absent-user:mf-test-absent-user ${MF_STATE_DIR}"
+[ "$(command sudo stat -c '%U:%G %a' "${MF_STATE_DIR}/production")" = "metaforge:metaforge 750" ] \
+    && ok "site dir is metaforge 0750" || fail "site dir ownership wrong"
+# Precondition for every later test: the invoking user cannot even look inside.
+if [ -e "${MF_STATE_DIR}/production" ]; then fail "state dir is visible to $(id -un): the tests would prove nothing"
+else ok "state dir is unsearchable by $(id -un)"; fi
 
 echo "== secure_key_files"
-: > "$LOG"; touch "${MF_KEY_DIR}/forest.env"
+touch "${MF_KEY_DIR}/forest.env"
 secure_key_files forest.env forest-staging.env >/dev/null
-expect_log "chown root:root ${MF_KEY_DIR}/forest.env"
-expect_log "chmod 0600 ${MF_KEY_DIR}/forest.env"
-expect_nolog "forest-staging.env"
+[ "$(command sudo stat -c '%U:%G %a' "${MF_KEY_DIR}/forest.env")" = "root:root 600" ] \
+    && ok "forest.env is root:root 600" || fail "forest.env mode wrong"
+[ ! -e "${MF_KEY_DIR}/forest-staging.env" ] && ok "absent file skipped" || fail "absent file created"
 
 echo "== migrate_forest_cache"
 WT="${T}/wt"; mkdir -p "${WT}/data-pipeline/output"
 OLD="${WT}/data-pipeline/output/forest_cache.db"
 NEW="${MF_STATE_DIR}/production/forest_cache.db"
+rows() { command sudo sqlite3 "$1" 'SELECT count(*) FROM f'; }
+exists() { command sudo test -e "$1"; }
 
 : > "$LOG"; migrate_forest_cache production svc "$WT" >/dev/null
-[ ! -e "$NEW" ] && expect_nolog "systemctl stop" || fail "created a cache from nothing"
+if ! exists "$NEW"; then ok "nothing to migrate, nothing created"; else fail "created a cache from nothing"; fi
+expect_nolog "systemctl stop"
 
 sqlite3 "$OLD" "PRAGMA journal_mode=WAL; CREATE TABLE f(x); INSERT INTO f VALUES (1),(2);" >/dev/null
-: > "$LOG"; migrate_forest_cache production svc "$WT" >/dev/null
-[ "$(sqlite3 "$NEW" 'SELECT count(*) FROM f')" = 2 ] && ok "rows copied" || fail "rows not copied"
+: > "$LOG"; migrate_forest_cache production svc "$WT" >/dev/null && ok "migration exits 0" || fail "migration failed"
+[ "$(rows "$NEW")" = 2 ] && ok "rows copied" || fail "rows not copied"
 expect_log "systemctl stop svc"
-expect_log "chown mf-test-absent-user:mf-test-absent-user ${NEW}"
+[ "$(command sudo stat -c '%U:%G' "$NEW")" = "metaforge:metaforge" ] && ok "cache owned by metaforge" || fail "cache ownership wrong"
 [ -e "$OLD" ] && ok "old cache kept" || fail "old cache deleted"
-ls "${MF_STATE_DIR}/production" | grep -q partial && fail "partial file left" || ok "no partial file left"
+[ -z "$(command sudo ls "${MF_STATE_DIR}/production" | grep partial)" ] && ok "no partial file left" || fail "partial file left"
 
 echo "== migrate_forest_cache is idempotent"
-sqlite3 "$NEW" "INSERT INTO f VALUES (3)"
+command sudo sqlite3 "$NEW" "INSERT INTO f VALUES (3)"
 : > "$LOG"; migrate_forest_cache production svc "$WT" >/dev/null
-[ "$(sqlite3 "$NEW" 'SELECT count(*) FROM f')" = 3 ] && ok "existing cache not overwritten" || fail "existing cache overwritten"
+[ "$(rows "$NEW")" = 3 ] && ok "existing cache not overwritten" || fail "existing cache overwritten"
 expect_nolog "systemctl stop"
 
 echo "== migrate_forest_cache recovers from a half-finished copy"
-rm -f "$NEW"; echo junk > "${NEW}.partial"
+command sudo rm -f "$NEW"; echo junk | command sudo tee "${NEW}.partial" >/dev/null
 migrate_forest_cache production svc "$WT" >/dev/null
-[ "$(sqlite3 "$NEW" 'SELECT count(*) FROM f')" = 2 ] && ok "stale partial replaced" || fail "stale partial used"
+[ "$(rows "$NEW")" = 2 ] && ok "stale partial replaced" || fail "stale partial used"
 
 echo "== migrate_forest_cache without sqlite3 copies the db and its wal"
-rm -f "$NEW"
+command sudo rm -f "$NEW"
 have_sqlite3() { return 1; }
 echo wal-bytes > "${OLD}-wal"
 migrate_forest_cache production svc "$WT" >/dev/null
-[ -s "$NEW" ] && ok "db copied" || fail "db not copied"
-[ "$(cat "${NEW}-wal" 2>/dev/null)" = wal-bytes ] && ok "wal copied" || fail "wal not copied"
+exists "$NEW" && ok "db copied" || fail "db not copied"
+[ "$(command sudo cat "${NEW}-wal" 2>/dev/null)" = wal-bytes ] && ok "wal copied" || fail "wal not copied"
+rm -f "${OLD}-wal"; unset -f have_sqlite3
+. "${HERE}/api-host.sh"
+
+echo "== a failed copy restarts the service and fails"
+command sudo rm -f "$NEW" "${NEW}-wal"
+mv "$OLD" "${OLD}.good"; echo "not a database" > "$OLD"
+: > "$LOG"; migrate_forest_cache production svc "$WT" >/dev/null && fail "failure not reported" || ok "failure reported"
+expect_log "systemctl start svc"
+exists "$NEW" && fail "half-copied cache left looking finished" || ok "no cache left behind"
+mv "${OLD}.good" "$OLD"
+
+echo "== a script that dies after the stop restarts the service"
+command sudo rm -f "$NEW" "${NEW}-wal"
+: > "$LOG"
+( . "${HERE}/api-host.sh"; unset MF_EXIT_ARMED; migrate_forest_cache production svc "$WT" >/dev/null; exit 3 ) ; rc=$?
+[ "$rc" = 3 ] && ok "exit status preserved" || fail "exit status was $rc"
+expect_log "systemctl start svc"
 
 echo ""
 if [ "$FAILS" -eq 0 ]; then echo "All tests passed."; else echo "${FAILS} test(s) failed."; exit 1; fi
