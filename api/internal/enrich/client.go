@@ -68,7 +68,9 @@ func (c *Client) Forest(ctx context.Context, word string, maxHops int) (ForestRe
 	}
 	defer resp.Body.Close()
 
-	res := ForestResult{Status: resp.StatusCode, BudgetExhausted: resp.Header.Get("X-Forest-Budget") == "exhausted"}
+	// Any X-Forest-Budget value (the weekly cap's "exhausted", the spend
+	// ceiling's "ceiling") means the server would not generate.
+	res := ForestResult{Status: resp.StatusCode, BudgetExhausted: resp.Header.Get("X-Forest-Budget") != ""}
 	if s := resp.Header.Get("Retry-After"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil {
 			res.RetryAfter = time.Duration(n) * time.Second
