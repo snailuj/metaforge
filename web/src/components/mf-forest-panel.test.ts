@@ -320,6 +320,59 @@ describe('MfForestPanel', () => {
     })
   })
 
+  describe('saved forests', () => {
+    const copy = (f: ForestResponse): ForestResponse => JSON.parse(JSON.stringify(f))
+    const other: ForestResponse = { ...forest, endpoints: forest.endpoints.slice(0, 2) }
+    const withSaved = (s = shown(), forests = [copy(other), copy(forest), copy(other)]) =>
+      reduceForest(s, { type: 'saved-loaded', word: s.word, maxHops: s.maxHops, forests })
+    const browser = () => $('[data-testid="forest-saved"]')
+    const prev = () => $<HTMLButtonElement>('[data-testid="forest-saved-prev"]')!
+    const next = () => $<HTMLButtonElement>('[data-testid="forest-saved-next"]')!
+
+    it('shows the position and named Previous and Next buttons once a list is loaded', async () => {
+      await render(shown())
+      expect(browser()).toBeNull()
+      await render(withSaved())
+      expect(text($('[data-testid="forest-saved-position"]'))).toBe('Saved forest 2 of 3')
+      expect(prev().getAttribute('aria-label')).toBe('Previous saved forest')
+      expect(next().getAttribute('aria-label')).toBe('Next saved forest')
+    })
+
+    it('emits one browse event per press', async () => {
+      await render(withSaved())
+      next().click()
+      prev().click()
+      expect(events).toEqual([{ type: 'browse', step: 1 }, { type: 'browse', step: -1 }])
+    })
+
+    // Floor 12: the buttons are inert while a forest is forging.
+    it('disables browsing in flight, and the handler ignores presses', async () => {
+      await render(run(withSaved(), { type: 'forge' }))
+      expect(next().getAttribute('aria-disabled')).toBe('true')
+      next().click()
+      expect(events).toEqual([])
+    })
+
+    it('hides the browser when only the shown forest is saved', async () => {
+      await render(withSaved(shown(), [copy(forest)]))
+      expect(browser()).toBeNull()
+    })
+
+    it('without a position, says how many are saved', async () => {
+      await render(withSaved(shown(), [copy(other), copy(other)]))
+      expect(text($('[data-testid="forest-saved-position"]'))).toBe('2 saved forests')
+    })
+
+    it('announces the forest a press brings in, and leaves a closed sheet closed', async () => {
+      await render(withSaved())
+      el.sheetOpen = false
+      await el.updateComplete
+      await render(run(withSaved(), { type: 'browse', step: 1 }))
+      expect(text($('[role="status"]'))).toBe('Saved forest 3 of 3: 2 metaphors, 2 live.')
+      expect(el.hasAttribute('sheet-open')).toBe(false)
+    })
+  })
+
   describe('phone sheet', () => {
     it('renders the sheet toggle only while there is a list', async () => {
       expect($('[data-testid="forest-sheet-toggle"]')).toBeNull()

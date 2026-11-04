@@ -82,6 +82,18 @@ forest-found = { $n ->
     [one] 1 is live.
    *[other] { $live } are live.
   }
+forest-saved-label = Saved forests
+forest-saved-position = Saved forest { $index } of { $total }
+forest-saved-count = { $total ->
+    [one] 1 saved forest
+   *[other] { $total } saved forests
+  }
+forest-saved-prev = Previous saved forest
+forest-saved-next = Next saved forest
+forest-browsed = Saved forest { $index } of { $total }: { $n ->
+    [one] 1 metaphor
+   *[other] { $n } metaphors
+  }, { $live } live.
 forest-empty = No metaphors passed the quality check for “{ $word }” this time. The forge tried { $generated } and kept none. Press Forge to try again, or look up another word.
 forest-empty-kept = The new forest had no metaphors that passed the quality check, so your last forest is still shown. Press New forest to try again.
 forest-cancelled = Forging stopped.
