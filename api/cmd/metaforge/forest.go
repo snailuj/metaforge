@@ -2,8 +2,10 @@ package main
 
 import (
 	"log/slog"
+	"math"
 	"os"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -11,6 +13,7 @@ import (
 	"github.com/snailuj/metaforge/internal/forestcache"
 	"github.com/snailuj/metaforge/internal/handler"
 	"github.com/snailuj/metaforge/internal/llm"
+	"github.com/snailuj/metaforge/internal/llmlog"
 )
 
 const (
@@ -21,6 +24,9 @@ const (
 	defaultForestMaxConcurrent = 4
 	defaultForestPerMinute     = 30
 	defaultForestPoolSize      = 10
+	// defaultWeeklyBudgetUSD caps all recorded model spend, live users and
+	// enrichment together, over a rolling week (owner, 2026-11-04).
+	defaultWeeklyBudgetUSD = 20.0
 
 	// forestWriteTimeout must exceed handler.ForestRequestTimeout so a
 	// request that uses its whole deadline can still write its 504.
@@ -37,6 +43,8 @@ type forestSettings struct {
 	APIKey        string
 	CachePath     string // empty disables the forest cache
 	PoolSize      int    // forests kept per (word, max_hops)
+	LedgerPath    string // empty: model calls are not recorded and spend is uncapped
+	WeeklyCapUSD  float64
 }
 
 func loadForestSettings() forestSettings {
@@ -54,7 +62,23 @@ func loadForestSettings() forestSettings {
 		APIKey:        os.Getenv("ANTHROPIC_API_KEY"),
 		CachePath:     os.Getenv("METAFORGE_FOREST_CACHE"),
 		PoolSize:      boundedEnvInt("METAFORGE_FOREST_POOL_SIZE", defaultForestPoolSize, 1, 1000),
+		LedgerPath:    os.Getenv("METAFORGE_LLM_LOG"),
+		WeeklyCapUSD:  budgetEnv("METAFORGE_WEEKLY_BUDGET_USD", defaultWeeklyBudgetUSD),
 	}
+}
+
+// budgetEnv reads a non-negative USD amount; zero switches the cap off.
+func budgetEnv(key string, fallback float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f < 0 || math.IsNaN(f) || math.IsInf(f, 0) {
+		slog.Warn("env var is not a USD amount, using default", "key", key, "value", v, "default", fallback)
+		return fallback
+	}
+	return f
 }
 
 // validEffortEnv returns the env value if it is a known effort level, else
@@ -83,18 +107,49 @@ func boundedEnvInt(key string, fallback, lo, hi int) int {
 // and answers 503, except that a cache keeps serving the forests it holds.
 func newForestHandler(s forestSettings) *handler.ForestHandler {
 	limiter := forest.NewLimiter(s.MaxConcurrent, s.PerMinute, time.Now)
+	ledger, ledgerOK := openLedger(s)
 	var h *handler.ForestHandler
-	if s.APIKey == "" {
+	switch {
+	case s.APIKey == "":
 		slog.Warn("ANTHROPIC_API_KEY is empty: /forge/forest will answer 503 except for cached forests")
 		h = handler.NewForestHandler(nil, limiter)
-	} else {
-		svc := forest.NewService(llm.NewAnthropic(option.WithAPIKey(s.APIKey)), s.Config)
+	case !ledgerOK:
+		slog.Error("llm call log will not open: /forge/forest serves cached forests only", "path", s.LedgerPath)
+		h = handler.NewForestHandler(nil, limiter)
+	default:
+		opts := []option.RequestOption{option.WithAPIKey(s.APIKey)}
+		if ledger != nil {
+			opts = append(opts, option.WithMiddleware(ledger.Middleware()))
+		}
+		svc := forest.NewService(llm.NewAnthropic(opts...), s.Config)
 		h = handler.NewForestHandler(svc, limiter)
+	}
+	if ledger != nil {
+		h.Ledger = ledger
+		h.Budget = llmlog.NewBudget(ledger, s.WeeklyCapUSD, time.Now)
+		h.Fingerprint = forest.Fingerprint(s.Config)
+		slog.Info("model spend capped", "weekly_cap_usd", s.WeeklyCapUSD, "window", llmlog.BudgetWindow.String())
 	}
 	if cache := openForestCache(s); cache != nil {
 		h.Cache = cache
 	}
 	return h
+}
+
+// openLedger returns ok false only when a path is set and will not open:
+// generation must then stop, since spend could be neither kept nor capped.
+// No path (local development) records nothing and caps nothing.
+func openLedger(s forestSettings) (*llmlog.Store, bool) {
+	if s.LedgerPath == "" {
+		slog.Warn("METAFORGE_LLM_LOG is unset: model calls are not recorded and spend is not capped")
+		return nil, true
+	}
+	store, err := llmlog.Open(s.LedgerPath)
+	if err != nil {
+		slog.Error("llm call log unavailable", "path", s.LedgerPath, "err", err)
+		return nil, false
+	}
+	return store, true
 }
 
 // openForestCache returns nil when no path is set or the file will not

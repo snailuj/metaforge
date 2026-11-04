@@ -16,6 +16,7 @@ var forestEnvVars = []string{
 	"METAFORGE_FOREST_EFFORT", "METAFORGE_FOREST_MIN_SCORE", "METAFORGE_FOREST_MIN_PATHS",
 	"METAFORGE_FOREST_MAX_CONCURRENT", "METAFORGE_FOREST_PER_MINUTE",
 	"METAFORGE_FOREST_CACHE", "METAFORGE_FOREST_POOL_SIZE",
+	"METAFORGE_LLM_LOG", "METAFORGE_WEEKLY_BUDGET_USD",
 }
 
 // clearForestEnv blanks every variable so no test depends on the ambient
@@ -37,6 +38,7 @@ func TestLoadForestSettingsDefaults(t *testing.T) {
 		MaxConcurrent: 4,
 		PerMinute:     30,
 		PoolSize:      10,
+		WeeklyCapUSD:  20,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)
@@ -65,6 +67,7 @@ func TestLoadForestSettingsFromEnv(t *testing.T) {
 		APIKey:        "sk-test",
 		CachePath:     "/var/lib/forest.db",
 		PoolSize:      5,
+		WeeklyCapUSD:  20,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)
@@ -196,5 +199,57 @@ func TestForestHandlerRunsWithoutUnopenableCache(t *testing.T) {
 	h.HandleForest(w, httptest.NewRequest("GET", "/forge/forest?word=", nil))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want the configured route's 400", w.Code)
+	}
+}
+
+// Rule: with a call log configured, every model call is recorded and the
+// weekly cap is enforced from it.
+func TestForestHandlerOpensCallLogAndBudget(t *testing.T) {
+	clearForestEnv(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	path := filepath.Join(t.TempDir(), "llm_calls.db")
+	t.Setenv("METAFORGE_LLM_LOG", path)
+	t.Setenv("METAFORGE_WEEKLY_BUDGET_USD", "12.5")
+
+	s := loadForestSettings()
+	if s.LedgerPath != path || s.WeeklyCapUSD != 12.5 {
+		t.Fatalf("settings %+v", s)
+	}
+	h := newForestHandler(s)
+	if h.Ledger == nil || h.Budget == nil || h.Fingerprint == "" {
+		t.Fatalf("ledger %v budget %v fingerprint %q", h.Ledger, h.Budget, h.Fingerprint)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("call log not created: %v", err)
+	}
+}
+
+// Rule: a call log that is configured but will not open stops generation,
+// since spend could no longer be capped or kept.
+func TestForestHandlerRefusesToGenerateWithoutItsCallLog(t *testing.T) {
+	clearForestEnv(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	t.Setenv("METAFORGE_LLM_LOG", filepath.Join(t.TempDir(), "missing-dir", "llm_calls.db"))
+
+	h := newForestHandler(loadForestSettings())
+	w := httptest.NewRecorder()
+	h.HandleForest(w, httptest.NewRequest("GET", "/forge/forest?word=anger", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", w.Code)
+	}
+}
+
+func TestWeeklyBudgetRejectsNonsense(t *testing.T) {
+	for _, v := range []string{"abc", "-3", "NaN", "Inf"} {
+		clearForestEnv(t)
+		t.Setenv("METAFORGE_WEEKLY_BUDGET_USD", v)
+		if got := loadForestSettings().WeeklyCapUSD; got != 20 {
+			t.Errorf("%q gave cap %v, want the default 20", v, got)
+		}
+	}
+	clearForestEnv(t)
+	t.Setenv("METAFORGE_WEEKLY_BUDGET_USD", "0")
+	if got := loadForestSettings().WeeklyCapUSD; got != 0 {
+		t.Errorf("0 must switch the cap off, got %v", got)
 	}
 }
