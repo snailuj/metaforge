@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { lookupWord, autocompleteWord, ApiError, fetchForest, streamForest, ForestError, type ForestStreamEvent } from './client'
+import { lookupWord, autocompleteWord, ApiError, fetchForest, fetchSavedForests, streamForest, ForestError, type ForestStreamEvent } from './client'
 import patienceForest from '@/fixtures/forest-patience.json'
 
 beforeEach(() => {
@@ -457,5 +457,36 @@ describe('streamForest', () => {
     expect(err).toBeInstanceOf(DOMException)
     expect(err.name).toBe('AbortError')
     expect(cancelled).toBe(true)
+  })
+})
+
+describe('fetchSavedForests', () => {
+  const response = (status: number, body: unknown) => ({
+    ok: status < 400, status, headers: new Headers(), json: () => Promise.resolve(body),
+  })
+
+  it('asks the read-only route for the word and steps, and returns the forests in order', async () => {
+    const second = { ...patienceForest, model: 'second' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, { forests: [patienceForest, second] })))
+    const forests = await fetchSavedForests('dormant seed', 4)
+    expect(fetch).toHaveBeenCalledWith('/forge/forest/saved?word=dormant%20seed&max_hops=4', { signal: undefined })
+    expect(forests.map(f => f.model)).toEqual([patienceForest.model, 'second'])
+  })
+
+  // Rule: one broken saved forest never hides the others.
+  it('drops forests that break the contract and keeps the rest', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, { forests: [{ nope: 1 }, patienceForest] })))
+    expect(await fetchSavedForests('patience', 3)).toEqual([patienceForest])
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a failed status', response(500, { error: 'x' })],
+    ['a body without a list', response(200, { forests: 'no' })],
+  ])('rejects with a ForestError on %s', async (_, res) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res))
+    await expect(fetchSavedForests('patience', 3)).rejects.toBeInstanceOf(ForestError)
   })
 })
