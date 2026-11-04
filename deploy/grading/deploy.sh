@@ -11,6 +11,14 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 # not a second user, is what confines it). The secret file is therefore owned by agent.
 SIDECAR_USER="${SIDECAR_USER:-agent}"
 
+# The unit pins its code and venv to .worktrees/next, so only that checkout can
+# build the right venv. (ALLOW_ANY_CHECKOUT=1 skips this, for a trial install.)
+LIVE_CODE=/home/agent/projects/metaforge/.worktrees/next
+if [ "${ALLOW_ANY_CHECKOUT:-0}" != 1 ] && [ "$REPO_ROOT" != "$LIVE_CODE" ]; then
+    echo "ERROR: run this from ${LIVE_CODE} (merged and pulled), not ${REPO_ROOT}." >&2
+    exit 1
+fi
+
 # The data lives in a standalone clone outside the repo (see the unit). Without it
 # the unit's BindPaths= fails the start, so fail here with the fix instead.
 DATA_CLONE=/home/agent/projects/metaforge-grading-data
