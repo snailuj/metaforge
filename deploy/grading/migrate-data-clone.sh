@@ -2,18 +2,26 @@
 # One-off cutover: move grading data from the .worktrees/grading-data git worktree
 # to a standalone clone, then redeploy the sidecar with the sandboxed unit.
 #
-#   sudo deploy/grading/migrate-data-clone.sh      (from the .worktrees/next checkout)
+#   deploy/grading/migrate-data-clone.sh      (from .worktrees/next, as agent or root)
 #
 # Why: a worktree shares objects and refs with the main repo's .git, so the sidecar
-# needed write access to the whole repo. A --no-hardlinks clone shares nothing.
+# needed write access to the whole repo. A --no-hardlinks clone shares nothing, and
+# is owned by the sidecar's own user (metaforge-grading) once deploy.sh has run.
+#
+# Git work on agent's repos (the old worktree, the main repo, the new clone before
+# deploy.sh hands it over) runs as the worktree's owner via `sudo -u`, never as root.
 #
 # Idempotent: every step is safe to repeat, so a failed run is fixed by re-running.
-# The old worktree is committed up to date and left in place; it is never deleted.
-# The sidecar stays stopped while the data is moved, so there is a short gap in
-# grading (no way to detect a mid-write otherwise: stopping is what makes it safe).
+# The sidecar is stopped while the data moves (stopping is the only way to know no
+# write is mid-flight), so grading pauses briefly. If anything fails after the stop,
+# the previous unit is put back and started again automatically. The old worktree
+# is committed up to date and kept; it is detached from the branch on success so
+# deploy/grading/sync-data-to-repo.sh can fast-forward the branch later.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# shellcheck source=../lib/grading-host.sh
+. "${REPO_ROOT}/deploy/lib/grading-host.sh"
 # Overridable so deploy/grading/test-migrate-data-clone.sh can run against scratch trees.
 SRC_REPO="${MF_SRC_REPO:-/home/agent/projects/metaforge}"
 OLD_WT="${MF_OLD_WT:-${SRC_REPO}/.worktrees/grading-data}"
@@ -23,91 +31,137 @@ UNIT_BACKUP="${MF_UNIT_BACKUP:-${CLONE}.service.pre-migration}"
 DEPLOY="${MF_DEPLOY:-${REPO_ROOT}/deploy/grading/deploy.sh}"
 SECRET_FILE="${MF_SECRET_FILE:-/etc/metaforge/grading_secret}"
 BASE_URL="${MF_BASE_URL:-http://127.0.0.1:53775}"
+SIDECAR_USER="${MF_SIDECAR_USER:-metaforge-grading}"
 SERVICE=metaforge-grading
 BRANCH=grading-data
 SUBDIR=data-pipeline/grading
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
+die() { echo "ERROR: $*" >&2; exit 1; }
 
-rollback_help() {
-    cat >&2 <<EOT
-
-MIGRATION FAILED. The old worktree ${OLD_WT} is untouched and still holds every
-verdict up to the stop. To go back to the previous unit:
-  sudo systemctl stop ${SERVICE}
-  sudo cp ${UNIT_BACKUP} ${UNIT_FILE}     # the unit that was live before this run
+STOPPED=0 DONE=0
+# Runs on every exit. After the stop and before the cutover is verified, put the
+# previous unit back and start it, so a failed run never leaves grading down.
+on_exit() {
+    local rc=$?
+    trap - EXIT
+    if [ "$STOPPED" = 1 ] && [ "$DONE" != 1 ]; then
+        echo "" >&2
+        echo "MIGRATION FAILED (exit ${rc}). Restoring the previous sidecar." >&2
+        if [ -e "$UNIT_BACKUP" ] \
+           && as_user "$OWNER" git -C "$OLD_WT" checkout -q "$BRANCH" \
+           && sudo cp "$UNIT_BACKUP" "$UNIT_FILE" \
+           && sudo systemctl daemon-reload \
+           && sudo systemctl start "$SERVICE"; then
+            echo "Done: restored the previous unit from ${UNIT_BACKUP}, put ${OLD_WT} back on ${BRANCH}" >&2
+            echo "and started ${SERVICE}. Verdicts written to ${CLONE} since the stop are committed there only." >&2
+        else
+            cat >&2 <<EOT
+Automatic restore FAILED. By hand:
+  git -C ${OLD_WT} checkout ${BRANCH}
+  sudo cp ${UNIT_BACKUP} ${UNIT_FILE}
   sudo systemctl daemon-reload && sudo systemctl start ${SERVICE}
   curl -fsS ${BASE_URL}/api/grading/healthz
-(If the backup is missing, take the unit from git history: git show <commit before
-the sandbox change>:deploy/grading/metaforge-grading.service.) Verdicts written to
-the clone since the cutover are committed there; the old worktree will not have them.
-To retry instead, fix the cause and re-run this script.
 EOT
+        fi
+        echo "Fix the cause and re-run this script to retry." >&2
+    fi
+    exit "$rc"
 }
-trap rollback_help ERR
 
 # The unit runs code from .worktrees/next, so the venv and unit must come from there.
 if [ "${MF_SKIP_CHECKOUT_CHECK:-0}" != 1 ] && [ "$REPO_ROOT" != "${SRC_REPO}/.worktrees/next" ]; then
-    echo "ERROR: run this from ${SRC_REPO}/.worktrees/next (merged and pulled), not ${REPO_ROOT}." >&2
-    exit 1
+    die "run this from ${SRC_REPO}/.worktrees/next (merged and pulled), not ${REPO_ROOT}."
 fi
-[ -f "${OLD_WT}/.git" ] || { echo "ERROR: ${OLD_WT} is not a git worktree" >&2; exit 1; }
+[ -f "${OLD_WT}/.git" ] || die "${OLD_WT} is not a git worktree"
+OWNER="$(stat -c %U "$OLD_WT")"
+trap on_exit EXIT
 
-judgement_count() { # prints the sidecar's authenticated judgement_count
+# Line count per file under a dir (every file the sidecar might append to).
+inventory() { (cd "$1/${SUBDIR}" && find . -type f -print0 | sort -z | xargs -0 wc -l); }
+
+# What the sidecar's /stats reports: non-empty lines of the judgements file that parse.
+count_judgements() { # <dir>
+    as_user "$OWNER" python3 -c '
+import json, sys
+n = 0
+for raw in open(sys.argv[1], encoding="utf-8"):
+    raw = raw.strip()
+    if raw:
+        try: json.loads(raw); n += 1
+        except ValueError: pass
+print(n)' "$1/${SUBDIR}/judgements_provisional.jsonl"
+}
+
+stats_count() { # authenticated read-only GET, secret kept out of argv
     printf 'X-Grading-Secret: %s\n' "$(sudo cat "$SECRET_FILE")" \
         | curl -fsS -H @- -H 'Host: metaforge-next.julianit.me' "${BASE_URL}/api/grading/stats" \
         | python3 -c 'import json,sys; print(json.load(sys.stdin)["judgement_count"])'
 }
 
-log "1. Judgement count before the stop"
-BEFORE="$(judgement_count)"
-log "   ${BEFORE} judgements"
-
-log "2. Back up the live unit and stop the sidecar"
+log "1. Back up the live unit, then stop the sidecar"
 if [ ! -e "$UNIT_BACKUP" ]; then sudo cp "$UNIT_FILE" "$UNIT_BACKUP"; fi
+STOPPED=1
 sudo systemctl stop "$SERVICE"
 
-log "3. Commit anything the autocommit had not yet saved in ${OLD_WT}"
-git -C "$OLD_WT" add "${SUBDIR}/"
-if git -C "$OLD_WT" diff --cached --quiet; then
+log "2. Commit anything the autocommit had not yet saved in ${OLD_WT}"
+IDENT_N="$(as_user "$OWNER" git -C "$SRC_REPO" log -1 --format=%an "$BRANCH")"
+IDENT_E="$(as_user "$OWNER" git -C "$SRC_REPO" log -1 --format=%ae "$BRANCH")"
+as_user "$OWNER" git -C "$OLD_WT" add "${SUBDIR}/"
+if as_user "$OWNER" git -C "$OLD_WT" diff --cached --quiet; then
     log "   nothing to commit"
 else
-    git -C "$OLD_WT" commit -q -m "wip(grading): final autosave before data clone migration $(date -u +%FT%TZ)"
+    as_user "$OWNER" git -C "$OLD_WT" -c user.name="$IDENT_N" -c user.email="$IDENT_E" commit -q \
+        -m "wip(grading): final autosave before data clone migration $(date -u +%FT%TZ)"
 fi
+EXPECTED="$(count_judgements "$OLD_WT")"
+log "   ${EXPECTED} judgements in the old worktree"
 
-log "4. Create or update the clone ${CLONE}"
+log "3. Create or update the clone ${CLONE}"
 if [ ! -e "$CLONE" ]; then
-    git clone -q --no-hardlinks --branch "$BRANCH" --single-branch "$SRC_REPO" "$CLONE"
+    as_user "$OWNER" git clone -q --no-hardlinks --branch "$BRANCH" --single-branch "$SRC_REPO" "$CLONE"
+    CLONE_OWNER="$OWNER"
 else
-    [ -d "${CLONE}/.git" ] || { echo "ERROR: ${CLONE}/.git is not a directory: that is a worktree, not a clone" >&2; exit 1; }
-    git -C "$CLONE" pull -q --ff-only "$SRC_REPO" "$BRANCH"
+    [ -d "${CLONE}/.git" ] || die "${CLONE}/.git is not a directory: that is a worktree, not a clone"
+    CLONE_OWNER="$(stat -c %U "$CLONE")"   # the sidecar user after a deploy, agent before
+    as_user "$CLONE_OWNER" git -c safe.directory='*' -C "$CLONE" pull -q --ff-only "$SRC_REPO" "$BRANCH"
 fi
-git -C "$CLONE" rev-parse --is-inside-work-tree > /dev/null
-[ ! -e "${CLONE}/.git/objects/info/alternates" ] || { echo "ERROR: clone borrows objects from another repo" >&2; exit 1; }
+cgit() { as_user "$CLONE_OWNER" git -c safe.directory='*' -C "$CLONE" "$@"; }
+cgit rev-parse --is-inside-work-tree > /dev/null
+[ ! -e "${CLONE}/.git/objects/info/alternates" ] || die "clone borrows objects from another repo"
 
-log "5. Commit identity from the latest ${BRANCH} autocommit"
-git -C "$CLONE" config user.name "$(git -C "$SRC_REPO" log -1 --format=%an "$BRANCH")"
-git -C "$CLONE" config user.email "$(git -C "$SRC_REPO" log -1 --format=%ae "$BRANCH")"
+log "4. Commit identity from the latest ${BRANCH} autocommit"
+cgit config user.name "$IDENT_N"
+cgit config user.email "$IDENT_E"
 
-log "6. Check the clone holds every data file the worktree has"
-MISSING="$(comm -23 <(cd "${OLD_WT}/${SUBDIR}" && find . -type f | sort) <(cd "${CLONE}/${SUBDIR}" && find . -type f | sort))"
-if [ -n "$MISSING" ]; then
-    echo "ERROR: files in the worktree but not the clone (ignored by git?):" >&2
-    echo "$MISSING" >&2
-    exit 1
+log "5. Check the clone holds exactly the data the worktree has (every file, by line count)"
+if ! diff <(inventory "$OLD_WT") <(inventory "$CLONE") > /dev/null; then
+    diff <(inventory "$OLD_WT") <(inventory "$CLONE") >&2 || true
+    die "the clone and the worktree differ (see above; a file may be gitignored)"
 fi
 
-log "7. Redeploy the sidecar (venv, unit, restart, checks)"
+log "6. Redeploy the sidecar (user, ownership, venv, unit, restart, checks)"
 "$DEPLOY"
 
-log "8. Verify"
+log "7. Verify"
 curl -fsS "${BASE_URL}/api/grading/healthz"; echo
-AFTER="$(judgement_count)"
-if [ "$AFTER" != "$BEFORE" ]; then
-    echo "ERROR: judgement count was ${BEFORE} before the stop and is ${AFTER} now" >&2
-    exit 1
-fi
-log "   ${AFTER} judgements, unchanged"
+AFTER="$(stats_count)"
+[ "$AFTER" = "$EXPECTED" ] || die "the old worktree held ${EXPECTED} judgements and the sidecar now reports ${AFTER}"
+log "   ${AFTER} judgements, as expected"
+# Writes, as the sidecar user: what the autocommit and the judgement POSTs need. No
+# fake verdict is posted; these touch only scratch files and the index lock.
+as_user "$SIDECAR_USER" test -w "${CLONE}/.git/index" || die "${SIDECAR_USER} cannot write ${CLONE}/.git/index"
+for d in "${CLONE}/.git" "${CLONE}/${SUBDIR}"; do
+    as_user "$SIDECAR_USER" sh -c 'touch "$1/.mf-write-check" && rm "$1/.mf-write-check"' _ "$d" \
+        || die "${SIDECAR_USER} cannot write in ${d}"
+done
+as_user "$SIDECAR_USER" git -c safe.directory='*' -C "$CLONE" add -- "${SUBDIR}/" \
+    || die "${SIDECAR_USER} cannot run git add in the clone"
+log "   ${SIDECAR_USER} can write the clone"
 
-trap - ERR
-log "Done. The old worktree ${OLD_WT} is kept; remove it only once the clone has run a day."
+log "8. Detach the old worktree from ${BRANCH} (it is kept, not deleted)"
+as_user "$OWNER" git -C "$OLD_WT" checkout -q --detach
+
+DONE=1
+log "Done. Keep ${OLD_WT} until the clone has run a day. To bring verdicts back to the"
+log "repo's ${BRANCH} branch: deploy/grading/sync-data-to-repo.sh"

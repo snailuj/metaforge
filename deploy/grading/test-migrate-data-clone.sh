@@ -29,6 +29,8 @@ echo '{"a":3}' >> "${OLD}/data-pipeline/grading/judgements_provisional.jsonl"
 BIN="${T}/bin"; mkdir -p "$BIN"
 cat > "${BIN}/sudo" <<'EOS'
 #!/usr/bin/env bash
+# Records the user asked for (git work on agent's repos must be done as agent), then runs as us.
+if [ "${1:-}" = "-u" ]; then echo "as:$2 ${*:4}" >> "$FAKE_LOG"; shift 3; fi
 exec "$@"
 EOS
 cat > "${BIN}/systemctl" <<'EOS'
@@ -39,11 +41,12 @@ EOS
 # fake deploy runs, the clone afterwards.
 cat > "${BIN}/curl" <<'EOS'
 #!/usr/bin/env bash
+[ -t 0 ] || cat > /dev/null   # the real curl reads the header file from stdin
 case "$*" in
     *healthz*) echo '{"ok":true}' ;;
     *stats*)
         if [ -e "$FAKE_STATE/deployed" ]; then d="$MF_CLONE"; else d="$MF_OLD_WT"; fi
-        echo "{\"judgement_count\": $(wc -l < "$d/data-pipeline/grading/judgements_provisional.jsonl")}" ;;
+        echo "{\"judgement_count\": $(grep -c . "$d/data-pipeline/grading/judgements_provisional.jsonl")}" ;;
 esac
 EOS
 cat > "${T}/deploy.sh" <<'EOS'
@@ -56,7 +59,8 @@ echo secret > "${T}/secret"; echo "[Service]" > "${T}/unit.service"
 
 export PATH="${BIN}:${PATH}" FAKE_LOG="${T}/log" FAKE_STATE="${T}/state"
 export MF_SRC_REPO="$SRC" MF_OLD_WT="$OLD" MF_CLONE="${T}/clone" MF_UNIT_FILE="${T}/unit.service" \
-       MF_DEPLOY="${T}/deploy.sh" MF_SECRET_FILE="${T}/secret" MF_SKIP_CHECKOUT_CHECK=1
+       MF_DEPLOY="${T}/deploy.sh" MF_SECRET_FILE="${T}/secret" MF_SKIP_CHECKOUT_CHECK=1 \
+       MF_SIDECAR_USER="$(id -un)"
 mkdir -p "$FAKE_STATE"; : > "$FAKE_LOG"
 RUN() { "${HERE}/migrate-data-clone.sh"; }
 
@@ -92,6 +96,53 @@ cat > "${T}/deploy.sh" <<'EOS'
 touch "$FAKE_STATE/deployed"; echo '{"a":9}' >> "$MF_CLONE/data-pipeline/grading/judgements_provisional.jsonl"
 EOS
 RUN >/dev/null 2>&1 && fail "accepted a changed count" || ok "changed count refused"
+
+git -C "$MF_CLONE" checkout -q -- . ; git -C "$MF_CLONE" clean -fdq   # undo the previous case
+echo "== git on agent-owned repos runs as agent, not as root"
+grep -q "^as:$(id -un) git" "$FAKE_LOG" && ok "git ran via sudo -u owner" || fail "git ran as the invoking user"
+
+echo "== failed deploy puts the old unit back and restarts it"
+rm -f "${FAKE_STATE}/deployed"; echo "OLD UNIT" > "${T}/unit.service"; rm -f "${MF_CLONE}.service.pre-migration"
+cat > "${T}/deploy.sh" <<'EOS'
+#!/usr/bin/env bash
+echo "NEW UNIT" > "$MF_UNIT_FILE"; exit 1
+EOS
+: > "$FAKE_LOG"
+OUT="$(RUN 2>&1)" && fail "ignored a failed deploy" || ok "run fails"
+[ "$(cat "${T}/unit.service")" = "OLD UNIT" ] && ok "previous unit restored" || fail "unit not restored: $(cat "${T}/unit.service")"
+grep -q "systemctl start metaforge-grading" "$FAKE_LOG" && ok "sidecar started again" || fail "sidecar left stopped"
+grep -q "restored the previous unit" <<<"$OUT" && ok "says what it did" || fail "silent about the restore"
+
+echo "== an explicit exit after the stop also restarts the sidecar"
+rm -f "${FAKE_STATE}/deployed" "${MF_CLONE}.service.pre-migration"; : > "$FAKE_LOG"
+chmod 000 "${MF_CLONE}/data-pipeline/grading/judgements_provisional.jsonl"  # step 6 cannot read it
+RUN >/dev/null 2>&1 && fail "run succeeded" || ok "run fails"
+chmod 644 "${MF_CLONE}/data-pipeline/grading/judgements_provisional.jsonl"
+grep -q "systemctl start metaforge-grading" "$FAKE_LOG" && ok "sidecar started again" || fail "sidecar left stopped"
+
+echo "== every appended file is compared, not just the judgements"
+rm -f "${FAKE_STATE}/deployed" "${MF_CLONE}.service.pre-migration"; echo "OLD UNIT" > "${T}/unit.service"
+echo "note" >> "${OLD}/data-pipeline/grading/design_notes_provisional.md"
+git -C "$OLD" add -A data-pipeline >/dev/null; git -C "$OLD" commit -q -m notes
+echo "extra" >> "${MF_CLONE}/data-pipeline/grading/design_notes_provisional.md"   # clone diverges on a non-judgement file
+cat > "${T}/deploy.sh" <<'EOS'
+#!/usr/bin/env bash
+touch "$FAKE_STATE/deployed"
+EOS
+RUN >/dev/null 2>&1 && fail "accepted a clone with different notes" || ok "different line counts refused"
+git -C "$MF_CLONE" checkout -q -- . ; git -C "$MF_CLONE" clean -fdq
+
+echo "== the write check fails when the sidecar user cannot write the clone"
+rm -f "${FAKE_STATE}/deployed" "${MF_CLONE}.service.pre-migration"
+git -C "$MF_CLONE" pull -q --ff-only "$SRC" grading-data
+chmod a-w "${MF_CLONE}/data-pipeline/grading"
+RUN >/dev/null 2>&1 && fail "accepted an unwritable data dir" || ok "unwritable data dir refused"
+chmod u+w "${MF_CLONE}/data-pipeline/grading"
+
+echo "== a good run detaches the old worktree so the branch can be fast-forwarded"
+rm -f "${FAKE_STATE}/deployed" "${MF_CLONE}.service.pre-migration"
+RUN >/dev/null 2>&1 && ok "run succeeds" || fail "good run failed"
+[ "$(git -C "$OLD" rev-parse --abbrev-ref HEAD)" = HEAD ] && ok "old worktree detached" || fail "old worktree still on the branch"
 
 echo ""
 if [ "$FAILS" -eq 0 ]; then echo "All tests passed."; else echo "${FAILS} test(s) failed."; exit 1; fi

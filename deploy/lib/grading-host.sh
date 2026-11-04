@@ -43,3 +43,11 @@ strip_env_keys() { # <file> <KEY>...
         fi
     done
 }
+
+# Run a command as another user with that user's home and group list, so git work on
+# agent's repos is done as agent even when a script runs under `sudo` (root-owned
+# objects in agent's .git would break its own git later).
+as_user() { # <user> <cmd>...
+    local u="$1"; shift
+    sudo -u "$u" -H "$@"
+}
