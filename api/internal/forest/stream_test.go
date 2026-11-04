@@ -19,16 +19,16 @@ import (
 // fakeStreamer streams generator answers in small chunks and answers judge
 // calls from a score per line, so concurrent judge calls need no ordering.
 type fakeStreamer struct {
-	mu        sync.Mutex
-	gens      []fakeResult // generator answers, in order
-	genCalls  int
-	scores    map[string]int   // line -> score; a missing line gets 0
-	judgeErrs map[string]error // judge fails when its message holds this line
-	chunk     int
-	sent      int // chunks handed to onText so far, read by emit hooks
-	judges    []llm.Request
-	overlap   int // when set, each judge call waits until this many have started
-	started   int // judge calls started so far
+	mu                        sync.Mutex
+	gens                      []fakeResult // generator answers, in order
+	genCalls                  int
+	scores                    map[string]int   // line -> score; a missing line gets 0
+	judgeErrs                 map[string]error // judge fails when its message holds this line
+	chunk                     int
+	sent                      int // chunks handed to onText so far, read by emit hooks
+	judges                    []llm.Request
+	overlap                   int // when set, each judge call waits until this many have started
+	started                   int // judge calls started so far
 	streamLabels, judgeLabels []string
 }
 
