@@ -1,0 +1,30 @@
+[Unit]
+Description=Metaforge metaphor enrichment (grows the forest cache under the weekly budget)
+After=network.target metaforge-api.service
+Wants=metaforge-api.service
+
+[Service]
+Type=simple
+User=agent
+WorkingDirectory=__WORKTREE__
+# Talks only to the production API, which holds the key, the cap and the
+# ledger; this process never sees ANTHROPIC_API_KEY.
+ExecStart=__WORKTREE__/api/enrich \
+    -api http://127.0.0.1:8080 \
+    -lexicon __WORKTREE__/data-pipeline/output/lexicon_v2.db \
+    -top 5000 \
+    -passes 10 \
+    -reserve 5 \
+    -state /var/lib/metaforge/enrich_state.json
+# Exits 0 when its passes are done; restarts only after a failure.
+Restart=on-failure
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=metaforge-enrich
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/metaforge
+
+[Install]
+WantedBy=multi-user.target

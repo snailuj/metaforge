@@ -43,6 +43,7 @@ data-pipeline/input/brysbaert-concreteness/
 
 # Go
 api/metaforge
+api/enrich
 
 # Python
 __pycache__/

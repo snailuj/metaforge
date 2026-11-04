@@ -88,6 +88,18 @@ func (s *Store) Random(ctx context.Context, word string, maxHops int) (forest.Fo
 	return f, true, nil
 }
 
+// Full reports whether the pool already holds poolSize forests, so another
+// would only evict one.
+func (s *Store) Full(ctx context.Context, word string, maxHops int) (bool, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM forests WHERE version = ? AND word = ? AND max_hops = ?`,
+		s.version, word, maxHops).Scan(&n); err != nil {
+		return false, fmt.Errorf("count cached forests for %q: %w", word, err)
+	}
+	return n >= s.poolSize, nil
+}
+
 // Add stores f and drops the pool's oldest forests beyond poolSize, in one
 // transaction.
 func (s *Store) Add(ctx context.Context, word string, maxHops int, f forest.Forest) error {

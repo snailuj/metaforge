@@ -13,24 +13,29 @@ import (
 	"time"
 
 	"github.com/snailuj/metaforge/internal/llm"
+	"github.com/snailuj/metaforge/internal/llmlog"
 )
 
 // fakeStreamer streams generator answers in small chunks and answers judge
 // calls from a score per line, so concurrent judge calls need no ordering.
 type fakeStreamer struct {
-	mu        sync.Mutex
-	gens      []fakeResult // generator answers, in order
-	genCalls  int
-	scores    map[string]int   // line -> score; a missing line gets 0
-	judgeErrs map[string]error // judge fails when its message holds this line
-	chunk     int
-	sent      int // chunks handed to onText so far, read by emit hooks
-	judges    []llm.Request
-	overlap   int // when set, each judge call waits until this many have started
-	started   int // judge calls started so far
+	mu                        sync.Mutex
+	gens                      []fakeResult // generator answers, in order
+	genCalls                  int
+	scores                    map[string]int   // line -> score; a missing line gets 0
+	judgeErrs                 map[string]error // judge fails when its message holds this line
+	chunk                     int
+	sent                      int // chunks handed to onText so far, read by emit hooks
+	judges                    []llm.Request
+	overlap                   int // when set, each judge call waits until this many have started
+	started                   int // judge calls started so far
+	streamLabels, judgeLabels []string
 }
 
 func (f *fakeStreamer) Complete(ctx context.Context, req llm.Request) (llm.Response, error) {
+	f.mu.Lock()
+	f.judgeLabels = append(f.judgeLabels, llmlog.LabelFrom(ctx))
+	f.mu.Unlock()
 	if req.System != JudgeSystemPrompt {
 		return llm.Response{}, errors.New("generator must stream")
 	}
@@ -60,6 +65,7 @@ func (f *fakeStreamer) Complete(ctx context.Context, req llm.Request) (llm.Respo
 
 func (f *fakeStreamer) Stream(ctx context.Context, req llm.Request, onText func(string)) (llm.Response, error) {
 	f.mu.Lock()
+	f.streamLabels = append(f.streamLabels, llmlog.LabelFrom(ctx))
 	r := f.gens[f.genCalls]
 	f.genCalls++
 	f.mu.Unlock()
@@ -533,5 +539,21 @@ func TestStreamGeneratorErrorIsReturned(t *testing.T) {
 	f := &fakeStreamer{gens: []fakeResult{{err: context.DeadlineExceeded}}}
 	if _, _, err := runStream(t, f, 3, nil); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("err = %v, want DeadlineExceeded", err)
+	}
+}
+
+func TestStreamLabelsItsCalls(t *testing.T) {
+	f := &fakeStreamer{gens: []fakeResult{ok(generatedJSON, 1, 1, 0)}, scores: streamScores}
+	if _, _, err := runStream(t, f, 3, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.streamLabels) != 1 || f.streamLabels[0] != "forest_generate" {
+		t.Errorf("stream labels %v", f.streamLabels)
+	}
+	for _, l := range f.judgeLabels {
+		if l != "forest_judge" {
+			t.Errorf("judge labels %v", f.judgeLabels)
+			break
+		}
 	}
 }

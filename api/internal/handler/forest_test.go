@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/snailuj/metaforge/internal/forest"
+	"github.com/snailuj/metaforge/internal/llmlog"
 )
 
 type fakeForestGen struct {
@@ -26,6 +27,7 @@ type fakeForestGen struct {
 	panicWith any           // when set, Generate panics with it
 	block     chan struct{} // when set, Generate waits on it or on ctx
 	started   chan struct{} // when set, receives one value as Generate begins
+	run       llmlog.RunInfo
 }
 
 func (f *fakeForestGen) Generate(ctx context.Context, word string, maxHops int) (forest.Forest, error) {
@@ -35,6 +37,7 @@ func (f *fakeForestGen) Generate(ctx context.Context, word string, maxHops int) 
 	}
 	f.word, f.maxHops = word, maxHops
 	f.deadline, f.hasDL = ctx.Deadline()
+	f.run, _ = llmlog.RunFrom(ctx)
 	if f.started != nil {
 		f.started <- struct{}{}
 	}

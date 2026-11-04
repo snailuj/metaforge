@@ -142,7 +142,9 @@ func main() {
 
 	r.Get("/forge/suggest", h.HandleSuggest)
 	forestCfg := loadForestSettings()
-	r.Get("/forge/forest", newForestHandler(forestCfg).HandleForest)
+	forestH := newForestHandler(forestCfg)
+	r.Get("/forge/forest", forestH.HandleForest)
+	r.Method("GET", "/forge/budget", &handler.BudgetHandler{Budget: forestH.Budget})
 	r.Get("/thesaurus/lookup", h.HandleLookup)
 	r.Get("/thesaurus/autocomplete", h.HandleAutocomplete)
 	r.Get("/strings/*", h.HandleStrings)
@@ -165,7 +167,8 @@ func main() {
 		"forest_model", forestCfg.Config.Model, "forest_judge_model", forestCfg.Config.JudgeModel,
 		"forest_effort", forestCfg.Config.Effort, "forest_min_score", forestCfg.Config.MinScore, "forest_min_paths", forestCfg.Config.MinPaths,
 		"forest_max_concurrent", forestCfg.MaxConcurrent, "forest_per_minute", forestCfg.PerMinute,
-		"forest_configured", forestCfg.APIKey != "", "forest_cache", forestCfg.CachePath, "forest_pool_size", forestCfg.PoolSize)
+		"forest_configured", forestCfg.APIKey != "", "forest_cache", forestCfg.CachePath, "forest_pool_size", forestCfg.PoolSize,
+		"llm_log", forestCfg.LedgerPath, "weekly_budget_usd", forestCfg.WeeklyCapUSD)
 
 	srv := &http.Server{
 		Addr:         addr,

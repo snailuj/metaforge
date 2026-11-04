@@ -13,6 +13,7 @@ import (
 	"log/slog"
 
 	"github.com/snailuj/metaforge/internal/llm"
+	"github.com/snailuj/metaforge/internal/llmlog"
 	"github.com/snailuj/metaforge/internal/observe"
 )
 
@@ -25,11 +26,13 @@ type fakeResult struct {
 type fakeLLM struct {
 	results []fakeResult
 	calls   []llm.Request
+	labels  []string
 	panicOn string // when set, Complete panics with this value
 }
 
-func (f *fakeLLM) Complete(_ context.Context, req llm.Request) (llm.Response, error) {
+func (f *fakeLLM) Complete(ctx context.Context, req llm.Request) (llm.Response, error) {
 	f.calls = append(f.calls, req)
+	f.labels = append(f.labels, llmlog.LabelFrom(ctx))
 	if f.panicOn != "" {
 		panic(f.panicOn)
 	}
@@ -450,5 +453,18 @@ func TestServiceReturnsDeadlineFromRetry(t *testing.T) {
 	_, err := s.Generate(context.Background(), "patience", 3)
 	if !errors.Is(err, context.DeadlineExceeded) || len(f.calls) != 2 {
 		t.Errorf("err=%v calls=%d, want DeadlineExceeded after 2 calls", err, len(f.calls))
+	}
+}
+
+// Rule: each model call carries the step it serves, so the call log can
+// tell generator rows from judge rows.
+func TestGenerateLabelsItsCalls(t *testing.T) {
+	f := &fakeLLM{results: []fakeResult{ok(generatedJSON, 1, 1, 0), ok(`{"verdicts":[]}`, 1, 1, 0)}}
+	s, _ := testService(f)
+	if _, err := s.Generate(context.Background(), "patience", 3); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(f.labels, ",") != "forest_generate,forest_judge" {
+		t.Fatalf("labels %v", f.labels)
 	}
 }

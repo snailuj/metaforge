@@ -85,6 +85,8 @@ echo ""
 
 # 7. Reload services
 echo "--- Reload services ---"
+# Shared model-call ledger; a unit whose ReadWritePaths is missing fails to start.
+sudo install -d -o agent -g agent -m 0750 /var/lib/metaforge
 sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE_NAME}"
 sudo systemctl restart "${SERVICE_NAME}"

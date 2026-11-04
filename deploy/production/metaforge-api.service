@@ -11,6 +11,9 @@ WorkingDirectory=__WORKTREE__
 EnvironmentFile=-/etc/metaforge/forest.env
 # Pool of finished forests per word, served by Forge without a model call.
 Environment=METAFORGE_FOREST_CACHE=__WORKTREE__/data-pipeline/output/forest_cache.db
+# Every model call, kept forever, shared by staging and production: the
+# weekly cap (METAFORGE_WEEKLY_BUDGET_USD, default 20) covers both.
+Environment=METAFORGE_LLM_LOG=/var/lib/metaforge/llm_calls.db
 ExecStart=__WORKTREE__/api/metaforge \
     -port 8080 \
     -db __WORKTREE__/data-pipeline/output/lexicon_v2.db \
@@ -23,7 +26,7 @@ StandardError=journal
 SyslogIdentifier=metaforge-api
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=__WORKTREE__/data-pipeline/output
+ReadWritePaths=__WORKTREE__/data-pipeline/output /var/lib/metaforge
 
 [Install]
 WantedBy=multi-user.target
