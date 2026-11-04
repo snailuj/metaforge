@@ -140,3 +140,38 @@ func TestWindowedLimiterRefillsOverItsWindow(t *testing.T) {
 		t.Error("two tokens back after window/perWindow")
 	}
 }
+
+// Rule: a limiter set to fail open admits a new visitor when its table is
+// full, but still limits visitors it tracks; the default fails closed.
+func TestFailOpenLimiterAdmitsNewVisitorsWhenFull(t *testing.T) {
+	clock := newFakeClock()
+	for _, tc := range []struct {
+		name    string
+		limiter *VisitorLimiter
+		wantNew bool
+	}{
+		{"fail closed", NewWindowedLimiter("test", 1, 2, time.Minute, clock.Now), false},
+		{"fail open", NewWindowedLimiter("test", 1, 2, time.Minute, clock.Now).FailOpenWhenFull(), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := tc.limiter
+			l.Take("203.0.113.1")
+			l.Take("203.0.113.2")
+			if l.Tracked() != 2 {
+				t.Fatalf("setup: %d tracked, want a full table of 2", l.Tracked())
+			}
+
+			_, _, ok := l.Take("203.0.113.3")
+
+			if ok != tc.wantNew {
+				t.Errorf("new visitor admitted = %v, want %v", ok, tc.wantNew)
+			}
+			if _, _, ok := l.Take("203.0.113.1"); ok {
+				t.Error("a tracked visitor past its allowance was admitted")
+			}
+			if l.Tracked() != 2 {
+				t.Errorf("table grew to %d", l.Tracked())
+			}
+		})
+	}
+}

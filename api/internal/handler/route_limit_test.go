@@ -154,3 +154,26 @@ func (c *stepClock) Now() time.Time          { return c.t }
 func (c *stepClock) Advance(d time.Duration) { c.t = c.t.Add(d) }
 
 func countLines(out, sub string) int { return strings.Count(out, sub) }
+
+// Rule: a full visitor table never turns a new visitor away from a read
+// route, and still turns one away from forest generation.
+func TestFullVisitorTableFailsOpenOnReadRoutesOnly(t *testing.T) {
+	read := forest.NewWindowedLimiter("lookup", 1, 1, time.Minute, fixedClock()).FailOpenWhenFull()
+	readRoute := VisitorRateLimit("lookup", read, fixedClock())(okHandler)
+	serveOnce(readRoute, fromAddr("203.0.113.1")) // fills the one-visitor table
+	if w := serveOnce(readRoute, fromAddr("198.51.100.9")); w.Code != http.StatusOK {
+		t.Errorf("new visitor on a read route with a full table: status %d", w.Code)
+	}
+	if w := serveOnce(readRoute, fromAddr("203.0.113.1")); w.Code != http.StatusTooManyRequests {
+		t.Errorf("tracked visitor past its allowance: status %d, want 429", w.Code)
+	}
+
+	h := newForestTestHandler(&fakeForestGen{}, 100, 100)
+	h.Visitors = forest.NewVisitorLimiter(1, 1, fixedClock())
+	if w := viaProxy(h, "word=anger", "203.0.113.1", nil); w.Code != http.StatusOK {
+		t.Fatalf("setup: first generation status %d", w.Code)
+	}
+	if w := viaProxy(h, "word=anger", "198.51.100.9", nil); w.Code != http.StatusTooManyRequests {
+		t.Errorf("new visitor on generation with a full table: status %d, want 429", w.Code)
+	}
+}

@@ -24,6 +24,7 @@ type VisitorLimiter struct {
 	allowance   int
 	window      time.Duration
 	maxVisitors int
+	failOpen    bool
 	now         func() time.Time
 
 	mu        sync.Mutex
@@ -57,6 +58,15 @@ func NewWindowedLimiter(name string, perWindow, maxVisitors int, window time.Dur
 	}
 }
 
+// FailOpenWhenFull makes the limiter admit, unchecked, a new visitor that
+// finds the table full, instead of refusing. For free read routes behind
+// another cap: a flood of addresses must not lock real users out of them.
+// Forest generation keeps the default, which fails closed.
+func (l *VisitorLimiter) FailOpenWhenFull() *VisitorLimiter {
+	l.failOpen = true
+	return l
+}
+
 // Take spends one of visitor's tokens. On success the caller may call refund
 // to give the token back when the request is refused further on; refund is
 // safe to call more than once. On refusal, retryAfter says when to try again.
@@ -70,6 +80,9 @@ func (l *VisitorLimiter) Take(visitor string) (refund func(), retryAfter time.Du
 	case known:
 		b = l.refilled(b, now)
 	case len(l.buckets) >= l.maxVisitors && !l.makeRoomLocked(now):
+		if l.failOpen {
+			return func() {}, 0, true
+		}
 		return nil, visitorPruneEvery, false
 	default:
 		b = visitorBucket{tokens: float64(l.allowance), at: now}
@@ -124,7 +137,7 @@ func (l *VisitorLimiter) makeRoomLocked(now time.Time) bool {
 	}
 	room := len(l.buckets) < l.maxVisitors
 	if !room {
-		slog.Warn(l.name+": visitor table full, refusing new visitors", "tracked", len(l.buckets), "max", l.maxVisitors)
+		slog.Warn(l.name+": visitor table full", "tracked", len(l.buckets), "max", l.maxVisitors, "new_visitors_admitted_unchecked", l.failOpen)
 	} else {
 		slog.Info(l.name+": visitor table pruned", "dropped", before-len(l.buckets), "tracked", len(l.buckets))
 	}
