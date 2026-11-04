@@ -26,9 +26,9 @@ CREATE TABLE IF NOT EXISTS llm_calls (
 	id                  INTEGER PRIMARY KEY AUTOINCREMENT,
 	started_ms          INTEGER NOT NULL,
 	started_at          TEXT    NOT NULL,
-	headers_ms          INTEGER,
-	first_byte_ms       INTEGER,
-	total_ms            INTEGER,
+	headers_ms          REAL,
+	first_byte_ms       REAL,
+	total_ms            REAL,
 	run_id              TEXT,
 	origin              TEXT,
 	label               TEXT,
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS forest_runs (
 	run_id      TEXT    NOT NULL,
 	started_ms  INTEGER NOT NULL,
 	started_at  TEXT    NOT NULL,
-	total_ms    INTEGER,
+	total_ms    REAL,
 	word        TEXT    NOT NULL,
 	max_hops    INTEGER NOT NULL,
 	origin      TEXT,
@@ -166,7 +166,7 @@ func (s *Store) InsertCall(ctx context.Context, c Call) (int64, error) {
 		request_headers, request_body_gz, response_headers, response_body_gz, response_bytes, response_truncated
 	) VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?)`,
 		c.Started.UnixMilli(), c.Started.UTC().Format(time.RFC3339Nano),
-		c.HeadersAfter.Milliseconds(), c.FirstByteAfter.Milliseconds(), c.Total.Milliseconds(),
+		msf(c.HeadersAfter), msf(c.FirstByteAfter), msf(c.Total),
 		c.RunID, c.Origin, c.Label, c.Word, c.MaxHops,
 		c.Method, c.URL, c.Model, c.Streamed, c.HTTPStatus, c.Error, c.RequestID, c.MessageID, c.StopReason,
 		c.Usage.InputTokens, c.Usage.OutputTokens, c.Usage.CacheReadTokens, c.Usage.CacheWriteTokens, c.CostUSD, c.PriceKnown,
@@ -181,7 +181,8 @@ func (s *Store) InsertCall(ctx context.Context, c Call) (int64, error) {
 // GetCall reads one call back, bodies decompressed.
 func (s *Store) GetCall(ctx context.Context, id int64) (Call, error) {
 	var c Call
-	var startedMs, headersMs, firstMs, totalMs int64
+	var startedMs int64
+	var headersMs, firstMs, totalMs float64
 	var reqH, respH sql.NullString
 	var reqB, respB []byte
 	err := s.db.QueryRowContext(ctx, `SELECT started_ms, headers_ms, first_byte_ms, total_ms,
@@ -236,14 +237,16 @@ func (s *Store) RecordRun(ctx context.Context, r Run) error {
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO forest_runs
 		(run_id, started_ms, started_at, total_ms, word, max_hops, origin, fingerprint, outcome, error, cost_usd, forest_gz)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		r.ID, r.Started.UnixMilli(), r.Started.UTC().Format(time.RFC3339Nano), r.Total.Milliseconds(),
+		r.ID, r.Started.UnixMilli(), r.Started.UTC().Format(time.RFC3339Nano), msf(r.Total),
 		r.Word, r.MaxHops, r.Origin, r.Fingerprint, r.Outcome, r.Error, r.CostUSD, body); err != nil {
 		return fmt.Errorf("record forest run %s: %w", r.ID, err)
 	}
 	return nil
 }
 
-func ms(n int64) time.Duration { return time.Duration(n) * time.Millisecond }
+// Durations are stored as fractional milliseconds.
+func ms(f float64) time.Duration  { return time.Duration(f * float64(time.Millisecond)) }
+func msf(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
 
 func gz(b []byte) ([]byte, error) {
 	if b == nil {
