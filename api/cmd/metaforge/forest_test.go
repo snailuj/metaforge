@@ -17,7 +17,7 @@ var forestEnvVars = []string{
 	"METAFORGE_FOREST_MAX_CONCURRENT", "METAFORGE_FOREST_PER_MINUTE",
 	"METAFORGE_FOREST_CACHE", "METAFORGE_FOREST_POOL_SIZE",
 	"METAFORGE_LLM_LOG", "METAFORGE_WEEKLY_BUDGET_USD",
-	"METAFORGE_FOREST_PER_VISITOR_HOUR",
+	"METAFORGE_FOREST_PER_VISITOR_HOUR", "METAFORGE_WEEKLY_CEILING_USD",
 }
 
 // clearForestEnv blanks every variable so no test depends on the ambient
@@ -35,12 +35,13 @@ func TestLoadForestSettingsDefaults(t *testing.T) {
 	s := loadForestSettings()
 
 	want := forestSettings{
-		Config:         forest.Config{Model: "claude-haiku-5-5", JudgeModel: "claude-haiku-5-5", Effort: "low", MinScore: 6, MinPaths: 3},
-		MaxConcurrent:  4,
-		PerMinute:      30,
-		PerVisitorHour: 20,
-		PoolSize:       10,
-		WeeklyCapUSD:   20,
+		Config:           forest.Config{Model: "claude-haiku-5-5", JudgeModel: "claude-haiku-5-5", Effort: "low", MinScore: 6, MinPaths: 3},
+		MaxConcurrent:    4,
+		PerMinute:        30,
+		PerVisitorHour:   20,
+		PoolSize:         10,
+		WeeklyCapUSD:     20,
+		WeeklyCeilingUSD: 50,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)
@@ -64,14 +65,15 @@ func TestLoadForestSettingsFromEnv(t *testing.T) {
 	s := loadForestSettings()
 
 	want := forestSettings{
-		Config:         forest.Config{Model: "gen-x", JudgeModel: "judge-y", Effort: "high", MinScore: 7, MinPaths: 0},
-		MaxConcurrent:  2,
-		PerMinute:      10,
-		PerVisitorHour: 6,
-		APIKey:         "sk-test",
-		CachePath:      "/var/lib/forest.db",
-		PoolSize:       5,
-		WeeklyCapUSD:   20,
+		Config:           forest.Config{Model: "gen-x", JudgeModel: "judge-y", Effort: "high", MinScore: 7, MinPaths: 0},
+		MaxConcurrent:    2,
+		PerMinute:        10,
+		PerVisitorHour:   6,
+		APIKey:           "sk-test",
+		CachePath:        "/var/lib/forest.db",
+		PoolSize:         5,
+		WeeklyCapUSD:     20,
+		WeeklyCeilingUSD: 50,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)
@@ -275,5 +277,34 @@ func TestForestHandlerLimitsEachVisitor(t *testing.T) {
 	}
 	if _, _, ok := h.Visitors.Take("203.0.113.7"); ok {
 		t.Error("fourth take admitted past an allowance of 3")
+	}
+}
+
+// Rule (owner, 2026-11-04): an abuse ceiling of USD 50 a week stops all
+// generating; it needs the call log, and zero switches it off.
+func TestForestHandlerWeeklyCeiling(t *testing.T) {
+	clearForestEnv(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	t.Setenv("METAFORGE_LLM_LOG", filepath.Join(t.TempDir(), "llm_calls.db"))
+	t.Setenv("METAFORGE_WEEKLY_CEILING_USD", "80")
+
+	s := loadForestSettings()
+	if s.WeeklyCeilingUSD != 80 {
+		t.Fatalf("ceiling = %v, want 80", s.WeeklyCeilingUSD)
+	}
+	if h := newForestHandler(s); h.Ceiling == nil {
+		t.Error("no ceiling on a route with a call log")
+	}
+
+	s.WeeklyCeilingUSD = 0
+	if h := newForestHandler(s); h.Ceiling != nil {
+		t.Error("a zero ceiling must switch it off")
+	}
+
+	for _, v := range []string{"abc", "-3", "NaN", "Inf"} {
+		t.Setenv("METAFORGE_WEEKLY_CEILING_USD", v)
+		if got := loadForestSettings().WeeklyCeilingUSD; got != 50 {
+			t.Errorf("%q gave ceiling %v, want the default 50", v, got)
+		}
 	}
 }
