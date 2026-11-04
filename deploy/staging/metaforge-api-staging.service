@@ -21,7 +21,9 @@ Environment=METAFORGE_FOREST_CACHE=/var/lib/metaforge/staging/forest_cache.db
 # weekly cap (METAFORGE_WEEKLY_BUDGET_USD, default 20, stops enrichment) and
 # the ceiling (METAFORGE_WEEKLY_CEILING_USD, default 50, stops everyone) cover both.
 Environment=METAFORGE_LLM_LOG=/var/lib/metaforge/llm_calls.db
-ExecStart=__WORKTREE__/api/metaforge \
+# Root-owned copy installed by deploy.sh: the process holds the API key, so agent
+# must not be able to rewrite the binary (the worktree copy is agent-writable).
+ExecStart=/usr/local/lib/metaforge/staging/metaforge \
     -port 8081 \
     -db __WORKTREE__/data-pipeline/output/lexicon_v2.db \
     -strings __WORKTREE__/strings \

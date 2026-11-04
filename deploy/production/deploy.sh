@@ -35,19 +35,21 @@ echo "--- Restore database ---"
 "${WORKTREE}/data-pipeline/scripts/restore_db.sh"
 echo ""
 
-# 3. Build Go API
+# 3. Build frontend (before the Go build, so nothing npm runs can touch the binary)
+echo "--- Build frontend ---"
+cd "${WORKTREE}/web"
+npm ci --prefer-offline
+npm run build
+echo ""
+
+# 4. Build Go API
 echo "--- Build Go API ---"
 export PATH="/usr/local/go/bin:${PATH}"
 cd "${WORKTREE}/api"
 go build -o metaforge ./cmd/metaforge
 echo "Built: ${WORKTREE}/api/metaforge"
-echo ""
-
-# 4. Build frontend
-echo "--- Build frontend ---"
-cd "${WORKTREE}/web"
-npm ci --prefer-offline
-npm run build
+# Root-owned copy for the unit to run; see the unit.
+install_root_binary "${WORKTREE}/api/metaforge" "/usr/local/lib/metaforge/production/metaforge"
 echo ""
 
 # 5. Service user, state, key files, then the API systemd service. The unit runs

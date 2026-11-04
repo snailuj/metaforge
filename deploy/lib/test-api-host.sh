@@ -115,6 +115,18 @@ bash "${T}/dies.sh"; rc=$?
 [ "$rc" = 3 ] && ok "exit status preserved" || fail "exit status was $rc"
 expect_log "systemctl start svc"
 
+echo "== install_root_binary"
+BIN_DIR="${T}/libdir"
+cp /bin/sleep "${T}/sleep.v1"; cp /bin/sleep "${T}/sleep.v2"; echo x >> "${T}/sleep.v2"
+install_root_binary "${T}/sleep.v1" "${BIN_DIR}/site/prog" >/dev/null
+"${BIN_DIR}/site/prog" 30 & PID=$!
+install_root_binary "${T}/sleep.v2" "${BIN_DIR}/site/prog" >/dev/null && ok "replaced while running" || fail "could not replace a running binary"
+kill "$PID" 2>/dev/null
+[ "$(command sudo stat -c '%U:%G %a' "${BIN_DIR}/site/prog")" = "root:root 755" ] && ok "binary is root:root 755" || fail "binary mode wrong"
+[ "$(command sudo stat -c '%U:%G %a' "${BIN_DIR}/site")" = "root:root 755" ] && ok "dir is root:root 755" || fail "dir mode wrong"
+cmp -s "${T}/sleep.v2" "${BIN_DIR}/site/prog" && ok "new content installed" || fail "old content left"
+command sudo rm -rf "$BIN_DIR"
+
 MF_STOPPED_SERVICE=   # the migrations above armed the exit restart; nothing is real here
 echo ""
 if [ "$FAILS" -eq 0 ]; then echo "All tests passed."; else echo "${FAILS} test(s) failed."; exit 1; fi

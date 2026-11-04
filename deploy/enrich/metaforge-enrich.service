@@ -10,7 +10,8 @@ Group=metaforge
 WorkingDirectory=__WORKTREE__
 # Talks only to the production API, which holds the key, the cap and the
 # ledger; this process never sees ANTHROPIC_API_KEY.
-ExecStart=__WORKTREE__/api/enrich \
+# Root-owned copy installed by deploy.sh, as for the API binaries.
+ExecStart=/usr/local/lib/metaforge/enrich/enrich \
     -api http://127.0.0.1:8080 \
     -lexicon __WORKTREE__/data-pipeline/output/lexicon_v2.db \
     -top 5000 \

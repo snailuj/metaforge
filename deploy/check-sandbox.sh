@@ -71,6 +71,9 @@ for u in "${UNITS[@]}"; do
         if grep -qxF "$want" "$props"; then ok "has ${want}"; else fail "missing ${want}"; fi
     done
     if grep -q '^User=agent' "$props"; then fail "runs as agent"; fi
+    # The binary runs with the API key, so it must not sit where agent can rewrite it.
+    if grep -qE '^ExecStart=/usr/local/lib/metaforge/[a-z-]+/[a-z]+( |$)' "$unit"; then
+        ok "binary runs from a root-owned path"; else fail "ExecStart is not under /usr/local/lib/metaforge"; fi
 done
 
 if [ "$LIVE_KEY" = 1 ]; then

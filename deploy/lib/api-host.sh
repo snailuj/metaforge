@@ -106,3 +106,15 @@ migrate_forest_cache() { # <site> <service> <worktree>
     fi
     echo "Forest cache migrated"
 }
+
+# Binaries that run with the API key live under /usr/local/lib/metaforge, owned by
+# root, so a process running as agent (npm scripts, a compromised tool) cannot swap
+# them. Written beside the target and renamed: install over a running binary fails
+# with "Text file busy".
+install_root_binary() { # <src> <dest>
+    local src="$1" dest="$2"
+    sudo install -d -o root -g root -m 0755 "$(dirname "$dest")"
+    sudo install -o root -g root -m 0755 "$src" "${dest}.new"
+    sudo mv -f "${dest}.new" "$dest"
+    echo "Installed ${dest} (root:root 0755)"
+}
