@@ -15,6 +15,7 @@ vi.mock('3d-force-graph', () => ({ default: () => () => chainable }))
 vi.mock('@/api/client', () => ({
   lookupWord: vi.fn(),
   fetchForest: vi.fn(),
+  fetchSavedForests: vi.fn(),
   streamForest: vi.fn(),
   ApiError: class ApiError extends Error {
     status: number
@@ -49,7 +50,7 @@ vi.mock('@/lib/strings', () => ({
 }))
 
 import { MfApp } from './mf-app'
-import { lookupWord, fetchForest, streamForest, type ForestStreamEvent } from '@/api/client'
+import { lookupWord, fetchForest, fetchSavedForests, streamForest, type ForestStreamEvent } from '@/api/client'
 import type { ForestResponse } from '@/types/api'
 import type { GraphData } from '@/graph/types'
 import patienceFixture from '@/fixtures/forest-patience.json'
@@ -2289,10 +2290,48 @@ describe('mf-app metaphor forest', () => {
       onEvent({ type: 'done', forest: await fetchForest(word, maxHops, signal, fresh) })
     })
     vi.mocked(lookupWord).mockReset()
+    vi.mocked(fetchSavedForests).mockReset()
+    vi.mocked(fetchSavedForests).mockResolvedValue([])
     el = new MfApp()
     document.body.appendChild(el)
     await settle()
     await lookUp(patienceLookup)
+  })
+
+  describe('saved forests', () => {
+    const copy = (f: ForestResponse): ForestResponse => JSON.parse(JSON.stringify(f))
+    const other: ForestResponse = { ...forest, endpoints: forest.endpoints.slice(0, 2) }
+
+    // Rule: browsing saved forests never asks for a forest; only Forge does.
+    it('lists the saved forests once a forest lands, and Next redraws the graph without a forest request', async () => {
+      vi.mocked(fetchForest).mockResolvedValue(forest)
+      vi.mocked(fetchSavedForests).mockResolvedValue([copy(forest), copy(other)])
+      panelEvent({ type: 'forge' })
+      await settle()
+      expect(fetchSavedForests).toHaveBeenCalledWith('patience', forest.max_hops, expect.any(AbortSignal))
+      expect(panel().state).toMatchObject({ savedIndex: 0 })
+      expect(metaphorLinks()).toHaveLength(forest.edges.length)
+      const before = graph().forest
+
+      panelEvent({ type: 'browse', step: 1 })
+      await settle()
+      expect(panel().state.savedIndex).toBe(1)
+      expect(panel().state.content.response.endpoints).toHaveLength(2)
+      expect(graph().forest).not.toBe(before)
+      expect(metaphorLinks()).toHaveLength(forest.edges.length)
+      expect(streamForest).toHaveBeenCalledTimes(1)
+      expect(fetchSavedForests).toHaveBeenCalledTimes(1)
+    })
+
+    it('a failed list keeps the forest and offers no browsing', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      vi.mocked(fetchForest).mockResolvedValue(forest)
+      vi.mocked(fetchSavedForests).mockRejectedValue(new Error('down'))
+      panelEvent({ type: 'forge' })
+      await settle()
+      expect(panel().state).toMatchObject({ content: { kind: 'forest' }, saved: [] })
+      expect(warn).toHaveBeenCalled()
+    })
   })
 
   afterEach(() => {

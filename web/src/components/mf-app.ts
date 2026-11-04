@@ -1,6 +1,6 @@
 import { LitElement, html, css, type PropertyValues } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
-import { lookupWord, ApiError, streamForest, ForestError } from '@/api/client'
+import { lookupWord, ApiError, fetchSavedForests, streamForest, ForestError } from '@/api/client'
 import { transformLookupToGraph, mergeExpansion, recentreGraph, mergeGlimpse, solidify, relationReach, resolveEndpoint } from '@/graph/transform'
 import {
   composeForest, fadeMarks, forestToGraph, litPaths, nextFadeEnd, streamMarks, FOREST_FADE_MS,
@@ -614,6 +614,7 @@ export class MfApp extends LitElement {
   @state() private forestLit: ReadonlySet<string> | null = null
   private forestGraph: ForestGraph | null = null
   private forestAbort: AbortController | null = null
+  private savedAbort: AbortController | null = null
   private forestLitTarget: ForestTarget | null = null
   // Streaming: the marks drawn beyond the latest snapshot (pending, kept or
   // fading), the timer that ends the next fade, and the node objects for the
@@ -1061,6 +1062,14 @@ export class MfApp extends LitElement {
       this.forestAbort = null
     }
     if (next.request.kind === 'loading' && next.seq !== prev.seq) void this.runForest(next)
+    // A request that ends may have added to the pool (even a cancelled one is
+    // kept on the server once paid for), so list it again.
+    if (inFlight(prev) && !inFlight(next) && next.content.kind === 'forest') {
+      void this.loadSaved(next.word, next.content.response.max_hops)
+    } else if (next.word !== prev.word) {
+      this.savedAbort?.abort()
+      this.savedAbort = null
+    }
 
     if (next.word !== prev.word) {
       // The forest belongs to its word: nothing of the old one fades or is reused.
@@ -1118,6 +1127,24 @@ export class MfApp extends LitElement {
       }
     } finally {
       if (this.forestAbort === controller) this.forestAbort = null
+    }
+  }
+
+  /** List the word's saved forests for browsing. Read-only on the server; a
+   *  failure only means there is nothing to browse, so it is logged, not shown. */
+  private async loadSaved(word: string, maxHops: number): Promise<void> {
+    this.savedAbort?.abort()
+    const controller = new AbortController()
+    this.savedAbort = controller
+    try {
+      const forests = await fetchSavedForests(word, maxHops, controller.signal)
+      console.debug('[forest] saved forests listed', { word, maxHops, n: forests.length })
+      this.dispatchForest({ type: 'saved-loaded', word, maxHops, forests })
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      console.warn('[forest] saved forests could not be listed; browsing is off', { word, maxHops }, err)
+    } finally {
+      if (this.savedAbort === controller) this.savedAbort = null
     }
   }
 
