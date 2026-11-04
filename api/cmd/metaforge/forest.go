@@ -24,9 +24,20 @@ const (
 	defaultForestMaxConcurrent = 4
 	defaultForestPerMinute     = 30
 	defaultForestPoolSize      = 10
+	// defaultForestPerVisitorHour bounds what one address can spend, so the
+	// shared per-minute cap is no longer one stranger's to use up (audit H1,
+	// 2026-11-04).
+	defaultForestPerVisitorHour = 20
+	// forestMaxVisitors bounds the per-visitor table to a few MB; past it,
+	// new visitors are refused until idle ones age out.
+	forestMaxVisitors = 50_000
 	// defaultWeeklyBudgetUSD caps all recorded model spend, live users and
 	// enrichment together, over a rolling week (owner, 2026-11-04).
 	defaultWeeklyBudgetUSD = 20.0
+	// defaultWeeklyCeilingUSD stops all generating, live users included,
+	// over the same rolling week: an abuse stop far above normal use
+	// (owner, 2026-11-04).
+	defaultWeeklyCeilingUSD = 50.0
 
 	// forestWriteTimeout must exceed handler.ForestRequestTimeout so a
 	// request that uses its whole deadline can still write its 504.
@@ -40,11 +51,15 @@ type forestSettings struct {
 	Config        forest.Config
 	MaxConcurrent int
 	PerMinute     int
-	APIKey        string
-	CachePath     string // empty disables the forest cache
-	PoolSize      int    // forests kept per (word, max_hops)
-	LedgerPath    string // empty: model calls are not recorded and spend is uncapped
-	WeeklyCapUSD  float64
+	// PerVisitorHour is how many forests one address may generate an hour.
+	PerVisitorHour int
+	APIKey         string
+	CachePath      string // empty disables the forest cache
+	PoolSize       int    // forests kept per (word, max_hops)
+	LedgerPath     string // empty: model calls are not recorded and spend is uncapped
+	WeeklyCapUSD   float64
+	// WeeklyCeilingUSD stops everyone generating; zero switches it off.
+	WeeklyCeilingUSD float64
 }
 
 func loadForestSettings() forestSettings {
@@ -57,13 +72,15 @@ func loadForestSettings() forestSettings {
 			MinScore:   boundedEnvInt("METAFORGE_FOREST_MIN_SCORE", defaultForestMinScore, 0, 10),
 			MinPaths:   boundedEnvInt("METAFORGE_FOREST_MIN_PATHS", defaultForestMinPaths, 0, 24),
 		},
-		MaxConcurrent: boundedEnvInt("METAFORGE_FOREST_MAX_CONCURRENT", defaultForestMaxConcurrent, 1, 1<<20),
-		PerMinute:     boundedEnvInt("METAFORGE_FOREST_PER_MINUTE", defaultForestPerMinute, 1, 1<<20),
-		APIKey:        os.Getenv("ANTHROPIC_API_KEY"),
-		CachePath:     os.Getenv("METAFORGE_FOREST_CACHE"),
-		PoolSize:      boundedEnvInt("METAFORGE_FOREST_POOL_SIZE", defaultForestPoolSize, 1, 1000),
-		LedgerPath:    os.Getenv("METAFORGE_LLM_LOG"),
-		WeeklyCapUSD:  budgetEnv("METAFORGE_WEEKLY_BUDGET_USD", defaultWeeklyBudgetUSD),
+		MaxConcurrent:    boundedEnvInt("METAFORGE_FOREST_MAX_CONCURRENT", defaultForestMaxConcurrent, 1, 1<<20),
+		PerMinute:        boundedEnvInt("METAFORGE_FOREST_PER_MINUTE", defaultForestPerMinute, 1, 1<<20),
+		PerVisitorHour:   boundedEnvInt("METAFORGE_FOREST_PER_VISITOR_HOUR", defaultForestPerVisitorHour, 1, 1<<20),
+		APIKey:           os.Getenv("ANTHROPIC_API_KEY"),
+		CachePath:        os.Getenv("METAFORGE_FOREST_CACHE"),
+		PoolSize:         boundedEnvInt("METAFORGE_FOREST_POOL_SIZE", defaultForestPoolSize, 1, 1000),
+		LedgerPath:       os.Getenv("METAFORGE_LLM_LOG"),
+		WeeklyCapUSD:     budgetEnv("METAFORGE_WEEKLY_BUDGET_USD", defaultWeeklyBudgetUSD),
+		WeeklyCeilingUSD: budgetEnv("METAFORGE_WEEKLY_CEILING_USD", defaultWeeklyCeilingUSD),
 	}
 }
 
@@ -129,11 +146,30 @@ func newForestHandler(s forestSettings) *handler.ForestHandler {
 		h.Budget = llmlog.NewBudget(ledger, s.WeeklyCapUSD, time.Now)
 		h.Fingerprint = forest.Fingerprint(s.Config)
 		slog.Info("model spend capped", "weekly_cap_usd", s.WeeklyCapUSD, "window", llmlog.BudgetWindow.String())
+		h.Ceiling = newCeiling(ledger, s)
 	}
+	h.Visitors = forest.NewVisitorLimiter(s.PerVisitorHour, forestMaxVisitors, time.Now)
+	slog.Info("forests limited per visitor", "per_hour", s.PerVisitorHour, "max_visitors", forestMaxVisitors)
 	if cache := openForestCache(s); cache != nil {
 		h.Cache = cache
 	}
 	return h
+}
+
+// newCeiling returns nil, not a zero-cap budget, when the ceiling is off:
+// the handler treats an unreadable budget as spent, which must not stop
+// generation that no ceiling asked to stop.
+func newCeiling(ledger *llmlog.Store, s forestSettings) handler.ForestBudget {
+	if s.WeeklyCeilingUSD <= 0 {
+		slog.Warn("METAFORGE_WEEKLY_CEILING_USD is 0: live model spend has no ceiling")
+		return nil
+	}
+	if s.WeeklyCapUSD > 0 && s.WeeklyCeilingUSD < s.WeeklyCapUSD {
+		slog.Warn("weekly ceiling is below the weekly cap, so it stops live users before enrichment yields",
+			"weekly_ceiling_usd", s.WeeklyCeilingUSD, "weekly_cap_usd", s.WeeklyCapUSD)
+	}
+	slog.Info("all model spend stops at a ceiling", "weekly_ceiling_usd", s.WeeklyCeilingUSD, "window", llmlog.BudgetWindow.String())
+	return llmlog.NewBudget(ledger, s.WeeklyCeilingUSD, time.Now)
 }
 
 // openLedger returns ok false only when a path is set and will not open:

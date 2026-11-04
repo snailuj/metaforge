@@ -82,6 +82,11 @@ type ForestHandler struct {
 	Keepalive time.Duration
 	Ledger    ForestLedger // nil: runs are not recorded
 	Budget    ForestBudget // nil: no spending cap
+	// Ceiling stops everyone generating, live users included, once the
+	// week's recorded spend reaches it; nil: no ceiling.
+	Ceiling ForestBudget
+	// Visitors caps the forests one visitor may generate; nil: no cap.
+	Visitors *forest.VisitorLimiter
 	// Fingerprint is the pipeline version recorded with each run.
 	Fingerprint string
 }
@@ -145,6 +150,9 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		writeForestUnconfigured(w)
 		return
 	}
+	if refuseOtherSite(w, r, word) {
+		return
+	}
 	origin := parseOrigin(r)
 	if origin == enrichmentOrigin && h.poolFull(r.Context(), word, maxHops) {
 		// Another forest would only evict one; enrichment moves on.
@@ -154,7 +162,7 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Del("X-Forest-Pool") // emptied since the count; generate after all
 	}
-	if origin == enrichmentOrigin && h.budgetSpent(r.Context(), word) {
+	if origin == enrichmentOrigin && budgetSpent(r.Context(), h.Budget, "weekly cap", word) {
 		w.Header().Set("X-Forest-Budget", "exhausted")
 		if h.serveFromPool(w, r, word, maxHops) {
 			return
@@ -162,9 +170,23 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		writeForestError(w, http.StatusServiceUnavailable, "the weekly model budget is spent; new metaphor forests resume as it frees up")
 		return
 	}
+	if budgetSpent(r.Context(), h.Ceiling, "ceiling", word) {
+		w.Header().Set("X-Forest-Budget", "ceiling")
+		if h.serveFromPool(w, r, word, maxHops) {
+			return
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(int(ceilingRetryAfter.Seconds())))
+		writeForestError(w, http.StatusTooManyRequests, "new metaphor forests are paused for now; forests already made still load, try again later")
+		return
+	}
 
+	refundVisit, ok := h.admitVisitor(w, r, word)
+	if !ok {
+		return
+	}
 	release, retryAfter, ok := h.limiter.Acquire()
 	if !ok {
+		refundVisit()
 		secs := max(1, int(math.Ceil(retryAfter.Seconds())))
 		slog.Warn("forest: rate limited", "word", word, "retry_after_s", secs)
 		w.Header().Set("Retry-After", strconv.Itoa(secs))
@@ -223,19 +245,24 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 // exempts a caller from a stop that live users never get.
 const enrichmentOrigin = "enrichment"
 
-// budgetSpent reports whether the weekly cap forbids enrichment generating.
+// ceilingRetryAfter is how long a client is told to wait past the ceiling.
+// Spend ages out of the rolling week gradually, so this is a polling
+// interval, not when generation resumes.
+const ceilingRetryAfter = time.Hour
+
+// budgetSpent reports whether b forbids generating; which names it in logs.
 // A budget that cannot be read counts as spent.
-func (h *ForestHandler) budgetSpent(ctx context.Context, word string) bool {
-	if h.Budget == nil {
+func budgetSpent(ctx context.Context, b ForestBudget, which, word string) bool {
+	if b == nil {
 		return false
 	}
-	st, err := h.Budget.Status(ctx)
+	st, err := b.Status(ctx)
 	if err != nil {
-		slog.Error("forest: budget unreadable, refusing to generate", "word", word, "err", err)
+		slog.Error("forest: budget unreadable, refusing to generate", "budget", which, "word", word, "err", err)
 		return true
 	}
 	if st.Exhausted {
-		slog.Warn("forest: weekly budget spent", "word", word, "spent_usd", st.SpentUSD, "cap_usd", st.CapUSD)
+		slog.Warn("forest: budget spent", "budget", which, "word", word, "spent_usd", st.SpentUSD, "cap_usd", st.CapUSD)
 	}
 	return st.Exhausted
 }

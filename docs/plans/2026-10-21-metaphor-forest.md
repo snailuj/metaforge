@@ -100,7 +100,7 @@ Errors, all `{"error": "<message>"}`:
 - Handler `GET /forge/forest`, registered in `api/cmd/metaforge/main.go`. Raise the server write timeout to 90 s; per-request deadline 75 s.
 - `api/internal/forestcache`: the SQLite pool store (`Random`, `Add` with eviction in one transaction; WAL, one connection). The API units set `METAFORGE_FOREST_CACHE=__WORKTREE__/data-pipeline/output/forest_cache.db`, inside their `ReadWritePaths`.
 - `api/cmd/forestprobe`: live tuning harness. Prints every judged path with its verdict, latency, tokens and cost per word; `-gen-prompt` and `-judge-prompt` take prompt files for A/B runs.
-- Env: `ANTHROPIC_API_KEY`, `METAFORGE_FOREST_MODEL`, `METAFORGE_FOREST_JUDGE_MODEL`, `METAFORGE_FOREST_EFFORT`, `METAFORGE_FOREST_MIN_SCORE`, `METAFORGE_FOREST_MIN_PATHS`, `METAFORGE_FOREST_CACHE`, `METAFORGE_FOREST_POOL_SIZE`, `METAFORGE_FOREST_MAX_CONCURRENT`, `METAFORGE_FOREST_PER_MINUTE`.
+- Env: `ANTHROPIC_API_KEY`, `METAFORGE_FOREST_MODEL`, `METAFORGE_FOREST_JUDGE_MODEL`, `METAFORGE_FOREST_EFFORT`, `METAFORGE_FOREST_MIN_SCORE`, `METAFORGE_FOREST_MIN_PATHS`, `METAFORGE_FOREST_CACHE`, `METAFORGE_FOREST_POOL_SIZE`, `METAFORGE_FOREST_MAX_CONCURRENT`, `METAFORGE_FOREST_PER_MINUTE`, `METAFORGE_FOREST_PER_VISITOR_HOUR` (generated forests per visitor per hour, default 20; added 2026-11-04).
 
 ### Path validation (reject as `invalid`)
 
