@@ -20,7 +20,13 @@ if [ ! -d "${DATA_CLONE}/.git" ]; then
 fi
 
 # Own hashed venv (idempotent); built before the unit that points at it restarts.
-"$REPO_ROOT/deploy/grading/build-venv.sh"
+# Run as the sidecar user even under `sudo deploy.sh`, so the venv and uv's cache
+# are not left root-owned in agent's tree.
+if [ "$(id -u)" -eq 0 ]; then
+    sudo -u "$SIDECAR_USER" -H "$REPO_ROOT/deploy/grading/build-venv.sh"
+else
+    "$REPO_ROOT/deploy/grading/build-venv.sh"
+fi
 
 # 1. Ensure secret-file path exists. Dir is 0711 (NOT 0700): agent must traverse
 # this root-owned dir to read its own 0600 secret by exact path; 0700 blocks the
