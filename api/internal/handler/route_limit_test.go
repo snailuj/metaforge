@@ -152,3 +152,5 @@ type stepClock struct{ t time.Time }
 func newClock() *stepClock                   { return &stepClock{t: time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)} }
 func (c *stepClock) Now() time.Time          { return c.t }
 func (c *stepClock) Advance(d time.Duration) { c.t = c.t.Add(d) }
+
+func countLines(out, sub string) int { return strings.Count(out, sub) }

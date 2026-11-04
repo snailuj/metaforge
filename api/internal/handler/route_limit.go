@@ -20,7 +20,7 @@ const maxLoggedVisitors = 256
 // on this host (no X-Forwarded-For) is exempt, as for forests. Each route
 // takes its own limiter, so spending one allowance never uses another.
 func VisitorRateLimit(route string, l *forest.VisitorLimiter, now func() time.Time) func(http.Handler) http.Handler {
-	refusals := &refusalLog{route: route, window: l.Window(), now: now, seen: map[string]struct{}{}}
+	refusals := &refusalLog{route: route, msg: "visitor limit reached", window: l.Window(), now: now, seen: map[string]struct{}{}}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key, exempt := visitorKey(r)
@@ -46,6 +46,7 @@ func VisitorRateLimit(route string, l *forest.VisitorLimiter, now func() time.Ti
 // ended when the next one opens.
 type refusalLog struct {
 	route  string
+	msg    string // the first-refusal line
 	window time.Duration
 	now    func() time.Time
 
@@ -73,5 +74,5 @@ func (l *refusalLog) note(visitor string, retryAfterSecs int) {
 		return
 	}
 	l.seen[visitor] = struct{}{}
-	slog.Warn("route: visitor limit reached", "route", l.route, "visitor", visitor, "retry_after_s", retryAfterSecs)
+	slog.Warn("route: "+l.msg, "route", l.route, "visitor", visitor, "retry_after_s", retryAfterSecs)
 }
