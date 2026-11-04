@@ -11,8 +11,8 @@
 # Git work on agent's repos (the old worktree, the main repo, the new clone before
 # deploy.sh hands it over) runs as the worktree's owner via `sudo -u`, never as root.
 #
-# Idempotent: a failed run is fixed by re-running, and once the cutover has happened
-# a further run exits at once without touching anything (the clone is live and has
+# Idempotent: a failed run is fixed by re-running, and once the installed unit is the
+# sandboxed one a further run exits at once without touching anything (the clone is live and has
 # moved on from the frozen old worktree, so comparing them would only fail and then
 # "restore" a stale unit).
 # The sidecar is stopped while the data moves (stopping is the only way to know no
@@ -82,16 +82,14 @@ OWNER="$(stat -c %U "$OLD_WT")"
 
 trap on_exit EXIT
 
-# True once the cutover has been done: the installed unit runs as the sidecar user or
-# points at the clone, the clone belongs to the sidecar user, or the old worktree is
-# detached (the last step of a successful run).
+# True once the cutover has been done. The installed unit is the ONLY signal: it runs as
+# the sidecar user AND writes to the clone. Other traces are not proof: deploy.sh hands
+# the clone to the sidecar user early, so a later failed step (after which the old unit
+# is restored) would leave a clone owned by it, and the old worktree is detached only
+# at the end of a successful run but may be left that way by hand.
 already_migrated() {
     local unit; unit="$(sudo cat "$UNIT_FILE" 2>/dev/null || true)"
-    grep -q "^User=${SIDECAR_USER}\$" <<<"$unit" && return 0
-    grep -qF "GRADING_DATA_GIT_ROOT=${CLONE}" <<<"$unit" && return 0
-    [ -d "${CLONE}/.git" ] && [ "$(stat -c %U "$CLONE")" = "$SIDECAR_USER" ] && return 0
-    [ "$(as_user "$OWNER" git -C "$OLD_WT" rev-parse --abbrev-ref HEAD)" = HEAD ] && return 0
-    return 1
+    grep -q "^User=${SIDECAR_USER}\$" <<<"$unit" && grep -qF "GRADING_DATA_GIT_ROOT=${CLONE}" <<<"$unit"
 }
 
 # Line count per file under a dir (every file the sidecar might append to), read as

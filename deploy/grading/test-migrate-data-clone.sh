@@ -71,8 +71,7 @@ PRE() {
     cat > "${T}/deploy.sh" <<'EOS'
 #!/usr/bin/env bash
 [ "${FAKE_DEPLOY_FAILS:-0}" = 1 ] && exit 1
-echo "[Service]
-User=metaforge-grading" > "$MF_UNIT_FILE"
+printf '[Service]\nUser=metaforge-grading\nEnvironment=GRADING_DATA_GIT_ROOT=%s\n' "$MF_CLONE" > "$MF_UNIT_FILE"
 touch "$FAKE_STATE/deployed"
 EOS
 }
@@ -101,17 +100,30 @@ grep -q "systemctl stop" "$FAKE_LOG" && fail "stopped the sidecar" || ok "sideca
 [ "$(git -C "$OLD" rev-parse --abbrev-ref HEAD)" = HEAD ] && ok "old worktree still detached" || fail "old worktree re-attached"
 [ "$(grep -c . "${MF_CLONE}/data-pipeline/grading/judgements_provisional.jsonl")" = 4 ] && ok "clone verdicts kept" || fail "clone verdicts lost"
 
-echo "== each sign of a finished cutover is enough on its own"
-for sign in unit owner detached; do
+echo "== only the installed unit counts as proof of a finished cutover"
+for trace in owner detached unit-user-only; do
     PRE; : > "$FAKE_LOG"
-    case "$sign" in
-        unit)     printf '[Service]\nUser=metaforge-grading\n' > "${T}/unit.service"; E=() ;;
-        owner)    E=(MF_SIDECAR_USER="$(id -un)") ;;
-        detached) git -C "$OLD" checkout -q --detach; E=() ;;
+    case "$trace" in
+        owner)          E=(MF_SIDECAR_USER="$(id -un)") ;;    # the clone is owned by the "sidecar user"
+        detached)       git -C "$OLD" checkout -q --detach; E=() ;;
+        unit-user-only) printf '[Service]\nUser=metaforge-grading\n' > "${T}/unit.service"; E=() ;;
     esac
-    env "${E[@]}" "${HERE}/migrate-data-clone.sh" >/dev/null 2>&1 && ! grep -q "systemctl stop" "$FAKE_LOG" \
-        && ok "${sign}: skipped" || fail "${sign}: ran the migration"
+    env "${E[@]}" "${HERE}/migrate-data-clone.sh" >/dev/null 2>&1
+    grep -q "systemctl stop" "$FAKE_LOG" && ok "${trace}: not taken for a finished cutover" || fail "${trace}: skipped the migration"
 done
+PRE
+
+echo "== a retry after a failed deploy that already handed over the clone re-attempts"
+PRE
+cat > "${T}/deploy.sh" <<'EOS'
+#!/usr/bin/env bash
+touch "$FAKE_STATE/clone-handed-over"; exit 1
+EOS
+RUN >/dev/null 2>&1 && fail "failed deploy accepted" || ok "first attempt fails"
+[ "$(cat "${T}/unit.service")" = "OLD UNIT" ] && ok "old unit back" || fail "unit not restored"
+: > "$FAKE_LOG"
+OUT="$(MF_SIDECAR_USER="$(id -un)" RUN 2>&1)"   # the clone now looks like the sidecar user's
+grep -q "systemctl stop" "$FAKE_LOG" && ok "the retry runs the migration" || fail "the retry was skipped as already migrated"
 PRE
 
 echo "== a re-run after a half-finished first run completes it"

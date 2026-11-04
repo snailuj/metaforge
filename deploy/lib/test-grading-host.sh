@@ -60,5 +60,8 @@ refuse_unmigrated "${T}/new.service" && ok "migrated unit passes" || fail "migra
 refuse_unmigrated "${T}/absent.service" && ok "no unit yet passes" || fail "fresh install refused"
 HINT="$(refuse_unmigrated "${T}/old.service" 2>&1)"; grep -q migrate-data-clone.sh <<<"$HINT" && ok "names the script to run" || fail "no hint"
 
+mkdir -p "${T}/unreadable.service"
+refuse_unmigrated "${T}/unreadable.service" 2>/dev/null && fail "passed although the unit could not be read" || ok "fails closed when the unit cannot be read"
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then echo "All tests passed."; else echo "${FAILS} test(s) failed."; exit 1; fi

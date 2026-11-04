@@ -138,22 +138,32 @@ install_root_binary() { # <src> <dest>
     echo "Installed ${dest} (root:root 0755)"
 }
 
-# Build a Go binary from api/ only if it is exactly the committed source. npm ci runs
-# install scripts as agent before this, and agent can edit api/, go.mod, the go env
-# file (GOFLAGS=-toolexec=...) and the module cache. Cheap guards: refuse any change
-# to api/ against HEAD, ignore the go env file and ambient GOFLAGS, keep go.mod
-# read-only and verify the module cache against go.sum.
-# RESIDUAL: the build still runs as agent, so a script that edits the toolchain under
-# /usr/local/go or the files go itself trusts is not caught. Building as a user that
-# cannot be touched from agent would close it; that is not done.
+# Build a Go binary from api/ only if it is exactly the committed source, with a
+# scrubbed environment. npm ci runs install scripts as agent before this, and they can
+# plant a gcc early on PATH (~/.nvm/.../bin, ~/.local/bin), set CC/CGO_*, drop a
+# go.work in a parent directory, edit the go env file, or poison GOCACHE. So the check
+# and the build run under `env -i` with a fixed PATH, the system gcc, GOWORK=off,
+# GOTOOLCHAIN=local, GOENV=off, go.mod read-only and a fresh GOCACHE.
+# RESIDUAL: this is hygiene, not a boundary. The build runs as agent, so anything agent
+# controls can still influence it: the module cache under ~/go (go mod verify catches a
+# changed module but not every route), the source between the check and the build,
+# gitignored files, and the toolchain files agent can reach. Agent also has passwordless
+# sudo, which makes this moot until that changes; only building as another user would
+# close it, and that is not done.
 build_go_checked() { # <worktree> <output name> <package>
-    local wt="$1" out="$2" pkg="$3"
+    local wt="$1" out="$2" pkg="$3" cache rc=0
     if [ -n "$(git -C "$wt" status --porcelain -- api)" ] || ! git -C "$wt" diff --quiet HEAD -- api; then
         echo "ERROR: api/ differs from the committed source (edited since checkout, e.g. by an install script):" >&2
         git -C "$wt" status --short -- api >&2
         return 1
     fi
-    (cd "${wt}/api" \
-        && GOENV=off GOFLAGS=-mod=readonly go mod verify \
-        && GOENV=off GOFLAGS=-mod=readonly go build -o "$out" "$pkg")
+    cache="$(mktemp -d)" || return 1
+    goenv() {
+        env -i HOME="$HOME" PATH=/usr/local/go/bin:/usr/bin:/bin CC=/usr/bin/gcc GOWORK=off \
+            GOTOOLCHAIN=local GOENV=off GOFLAGS=-mod=readonly GOCACHE="$cache" GOPATH="$HOME/go" \
+            /usr/local/go/bin/go "$@"
+    }
+    (cd "${wt}/api" && goenv mod verify && goenv build -o "$out" "$pkg") || rc=$?
+    rm -rf "$cache"
+    return "$rc"
 }

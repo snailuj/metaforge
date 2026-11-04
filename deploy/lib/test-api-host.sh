@@ -166,6 +166,20 @@ echo '// staged' >> "${GW}/api/go.mod"; git -C "$GW" add api/go.mod
 build_go_checked "$GW" prog ./cmd/prog >/dev/null 2>&1 && fail "built a staged go.mod change" || ok "staged change refused"
 git -C "$GW" reset -q --hard
 
+# Things agent-run install scripts can plant. A cgo package makes the C compiler matter.
+printf 'package main\n\n// int one(void) { return 1; }\nimport "C"\n\nfunc main() { _ = C.one() }\n' > "${GW}/api/cmd/prog/main.go"
+git -C "$GW" commit -qam cgo
+mkdir -p "${T}/planted"
+printf '#!/bin/sh\ntouch "%s/gcc-ran"\nexec /usr/bin/gcc "$@"\n' "$T" > "${T}/planted/gcc"; chmod +x "${T}/planted/gcc"
+PATH="${T}/planted:${PATH}" build_go_checked "$GW" prog ./cmd/prog >/dev/null 2>&1 && ok "cgo tree builds" || fail "cgo tree did not build"
+[ ! -e "${T}/gcc-ran" ] && ok "a gcc planted early on PATH is not used" || fail "planted gcc ran during the build"
+CC="${T}/planted/gcc" CGO_CFLAGS="-DX" build_go_checked "$GW" prog ./cmd/prog >/dev/null 2>&1
+[ ! -e "${T}/gcc-ran" ] && ok "ambient CC and CGO_* are ignored" || fail "ambient CC was used"
+printf 'go 1.21\n\nuse ./does-not-exist\n' > "${T}/go.work"
+build_go_checked "$GW" prog ./cmd/prog >/dev/null 2>&1 && ok "a go.work in a parent directory is ignored" || fail "build honoured a parent go.work"
+rm -f "${T}/go.work"
+GOCACHE=/proc/nonexistent build_go_checked "$GW" prog ./cmd/prog >/dev/null 2>&1 && ok "a poisoned GOCACHE is ignored" || fail "build used the ambient GOCACHE"
+
 MF_STOPPED_SERVICE=   # the migrations above armed the exit restart; nothing is real here
 echo ""
 if [ "$FAILS" -eq 0 ]; then echo "All tests passed."; else echo "${FAILS} test(s) failed."; exit 1; fi

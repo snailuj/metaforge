@@ -58,9 +58,16 @@ as_user() { # <user> <cmd>...
 # MF_MIGRATING=1).
 refuse_unmigrated() { # <installed unit file>
     [ "${MF_MIGRATING:-0}" = 1 ] && return 0
-    if sudo grep -q 'worktrees/grading-data' "$1" 2>/dev/null; then
-        echo "ERROR: the installed unit still writes grading data to .worktrees/grading-data." >&2
-        echo "       Run deploy/grading/migrate-data-clone.sh, which moves the data and then calls this script." >&2
-        return 1
-    fi
+    # grep: 0 = the old path is there, 1 = it is not, anything else = could not tell.
+    # An unreadable unit must not read as "migrated", so only a missing file passes.
+    sudo test -e "$1" || return 0
+    local rc=0
+    sudo grep -q 'worktrees/grading-data' "$1" 2>/dev/null || rc=$?
+    case "$rc" in
+        1) return 0 ;;
+        0) echo "ERROR: the installed unit still writes grading data to .worktrees/grading-data." >&2 ;;
+        *) echo "ERROR: could not read the installed unit ${1} (grep exit ${rc}); refusing to guess." >&2 ;;
+    esac
+    echo "       Run deploy/grading/migrate-data-clone.sh, which moves the data and then calls this script." >&2
+    return 1
 }
