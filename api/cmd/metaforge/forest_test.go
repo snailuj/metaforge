@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -315,6 +316,36 @@ func TestForestHandlerWeeklyCeiling(t *testing.T) {
 	}
 }
 
+// onlyTestServers makes the default transport, which the SDK client uses,
+// fail any request to a host other than the given servers, so a regression
+// that lets the real API host through fails the test instead of reaching
+// the network.
+func onlyTestServers(t *testing.T, serverURLs ...string) {
+	t.Helper()
+	allowed := map[string]bool{}
+	for _, raw := range serverURLs {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		allowed[u.Host] = true
+	}
+	real := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if !allowed[r.URL.Host] {
+			err := fmt.Errorf("test tried to reach %s, which is not a test server", r.URL.Host)
+			t.Error(err)
+			return nil, err
+		}
+		return real.RoundTrip(r)
+	})
+	t.Cleanup(func() { http.DefaultTransport = real })
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 // Rule: the Anthropic key goes only to the configured base URL; an
 // ANTHROPIC_BASE_URL in the environment never redirects it.
 func TestForestClientIgnoresAnthropicBaseURLEnv(t *testing.T) {
@@ -329,6 +360,8 @@ func TestForestClientIgnoresAnthropicBaseURLEnv(t *testing.T) {
 	}
 	configured := count(&hitsA, fakeAnthropicHandler())
 	ambient := count(&hitsB, fakeAnthropicHandler())
+
+	onlyTestServers(t, configured.URL, ambient.URL)
 
 	clearForestEnv(t)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
