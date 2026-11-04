@@ -49,6 +49,24 @@ grep -q "checkout --detach" <<<"$OUT" && ok "says how to fix it" || fail "no hin
 git -C "${T}/wt" checkout -q --detach
 RUN >/dev/null 2>&1 && ok "works once detached" || fail "still failing after detach"
 
+echo "== the detached old worktree follows the new tip, read-only mirror style"
+export MF_OLD_WT="${T}/wt"
+echo '{"a":5}' >> "${CLONE}/data-pipeline/grading/j.jsonl"; git -C "$CLONE" commit -qam "wip(grading): autosave 5"
+RUN >/dev/null 2>&1 && ok "exit 0" || fail "sync failed"
+[ "$(git -C "$MF_OLD_WT" rev-parse HEAD)" = "$(tip)" ] && ok "worktree moved to the tip" || fail "worktree stale"
+[ "$(git -C "$MF_OLD_WT" rev-parse --abbrev-ref HEAD)" = HEAD ] && ok "still detached" || fail "worktree re-attached"
+grep -q '"a":5' "${MF_OLD_WT}/data-pipeline/grading/j.jsonl" && ok "files show the new verdicts" || fail "files stale"
+
+echo "== a dirty old worktree is left alone"
+echo '{"a":6}' >> "${CLONE}/data-pipeline/grading/j.jsonl"; git -C "$CLONE" commit -qam "wip(grading): autosave 6"
+echo scribble >> "${MF_OLD_WT}/data-pipeline/grading/j.jsonl"
+STALE="$(git -C "$MF_OLD_WT" rev-parse HEAD)"
+OUT="$(RUN 2>&1)" && ok "branch still synced" || fail "sync failed"
+[ "$(git -C "$MF_OLD_WT" rev-parse HEAD)" = "$STALE" ] && ok "dirty worktree not moved" || fail "dirty worktree moved"
+grep -q scribble "${MF_OLD_WT}/data-pipeline/grading/j.jsonl" && ok "its edit is intact" || fail "edit lost"
+grep -qi "dirty\|not clean" <<<"$OUT" && ok "warns" || fail "silent"
+git -C "$MF_OLD_WT" checkout -q -- .
+
 echo "== refuses a diverged clone"
 git -C "$SRC" update-ref refs/heads/grading-data "$(git -C "$SRC" commit-tree -p "$(git -C "$SRC" rev-parse main)" -m other "$(git -C "$SRC" rev-parse 'main^{tree}')")"
 echo '{"a":4}' >> "${CLONE}/data-pipeline/grading/j.jsonl"; git -C "$CLONE" commit -qam "wip(grading): autosave 3"
