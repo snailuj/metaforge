@@ -24,6 +24,13 @@ const (
 	defaultForestMaxConcurrent = 4
 	defaultForestPerMinute     = 30
 	defaultForestPoolSize      = 10
+	// defaultForestPerVisitorHour bounds what one address can spend, so the
+	// shared per-minute cap is no longer one stranger's to use up (audit H1,
+	// 2026-11-04).
+	defaultForestPerVisitorHour = 20
+	// forestMaxVisitors bounds the per-visitor table to a few MB; past it,
+	// new visitors are refused until idle ones age out.
+	forestMaxVisitors = 50_000
 	// defaultWeeklyBudgetUSD caps all recorded model spend, live users and
 	// enrichment together, over a rolling week (owner, 2026-11-04).
 	defaultWeeklyBudgetUSD = 20.0
@@ -40,11 +47,13 @@ type forestSettings struct {
 	Config        forest.Config
 	MaxConcurrent int
 	PerMinute     int
-	APIKey        string
-	CachePath     string // empty disables the forest cache
-	PoolSize      int    // forests kept per (word, max_hops)
-	LedgerPath    string // empty: model calls are not recorded and spend is uncapped
-	WeeklyCapUSD  float64
+	// PerVisitorHour is how many forests one address may generate an hour.
+	PerVisitorHour int
+	APIKey         string
+	CachePath      string // empty disables the forest cache
+	PoolSize       int    // forests kept per (word, max_hops)
+	LedgerPath     string // empty: model calls are not recorded and spend is uncapped
+	WeeklyCapUSD   float64
 }
 
 func loadForestSettings() forestSettings {
@@ -57,13 +66,14 @@ func loadForestSettings() forestSettings {
 			MinScore:   boundedEnvInt("METAFORGE_FOREST_MIN_SCORE", defaultForestMinScore, 0, 10),
 			MinPaths:   boundedEnvInt("METAFORGE_FOREST_MIN_PATHS", defaultForestMinPaths, 0, 24),
 		},
-		MaxConcurrent: boundedEnvInt("METAFORGE_FOREST_MAX_CONCURRENT", defaultForestMaxConcurrent, 1, 1<<20),
-		PerMinute:     boundedEnvInt("METAFORGE_FOREST_PER_MINUTE", defaultForestPerMinute, 1, 1<<20),
-		APIKey:        os.Getenv("ANTHROPIC_API_KEY"),
-		CachePath:     os.Getenv("METAFORGE_FOREST_CACHE"),
-		PoolSize:      boundedEnvInt("METAFORGE_FOREST_POOL_SIZE", defaultForestPoolSize, 1, 1000),
-		LedgerPath:    os.Getenv("METAFORGE_LLM_LOG"),
-		WeeklyCapUSD:  budgetEnv("METAFORGE_WEEKLY_BUDGET_USD", defaultWeeklyBudgetUSD),
+		MaxConcurrent:  boundedEnvInt("METAFORGE_FOREST_MAX_CONCURRENT", defaultForestMaxConcurrent, 1, 1<<20),
+		PerMinute:      boundedEnvInt("METAFORGE_FOREST_PER_MINUTE", defaultForestPerMinute, 1, 1<<20),
+		PerVisitorHour: boundedEnvInt("METAFORGE_FOREST_PER_VISITOR_HOUR", defaultForestPerVisitorHour, 1, 1<<20),
+		APIKey:         os.Getenv("ANTHROPIC_API_KEY"),
+		CachePath:      os.Getenv("METAFORGE_FOREST_CACHE"),
+		PoolSize:       boundedEnvInt("METAFORGE_FOREST_POOL_SIZE", defaultForestPoolSize, 1, 1000),
+		LedgerPath:     os.Getenv("METAFORGE_LLM_LOG"),
+		WeeklyCapUSD:   budgetEnv("METAFORGE_WEEKLY_BUDGET_USD", defaultWeeklyBudgetUSD),
 	}
 }
 
@@ -130,6 +140,8 @@ func newForestHandler(s forestSettings) *handler.ForestHandler {
 		h.Fingerprint = forest.Fingerprint(s.Config)
 		slog.Info("model spend capped", "weekly_cap_usd", s.WeeklyCapUSD, "window", llmlog.BudgetWindow.String())
 	}
+	h.Visitors = forest.NewVisitorLimiter(s.PerVisitorHour, forestMaxVisitors, time.Now)
+	slog.Info("forests limited per visitor", "per_hour", s.PerVisitorHour, "max_visitors", forestMaxVisitors)
 	if cache := openForestCache(s); cache != nil {
 		h.Cache = cache
 	}

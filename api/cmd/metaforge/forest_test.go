@@ -17,6 +17,7 @@ var forestEnvVars = []string{
 	"METAFORGE_FOREST_MAX_CONCURRENT", "METAFORGE_FOREST_PER_MINUTE",
 	"METAFORGE_FOREST_CACHE", "METAFORGE_FOREST_POOL_SIZE",
 	"METAFORGE_LLM_LOG", "METAFORGE_WEEKLY_BUDGET_USD",
+	"METAFORGE_FOREST_PER_VISITOR_HOUR",
 }
 
 // clearForestEnv blanks every variable so no test depends on the ambient
@@ -34,11 +35,12 @@ func TestLoadForestSettingsDefaults(t *testing.T) {
 	s := loadForestSettings()
 
 	want := forestSettings{
-		Config:        forest.Config{Model: "claude-haiku-5-5", JudgeModel: "claude-haiku-5-5", Effort: "low", MinScore: 6, MinPaths: 3},
-		MaxConcurrent: 4,
-		PerMinute:     30,
-		PoolSize:      10,
-		WeeklyCapUSD:  20,
+		Config:         forest.Config{Model: "claude-haiku-5-5", JudgeModel: "claude-haiku-5-5", Effort: "low", MinScore: 6, MinPaths: 3},
+		MaxConcurrent:  4,
+		PerMinute:      30,
+		PerVisitorHour: 20,
+		PoolSize:       10,
+		WeeklyCapUSD:   20,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)
@@ -57,17 +59,19 @@ func TestLoadForestSettingsFromEnv(t *testing.T) {
 	t.Setenv("METAFORGE_FOREST_PER_MINUTE", "10")
 	t.Setenv("METAFORGE_FOREST_CACHE", "/var/lib/forest.db")
 	t.Setenv("METAFORGE_FOREST_POOL_SIZE", "5")
+	t.Setenv("METAFORGE_FOREST_PER_VISITOR_HOUR", "6")
 
 	s := loadForestSettings()
 
 	want := forestSettings{
-		Config:        forest.Config{Model: "gen-x", JudgeModel: "judge-y", Effort: "high", MinScore: 7, MinPaths: 0},
-		MaxConcurrent: 2,
-		PerMinute:     10,
-		APIKey:        "sk-test",
-		CachePath:     "/var/lib/forest.db",
-		PoolSize:      5,
-		WeeklyCapUSD:  20,
+		Config:         forest.Config{Model: "gen-x", JudgeModel: "judge-y", Effort: "high", MinScore: 7, MinPaths: 0},
+		MaxConcurrent:  2,
+		PerMinute:      10,
+		PerVisitorHour: 6,
+		APIKey:         "sk-test",
+		CachePath:      "/var/lib/forest.db",
+		PoolSize:       5,
+		WeeklyCapUSD:   20,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)
@@ -91,8 +95,9 @@ func TestLoadForestSettingsRejectsBadNumbers(t *testing.T) {
 		clearForestEnv(t)
 		t.Setenv("METAFORGE_FOREST_MAX_CONCURRENT", bad)
 		t.Setenv("METAFORGE_FOREST_PER_MINUTE", bad)
-		if s := loadForestSettings(); s.MaxConcurrent != 4 || s.PerMinute != 30 {
-			t.Errorf("%q: caps = %d/%d, want defaults 4/30", bad, s.MaxConcurrent, s.PerMinute)
+		t.Setenv("METAFORGE_FOREST_PER_VISITOR_HOUR", bad)
+		if s := loadForestSettings(); s.MaxConcurrent != 4 || s.PerMinute != 30 || s.PerVisitorHour != 20 {
+			t.Errorf("%q: caps = %d/%d/%d, want defaults 4/30/20", bad, s.MaxConcurrent, s.PerMinute, s.PerVisitorHour)
 		}
 	}
 	for _, bad := range []string{"abc", "-1", "11"} {
@@ -251,5 +256,24 @@ func TestWeeklyBudgetRejectsNonsense(t *testing.T) {
 	t.Setenv("METAFORGE_WEEKLY_BUDGET_USD", "0")
 	if got := loadForestSettings().WeeklyCapUSD; got != 0 {
 		t.Errorf("0 must switch the cap off, got %v", got)
+	}
+}
+
+// Rule: the built route limits each visitor to the configured allowance.
+func TestForestHandlerLimitsEachVisitor(t *testing.T) {
+	clearForestEnv(t)
+	t.Setenv("METAFORGE_FOREST_PER_VISITOR_HOUR", "3")
+
+	h := newForestHandler(loadForestSettings())
+	if h.Visitors == nil {
+		t.Fatal("no per-visitor limit on the built route")
+	}
+	for i := 0; i < 3; i++ {
+		if _, _, ok := h.Visitors.Take("203.0.113.7"); !ok {
+			t.Fatalf("take %d refused within an allowance of 3", i+1)
+		}
+	}
+	if _, _, ok := h.Visitors.Take("203.0.113.7"); ok {
+		t.Error("fourth take admitted past an allowance of 3")
 	}
 }
