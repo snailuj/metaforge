@@ -375,3 +375,77 @@ describe('forest state: streaming', () => {
     }
   })
 })
+
+describe('forest state: browsing saved forests', () => {
+  // Saved copies arrive from JSON, so they are equal to the shown forest, never identical.
+  const copy = (f: ForestResponse): ForestResponse => JSON.parse(JSON.stringify(f))
+  const third: ForestResponse = { ...forest, endpoints: forest.endpoints.slice(0, 1) }
+  const pool = [copy(otherForest), copy(forest), copy(third)]
+  const loaded = (s = shown(), forests = pool) =>
+    reduceForest(s, { type: 'saved-loaded', word: s.word, maxHops: s.maxHops, forests })
+
+  it('a loaded list finds the shown forest by content', () => {
+    const s = loaded()
+    expect(s.saved).toBe(pool)
+    expect(s.savedIndex).toBe(1)
+  })
+
+  it('a list without the shown forest leaves no position', () => {
+    expect(loaded(shown(), [copy(otherForest), copy(third)]).savedIndex).toBeNull()
+  })
+
+  // Rule: a list loaded for another word, other steps, or during a request is stale and changes nothing.
+  it('ignores a stale list', () => {
+    const s = shown()
+    expect(reduceForest(s, { type: 'saved-loaded', word: 'time', maxHops: 3, forests: pool })).toBe(s)
+    expect(reduceForest(s, { type: 'saved-loaded', word: 'patience', maxHops: 4, forests: pool })).toBe(s)
+    const busy = run(s, { type: 'forge' })
+    expect(reduceForest(busy, { type: 'saved-loaded', word: 'patience', maxHops: 3, forests: pool })).toBe(busy)
+  })
+
+  it('Next and Previous step through the list and wrap round at either end', () => {
+    const s = loaded()
+    const next = run(s, { type: 'browse', step: 1 })
+    expect(next.savedIndex).toBe(2)
+    expect(next.content).toEqual({ kind: 'forest', response: pool[2] })
+    expect(next.notice).toBe('browsed')
+    expect(run(next, { type: 'browse', step: 1 }).savedIndex).toBe(0)
+    expect(run(s, { type: 'browse', step: -1 }, { type: 'browse', step: -1 }).savedIndex).toBe(2)
+  })
+
+  // Repeated gesture: each press moves one place; Previous undoes Next.
+  it('Previous after Next returns to the same forest', () => {
+    const s = loaded()
+    expect(run(s, { type: 'browse', step: 1 }, { type: 'browse', step: -1 }).content).toEqual(s.content)
+  })
+
+  it('browsing clears highlights and a past failure, and keeps the graph setting', () => {
+    const s = run(loaded(), { type: 'select', target: { kind: 'node', id: 'x' } }, { type: 'set-on-graph', onGraph: false })
+    const failed = loaded(fail(run(s, { type: 'forge' })))
+    const next = run(failed, { type: 'browse', step: 1 })
+    expect(next).toMatchObject({ selection: null, hover: null, focus: null, onGraph: false, request: { kind: 'idle' } })
+  })
+
+  it('from no position, Next shows the newest and Previous the oldest', () => {
+    const s = loaded(shown(), [copy(otherForest), copy(third)])
+    expect(run(s, { type: 'browse', step: 1 }).savedIndex).toBe(0)
+    expect(run(s, { type: 'browse', step: -1 }).savedIndex).toBe(1)
+  })
+
+  it('browsing is a no-op in flight, with nothing saved, or with only the shown forest saved', () => {
+    const busy = run(loaded(), { type: 'forge' })
+    expect(reduceForest(busy, { type: 'browse', step: 1 })).toBe(busy)
+    const none = shown()
+    expect(reduceForest(none, { type: 'browse', step: 1 })).toBe(none)
+    const only = loaded(shown(), [copy(forest)])
+    expect(reduceForest(only, { type: 'browse', step: 1 })).toBe(only)
+  })
+
+  it('a new word drops the list; a settled forest is located in the list it already has', () => {
+    const s = loaded()
+    expect(run(s, { type: 'word-committed', word: 'time' })).toMatchObject({ saved: [], savedIndex: null })
+    const reforged = settle(run(s, { type: 'forge' }), third)
+    expect(reforged.savedIndex).toBe(2)
+    expect(settle(run(s, { type: 'forge' }), emptyForest).savedIndex).toBe(1)
+  })
+})
