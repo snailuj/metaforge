@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,12 +11,14 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/snailuj/metaforge/internal/forest"
+	"github.com/snailuj/metaforge/internal/llmlog"
 )
 
 // ForestRequestTimeout bounds one forest request: two sequential LLM calls
@@ -51,6 +55,17 @@ type ForestCache interface {
 	Add(ctx context.Context, word string, maxHops int, f forest.Forest) error
 }
 
+// ForestLedger keeps every forest request for good (llmlog.Store).
+type ForestLedger interface {
+	RecordRun(ctx context.Context, r llmlog.Run) error
+	RunCost(ctx context.Context, runID string) (float64, error)
+}
+
+// ForestBudget reports the rolling-week model spend against its cap.
+type ForestBudget interface {
+	Status(ctx context.Context) (llmlog.BudgetStatus, error)
+}
+
 // forestCacheWriteTimeout bounds storing a forest after the client may have
 // gone: the forest is paid for, so it is kept even if nobody is waiting.
 const forestCacheWriteTimeout = 5 * time.Second
@@ -63,6 +78,10 @@ type ForestHandler struct {
 	Cache   ForestCache // nil disables caching
 	// Keepalive is the comment interval on an idle event stream.
 	Keepalive time.Duration
+	Ledger    ForestLedger // nil: runs are not recorded
+	Budget    ForestBudget // nil: no spending cap
+	// Fingerprint is the pipeline version recorded with each run.
+	Fingerprint string
 }
 
 // NewForestHandler takes a nil gen when the server has no API key; the
@@ -124,6 +143,14 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		writeForestUnconfigured(w)
 		return
 	}
+	if h.budgetSpent(r.Context(), word) {
+		w.Header().Set("X-Forest-Budget", "exhausted")
+		if h.serveFromPool(w, r, word, maxHops) {
+			return
+		}
+		writeForestError(w, http.StatusServiceUnavailable, "the weekly model budget is spent; new metaphor forests resume as it frees up")
+		return
+	}
 
 	release, retryAfter, ok := h.limiter.Acquire()
 	if !ok {
@@ -137,16 +164,20 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), h.Timeout)
 	defer cancel()
+	run := llmlog.RunInfo{ID: newRunID(), Origin: parseOrigin(r), Word: word, MaxHops: maxHops}
+	ctx = llmlog.WithRun(ctx, run)
+	started := time.Now()
 
 	if streamer, ok := h.gen.(ForestStreamer); ok && wantsStream(r) && canStream(h.gen) {
 		if h.Cache != nil {
 			w.Header().Set("X-Forest-Cache", cacheState)
 		}
-		h.streamForest(ctx, w, streamer, word, maxHops)
+		h.streamForest(ctx, w, streamer, run, started)
 		return
 	}
 
 	result, err := h.gen.Generate(ctx, word, maxHops)
+	cost := h.recordRun(ctx, run, started, result, err)
 	if err != nil {
 		// forest.Service has already logged the cause with its request context.
 		if errors.Is(err, context.Canceled) {
@@ -168,14 +199,94 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Forest-Cache", cacheState)
 		h.store(r.Context(), word, maxHops, result)
 	}
+	if h.Ledger != nil {
+		w.Header().Set("X-Forest-Cost-USD", strconv.FormatFloat(cost, 'f', 6, 64))
+	}
 	writeForest(w, word, result)
+}
+
+// budgetSpent reports whether the weekly cap forbids generating. A budget
+// that cannot be read counts as spent.
+func (h *ForestHandler) budgetSpent(ctx context.Context, word string) bool {
+	if h.Budget == nil {
+		return false
+	}
+	st, err := h.Budget.Status(ctx)
+	if err != nil {
+		slog.Error("forest: budget unreadable, refusing to generate", "word", word, "err", err)
+		return true
+	}
+	if st.Exhausted {
+		slog.Warn("forest: weekly budget spent", "word", word, "spent_usd", st.SpentUSD, "cap_usd", st.CapUSD)
+	}
+	return st.Exhausted
+}
+
+// serveFromPool answers with a cached forest if the pool has one.
+func (h *ForestHandler) serveFromPool(w http.ResponseWriter, r *http.Request, word string, maxHops int) bool {
+	if h.Cache == nil {
+		return false
+	}
+	cached, hit, err := h.Cache.Random(r.Context(), word, maxHops)
+	if err != nil {
+		slog.Warn("forest: cache read failed", "word", word, "max_hops", maxHops, "err", err)
+		return false
+	}
+	if !hit {
+		return false
+	}
+	w.Header().Set("X-Forest-Cache", "hit")
+	if wantsStream(r) {
+		startSSE(w).event("done", cached)
+		return true
+	}
+	writeForest(w, word, cached)
+	return true
+}
+
+// recordRun keeps the request in the ledger, whatever its outcome, and
+// returns what its model calls cost. Ledger failures are logged only.
+func (h *ForestHandler) recordRun(ctx context.Context, run llmlog.RunInfo, started time.Time, f forest.Forest, genErr error) float64 {
+	if h.Ledger == nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), forestCacheWriteTimeout)
+	defer cancel()
+	rec := llmlog.Run{ID: run.ID, Started: started, Total: time.Since(started), Word: run.Word, MaxHops: run.MaxHops,
+		Origin: run.Origin, Fingerprint: h.Fingerprint, Outcome: "ok"}
+	switch {
+	case errors.Is(genErr, context.Canceled):
+		rec.Outcome, rec.Error = "canceled", genErr.Error()
+	case errors.Is(genErr, context.DeadlineExceeded):
+		rec.Outcome, rec.Error = "timeout", genErr.Error()
+	case genErr != nil:
+		rec.Outcome, rec.Error = "error", genErr.Error()
+	default:
+		body, err := json.Marshal(f)
+		if err != nil {
+			slog.Error("forest: could not encode forest for the ledger", "run_id", run.ID, "err", err)
+		}
+		rec.Forest = body
+	}
+	cost, err := h.Ledger.RunCost(ctx, run.ID)
+	if err != nil {
+		slog.Error("forest: run cost unreadable", "run_id", run.ID, "err", err)
+	}
+	rec.CostUSD = cost
+	if err := h.Ledger.RecordRun(ctx, rec); err != nil {
+		slog.Error("forest: run not recorded", "run_id", run.ID, "word", run.Word, "err", err)
+	}
+	slog.Info("forest: run recorded", "run_id", run.ID, "word", run.Word, "origin", run.Origin,
+		"outcome", rec.Outcome, "cost_usd", cost)
+	return cost
 }
 
 // streamForest answers with a server-sent event stream: each service event
 // as it happens, then one done with the final forest, or one error event
 // with kind "timeout" or "failed". A comment line goes out every Keepalive
 // while the stream is idle.
-func (h *ForestHandler) streamForest(ctx context.Context, w http.ResponseWriter, gen ForestStreamer, word string, maxHops int) {
+func (h *ForestHandler) streamForest(ctx context.Context, w http.ResponseWriter, gen ForestStreamer, run llmlog.RunInfo, started time.Time) {
+	word, maxHops := run.Word, run.MaxHops
 	sse := startSSE(w)
 	if h.Keepalive > 0 {
 		// Nothing may write to w after the handler returns, so wait for it.
@@ -185,6 +296,7 @@ func (h *ForestHandler) streamForest(ctx context.Context, w http.ResponseWriter,
 	}
 
 	result, err := gen.GenerateStream(ctx, word, maxHops, func(ev forest.StreamEvent) { sse.event(ev.Name, ev.Data) })
+	h.recordRun(ctx, run, started, result, err)
 	switch {
 	case errors.Is(err, context.Canceled):
 		slog.Info("forest: client disconnected mid-stream", "word", word)
@@ -288,6 +400,52 @@ func writeForest(w http.ResponseWriter, word string, f forest.Forest) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(f); err != nil {
 		slog.Error("failed to encode forest response", "word", word, "err", err)
+	}
+}
+
+// originPattern bounds the self-declared origin of a request, a label for
+// telling enrichment from live use in the ledger, not an identity.
+var originPattern = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+
+func parseOrigin(r *http.Request) string {
+	o := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Metaforge-Origin")))
+	if !originPattern.MatchString(o) {
+		return "web"
+	}
+	return o
+}
+
+func newRunID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand does not fail on supported platforms; a time-based
+		// id still groups this run's calls.
+		slog.Error("forest: random run id unavailable", "err", err)
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(b)
+}
+
+// BudgetHandler serves GET /forge/budget: the rolling-week spend and cap.
+type BudgetHandler struct {
+	Budget ForestBudget // nil: no ledger configured
+}
+
+func (h *BudgetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.Budget == nil {
+		writeForestError(w, http.StatusServiceUnavailable, "model spend is not tracked on this server")
+		return
+	}
+	st, err := h.Budget.Status(r.Context())
+	if err != nil {
+		slog.Error("budget: status unreadable", "err", err)
+		writeForestError(w, http.StatusServiceUnavailable, "model spend is unreadable")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(w).Encode(st); err != nil {
+		slog.Error("budget: failed to encode status", "err", err)
 	}
 }
 
