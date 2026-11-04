@@ -104,9 +104,17 @@ mv "${OLD}.good" "$OLD"
 echo "== a script that dies after the stop restarts the service"
 command sudo rm -f "$NEW" "${NEW}-wal"
 : > "$LOG"
-( . "${HERE}/api-host.sh"; unset MF_EXIT_ARMED; migrate_forest_cache production svc "$WT" >/dev/null; exit 3 ) ; rc=$?
+# A separate process, so no trap or variable leaks in from this shell.
+cat > "${T}/dies.sh" <<EOS
+sudo() { case "\$1" in systemctl) echo "sudo \$*" >> "$LOG" ;; *) command sudo "\$@" ;; esac; }
+. "${HERE}/api-host.sh"
+migrate_forest_cache production svc "$WT" >/dev/null
+exit 3
+EOS
+bash "${T}/dies.sh"; rc=$?
 [ "$rc" = 3 ] && ok "exit status preserved" || fail "exit status was $rc"
 expect_log "systemctl start svc"
 
+MF_STOPPED_SERVICE=   # the migrations above armed the exit restart; nothing is real here
 echo ""
 if [ "$FAILS" -eq 0 ]; then echo "All tests passed."; else echo "${FAILS} test(s) failed."; exit 1; fi
