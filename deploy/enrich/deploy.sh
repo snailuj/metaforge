@@ -37,8 +37,7 @@ fi
 
 echo "--- Build enricher ---"
 export PATH="/usr/local/go/bin:${PATH}"
-cd "${WORKTREE}/api"
-go build -o enrich ./cmd/enrich
+build_go_checked "${WORKTREE}" enrich ./cmd/enrich
 echo "Built: ${WORKTREE}/api/enrich"
 install_root_binary "${WORKTREE}/api/enrich" /usr/local/lib/metaforge/enrich/enrich
 

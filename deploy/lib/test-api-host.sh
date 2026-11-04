@@ -127,6 +127,29 @@ kill "$PID" 2>/dev/null
 cmp -s "${T}/sleep.v2" "${BIN_DIR}/site/prog" && ok "new content installed" || fail "old content left"
 command sudo rm -rf "$BIN_DIR"
 
+echo "== build_go_checked"
+export PATH="/usr/local/go/bin:${PATH}"
+GW="${T}/gowt"; mkdir -p "${GW}/api/cmd/prog"
+git init -q "$GW"; git -C "$GW" config user.name t; git -C "$GW" config user.email t@invalid
+printf 'module example.invalid/prog\n\ngo 1.21\n' > "${GW}/api/go.mod"
+printf 'package main\n\nfunc main() {}\n' > "${GW}/api/cmd/prog/main.go"
+printf 'api/prog\n' > "${GW}/.gitignore"
+git -C "$GW" add -A; git -C "$GW" commit -q -m init
+build_go_checked "$GW" prog ./cmd/prog >/dev/null 2>&1 && [ -x "${GW}/api/prog" ] && ok "clean tree builds" || fail "clean tree did not build"
+# A poisoned environment must not reach the compiler: the build pins its own flags.
+printf 'GOFLAGS=-toolexec=/bin/false\n' > "${T}/goenv"
+GOENV="${T}/goenv" GOFLAGS=-toolexec=/bin/false build_go_checked "$GW" prog ./cmd/prog >/dev/null 2>&1 \
+    && ok "poisoned GOFLAGS and go env file ignored" || fail "build honoured a poisoned environment"
+echo '// edited by an install script' >> "${GW}/api/cmd/prog/main.go"
+build_go_checked "$GW" prog ./cmd/prog >/dev/null 2>&1 && fail "built an edited source" || ok "edited tracked file refused"
+git -C "$GW" checkout -q -- api
+echo 'package main' > "${GW}/api/cmd/prog/extra.go"
+build_go_checked "$GW" prog ./cmd/prog >/dev/null 2>&1 && fail "built with an extra file" || ok "untracked source refused"
+rm "${GW}/api/cmd/prog/extra.go"
+echo '// staged' >> "${GW}/api/go.mod"; git -C "$GW" add api/go.mod
+build_go_checked "$GW" prog ./cmd/prog >/dev/null 2>&1 && fail "built a staged go.mod change" || ok "staged change refused"
+git -C "$GW" reset -q --hard
+
 MF_STOPPED_SERVICE=   # the migrations above armed the exit restart; nothing is real here
 echo ""
 if [ "$FAILS" -eq 0 ]; then echo "All tests passed."; else echo "${FAILS} test(s) failed."; exit 1; fi

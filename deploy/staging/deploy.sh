@@ -35,7 +35,9 @@ echo "--- Restore database ---"
 "${WORKTREE}/data-pipeline/scripts/restore_db.sh"
 echo ""
 
-# 3. Build frontend (before the Go build, so nothing npm runs can touch the binary)
+# 3. Build frontend. npm install scripts run as agent, so this comes BEFORE the Go
+# build and the build refuses source they changed (see build_go_checked for what that
+# does not cover).
 echo "--- Build frontend ---"
 cd "${WORKTREE}/web"
 npm ci --prefer-offline
@@ -45,8 +47,7 @@ echo ""
 # 4. Build Go API
 echo "--- Build Go API ---"
 export PATH="/usr/local/go/bin:${PATH}"
-cd "${WORKTREE}/api"
-go build -o metaforge ./cmd/metaforge
+build_go_checked "${WORKTREE}" metaforge ./cmd/metaforge
 echo "Built: ${WORKTREE}/api/metaforge"
 # Root-owned copy for the unit to run; see the unit.
 install_root_binary "${WORKTREE}/api/metaforge" "/usr/local/lib/metaforge/staging/metaforge"

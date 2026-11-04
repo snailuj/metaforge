@@ -118,3 +118,23 @@ install_root_binary() { # <src> <dest>
     sudo mv -f "${dest}.new" "$dest"
     echo "Installed ${dest} (root:root 0755)"
 }
+
+# Build a Go binary from api/ only if it is exactly the committed source. npm ci runs
+# install scripts as agent before this, and agent can edit api/, go.mod, the go env
+# file (GOFLAGS=-toolexec=...) and the module cache. Cheap guards: refuse any change
+# to api/ against HEAD, ignore the go env file and ambient GOFLAGS, keep go.mod
+# read-only and verify the module cache against go.sum.
+# RESIDUAL: the build still runs as agent, so a script that edits the toolchain under
+# /usr/local/go or the files go itself trusts is not caught. Building as a user that
+# cannot be touched from agent would close it; that is not done.
+build_go_checked() { # <worktree> <output name> <package>
+    local wt="$1" out="$2" pkg="$3"
+    if [ -n "$(git -C "$wt" status --porcelain -- api)" ] || ! git -C "$wt" diff --quiet HEAD -- api; then
+        echo "ERROR: api/ differs from the committed source (edited since checkout, e.g. by an install script):" >&2
+        git -C "$wt" status --short -- api >&2
+        return 1
+    fi
+    (cd "${wt}/api" \
+        && GOENV=off GOFLAGS=-mod=readonly go mod verify \
+        && GOENV=off GOFLAGS=-mod=readonly go build -o "$out" "$pkg")
+}
