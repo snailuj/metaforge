@@ -3,13 +3,13 @@ package llmlog
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -74,12 +74,19 @@ func (s *Store) Middleware() option.Middleware {
 		c.Model, c.Streamed = rf.Model, rf.Stream
 		maxTokens := rf.MaxTokens
 
+		// Whether a request byte left decides if a failed call may be billed;
+		// the error alone cannot say (a cancel or TLS failure looks the same
+		// before and after sending).
+		var sent atomic.Bool
+		req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+			WroteHeaders: func() { sent.Store(true) },
+		}))
 		resp, err := next(req)
 		c.HeadersAfter = time.Since(c.Started)
 		if err != nil {
 			c.Error = err.Error()
 			c.Total = c.HeadersAfter
-			if neverSent(err) {
+			if !sent.Load() {
 				c.PriceKnown = true // nothing was billed
 			} else {
 				// It may have reached the API, which bills a call the client
@@ -107,17 +114,6 @@ func chargeCeiling(c *Call, maxTokens int64) {
 	c.Usage.InputTokens = max(c.Usage.InputTokens, int64(len(c.RequestBody)))
 	slog.Warn("llm call log: usage unknown, charged at its ceiling", "run_id", c.RunID,
 		"label", c.Label, "output_tokens", c.Usage.OutputTokens, "input_tokens", c.Usage.InputTokens)
-}
-
-// neverSent reports a transport error from before the request left: the
-// connection could not be made, so the API never saw it.
-func neverSent(err error) bool {
-	var op *net.OpError
-	if errors.As(err, &op) && op.Op == "dial" {
-		return true
-	}
-	var dns *net.DNSError
-	return errors.As(err, &dns)
 }
 
 func redact(h http.Header) map[string][]string {

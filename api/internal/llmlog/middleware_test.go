@@ -183,6 +183,24 @@ func TestMiddlewareRecordsTransportFailure(t *testing.T) {
 	}
 }
 
+// Rule: a call canceled before any byte was sent was never billed.
+func TestMiddlewareDoesNotChargeACallCanceledBeforeSending(t *testing.T) {
+	s := openTemp(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(callCtx())
+	cancel()
+	if _, err := client(t, s, srv.URL).Complete(ctx, req()); err == nil {
+		t.Fatal("want an error")
+	}
+	for _, c := range allCalls(t, s) {
+		if c.CostUSD != 0 || !c.PriceKnown || c.StopReason == "incomplete" {
+			t.Fatalf("unsent call charged %+v cost %v", c.Usage, c.CostUSD)
+		}
+	}
+}
+
 // Rule: a request that reached the API but failed before its headers came
 // back (a timeout, say) may still be billed, so it is charged at its ceiling.
 func TestMiddlewareChargesASentRequestThatFailedAtItsCeiling(t *testing.T) {
