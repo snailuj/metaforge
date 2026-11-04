@@ -31,3 +31,8 @@ run_sandboxed() { # <unit-suffix> <props-file> <snippet>
     while IFS= read -r line; do [ -n "$line" ] && args+=(-p "$line"); done < "$2"
     sudo systemd-run --quiet --wait --pipe --collect -u "$name" "${args[@]}" /bin/sh -c "$3"
 }
+
+# Print the unit's Environment= assignments as Key=Value lines (quotes stripped).
+unit_env() { # <rendered unit>
+    sed -n 's/^Environment=//p' "$1" | sed 's/^"\(.*\)"$/\1/'
+}

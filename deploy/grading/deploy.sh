@@ -7,10 +7,20 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# The sidecar runs as `agent` (the repo owner — see metaforge-grading.service
-# for why a dedicated user breaks code-read + git-autocommit). The secret file
-# is therefore owned by agent.
+# The sidecar runs as `agent` (see metaforge-grading.service: the unit's sandbox,
+# not a second user, is what confines it). The secret file is therefore owned by agent.
 SIDECAR_USER="${SIDECAR_USER:-agent}"
+
+# The data lives in a standalone clone outside the repo (see the unit). Without it
+# the unit's BindPaths= fails the start, so fail here with the fix instead.
+DATA_CLONE=/home/agent/projects/metaforge-grading-data
+if [ ! -d "${DATA_CLONE}/.git" ]; then
+    echo "ERROR: ${DATA_CLONE} is not a git clone yet. Run deploy/grading/migrate-data-clone.sh first." >&2
+    exit 1
+fi
+
+# Own hashed venv (idempotent); built before the unit that points at it restarts.
+"$REPO_ROOT/deploy/grading/build-venv.sh"
 
 # 1. Ensure secret-file path exists. Dir is 0711 (NOT 0700): agent must traverse
 # this root-owned dir to read its own 0600 secret by exact path; 0700 blocks the
@@ -70,6 +80,13 @@ else
     echo "ERROR: sidecar PYTHONPATH is NOT pinned to .worktrees/next — code + grading data" >&2
     echo "       are resolving from the main checkout, not the deploy worktree." >&2
     echo "       Inspect: tr '\\0' '\\n' < /proc/${PID}/environ | grep PYTHONPATH" >&2
+    exit 1
+fi
+
+if [ -n "$PID" ] && grep -qz "^GRADING_DATA_GIT_ROOT=${DATA_CLONE}\$" "/proc/$PID/environ" 2>/dev/null; then
+    echo "Verified: live sidecar (PID $PID) writes grading data to ${DATA_CLONE}."
+else
+    echo "ERROR: sidecar GRADING_DATA_GIT_ROOT is not ${DATA_CLONE}." >&2
     exit 1
 fi
 
