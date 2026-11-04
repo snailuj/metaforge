@@ -42,6 +42,8 @@ func TestClientForestReadsRefusals(t *testing.T) {
 		case "ceiling":
 			w.Header().Set("X-Forest-Budget", "ceiling")
 			w.WriteHeader(200)
+		case "full":
+			w.Header().Set("X-Forest-Pool", "full")
 		}
 		fmt.Fprint(w, `{"error":"x"}`)
 	}))
@@ -55,6 +57,10 @@ func TestClientForestReadsRefusals(t *testing.T) {
 	spent, err := c.Forest(context.Background(), "spent", 3)
 	if err != nil || spent.Status != 503 || !spent.BudgetExhausted {
 		t.Errorf("spent %+v %v", spent, err)
+	}
+	full, err := c.Forest(context.Background(), "full", 3)
+	if err != nil || full.Status != 200 || !full.PoolFull {
+		t.Errorf("full %+v %v", full, err)
 	}
 	// A pooled forest served past the spend ceiling grew nothing: the
 	// enricher must idle, not count it and move on.

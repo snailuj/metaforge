@@ -40,6 +40,7 @@ type ForestResult struct {
 	CostUSD         float64
 	CostKnown       bool // false when the server could not price the forest
 	BudgetExhausted bool
+	PoolFull        bool // the word's pool needs no more; nothing was generated
 	RetryAfter      time.Duration
 	Endpoints       int
 }
@@ -63,6 +64,7 @@ type State struct {
 	Index           int       `json:"index"`
 	Forests         int       `json:"forests"`
 	Failed          int       `json:"failed"`
+	Skipped         int       `json:"skipped"`
 	SpentUSD        float64   `json:"spent_usd"`
 	CostEstimateUSD float64   `json:"cost_estimate_usd"`
 	LastRequest     time.Time `json:"last_request"`
@@ -153,8 +155,13 @@ func (e *Enricher) Step(ctx context.Context) (time.Duration, error) {
 	}
 
 	word := e.cfg.Words[e.state.Index]
+	prevRequest := e.state.LastRequest
 	e.state.LastRequest = e.now()
 	res, err := e.api.Forest(ctx, word, e.cfg.MaxHops)
+	if err == nil && res.PoolFull {
+		// Nothing was bought, so the pacing slot is still free.
+		e.state.LastRequest = prevRequest
+	}
 	wait, advance := e.judge(word, res, err)
 	if advance {
 		e.advance()
@@ -178,6 +185,10 @@ func (e *Enricher) judge(word string, res ForestResult, err error) (time.Duratio
 	case res.BudgetExhausted:
 		slog.Info("enrich: server says the weekly budget is spent", "word", word, "status", res.Status)
 		return e.cfg.IdleWait, false
+	case res.PoolFull:
+		e.state.Skipped++
+		slog.Info("enrich: pool full, skipping", "word", word, "pass", e.state.Pass, "index", e.state.Index, "skipped", e.state.Skipped)
+		return 0, true
 	case res.Status == 429:
 		return max(res.RetryAfter, e.cfg.MinInterval), false
 	case res.Status == 200:

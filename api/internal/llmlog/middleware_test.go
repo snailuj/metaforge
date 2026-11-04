@@ -177,6 +177,61 @@ func TestMiddlewareRecordsTransportFailure(t *testing.T) {
 	if calls[0].Error == "" || calls[0].HTTPStatus != 0 || !strings.Contains(string(calls[0].RequestBody), "user text") {
 		t.Fatalf("failure row wrong: %+v", calls[0])
 	}
+	// A request that never connected was never sent, so nothing was billed.
+	if calls[0].CostUSD != 0 || !calls[0].PriceKnown {
+		t.Fatalf("unsent request charged %v (known %v)", calls[0].CostUSD, calls[0].PriceKnown)
+	}
+}
+
+// Rule: a call canceled before any byte was sent was never billed.
+func TestMiddlewareDoesNotChargeACallCanceledBeforeSending(t *testing.T) {
+	s := openTemp(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(callCtx())
+	cancel()
+	if _, err := client(t, s, srv.URL).Complete(ctx, req()); err == nil {
+		t.Fatal("want an error")
+	}
+	calls := allCalls(t, s)
+	if len(calls) == 0 {
+		t.Fatal("canceled call was not recorded")
+	}
+	for _, c := range calls {
+		if c.CostUSD != 0 || !c.PriceKnown || c.StopReason == "incomplete" {
+			t.Fatalf("unsent call charged %+v cost %v", c.Usage, c.CostUSD)
+		}
+	}
+}
+
+// Rule: a request that reached the API but failed before its headers came
+// back (a timeout, say) may still be billed, so it is charged at its ceiling.
+func TestMiddlewareChargesASentRequestThatFailedAtItsCeiling(t *testing.T) {
+	s := openTemp(t)
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select { // the model is still thinking when the client gives up
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer close(release) // runs first, so Close never waits on the handler
+
+	ctx, cancel := context.WithTimeout(callCtx(), 200*time.Millisecond)
+	defer cancel()
+	if _, err := client(t, s, srv.URL).Complete(ctx, req()); err == nil {
+		t.Fatal("want an error")
+	}
+	calls := allCalls(t, s)
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d", len(calls))
+	}
+	c := calls[0]
+	if c.Usage.OutputTokens != 16000 || c.Usage.InputTokens < int64(len(c.RequestBody)) || c.StopReason != "incomplete" || c.CostUSD <= 0 {
+		t.Fatalf("sent-but-failed call charged %+v cost %v stop %q", c.Usage, c.CostUSD, c.StopReason)
+	}
 }
 
 // Rule: a stream the client abandoned is still billed for what the model

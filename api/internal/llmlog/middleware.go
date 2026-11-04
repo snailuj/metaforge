@@ -6,8 +6,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -72,12 +74,26 @@ func (s *Store) Middleware() option.Middleware {
 		c.Model, c.Streamed = rf.Model, rf.Stream
 		maxTokens := rf.MaxTokens
 
+		// Whether a request byte left decides if a failed call may be billed;
+		// the error alone cannot say (a cancel or TLS failure looks the same
+		// before and after sending).
+		var sent atomic.Bool
+		req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+			WroteHeaders: func() { sent.Store(true) },
+		}))
 		resp, err := next(req)
 		c.HeadersAfter = time.Since(c.Started)
 		if err != nil {
 			c.Error = err.Error()
 			c.Total = c.HeadersAfter
-			c.PriceKnown = true // nothing was billed
+			if !sent.Load() {
+				c.PriceKnown = true // nothing was billed
+			} else {
+				// It may have reached the API, which bills a call the client
+				// gave up on; whether it did is unknowable, so assume so.
+				chargeCeiling(&c, maxTokens)
+				c.CostUSD, c.PriceKnown = Cost(c.Model, c.Usage)
+			}
 			s.record(req.Context(), c)
 			return resp, err
 		}
@@ -87,6 +103,17 @@ func (s *Store) Middleware() option.Middleware {
 		resp.Body = &teeBody{rc: resp.Body, call: c, store: s, ctx: req.Context(), maxTokens: maxTokens}
 		return resp, nil
 	}
+}
+
+// chargeCeiling bills a call whose usage is unknown or under-reported at the
+// most it could have cost: every output token allowed, and at least one
+// input token per request byte.
+func chargeCeiling(c *Call, maxTokens int64) {
+	c.StopReason = "incomplete"
+	c.Usage.OutputTokens = max(c.Usage.OutputTokens, maxTokens)
+	c.Usage.InputTokens = max(c.Usage.InputTokens, int64(len(c.RequestBody)))
+	slog.Warn("llm call log: usage unknown, charged at its ceiling", "run_id", c.RunID,
+		"label", c.Label, "output_tokens", c.Usage.OutputTokens, "input_tokens", c.Usage.InputTokens)
 }
 
 func redact(h http.Header) map[string][]string {
@@ -160,14 +187,8 @@ func (t *teeBody) Close() error {
 			c.StopReason, c.MessageID, c.Usage = p.StopReason, p.MessageID, p.Usage
 			if !p.Complete {
 				// The API bills what the model wrote before the client went,
-				// which a cut body does not report. Charge the ceiling: every
-				// output token allowed, and at least one input token per
-				// request byte.
-				c.StopReason = "incomplete"
-				c.Usage.OutputTokens = max(c.Usage.OutputTokens, t.maxTokens)
-				c.Usage.InputTokens = max(c.Usage.InputTokens, int64(len(c.RequestBody)))
-				slog.Warn("llm call log: response cut short, charged at its ceiling", "run_id", c.RunID,
-					"label", c.Label, "output_tokens", c.Usage.OutputTokens, "input_tokens", c.Usage.InputTokens)
+				// which a cut body does not report.
+				chargeCeiling(&c, t.maxTokens)
 			}
 			c.CostUSD, c.PriceKnown = Cost(c.Model, c.Usage)
 		} else {

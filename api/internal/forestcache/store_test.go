@@ -179,3 +179,27 @@ func TestOpenRejectsNonPositivePoolSize(t *testing.T) {
 		t.Error("pool size 0 was accepted")
 	}
 }
+
+// Rule: a pool is full once it holds poolSize forests of this version, word
+// and max_hops; enrichment skips full pools.
+func TestFullReportsAPoolAtPoolSize(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t, filepath.Join(t.TempDir(), "c.db"), "v1", 2)
+	check := func(word string, hops int, want bool) {
+		t.Helper()
+		if full, err := s.Full(ctx, word, hops); err != nil || full != want {
+			t.Fatalf("Full(%q, %d) = %v, %v; want %v", word, hops, full, err, want)
+		}
+	}
+	check("patience", 3, false)
+	if err := s.Add(ctx, "patience", 3, sampleForest("one")); err != nil {
+		t.Fatal(err)
+	}
+	check("patience", 3, false)
+	if err := s.Add(ctx, "patience", 3, sampleForest("two")); err != nil {
+		t.Fatal(err)
+	}
+	check("patience", 3, true)
+	check("patience", 2, false)
+	check("dread", 3, false)
+}

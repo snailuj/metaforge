@@ -18,7 +18,11 @@ type fakeForestCache struct {
 	added             []forest.Forest
 	readWord, addWord string
 	readHops, addHops int
+	full              bool
+	fullErr           error
 }
+
+func (c *fakeForestCache) Full(context.Context, string, int) (bool, error) { return c.full, c.fullErr }
 
 func (c *fakeForestCache) Random(_ context.Context, word string, maxHops int) (forest.Forest, bool, error) {
 	c.reads++

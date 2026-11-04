@@ -231,3 +231,30 @@ func TestForestCostHeaderOmittedWhenUnknown(t *testing.T) {
 		t.Fatalf("status %d cost header %q", w.Code, w.Header().Get("X-Forest-Cost-USD"))
 	}
 }
+
+// Rule (owner, 2026-11-04): enrichment skips a word whose pool is full,
+// spending nothing; live users asking for a new forest still get one.
+func TestForestEnrichmentSkipsAFullPool(t *testing.T) {
+	gen := &fakeForestGen{forest: forestWithLine("fresh")}
+	h := newForestTestHandler(gen, 4, 30)
+	h.Cache = &fakeForestCache{pool: []forest.Forest{forestWithLine("cached")}, full: true}
+
+	w := getForestWith(h, "word=patience&fresh=1", enrichment)
+	if w.Code != http.StatusOK || w.Header().Get("X-Forest-Pool") != "full" || gen.called != 0 {
+		t.Fatalf("status %d pool %q gen called %d", w.Code, w.Header().Get("X-Forest-Pool"), gen.called)
+	}
+	if w := getForestWith(h, "word=patience&fresh=1", nil); w.Code != http.StatusOK || gen.called != 1 || w.Header().Get("X-Forest-Pool") != "" {
+		t.Fatalf("live user: status %d gen called %d", w.Code, gen.called)
+	}
+}
+
+// Rule: a pool whose size cannot be read is treated as not full.
+func TestForestEnrichmentGeneratesWhenPoolSizeUnreadable(t *testing.T) {
+	gen := &fakeForestGen{forest: forestWithLine("fresh")}
+	h := newForestTestHandler(gen, 4, 30)
+	h.Cache = &fakeForestCache{full: true, fullErr: errors.New("disk")}
+
+	if w := getForestWith(h, "word=patience&fresh=1", enrichment); w.Code != http.StatusOK || gen.called != 1 {
+		t.Fatalf("status %d gen called %d", w.Code, gen.called)
+	}
+}
