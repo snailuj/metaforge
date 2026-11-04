@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks that the API and enricher units are sandboxed as designed.
 #
-#   deploy/check-sandbox.sh [--static-only] [--live-key]
+#   deploy/check-sandbox.sh [--static-only] [--no-real] [--live-key]
 #
 # Static: renders each unit, runs systemd-analyze verify and asserts the hardening
 # directives are present. Probe (needs sudo): starts transient units named
@@ -12,6 +12,11 @@
 # The units are rendered against a stand-in worktree at /opt/mf-sandbox-wt (a dummy
 # lexicon, nothing from a live tree), because a probe that tries to write to the
 # worktree must never be pointed at a real one.
+# Real program: the production unit's properties are also applied to the Go binary
+# built from this checkout (installed root-owned under /opt/mf-sandbox-bin) serving
+# the real .worktrees/next lexicon through a read-only bind, on port 8099 with no API
+# key, so a seccomp or address-family rule that kills the real server is caught.
+# Nothing is ever written into that live worktree. --no-real skips this.
 # --live-key also checks /etc/metaforge/forest*.env are not group/world-readable.
 set -uo pipefail
 
@@ -20,11 +25,15 @@ WORKTREE=/opt/mf-sandbox-wt
 # shellcheck source=lib/sandbox-props.sh
 . "${HERE}/lib/sandbox-props.sh"
 
-STATIC_ONLY=0 LIVE_KEY=0
+STATIC_ONLY=0 LIVE_KEY=0 REAL=1
+LIVE_NEXT=/home/agent/projects/metaforge/.worktrees/next
+REPO="$(cd "${HERE}/.." && pwd)"
+BIN_DIR=/opt/mf-sandbox-bin
 for a in "$@"; do
     case "$a" in
         --static-only) STATIC_ONLY=1 ;;
         --live-key) LIVE_KEY=1 ;;
+        --no-real) REAL=0 ;;
         *) echo "unknown argument: $a" >&2; exit 2 ;;
     esac
 done
@@ -32,7 +41,8 @@ done
 TMP="$(mktemp -d)"
 sudo install -d -o agent -g agent -m 0755 "${WORKTREE}/data-pipeline/output"
 : > "${WORKTREE}/data-pipeline/output/lexicon_v2.db"
-cleanup() { rm -rf "$TMP"; sudo rm -rf /var/lib/mf-sandbox-test "$WORKTREE" 2>/dev/null || true; }
+cleanup() { rm -rf "$TMP"; sudo systemctl stop mf-sandbox-test-real 2>/dev/null || true
+    sudo rm -rf /var/lib/mf-sandbox-test "$WORKTREE" "$BIN_DIR" 2>/dev/null || true; }
 trap cleanup EXIT
 
 FAILS=0
@@ -107,6 +117,39 @@ LBL=write-state     t touch /var/lib/mf-sandbox-test/.mf-probe
             if grep -qx "$expect" <<<"$out"; then ok "$expect"; else fail "wanted ${expect}"; fi
         done
     done
+fi
+
+if [ "$STATIC_ONLY" = 0 ] && [ "$REAL" = 1 ]; then
+    echo "== real program under the production unit's sandbox"
+    . "${HERE}/lib/api-host.sh"
+    if ! (cd "${REPO}/api" && PATH="/usr/local/go/bin:${PATH}" go build -o "${TMP}/metaforge" ./cmd/metaforge) 2>"${TMP}/build.log"; then
+        fail "go build: $(tail -3 "${TMP}/build.log")"
+    else
+        install_root_binary "${TMP}/metaforge" "${BIN_DIR}/metaforge" >/dev/null
+        render_unit "${HERE}/production/metaforge-api.service" "$LIVE_NEXT" "${TMP}/real.service"
+        sandbox_props "${TMP}/real.service" | scratch_state > "${TMP}/real.props"
+        sed -i 's|^StateDirectory=.*|StateDirectory=mf-sandbox-test mf-sandbox-test/production|' "${TMP}/real.props"
+        args=(); while IFS= read -r l; do args+=(-p "$l"); done < "${TMP}/real.props"
+        sudo systemd-run --quiet --collect -u mf-sandbox-test-real "${args[@]}" -p MemoryMax=600M \
+            -p Environment=METAFORGE_FOREST_CACHE=/var/lib/mf-sandbox-test/production/forest_cache.db \
+            -p Environment=METAFORGE_LLM_LOG=/var/lib/mf-sandbox-test/llm_calls.db \
+            "${BIN_DIR}/metaforge" -port 8099 -db "${LIVE_NEXT}/data-pipeline/output/lexicon_v2.db" \
+            -strings "${LIVE_NEXT}/strings" -cors-origin https://example.test \
+            || fail "could not start the transient server"
+        for _ in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:8099/health && break; sleep 1; done
+        code() { curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8099$1"; }
+        [ "$(code /health)" = 200 ] && ok "/health 200" || fail "/health did not answer 200"
+        [ "$(code '/thesaurus/lookup?word=hope')" = 200 ] && ok "lookup 200" || fail "lookup did not answer 200"
+        [ "$(code '/forge/forest?word=hope')" = 503 ] && ok "forest 503 without a key" || fail "forest did not answer 503"
+        systemctl is-active --quiet mf-sandbox-test-real && ok "server still running (not killed by the filter)" \
+            || fail "server died: $(sudo journalctl -u mf-sandbox-test-real --no-pager -n 3 | cut -c1-160 | tr '\n' '|')"
+        sudo test -s /var/lib/mf-sandbox-test/production/forest_cache.db && ok "cache written under the state dir" || fail "no cache written"
+        # Read-only is read from the mount table, not by trying to write to a live tree.
+        out="$(run_sandboxed realview "${TMP}/real.props" "grep ' ${LIVE_NEXT} ' /proc/self/mountinfo; test -e /home/agent/.ssh && echo SSH-VISIBLE" 2>&1)"
+        grep -q " ${LIVE_NEXT} ro," <<<"$out" && ok "live worktree bind is read-only" || fail "live worktree bind is not read-only: ${out}"
+        grep -q SSH-VISIBLE <<<"$out" && fail "~/.ssh visible" || ok "~/.ssh not visible"
+        sudo systemctl stop mf-sandbox-test-real
+    fi
 fi
 
 echo ""
