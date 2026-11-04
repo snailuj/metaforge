@@ -243,3 +243,18 @@ func TestStepIgnoresAnUnknownCost(t *testing.T) {
 		t.Fatalf("state %+v", st)
 	}
 }
+
+// Rule (owner, 2026-11-04): a word whose pool is already full is skipped:
+// it costs nothing, counts as no forest, and does not hold up the next word.
+func TestStepSkipsAFullPool(t *testing.T) {
+	api := &fakeAPI{budget: capped(1), results: []ForestResult{{Status: 200, PoolFull: true}}}
+	e, _ := newTest(t, api, "longing", "dread")
+	wait, err := e.Step(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := e.State()
+	if wait != 0 || st.Index != 1 || st.Skipped != 1 || st.Forests != 0 || st.SpentUSD != 0 || !st.LastRequest.IsZero() || st.CostEstimateUSD != 0.01 {
+		t.Fatalf("wait %v state %+v", wait, st)
+	}
+}

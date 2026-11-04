@@ -54,6 +54,7 @@ const defaultForestKeepalive = 10 * time.Second
 type ForestCache interface {
 	Random(ctx context.Context, word string, maxHops int) (forest.Forest, bool, error)
 	Add(ctx context.Context, word string, maxHops int, f forest.Forest) error
+	Full(ctx context.Context, word string, maxHops int) (bool, error)
 }
 
 // ForestLedger keeps every forest request for good (llmlog.Store).
@@ -145,6 +146,14 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	origin := parseOrigin(r)
+	if origin == enrichmentOrigin && h.poolFull(r.Context(), word, maxHops) {
+		// Another forest would only evict one; enrichment moves on.
+		w.Header().Set("X-Forest-Pool", "full")
+		if h.serveFromPool(w, r, word, maxHops) {
+			return
+		}
+		w.Header().Del("X-Forest-Pool") // emptied since the count; generate after all
+	}
 	if origin == enrichmentOrigin && h.budgetSpent(r.Context(), word) {
 		w.Header().Set("X-Forest-Budget", "exhausted")
 		if h.serveFromPool(w, r, word, maxHops) {
@@ -229,6 +238,23 @@ func (h *ForestHandler) budgetSpent(ctx context.Context, word string) bool {
 		slog.Warn("forest: weekly budget spent", "word", word, "spent_usd", st.SpentUSD, "cap_usd", st.CapUSD)
 	}
 	return st.Exhausted
+}
+
+// poolFull reports whether the word's pool needs no more forests. A pool
+// that cannot be counted is treated as not full.
+func (h *ForestHandler) poolFull(ctx context.Context, word string, maxHops int) bool {
+	if h.Cache == nil {
+		return false
+	}
+	full, err := h.Cache.Full(ctx, word, maxHops)
+	if err != nil {
+		slog.Warn("forest: pool size unreadable, generating", "word", word, "max_hops", maxHops, "err", err)
+		return false
+	}
+	if full {
+		slog.Info("forest: pool full, enrichment skips", "word", word, "max_hops", maxHops)
+	}
+	return full
 }
 
 // serveFromPool answers with a cached forest if the pool has one.

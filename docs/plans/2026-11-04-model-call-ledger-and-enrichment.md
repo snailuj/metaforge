@@ -24,7 +24,7 @@ Prices (`price.go`) are list prices as of 2026-10-06, with Haiku 5.5's long-prom
 
 `GET /forge/budget` (direct loopback only: requests with `X-Forwarded-For` or from another host get 404) returns `{cap_usd, spent_usd, remaining_usd, window_start, exhausted}`. Each generated JSON forest carries `X-Forest-Cost-USD`.
 
-**Enricher** (`api/cmd/enrich`, `api/internal/enrich`). Walks a word list (`-words FILE`, or `-lexicon DB -top N`: the most frequent words with a noun or adjective sense), asking for one `fresh=1` forest per word per pass, with `X-Metaforge-Origin: enrichment`. Before each forest it reads `/forge/budget`:
+**Enricher** (`api/cmd/enrich`, `api/internal/enrich`). Walks a word list (`-words FILE`, or `-lexicon DB -top N`: the most frequent words with a noun or adjective sense), asking for one `fresh=1` forest per word per pass, with `X-Metaforge-Origin: enrichment`. Before each forest it reads `/forge/budget`: A word whose cache pool is already full (10 forests, from live users or earlier passes) is skipped: the server answers from the pool with `X-Forest-Pool: full`, nothing is generated, and the enricher counts it under `skipped` and moves straight on.
 
 - it keeps `-reserve` (default $5) of the cap for live users, and waits 15 minutes while the week's total spend is above `cap - reserve`;
 - it spaces forests at `cost estimate / ((cap - reserve) / week)`, so enrichment alone never outspends its share; the estimate is a running average of `X-Forest-Cost-USD`;
