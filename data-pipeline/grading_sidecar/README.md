@@ -10,13 +10,24 @@ Runs on port 53775; deployed at `metaforge-next.julianit.me` under path-scoped C
 | Component | Version |
 |-----------|---------|
 | Python | 3.12 |
-| FastAPI | >=0.110,<0.120 |
+| FastAPI | >=0.119.1 (Starlette >=1.3.1) |
 | uvicorn | >=0.27 (with standard extras) |
-| Pydantic | v2 (>=2.5,<3.0) |
+| Pydantic | v2 (>=2.5) |
 | pytest + pytest-asyncio | test harness |
 | httpx | FastAPI TestClient transport |
 
-See `requirements.txt` for pinned ranges.
+Runtime ranges are in `requirements.in` (no upper caps, so security fixes are
+not blocked); `requirements.lock` pins every package with hashes; test tools are
+in `requirements-dev.txt`. The sidecar has its own venv:
+
+```bash
+cd data-pipeline/grading_sidecar
+uv venv .venv --python 3.12
+VIRTUAL_ENV=$PWD/.venv uv pip install --require-hashes -r requirements.lock
+VIRTUAL_ENV=$PWD/.venv uv pip install -r requirements-dev.txt   # tests only
+# refresh the lock:
+uv pip compile requirements.in --generate-hashes --python-version 3.12 -o requirements.lock
+```
 
 ---
 
@@ -75,7 +86,7 @@ Allowed hosts: `metaforge-next.julianit.me` (prod) + `localhost:5173` (Vite dev 
 ```bash
 cd /home/agent/projects/metaforge
 GRADING_DEV=1 METAFORGE_GRADING_DEV_OK=1 \
-    data-pipeline/.venv/bin/python -m grading_sidecar.main
+    PYTHONPATH=data-pipeline data-pipeline/grading_sidecar/.venv/bin/python -m grading_sidecar.main
 ```
 
 Healthz check:
@@ -90,7 +101,7 @@ http://localhost:53775/api/grading/healthz
 
 ```bash
 cd /home/agent/projects/metaforge
-data-pipeline/.venv/bin/python -m pytest data-pipeline/grading_sidecar/tests/ -v
+(cd data-pipeline && grading_sidecar/.venv/bin/python -m pytest grading_sidecar/tests/ -v)
 ```
 
 Expect ~62 tests. All tests use in-memory / temp-directory fixtures — no real JSONL files are read or written.

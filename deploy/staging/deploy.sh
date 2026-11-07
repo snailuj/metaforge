@@ -11,6 +11,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../lib/api-host.sh
+. "${SCRIPT_DIR}/../lib/api-host.sh"
 WORKTREE="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CADDY_SNIPPETS="/etc/caddy/conf.d"
 DOMAIN="metaforge-next.julianit.me"
@@ -33,25 +35,37 @@ echo "--- Restore database ---"
 "${WORKTREE}/data-pipeline/scripts/restore_db.sh"
 echo ""
 
-# 3. Build Go API
-echo "--- Build Go API ---"
-export PATH="/usr/local/go/bin:${PATH}"
-cd "${WORKTREE}/api"
-go build -o metaforge ./cmd/metaforge
-echo "Built: ${WORKTREE}/api/metaforge"
-echo ""
-
-# 4. Build frontend
+# 3. Build frontend. npm install scripts run as agent, so this comes BEFORE the Go
+# build and the build refuses source they changed (see build_go_checked for what that
+# does not cover).
 echo "--- Build frontend ---"
 cd "${WORKTREE}/web"
 npm ci --prefer-offline
 npm run build
 echo ""
 
-# 5. Install API systemd service
+# 4. Build Go API
+echo "--- Build Go API ---"
+export PATH="/usr/local/go/bin:${PATH}"
+build_go_checked "${WORKTREE}" metaforge ./cmd/metaforge
+echo "Built: ${WORKTREE}/api/metaforge"
+# Root-owned copy for the unit to run; see the unit.
+install_root_binary "${WORKTREE}/api/metaforge" "/usr/local/lib/metaforge/staging/metaforge"
+echo ""
+
+# 5. Service user, state, key files, then the API systemd service. The unit runs
+# as ${MF_USER} (see the unit), so these come first.
+echo "--- Prepare service user and state ---"
+ensure_service_user
+ensure_state_dir staging
+secure_key_files forest.env forest-staging.env
+migrate_forest_cache staging "${SERVICE_NAME}" "${WORKTREE}"
+echo ""
+
 echo "--- Install API service ---"
 sed "s|__WORKTREE__|${WORKTREE}|g" "${SCRIPT_DIR}/metaforge-api-staging.service" \
     | sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null
+mark_unit_installed
 echo "Installed: ${SERVICE_NAME}.service"
 
 # 6. Drop Caddy snippet
@@ -85,11 +99,10 @@ echo ""
 
 # 7. Reload services
 echo "--- Reload services ---"
-# Shared model-call ledger; a unit whose ReadWritePaths is missing fails to start.
-sudo install -d -o agent -g agent -m 0750 /var/lib/metaforge
 sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE_NAME}"
 sudo systemctl restart "${SERVICE_NAME}"
+mark_service_restarted
 sleep 2
 sudo systemctl reload julianit-caddy
 echo ""

@@ -90,6 +90,11 @@ type ForestHandler struct {
 	Visitors *forest.VisitorLimiter
 	// Fingerprint is the pipeline version recorded with each run.
 	Fingerprint string
+	// KnownWord reports whether word is a lexicon lemma. Only lemmas are
+	// served or generated, which keeps free text out of the model prompt and
+	// stops a forest cached for such text being served. It may return
+	// ErrBusy. Unset refuses every request.
+	KnownWord func(ctx context.Context, word string) (bool, error)
 }
 
 // NewForestHandler takes a nil gen when the server has no API key; the
@@ -124,6 +129,10 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("forest: invalid max_hops", "word", word, "err", err)
 		writeForestError(w, http.StatusBadRequest, "invalid 'max_hops' parameter: must be an integer from 1 to 5")
+		return
+	}
+
+	if !h.admitKnownWord(w, r, word) {
 		return
 	}
 
@@ -237,6 +246,32 @@ func (h *ForestHandler) HandleForest(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Forest-Cost-USD", strconv.FormatFloat(cost, 'f', 6, 64))
 	}
 	writeForest(w, word, result)
+}
+
+// admitKnownWord returns false after writing a refusal. It fails closed: a
+// word that cannot be checked is neither served nor generated.
+func (h *ForestHandler) admitKnownWord(w http.ResponseWriter, r *http.Request, word string) bool {
+	if h.KnownWord == nil {
+		slog.Error("forest: no lemma check is configured, refusing to generate", "word", word)
+		writeForestError(w, http.StatusInternalServerError, "metaphor forest cannot check the word right now")
+		return false
+	}
+	known, err := h.KnownWord(r.Context(), word)
+	if errors.Is(err, ErrBusy) {
+		writeBusy(w)
+		return false
+	}
+	if err != nil {
+		slog.Error("forest: lemma check failed, refusing to generate", "word", word, "err", err)
+		writeForestError(w, http.StatusInternalServerError, "metaphor forest cannot check the word right now")
+		return false
+	}
+	if !known {
+		slog.Warn("forest: word is not in the lexicon, refusing to generate", "word", word)
+		writeForestError(w, http.StatusNotFound, "word not found in the lexicon: the forge works from words the thesaurus knows")
+		return false
+	}
+	return true
 }
 
 // enrichmentOrigin marks the background enricher. Only it yields to the
@@ -480,6 +515,9 @@ func (h *ForestHandler) HandleSaved(w http.ResponseWriter, r *http.Request) {
 	}
 	forests := []forest.Forest{}
 	if h.Cache != nil {
+		if !h.admitKnownWord(w, r, word) {
+			return
+		}
 		if forests, err = h.Cache.List(r.Context(), word, maxHops); err != nil {
 			slog.Error("forest saved: cache read failed", "word", word, "max_hops", maxHops, "err", err)
 			writeForestError(w, http.StatusInternalServerError, "saved forests could not be read")

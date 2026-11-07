@@ -99,6 +99,7 @@ forest-empty-kept = The new forest had no metaphors that passed the quality chec
 forest-cancelled = Forging stopped.
 forest-cancelled-kept = Forging stopped. Your last forest is still shown.
 forest-error-invalid-word = “{ $word }” can’t be forged. The forge takes words and short phrases made of letters, spaces, hyphens and apostrophes, up to 40 characters. Look up a different word to try again.
+forest-error-unknown-word = We don’t know “{ $word }” yet, so we can’t grow a forest for it. Try a word the thesaurus shows.
 forest-error-busy = The forge is busy right now. Try again in { $seconds ->
     [one] 1 second
    *[other] { $seconds } seconds

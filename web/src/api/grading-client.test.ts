@@ -213,4 +213,20 @@ describe('GradingClient', () => {
         });
         expect(fetchMock).toHaveBeenCalledWith('/api/grading/sense-check', expect.objectContaining({ method: 'POST' }));
     });
+
+    // The sidecar refuses a state-changing request without a JSON content type
+    // (415), so every POST the client makes must declare one.
+    it('every POST sends Content-Type: application/json', async () => {
+        fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+        const client = new GradingClient();
+        await client.postJudgement({} as any);
+        await client.postRegrade({} as any);
+        await client.postSenseLabel({} as any);
+        await client.postDesignNote('note');
+        const posts = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST');
+        expect(posts).toHaveLength(4);
+        for (const [url, init] of posts) {
+            expect(init.headers, String(url)).toEqual({ 'Content-Type': 'application/json' });
+        }
+    });
 });

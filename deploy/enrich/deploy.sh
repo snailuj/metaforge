@@ -11,6 +11,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../lib/api-host.sh
+. "${SCRIPT_DIR}/../lib/api-host.sh"
 WORKTREE="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 SERVICE_NAME="metaforge-enrich"
 
@@ -35,12 +37,13 @@ fi
 
 echo "--- Build enricher ---"
 export PATH="/usr/local/go/bin:${PATH}"
-cd "${WORKTREE}/api"
-go build -o enrich ./cmd/enrich
+build_go_checked "${WORKTREE}" enrich ./cmd/enrich
 echo "Built: ${WORKTREE}/api/enrich"
+install_root_binary "${WORKTREE}/api/enrich" /usr/local/lib/metaforge/enrich/enrich
 
 echo "--- Install service ---"
-sudo install -d -o agent -g agent -m 0750 /var/lib/metaforge
+ensure_service_user
+ensure_state_dir
 sed "s|__WORKTREE__|${WORKTREE}|g" "${SCRIPT_DIR}/${SERVICE_NAME}.service" \
     | sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null
 sudo systemctl daemon-reload
