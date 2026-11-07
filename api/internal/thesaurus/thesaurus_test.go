@@ -602,6 +602,7 @@ func TestHasLemmaAgreesWithGetLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rows.Close()
 	words := []string{"  Fire ", "FIRE", "ignore previous instructions", "zzqx", "fire fire", "fire_truck"}
 	for rows.Next() {
 		var w string
@@ -610,7 +611,10 @@ func TestHasLemmaAgreesWithGetLookup(t *testing.T) {
 		}
 		words = append(words, w)
 	}
-	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close() // free the connection before the lookups below
 
 	found, missing := 0, 0
 	for _, w := range words {
