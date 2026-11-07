@@ -131,6 +131,19 @@ dies "mark_unit_installed; mark_service_restarted; exit 0"
 [ "$rc" = 0 ] && ok "exit 0" || fail "exit status was $rc"
 expect_nolog "systemctl start"
 
+echo "== an earlier EXIT trap with a single quote still runs, unchanged"
+: > "$LOG"
+cat > "${T}/trap.sh" <<EOS
+sudo() { case "\$1" in systemctl) echo "sudo \$*" >> "$LOG" ;; *) command sudo "\$@" ;; esac; }
+. "${HERE}/api-host.sh"
+trap "echo \"it's kept\" > '${T}/prev-trap'" EXIT
+MF_STOPPED_SERVICE=svc
+_mf_arm_restart
+EOS
+bash "${T}/trap.sh" 2>/dev/null
+[ "$(cat "${T}/prev-trap" 2>/dev/null)" = "it's kept" ] && ok "earlier trap ran as written" || fail "earlier trap lost or corrupted: '$(cat "${T}/prev-trap" 2>/dev/null)'"
+expect_log "systemctl start svc"
+
 echo "== install_root_binary"
 BIN_DIR="${T}/libdir"
 cp /bin/sleep "${T}/sleep.v1"; cp /bin/sleep "${T}/sleep.v2"; echo x >> "${T}/sleep.v2"

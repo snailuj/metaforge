@@ -63,7 +63,9 @@ _mf_restart_stopped() {
 _mf_arm_restart() {
     [ -z "${MF_EXIT_ARMED:-}" ] || return 0
     local prev
-    prev="$(trap -p EXIT | sed "s/^trap -- '\(.*\)' EXIT\$/\1/")"
+    # Let the shell unquote trap -p's output; a sed over it leaves '\'' escapes in.
+    eval "set -- $(trap -p EXIT)"
+    prev="${3:-}"
     # shellcheck disable=SC2064
     trap "${prev:+${prev}; }_mf_restart_stopped" EXIT
     MF_EXIT_ARMED=1
