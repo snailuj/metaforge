@@ -21,7 +21,8 @@ ensure_service_user() {
 }
 
 # Shared state: ledger, forest caches, enricher state. Earlier deploys created it
-# owned by agent, so ownership is corrected recursively.
+# owned by agent, so ownership is corrected recursively. A rollback to a unit that
+# runs as agent must chown it back (see deploy/production/deploy.sh).
 ensure_state_dir() { # [site]
     sudo install -d -o "$MF_USER" -g "$MF_USER" -m 0750 "$MF_STATE_DIR"
     [ -n "${1:-}" ] && sudo install -d -o "$MF_USER" -g "$MF_USER" -m 0750 "${MF_STATE_DIR}/$1"

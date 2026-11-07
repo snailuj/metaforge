@@ -7,6 +7,15 @@
 # imports all snippets via: import /etc/caddy/conf.d/*.caddy
 #
 # Usage: ./deploy.sh
+#
+# Rollback to the last unit that ran as agent (65138329), run from the worktree root.
+# This deploy hands /var/lib/metaforge to metaforge, and the agent unit cannot open
+# the ledger there until it is given back, so ownership is restored first:
+#   sudo systemctl stop metaforge-api
+#   sudo chown -R agent:agent /var/lib/metaforge
+#   git show 65138329:deploy/production/metaforge-api.service \
+#     | sed "s|__WORKTREE__|$PWD|g" | sudo tee /etc/systemd/system/metaforge-api.service >/dev/null
+#   sudo systemctl daemon-reload && sudo systemctl start metaforge-api
 
 set -euo pipefail
 
