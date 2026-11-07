@@ -515,6 +515,9 @@ func (h *ForestHandler) HandleSaved(w http.ResponseWriter, r *http.Request) {
 	}
 	forests := []forest.Forest{}
 	if h.Cache != nil {
+		if !h.admitKnownWord(w, r, word) {
+			return
+		}
 		if forests, err = h.Cache.List(r.Context(), word, maxHops); err != nil {
 			slog.Error("forest saved: cache read failed", "word", word, "max_hops", maxHops, "err", err)
 			writeForestError(w, http.StatusInternalServerError, "saved forests could not be read")
