@@ -57,7 +57,9 @@ func fixedClock() func() time.Time {
 }
 
 func newForestTestHandler(gen ForestGenerator, maxConcurrent, perMinute int) *ForestHandler {
-	return NewForestHandler(gen, forest.NewLimiter(maxConcurrent, perMinute, fixedClock()))
+	h := NewForestHandler(gen, forest.NewLimiter(maxConcurrent, perMinute, fixedClock()))
+	h.KnownWord = func(context.Context, string) (bool, error) { return true, nil }
+	return h
 }
 
 func getForest(h *ForestHandler, query string) *httptest.ResponseRecorder {

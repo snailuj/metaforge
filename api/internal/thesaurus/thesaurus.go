@@ -3,6 +3,7 @@ package thesaurus
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 )
@@ -64,7 +65,7 @@ type LookupResult struct {
 // GetLookup returns all senses for a given lemma, grouped by synset,
 // with synonyms and relations. Uses three queries total.
 func GetLookup(database *sql.DB, lemma string) (*LookupResult, error) {
-	lemma = strings.ToLower(strings.TrimSpace(lemma))
+	lemma = normalizeLemma(lemma)
 
 	// Query 1: all synsets for this lemma, with synonyms via GROUP_CONCAT
 	senses, err := querySenses(database, lemma)
@@ -109,6 +110,27 @@ func GetLookup(database *sql.DB, lemma string) (*LookupResult, error) {
 	}
 
 	return result, nil
+}
+
+// normalizeLemma is how a looked-up word becomes the stored lemma form.
+func normalizeLemma(word string) string {
+	return strings.ToLower(strings.TrimSpace(word))
+}
+
+// HasLemma reports whether GetLookup would find senses for word. It uses the
+// same normalisation and the same lemmas-to-synsets join, so the two cannot
+// disagree.
+func HasLemma(database *sql.DB, word string) (bool, error) {
+	var found bool
+	err := database.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM lemmas l
+			JOIN synsets s ON s.synset_id = l.synset_id
+			WHERE l.lemma = ?)`, normalizeLemma(word)).Scan(&found)
+	if err != nil {
+		return false, fmt.Errorf("lemma existence check: %w", err)
+	}
+	return found, nil
 }
 
 // querySenses fetches all synsets and their synonyms for a lemma.

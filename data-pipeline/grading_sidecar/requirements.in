@@ -1,0 +1,11 @@
+# Runtime dependencies of the grading sidecar. Deliberately no upper caps: an
+# upper cap on fastapi/starlette blocked the security fixes (audit L3). Reproducible
+# installs come from requirements.lock; bump by re-running
+#   uv pip compile requirements.in --generate-hashes --python-version 3.12 -o requirements.lock
+fastapi>=0.119.1
+uvicorn[standard]>=0.27
+pydantic>=2.5
+# app.py imports starlette directly. 1.3.1 is the first release fixing every
+# advisory known on 2026-11-04 (PYSEC-2026-161, -248, -249, -1942, -2280, -2281
+# and the CVE-2025-62727 / CVE-2026-48710 / CVE-2026-54282 group).
+starlette>=1.3.1

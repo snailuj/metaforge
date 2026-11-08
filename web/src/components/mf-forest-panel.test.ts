@@ -15,7 +15,7 @@ const run = (s: ForestState, ...events: ForestEvent[]) => events.reduce(reduceFo
 const start = () => initialForestState('patience')
 const loading = () => run(start(), { type: 'forge' })
 const shown = () => { const s = loading(); return reduceForest(s, { type: 'settled', seq: s.seq, response: forest }) }
-const failed = (s: ForestState, error: 'busy' | 'timeout' | 'not-configured' | 'invalid-word' | 'failed' | 'network', retryAfterSeconds: number | null = null) =>
+const failed = (s: ForestState, error: 'busy' | 'timeout' | 'not-configured' | 'invalid-word' | 'unknown-word' | 'failed' | 'network', retryAfterSeconds: number | null = null) =>
   reduceForest(s, { type: 'failed', seq: s.seq, error, retryAfterSeconds })
 // Fluent wraps placeables in bidi isolation marks; compare text without them.
 const text = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/[⁨⁩]/g, '').replace(/\s+/g, ' ').trim()
@@ -148,6 +148,7 @@ describe('MfForestPanel', () => {
     // Floors 13 and 17: every failure says what happened and names the next action.
     it.each([
       ['invalid-word', null, '“patience” can’t be forged.', 'Look up a different word'],
+      ['unknown-word', null, 'We don’t know “patience” yet', 'Try a word the thesaurus shows'],
       ['busy', 12, 'The forge is busy right now.', 'Try again in 12 seconds.'],
       ['busy', null, 'The forge is busy right now.', 'Try again in a moment.'],
       ['failed', null, 'couldn’t grow a forest', 'Try again'],

@@ -2,6 +2,7 @@ package thesaurus
 
 import (
 	"database/sql"
+	"errors"
 	"testing"
 
 	"github.com/snailuj/metaforge/internal/db"
@@ -579,5 +580,63 @@ func TestGetLookup_Collocations(t *testing.T) {
 			}
 			seen[col.Word] = true
 		}
+	}
+}
+
+// Rule: HasLemma agrees with GetLookup for every word, so whatever the
+// thesaurus can look up (any case, multi-word lemmas included) is a lemma,
+// and nothing else is.
+func TestHasLemmaAgreesWithGetLookup(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	rows, err := database.Query(`
+		SELECT lemma FROM (
+			SELECT DISTINCT lemma FROM lemmas WHERE lemma LIKE '% %' ORDER BY lemma LIMIT 30)
+		UNION ALL SELECT lemma FROM (
+			SELECT DISTINCT lemma FROM lemmas WHERE lemma != lower(lemma) ORDER BY lemma LIMIT 25)
+		UNION ALL SELECT lemma FROM (
+			SELECT DISTINCT lemma FROM lemmas WHERE lemma LIKE '%-%' OR lemma LIKE '%''%' ORDER BY lemma LIMIT 25)
+		UNION ALL SELECT lemma FROM (
+			SELECT DISTINCT lemma FROM lemmas ORDER BY lemma LIMIT 25)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	words := []string{"  Fire ", "FIRE", "ignore previous instructions", "zzqx", "fire fire", "fire_truck"}
+	for rows.Next() {
+		var w string
+		if err := rows.Scan(&w); err != nil {
+			t.Fatal(err)
+		}
+		words = append(words, w)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close() // free the connection before the lookups below
+
+	found, missing := 0, 0
+	for _, w := range words {
+		_, lookupErr := GetLookup(database, w)
+		if lookupErr != nil && !errors.Is(lookupErr, ErrWordNotFound) {
+			t.Fatalf("GetLookup(%q): %v", w, lookupErr)
+		}
+		got, err := HasLemma(database, w)
+		if err != nil {
+			t.Fatalf("HasLemma(%q): %v", w, err)
+		}
+		if want := lookupErr == nil; got != want {
+			t.Errorf("HasLemma(%q) = %v, but GetLookup found it = %v", w, got, want)
+		}
+		if got {
+			found++
+		} else {
+			missing++
+		}
+	}
+	// Both outcomes must occur, or the agreement above proves nothing.
+	if found < 60 || missing < 3 {
+		t.Errorf("sample too one-sided: %d found, %d missing", found, missing)
 	}
 }

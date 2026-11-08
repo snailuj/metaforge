@@ -29,8 +29,12 @@ const e2eJudged = `{"verdicts":[
 
 // fakeAnthropic answers generator then judge, alternately, with fixed usage.
 func fakeAnthropic(t *testing.T) *httptest.Server {
+	return httptest.NewServer(fakeAnthropicHandler())
+}
+
+func fakeAnthropicHandler() http.Handler {
 	var n atomic.Int32
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		text := e2eGenerated
 		if n.Add(1)%2 == 0 {
 			text = e2eJudged
@@ -41,7 +45,7 @@ func fakeAnthropic(t *testing.T) *httptest.Server {
 		fmt.Fprintf(w, `{"id":"msg_%d","type":"message","role":"assistant","model":"claude-haiku-5-5",
 			"content":[{"type":"text","text":%s}],"stop_reason":"end_turn",
 			"usage":{"input_tokens":2000,"output_tokens":3000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`, n.Load(), b)
-	}))
+	})
 }
 
 // The whole chain: the enricher asks the API, the API calls the model, every
@@ -55,7 +59,6 @@ func TestEnrichmentThroughTheAPIIsRecordedAndCapped(t *testing.T) {
 	dir := t.TempDir()
 	ledgerPath := filepath.Join(dir, "llm_calls.db")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	t.Setenv("ANTHROPIC_BASE_URL", model.URL)
 	t.Setenv("METAFORGE_FOREST_MIN_PATHS", "0")
 	t.Setenv("METAFORGE_FOREST_CACHE", filepath.Join(dir, "forest_cache.db"))
 	t.Setenv("METAFORGE_LLM_LOG", ledgerPath)
@@ -64,7 +67,9 @@ func TestEnrichmentThroughTheAPIIsRecordedAndCapped(t *testing.T) {
 	// forest) and is then spent.
 	t.Setenv("METAFORGE_WEEKLY_BUDGET_USD", "0.003")
 
-	fh := newForestHandler(loadForestSettings())
+	settings := loadForestSettings()
+	settings.AnthropicBaseURL = model.URL
+	fh := newForestHandler(settings, anyWord)
 	r := chi.NewRouter()
 	r.Get("/forge/forest", fh.HandleForest)
 	r.Method("GET", "/forge/budget", &handler.BudgetHandler{Budget: fh.Budget})

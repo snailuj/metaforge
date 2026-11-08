@@ -7,10 +7,21 @@
 # imports all snippets via: import /etc/caddy/conf.d/*.caddy
 #
 # Usage: ./deploy.sh
+#
+# Rollback to the last unit that ran as agent (65138329), run from the worktree root.
+# This deploy hands /var/lib/metaforge to metaforge, and the agent unit cannot open
+# the ledger there until it is given back, so ownership is restored first:
+#   sudo systemctl stop metaforge-api
+#   sudo chown -R agent:agent /var/lib/metaforge
+#   git show 65138329:deploy/production/metaforge-api.service \
+#     | sed "s|__WORKTREE__|$PWD|g" | sudo tee /etc/systemd/system/metaforge-api.service >/dev/null
+#   sudo systemctl daemon-reload && sudo systemctl start metaforge-api
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../lib/api-host.sh
+. "${SCRIPT_DIR}/../lib/api-host.sh"
 WORKTREE="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CADDY_SNIPPETS="/etc/caddy/conf.d"
 DOMAIN="metaforge.julianit.me"
@@ -33,25 +44,37 @@ echo "--- Restore database ---"
 "${WORKTREE}/data-pipeline/scripts/restore_db.sh"
 echo ""
 
-# 3. Build Go API
-echo "--- Build Go API ---"
-export PATH="/usr/local/go/bin:${PATH}"
-cd "${WORKTREE}/api"
-go build -o metaforge ./cmd/metaforge
-echo "Built: ${WORKTREE}/api/metaforge"
-echo ""
-
-# 4. Build frontend
+# 3. Build frontend. npm install scripts run as agent, so this comes BEFORE the Go
+# build and the build refuses source they changed (see build_go_checked for what that
+# does not cover).
 echo "--- Build frontend ---"
 cd "${WORKTREE}/web"
 npm ci --prefer-offline
 npm run build
 echo ""
 
-# 5. Install API systemd service
+# 4. Build Go API
+echo "--- Build Go API ---"
+export PATH="/usr/local/go/bin:${PATH}"
+build_go_checked "${WORKTREE}" metaforge ./cmd/metaforge
+echo "Built: ${WORKTREE}/api/metaforge"
+# Root-owned copy for the unit to run; see the unit.
+install_root_binary "${WORKTREE}/api/metaforge" "/usr/local/lib/metaforge/production/metaforge"
+echo ""
+
+# 5. Service user, state, key files, then the API systemd service. The unit runs
+# as ${MF_USER} (see the unit), so these come first.
+echo "--- Prepare service user and state ---"
+ensure_service_user
+ensure_state_dir production
+secure_key_files forest.env
+migrate_forest_cache production "${SERVICE_NAME}" "${WORKTREE}"
+echo ""
+
 echo "--- Install API service ---"
 sed "s|__WORKTREE__|${WORKTREE}|g" "${SCRIPT_DIR}/metaforge-api.service" \
     | sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null
+mark_unit_installed
 echo "Installed: ${SERVICE_NAME}.service"
 
 # 6. Drop Caddy snippet
@@ -63,11 +86,10 @@ echo ""
 
 # 7. Reload services
 echo "--- Reload services ---"
-# Shared model-call ledger; a unit whose ReadWritePaths is missing fails to start.
-sudo install -d -o agent -g agent -m 0750 /var/lib/metaforge
 sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE_NAME}"
 sudo systemctl restart "${SERVICE_NAME}"
+mark_service_restarted
 sleep 2
 # Via the unit so the adapt sees its EnvironmentFile: other snippets (staging's
 # grading auth) reference {$VAR} secrets that a bare `caddy reload` lacks.

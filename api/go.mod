@@ -1,8 +1,8 @@
 module github.com/snailuj/metaforge
 
-go 1.24
+go 1.26.10
 
-toolchain go1.24.7
+toolchain go1.27.3
 
 require github.com/mattn/go-sqlite3 v1.14.33
 

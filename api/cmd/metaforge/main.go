@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/snailuj/metaforge/internal/forge"
 	"github.com/snailuj/metaforge/internal/handler"
+	"github.com/snailuj/metaforge/internal/llm"
 	"github.com/snailuj/metaforge/internal/observe"
 )
 
@@ -91,6 +92,8 @@ func main() {
 	}
 	gamma := flag.Float64("gamma", gammaDefault,
 		"M05 type-diversity bonus weight (additive into final_score). 0 disables M05.")
+	anthropicBaseURL := flag.String("anthropic-base-url", llm.DefaultBaseURL,
+		"Host the Anthropic API key is sent to; ANTHROPIC_BASE_URL is ignored. Change only for a deliberate proxy or test server")
 	flag.Parse()
 
 	observe.Init(*cascadeTiming)
@@ -140,14 +143,16 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(handler.CORSMiddleware(*corsOrigin))
 
-	r.Get("/forge/suggest", h.HandleSuggest)
+	limits, gate := loadRouteLimits(), newDatabaseGate()
+	registerDatabaseRoutes(r, h, limits, gate)
 	forestCfg := loadForestSettings()
-	forestH := newForestHandler(forestCfg)
-	r.Get("/forge/forest", forestH.HandleForest)
-	r.Get("/forge/forest/saved", forestH.HandleSaved)
+	forestCfg.AnthropicBaseURL = *anthropicBaseURL
+	if *anthropicBaseURL != llm.DefaultBaseURL {
+		slog.Warn("Anthropic API key will be sent to a non-default host", "base_url", *anthropicBaseURL)
+	}
+	forestH := newForestHandler(forestCfg, gate.WrapKnownWord(h.KnownWord))
+	registerForestRoute(r, forestH, limits)
 	r.Method("GET", "/forge/budget", &handler.BudgetHandler{Budget: forestH.Budget})
-	r.Get("/thesaurus/lookup", h.HandleLookup)
-	r.Get("/thesaurus/autocomplete", h.HandleAutocomplete)
 	r.Get("/strings/*", h.HandleStrings)
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

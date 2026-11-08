@@ -112,3 +112,66 @@ func TestVisitorLimiterBoundsTrackedVisitors(t *testing.T) {
 		t.Errorf("tracked after pruning = %d, want 1 (only c)", n)
 	}
 }
+
+// Rule: a limiter's tokens refill evenly over its own window, whatever its
+// length, and a different visitor has a bucket of its own.
+func TestWindowedLimiterRefillsOverItsWindow(t *testing.T) {
+	clock := newFakeClock()
+	l := NewWindowedLimiter("test", 6, 100, time.Minute, clock.Now)
+
+	for i := 0; i < 6; i++ {
+		if _, _, ok := l.Take("203.0.113.7"); !ok {
+			t.Fatalf("take %d refused within the allowance", i+1)
+		}
+	}
+	_, wait, ok := l.Take("203.0.113.7")
+	if ok || wait != 10*time.Second {
+		t.Fatalf("seventh take: ok=%v wait=%v, want refused with 10s (one minute / 6)", ok, wait)
+	}
+	if _, _, ok := l.Take("198.51.100.9"); !ok {
+		t.Error("another visitor was refused")
+	}
+
+	clock.Advance(10 * time.Second)
+	if _, _, ok := l.Take("203.0.113.7"); !ok {
+		t.Error("no token back after window/perWindow")
+	}
+	if _, _, ok := l.Take("203.0.113.7"); ok {
+		t.Error("two tokens back after window/perWindow")
+	}
+}
+
+// Rule: a limiter set to fail open admits a new visitor when its table is
+// full, but still limits visitors it tracks; the default fails closed.
+func TestFailOpenLimiterAdmitsNewVisitorsWhenFull(t *testing.T) {
+	clock := newFakeClock()
+	for _, tc := range []struct {
+		name    string
+		limiter *VisitorLimiter
+		wantNew bool
+	}{
+		{"fail closed", NewWindowedLimiter("test", 1, 2, time.Minute, clock.Now), false},
+		{"fail open", NewWindowedLimiter("test", 1, 2, time.Minute, clock.Now).FailOpenWhenFull(), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := tc.limiter
+			l.Take("203.0.113.1")
+			l.Take("203.0.113.2")
+			if l.Tracked() != 2 {
+				t.Fatalf("setup: %d tracked, want a full table of 2", l.Tracked())
+			}
+
+			_, _, ok := l.Take("203.0.113.3")
+
+			if ok != tc.wantNew {
+				t.Errorf("new visitor admitted = %v, want %v", ok, tc.wantNew)
+			}
+			if _, _, ok := l.Take("203.0.113.1"); ok {
+				t.Error("a tracked visitor past its allowance was admitted")
+			}
+			if l.Tracked() != 2 {
+				t.Errorf("table grew to %d", l.Tracked())
+			}
+		})
+	}
+}

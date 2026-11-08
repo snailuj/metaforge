@@ -86,7 +86,7 @@ func NewHandlerWithCascade(dbPath string, useCascade bool) (*Handler, error) {
 		}
 	}
 
-	database.SetMaxOpenConns(4)
+	database.SetMaxOpenConns(DBMaxOpenConns)
 
 	h := &Handler{
 		database:    database,
