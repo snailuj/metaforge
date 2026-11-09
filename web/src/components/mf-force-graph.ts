@@ -354,6 +354,9 @@ export class MfForceGraph extends LitElement {
   /** True while words or the forest are still loading. When it turns false,
    *  held words go free at once, so the layout relaxes as the throbber stops. */
   @property({ attribute: false }) loading = false
+  /** Hold words already on screen still while newcomers settle (hidden setting
+   *  'mf-hold-graph', lib/settings.ts). Off: newcomers still start at their parent. */
+  @property({ attribute: false }) holdOnArrival = false
 
   // Whether the 3D library should be loaded. Derived from mode + viewportWidth —
   // kept as a getter so Lit never schedules a secondary update cycle from updated().
@@ -1195,7 +1198,7 @@ export class MfForceGraph extends LitElement {
     const nodes = data.nodes as SimNode[]
     const newcomers = arrivals(nodes, this.fedIds)
     seedArrivals(newcomers, data.links, nodes)
-    for (const id of holdSettled(nodes, new Set(newcomers.map(n => n.id)))) this.held.add(id)
+    if (this.holdOnArrival) for (const id of holdSettled(nodes, new Set(newcomers.map(n => n.id)))) this.held.add(id)
     this.fedIds = new Set(nodes.map(n => n.id))
     this.fedNodes = nodes
     this.newcomers = newcomers

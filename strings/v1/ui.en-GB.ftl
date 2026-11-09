@@ -184,3 +184,8 @@ progress-line-forest-ready = Metaphor forest ready: { $n ->
 progress-line-forest-failed = The metaphor forest could not be grown. The forest panel says what to try next.
 progress-line-forest-cancelled = Forging stopped.
 progress-line-all-loaded = All loaded.
+
+## Lookup overlay, over the graph while nearby words load
+lookup-overlay-heading = Leafing through nearby words
+lookup-overlay-paused = The graph is paused while they arrive. The full log stays in Activity, bottom right.
+lookup-overlay-progress-label = Nearby words fetched

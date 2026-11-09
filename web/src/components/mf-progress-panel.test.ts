@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import ftl from '../../../strings/v1/ui.en-GB.ftl?raw'
 import { initStrings } from '@/lib/strings'
 import { initialProgress, reduceProgress, type ProgressEvent, type ProgressState } from '@/progress/model'
-import { MfProgressPanel, LABEL_CYCLE_MS } from './mf-progress-panel'
+import { MfProgressPanel, LABEL_CYCLE_MS, BECKON_MS } from './mf-progress-panel'
 
 // Fluent wraps placeables in bidi isolation marks; compare text without them.
 const text = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/[⁨⁩]/g, '').replace(/\s+/g, ' ').trim()
@@ -221,6 +221,33 @@ describe('MfProgressPanel', () => {
       await mount(glimpsing())
       await show(run(glimpsing(), { type: 'glimpse-failed' }))
       expect(text(alert())).toBe('1 nearby word could not be fetched. Click a word to try it again.')
+    })
+  })
+
+  describe('beckon', () => {
+    // Rule: a beckon marks the Activity button for BECKON_MS, then clears; a
+    // second beckon restarts the spell rather than stacking.
+    it('marks the button for a spell after the lookup card docks', async () => {
+      vi.useFakeTimers()
+      await mount(looked())
+      expect(el.hasAttribute('beckoning')).toBe(false)
+      el.beckon()
+      await el.updateComplete
+      expect(el.hasAttribute('beckoning')).toBe(true)
+      vi.advanceTimersByTime(BECKON_MS - 100)
+      el.beckon()
+      vi.advanceTimersByTime(BECKON_MS - 100)
+      await el.updateComplete
+      expect(el.hasAttribute('beckoning')).toBe(true)
+      vi.advanceTimersByTime(100)
+      await el.updateComplete
+      expect(el.hasAttribute('beckoning')).toBe(false)
+    })
+
+    // Rule: the dock target is the Activity button's rect.
+    it('gives the button rect as the dock target', async () => {
+      await mount(looked())
+      expect(el.toggleRect()).toEqual(toggle().getBoundingClientRect())
     })
   })
 })

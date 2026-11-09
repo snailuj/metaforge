@@ -1,40 +1,15 @@
 import { LitElement, html, css, nothing, type PropertyValues } from 'lit'
 import { customElement, property, state } from 'lit/decorators.js'
 import { getString } from '@/lib/strings'
-import { initialProgress, isBusy, pendingOf, type ProgressLine, type ProgressState } from '@/progress/model'
+import { initialProgress, isBusy, type ProgressLine, type ProgressState } from '@/progress/model'
+import { label, lineText, summaryText } from '@/progress/text'
 
 /** How long each collapsed label shows while work is pending. */
 export const LABEL_CYCLE_MS = 1500
+/** How long the button stays marked after the lookup card docks into it. */
+export const BECKON_MS = 2400
 const STORAGE_KEY = 'mf-progress-open'
 const FAILURES: ReadonlySet<ProgressLine['kind']> = new Set(['lookup-failed', 'nearby-failed', 'expand-failed', 'forest-failed'])
-
-/** The collapsed label; cycles on a timer, not with the stage (the log carries the stage). */
-function label(i: number): string {
-  switch (i % 4) {
-    case 0: return getString('progress-label-foraging')
-    case 1: return getString('progress-label-forging')
-    case 2: return getString('progress-label-fording')
-    default: return getString('progress-label-foresting')
-  }
-}
-
-function lineText(l: ProgressLine): string {
-  switch (l.kind) {
-    case 'lookup': return getString('progress-line-lookup', { word: l.word, senses: l.senses, words: l.words })
-    case 'lookup-failed': return getString('progress-line-lookup-failed', { word: l.word })
-    case 'nearby': return getString('progress-line-nearby', { done: l.done, total: l.total })
-    case 'nearby-failed': return getString('progress-line-nearby-failed', { n: l.n })
-    case 'expanded': return getString('progress-line-expanded', { word: l.word, words: l.words })
-    case 'expand-failed': return getString('progress-line-expand-failed', { word: l.word })
-    case 'forging': return getString('progress-line-forging', { drafted: l.drafted, kept: l.kept, dropped: l.dropped })
-    case 'retrying': return getString('progress-line-retrying')
-    case 'judging': return getString('progress-line-judging', { word: l.word })
-    case 'forest-ready': return getString('progress-line-forest-ready', { n: l.n })
-    case 'forest-failed': return getString('progress-line-forest-failed')
-    case 'forest-cancelled': return getString('progress-line-forest-cancelled')
-    case 'all-loaded': return getString('progress-line-all-loaded')
-  }
-}
 
 /** Whether the panel was left open in this browser. */
 export function rememberedOpen(): boolean {
@@ -136,6 +111,22 @@ export class MfProgressPanel extends LitElement {
 
     .toggle:hover { border-color: var(--colour-forest-branch); }
 
+    /* The lookup card has just docked here: mark the button so the user sees
+       where the log went. Reduced motion keeps the gold edge without the pulse. */
+    :host([beckoning]) .toggle {
+      border-color: var(--colour-accent-gold);
+      box-shadow: 0 0 0.9rem var(--colour-forest-root-glow);
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      :host([beckoning]) .toggle { animation: beckon 0.8s ease-out 3; }
+    }
+
+    @keyframes beckon {
+      0% { transform: scale(1.12); box-shadow: 0 0 1.4rem var(--colour-accent-gold-dim); }
+      100% { transform: scale(1); box-shadow: 0 0 0.9rem var(--colour-forest-root-glow); }
+    }
+
     :focus-visible {
       outline: 2px solid var(--colour-forest-branch);
       outline-offset: 2px;
@@ -207,12 +198,14 @@ export class MfProgressPanel extends LitElement {
 
   @property({ attribute: false }) state: ProgressState = initialProgress()
   @property({ type: Boolean, reflect: true }) open = rememberedOpen()
+  @property({ type: Boolean, reflect: true }) beckoning = false
   @state() private labelIndex = 0
   @state() private announcement = ''
   @state() private alertText = ''
 
   private reducedMotion = false
   private cycleTimer: ReturnType<typeof setInterval> | null = null
+  private beckonTimer: ReturnType<typeof setTimeout> | null = null
 
   connectedCallback(): void {
     super.connectedCallback()
@@ -222,6 +215,22 @@ export class MfProgressPanel extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback()
     this.stopCycle()
+    if (this.beckonTimer) clearTimeout(this.beckonTimer)
+  }
+
+  /** Mark the button for a spell: the lookup card has just docked into it. */
+  beckon(): void {
+    if (this.beckonTimer) clearTimeout(this.beckonTimer)
+    this.beckoning = true
+    this.beckonTimer = setTimeout(() => {
+      this.beckonTimer = null
+      this.beckoning = false
+    }, BECKON_MS)
+  }
+
+  /** Where the lookup card docks: the button's rect on screen. */
+  toggleRect(): DOMRect | null {
+    return this.shadowRoot?.querySelector('[data-testid="progress-toggle"]')?.getBoundingClientRect() ?? null
   }
 
   protected willUpdate(changed: PropertyValues<this>): void {
@@ -265,18 +274,6 @@ export class MfProgressPanel extends LitElement {
     this.updateComplete.then(() => this.shadowRoot!.querySelector<HTMLElement>('[data-testid="progress-toggle"]')?.focus())
   }
 
-  private summary(): string {
-    const p = pendingOf(this.state)
-    const items = [
-      p.lookup !== null ? getString('progress-pending-lookup', { word: p.lookup }) : '',
-      p.nearby > 0 ? getString('progress-pending-nearby', { n: p.nearby }) : '',
-      p.expansions > 0 ? getString('progress-pending-opened', { n: p.expansions }) : '',
-      p.forest ? getString('progress-pending-forest') : '',
-    ].filter(Boolean)
-    if (items.length) return getString('progress-summary', { items: new Intl.ListFormat('en-GB', { type: 'conjunction' }).format(items) })
-    return this.state.lines.length ? getString('progress-summary-idle') : getString('progress-empty')
-  }
-
   render() {
     const busy = isBusy(this.state)
     return html`
@@ -290,7 +287,7 @@ export class MfProgressPanel extends LitElement {
           ?hidden=${!this.open}
         >
           <h2 id="progress-heading">${getString('progress-heading')}</h2>
-          <p class="summary" data-testid="progress-summary">${this.summary()}</p>
+          <p class="summary" data-testid="progress-summary">${summaryText(this.state)}</p>
           ${this.state.lines.length
             ? html`<ol class="log" aria-label=${getString('progress-log-label')}>
                 ${this.state.lines.map(l => html`<li data-testid="progress-line" ?data-failure=${FAILURES.has(l.kind)}>${lineText(l)}</li>`)}

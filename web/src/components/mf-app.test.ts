@@ -2868,3 +2868,88 @@ describe('mf-app activity panel', () => {
     expect(progress()).toBeNull()
   })
 })
+
+describe('mf-app lookup overlay', () => {
+  let el: MfApp
+  const word = (w: string, synonyms: string[]): LookupResult => ({
+    word: w,
+    senses: [{
+      synset_id: `${w}-s`, pos: 'noun', definition: w,
+      synonyms: synonyms.map(x => ({ word: x, synset_id: `${x}-s` })),
+      relations: { hypernyms: [], hyponyms: [], similar: [], antonyms: [] },
+    }],
+  })
+  const $ = <T = HTMLElement & Record<string, any>>(sel: string) => el.shadowRoot!.querySelector(sel) as T | null
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 6; i++) await settle(el)
+  }
+  async function mount(): Promise<void> {
+    el = new MfApp()
+    document.body.appendChild(el)
+    await settle(el)
+  }
+
+  beforeEach(() => {
+    history.replaceState(null, '', '#')
+    localStorage.clear()
+    vi.mocked(lookupWord).mockReset()
+  })
+
+  afterEach(() => {
+    el.remove()
+    vi.restoreAllMocks()
+    localStorage.clear()
+    history.replaceState(null, '', '#')
+  })
+
+  // Rule: the graph is held still during arrivals only when the hidden setting is on.
+  it('passes the hidden hold-graph setting to the graph, off by default', async () => {
+    await mount()
+    expect($('mf-force-graph')!.holdOnArrival).toBe(false)
+    el.remove()
+    localStorage.setItem('mf-hold-graph', '1')
+    await mount()
+    expect($('mf-force-graph')!.holdOnArrival).toBe(true)
+  })
+
+  // Rule: while nearby words are owed the graph takes no input and the overlay is
+  // active; when the last one lands, both end together.
+  it('locks the graph and shows the overlay until the last nearby word lands', async () => {
+    const pending: Array<() => void> = []
+    vi.mocked(lookupWord).mockImplementation(w => w === 'fire'
+      ? Promise.resolve(word('fire', ['blaze', 'flame']))
+      : new Promise(r => pending.push(() => r(word(w, [])))))
+    await mount()
+    expect($('mf-force-graph')!.hasAttribute('inert')).toBe(false)
+    await search(el, 'fire')
+    await flush()
+    expect(pending.length).toBeGreaterThan(0)
+    expect($('mf-force-graph')!.hasAttribute('inert')).toBe(true)
+    expect($('mf-lookup-overlay')!.active).toBe(true)
+    pending.splice(0).forEach(go => go())
+    await flush()
+    expect($('mf-force-graph')!.hasAttribute('inert')).toBe(false)
+    expect($('mf-lookup-overlay')!.active).toBe(false)
+  })
+
+  // Rule: the overlay docks into the Activity button, and its arrival marks that button.
+  it('docks into the Activity button and makes it beckon', async () => {
+    vi.mocked(lookupWord).mockImplementation(async w => word(w, []))
+    await mount()
+    const panel = $('mf-progress-panel')!
+    const overlay = $('mf-lookup-overlay')!
+    expect(overlay.dockTarget()).toEqual(panel.toggleRect())
+    overlay.dispatchEvent(new CustomEvent('mf-lookup-docked', { bubbles: true, composed: true }))
+    await settle(el)
+    expect(panel.hasAttribute('beckoning')).toBe(true)
+  })
+
+  // Rule: grade mode has no overlay.
+  it('shows the overlay in browse mode only', async () => {
+    await mount()
+    expect($('mf-lookup-overlay')).not.toBeNull()
+    el.mode = 'grade'
+    await el.updateComplete
+    expect($('mf-lookup-overlay')).toBeNull()
+  })
+})

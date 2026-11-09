@@ -203,3 +203,11 @@ function forestStep(s: ProgressState, e: ForestStreamEvent): ProgressState {
       return { ...s, forest: { ...s.forest, running: false }, lines: put(s.lines, { key: 'forest-failed', kind: 'forest-failed' }) }
   }
 }
+
+/** Nearby words (second and third order) still owed, with how many have ended;
+ *  null when none are owed. A failed word counts as ended. */
+export function nearbyProgress(s: ProgressState): { done: number; total: number } | null {
+  if (pendingOf(s).nearby === 0) return null
+  const g = s.glimpses
+  return { done: g.done + g.failed, total: g.started + g.waiting }
+}
