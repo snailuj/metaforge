@@ -9,6 +9,12 @@ export default defineConfig({
       { find: /^three\/webgpu$/, replacement: resolve(__dirname, 'src/bundle/three-webgpu-stub.ts') },
     ],
   },
+  build: {
+    // The lazily loaded graph chunk is ~790 kB, almost all three.js core, which
+    // does not split further. Every other chunk stays under Vite's 500 kB
+    // default; src/bundle/bundle.test.ts enforces both limits.
+    chunkSizeWarningLimit: 800,
+  },
   server: {
     port: 5173,
     // Vite >= 6.4.4 enforces fs.allow on `?raw` imports in tests too. Setting it
