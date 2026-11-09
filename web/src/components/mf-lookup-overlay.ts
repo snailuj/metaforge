@@ -187,7 +187,7 @@ export class MfLookupOverlay extends LitElement {
     else this.end()
   }
 
-  protected updated(changed: PropertyValues<this>): void {
+  protected updated(changed: PropertyValues): void {
     if (changed.has('phase') && this.phase === 'docking') this.runDock()
   }
 

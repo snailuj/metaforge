@@ -7,9 +7,10 @@ import {
   type ForestGraph, type ForestNodePool, type ForestOverlay, type ForestTarget, type StreamMarks,
 } from '@/graph/forest'
 import { initialForestState, inFlight, reduceForest, litTarget, sameTarget, type ForestEvent, type ForestState, type StreamPath } from '@/forest/state'
-import { initialProgress, isBusy, reduceProgress, type ProgressEvent, type ProgressState } from '@/progress/model'
+import { initialProgress, isBusy, nearbyProgress, reduceProgress, type ProgressEvent, type ProgressState } from '@/progress/model'
+import { holdGraphEnabled } from '@/lib/settings'
 import { startTimer } from '@/lib/timing'
-import { rememberedOpen } from './mf-progress-panel'
+import { rememberedOpen, type MfProgressPanel } from './mf-progress-panel'
 import { computeCrossLinks } from '@/graph/cross-links'
 import { arrivalBatch, ARRIVAL_WINDOW_MS } from '@/graph/batch'
 import { initStrings, getString } from '@/lib/strings'
@@ -42,6 +43,7 @@ import './mf-force-graph'
 import './mf-results-panel'
 import './mf-forest-panel'
 import './mf-progress-panel'
+import './mf-lookup-overlay'
 import './mf-toast'
 import './mf-undo-toast'
 import './mf-error-banner'
@@ -626,6 +628,8 @@ export class MfApp extends LitElement {
   // the forest panel makes room for.
   @state() private progress: ProgressState = initialProgress()
   @state() private progressOpen = rememberedOpen()
+  // Hidden setting (lib/settings.ts), read once: hold the graph still during arrivals.
+  private readonly holdGraph = holdGraphEnabled()
 
   private currentWord = ''
   private lookupId = 0
@@ -1793,7 +1797,17 @@ export class MfApp extends LitElement {
     `
   }
 
+  private progressPanel(): MfProgressPanel | null {
+    return this.shadowRoot?.querySelector('mf-progress-panel') ?? null
+  }
+
+  // Stable, so the overlay does not re-render for a new function each update.
+  private readonly activityRect = (): DOMRect | null => this.progressPanel()?.toggleRect() ?? null
+
   private renderBrowseMode() {
+    // Nearby (second- and third-order) words still loading: the graph takes no
+    // input and the lookup overlay says what is coming.
+    const locked = nearbyProgress(this.progress) !== null
     return html`
       <div class="search-container">
         <mf-search-bar
@@ -1856,6 +1870,8 @@ export class MfApp extends LitElement {
         .forestLit=${this.forestLit}
         .forestSelectedId=${this.forestSelectedId}
         .loading=${isBusy(this.progress)}
+        .holdOnArrival=${this.holdGraph}
+        ?inert=${locked}
         @mf-node-select=${this.handleNodeSelect}
         @mf-node-navigate=${this.handleNodeNavigate}
         @mf-node-copy=${this.handleCopy}
@@ -1880,6 +1896,13 @@ export class MfApp extends LitElement {
             @mf-forest-lookup=${this.handleForestLookup}
           ></mf-forest-panel>`
         : ''}
+
+      <mf-lookup-overlay
+        .state=${this.progress}
+        .active=${locked}
+        .dockTarget=${this.activityRect}
+        @mf-lookup-docked=${() => this.progressPanel()?.beckon()}
+      ></mf-lookup-overlay>
 
       <mf-progress-panel
         .state=${this.progress}
