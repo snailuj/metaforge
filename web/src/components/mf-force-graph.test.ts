@@ -1174,6 +1174,7 @@ describe('MfForceGraph', () => {
 
     beforeEach(() => {
       seededAt = {}
+      el.holdOnArrival = true
       // A stand-in warm-up: every node not fixed drifts 10 units, as a reheat would move it.
       onFeed = data => {
         for (const n of data.nodes as Sim[]) {
@@ -1199,6 +1200,26 @@ describe('MfForceGraph', () => {
       expect(ray.x).toBe(60)
       expect(centre.x).toBe(10)
       expect(Math.abs(seededAt.glow! - 60)).toBeLessThanOrEqual(2)
+    })
+
+    // Rule: with the hidden setting off (the default), an arrival holds nothing,
+    // and the newcomer still starts at its parent.
+    it('holds nothing when holdOnArrival is off, but still seeds at the parent', async () => {
+      el.holdOnArrival = false
+      const centre = at('sun', 0, 0)
+      const ray = at('ray', 1, 50)
+      el.graphData = { nodes: [centre, ray], links: [ln('sun', 'ray')] }
+      await el.updateComplete
+      const glow: Sim = { id: 'glow', word: 'glow', relationType: 'synonym', val: 1, order: 2 }
+      el.graphData = { nodes: [centre, ray, glow], links: [ln('sun', 'ray'), ln('ray', 'glow')] }
+      await el.updateComplete
+      expect(ray.fx).toBeUndefined()
+      expect(ray.x).toBe(70)
+      expect(Math.abs(seededAt.glow! - 60)).toBeLessThanOrEqual(2)
+    })
+
+    it('defaults holdOnArrival to off', () => {
+      expect(new (el.constructor as new () => typeof el)().holdOnArrival).toBe(false)
     })
 
     // Rule: held words go free once arrivals stop and newcomers settle; until then they stay held.
