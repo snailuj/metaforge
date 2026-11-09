@@ -6,6 +6,8 @@ import { label, lineText, summaryText } from '@/progress/text'
 
 /** How long each collapsed label shows while work is pending. */
 export const LABEL_CYCLE_MS = 1500
+/** How long the button stays marked after the lookup card docks into it. */
+export const BECKON_MS = 2400
 const STORAGE_KEY = 'mf-progress-open'
 const FAILURES: ReadonlySet<ProgressLine['kind']> = new Set(['lookup-failed', 'nearby-failed', 'expand-failed', 'forest-failed'])
 
@@ -109,6 +111,22 @@ export class MfProgressPanel extends LitElement {
 
     .toggle:hover { border-color: var(--colour-forest-branch); }
 
+    /* The lookup card has just docked here: mark the button so the user sees
+       where the log went. Reduced motion keeps the gold edge without the pulse. */
+    :host([beckoning]) .toggle {
+      border-color: var(--colour-accent-gold);
+      box-shadow: 0 0 0.9rem var(--colour-forest-root-glow);
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      :host([beckoning]) .toggle { animation: beckon 0.8s ease-out 3; }
+    }
+
+    @keyframes beckon {
+      0% { transform: scale(1.12); box-shadow: 0 0 1.4rem var(--colour-accent-gold-dim); }
+      100% { transform: scale(1); box-shadow: 0 0 0.9rem var(--colour-forest-root-glow); }
+    }
+
     :focus-visible {
       outline: 2px solid var(--colour-forest-branch);
       outline-offset: 2px;
@@ -180,12 +198,14 @@ export class MfProgressPanel extends LitElement {
 
   @property({ attribute: false }) state: ProgressState = initialProgress()
   @property({ type: Boolean, reflect: true }) open = rememberedOpen()
+  @property({ type: Boolean, reflect: true }) beckoning = false
   @state() private labelIndex = 0
   @state() private announcement = ''
   @state() private alertText = ''
 
   private reducedMotion = false
   private cycleTimer: ReturnType<typeof setInterval> | null = null
+  private beckonTimer: ReturnType<typeof setTimeout> | null = null
 
   connectedCallback(): void {
     super.connectedCallback()
@@ -195,6 +215,22 @@ export class MfProgressPanel extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback()
     this.stopCycle()
+    if (this.beckonTimer) clearTimeout(this.beckonTimer)
+  }
+
+  /** Mark the button for a spell: the lookup card has just docked into it. */
+  beckon(): void {
+    if (this.beckonTimer) clearTimeout(this.beckonTimer)
+    this.beckoning = true
+    this.beckonTimer = setTimeout(() => {
+      this.beckonTimer = null
+      this.beckoning = false
+    }, BECKON_MS)
+  }
+
+  /** Where the lookup card docks: the button's rect on screen. */
+  toggleRect(): DOMRect | null {
+    return this.shadowRoot?.querySelector('[data-testid="progress-toggle"]')?.getBoundingClientRect() ?? null
   }
 
   protected willUpdate(changed: PropertyValues<this>): void {
