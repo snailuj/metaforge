@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { ForestResponse } from '@/types/api'
 import patience from '@/fixtures/forest-patience.json'
-import { initialProgress, reduceProgress, pendingOf, isBusy, type ProgressEvent, type ProgressState } from './model'
+import { initialProgress, reduceProgress, pendingOf, isBusy, nearbyProgress, type ProgressEvent, type ProgressState } from './model'
 
 const run = (s: ProgressState, ...events: ProgressEvent[]) => events.reduce(reduceProgress, s)
 const keys = (s: ProgressState) => s.lines.map(l => l.key)
@@ -143,5 +143,24 @@ describe('progress model: superseded lookups', () => {
     const s = run(looked(), { type: 'lookup-started', word: 'xyz' }, { type: 'lookup-failed', word: 'xyz' })
     expect(line(s, 'lookup-failed:xyz')).toMatchObject({ kind: 'lookup-failed', word: 'xyz' })
     expect(pendingOf(s).lookup).toBeNull()
+  })
+})
+
+describe('progress model: nearby words', () => {
+  // Rule: nearby progress exists exactly while nearby words are owed, and counts
+  // a failed word as finished, so done reaches total when the last one ends.
+  it('reports nearby words owed, and nothing once all have ended', () => {
+    expect(nearbyProgress(looked())).toBeNull()
+    const s = run(looked(), { type: 'glimpses-waiting', n: 2 }, { type: 'glimpse-started' }, { type: 'glimpse-started' })
+    expect(nearbyProgress(s)).toEqual({ done: 0, total: 4 })
+    const t = run(s, { type: 'glimpse-done' }, { type: 'glimpse-failed' }, { type: 'glimpses-waiting', n: 0 })
+    expect(nearbyProgress(t)).toBeNull()
+  })
+
+  // Rule: a pending forest or expansion alone is not nearby work.
+  it('ignores the forest and expansions', () => {
+    const s = run(looked(), { type: 'forest-started' }, { type: 'expansion-started', word: 'calm' })
+    expect(isBusy(s)).toBe(true)
+    expect(nearbyProgress(s)).toBeNull()
   })
 })
