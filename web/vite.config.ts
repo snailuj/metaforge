@@ -3,9 +3,11 @@ import { resolve } from 'path'
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src'),
-    },
+    alias: [
+      { find: '@', replacement: resolve(__dirname, 'src') },
+      // Drop three.js's unused WebGPU build; see src/bundle/three-webgpu-stub.ts.
+      { find: /^three\/webgpu$/, replacement: resolve(__dirname, 'src/bundle/three-webgpu-stub.ts') },
+    ],
   },
   server: {
     port: 5173,
