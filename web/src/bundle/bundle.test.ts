@@ -31,4 +31,14 @@ describe('production bundle', () => {
     const webgpu = chunks.flatMap(modulesOf).filter(m => m.includes('three.webgpu'))
     expect(webgpu).toEqual([])
   })
+
+  it('keeps three.js and the graph library out of the entry chunk, in a lazily loaded one', () => {
+    const heavy = (m: string) => /node_modules\/(three|3d-force-graph)\//.test(m)
+    const entry = chunks.filter(c => c.isEntry)
+    expect(entry.length).toBe(1)
+    expect(modulesOf(entry[0]).filter(heavy)).toEqual([])
+    const lazy = chunks.filter(c => !c.isEntry && modulesOf(c).some(heavy))
+    expect(lazy.length).toBeGreaterThan(0)
+    expect(entry[0].dynamicImports).toEqual(expect.arrayContaining([lazy[0].fileName]))
+  })
 })
