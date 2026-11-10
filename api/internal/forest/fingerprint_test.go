@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// Rule: the fingerprint names everything that shapes a forest, so a cached
-// forest is served only to the configuration that made it.
+// Rule: the fingerprint names everything that shapes a forest, so a log run or
+// cache row is labelled with the configuration that made it.
 func TestFingerprintTracksEveryConfigField(t *testing.T) {
 	base := Config{Model: "m", JudgeModel: "j", Effort: "low", MinScore: 6, MinPaths: 3}
 	fp := Fingerprint(base)

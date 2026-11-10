@@ -177,8 +177,8 @@ func TestWriteTimeoutOutlastsForestDeadline(t *testing.T) {
 	}
 }
 
-// Rule: a configured cache path opens a cache keyed on the pipeline
-// fingerprint; without a path there is no cache.
+// Rule: a configured cache path opens a cache whose new rows carry the
+// pipeline fingerprint; without a path there is no cache.
 func TestForestHandlerOpensConfiguredCache(t *testing.T) {
 	clearForestEnv(t)
 	path := filepath.Join(t.TempDir(), "forest_cache.db")

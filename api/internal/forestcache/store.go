@@ -1,5 +1,9 @@
 // Package forestcache keeps finished metaphor forests in a writable SQLite
-// file, a pool of up to poolSize per (pipeline version, word, max_hops).
+// file, a pool of up to poolSize per (word, max_hops). A row records the
+// pipeline version it was written under, but the version never decides
+// whether it is served. Every forest is also kept permanently in the
+// model-call log, so the cache is disposable: clear it by hand with
+// cmd/forestcache.
 package forestcache
 
 import (
@@ -16,8 +20,8 @@ import (
 	"github.com/snailuj/metaforge/internal/forest"
 )
 
-// Rows from other versions stay in the file as a corpus of past forests;
-// only the store's own version is served or evicted.
+// The version column is a label only: pools, serving and eviction ignore it,
+// so a prompt edit does not empty the cache.
 const schema = `
 CREATE TABLE IF NOT EXISTS forests (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,7 +31,8 @@ CREATE TABLE IF NOT EXISTS forests (
 	body       TEXT    NOT NULL,
 	created_at TEXT    NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_forests_pool ON forests(version, word, max_hops, id);
+DROP INDEX IF EXISTS idx_forests_pool;
+CREATE INDEX IF NOT EXISTS idx_forests_word_hops ON forests(word, max_hops, id);
 `
 
 // Store is safe for concurrent use.
@@ -38,7 +43,8 @@ type Store struct {
 }
 
 // Open creates the file and schema if needed. version is the pipeline
-// fingerprint (forest.Fingerprint) the store serves.
+// fingerprint (forest.Fingerprint) written on each new row. An empty version
+// gives a read/admin-only store: Add refuses to write.
 func Open(path, version string, poolSize int) (*Store, error) {
 	if poolSize < 1 {
 		return nil, fmt.Errorf("forest cache pool size must be at least 1, got %d", poolSize)
@@ -73,8 +79,8 @@ func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Random(ctx context.Context, word string, maxHops int) (forest.Forest, bool, error) {
 	var body string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT body FROM forests WHERE version = ? AND word = ? AND max_hops = ? ORDER BY random() LIMIT 1`,
-		s.version, word, maxHops).Scan(&body)
+		`SELECT body FROM forests WHERE word = ? AND max_hops = ? ORDER BY random() LIMIT 1`,
+		word, maxHops).Scan(&body)
 	if errors.Is(err, sql.ErrNoRows) {
 		return forest.Forest{}, false, nil
 	}
@@ -92,8 +98,8 @@ func (s *Store) Random(ctx context.Context, word string, maxHops int) (forest.Fo
 // response stays bounded however the file was written.
 func (s *Store) List(ctx context.Context, word string, maxHops int) ([]forest.Forest, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT body FROM forests WHERE version = ? AND word = ? AND max_hops = ? ORDER BY id DESC LIMIT ?`,
-		s.version, word, maxHops, s.poolSize)
+		`SELECT body FROM forests WHERE word = ? AND max_hops = ? ORDER BY id DESC LIMIT ?`,
+		word, maxHops, s.poolSize)
 	if err != nil {
 		return nil, fmt.Errorf("list cached forests for %q: %w", word, err)
 	}
@@ -121,8 +127,8 @@ func (s *Store) List(ctx context.Context, word string, maxHops int) ([]forest.Fo
 func (s *Store) Full(ctx context.Context, word string, maxHops int) (bool, error) {
 	var n int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM forests WHERE version = ? AND word = ? AND max_hops = ?`,
-		s.version, word, maxHops).Scan(&n); err != nil {
+		`SELECT COUNT(*) FROM forests WHERE word = ? AND max_hops = ?`,
+		word, maxHops).Scan(&n); err != nil {
 		return false, fmt.Errorf("count cached forests for %q: %w", word, err)
 	}
 	return n >= s.poolSize, nil
@@ -131,6 +137,9 @@ func (s *Store) Full(ctx context.Context, word string, maxHops int) (bool, error
 // Add stores f and drops the pool's oldest forests beyond poolSize, in one
 // transaction.
 func (s *Store) Add(ctx context.Context, word string, maxHops int, f forest.Forest) error {
+	if s.version == "" {
+		return errors.New("forest cache opened without a version cannot add forests")
+	}
 	body, err := json.Marshal(f)
 	if err != nil {
 		return fmt.Errorf("encode forest for %q: %w", word, err)
@@ -147,9 +156,9 @@ func (s *Store) Add(ctx context.Context, word string, maxHops int, f forest.Fore
 		return fmt.Errorf("insert cached forest for %q: %w", word, err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM forests WHERE version = ? AND word = ? AND max_hops = ? AND id NOT IN (
-			SELECT id FROM forests WHERE version = ? AND word = ? AND max_hops = ? ORDER BY id DESC LIMIT ?)`,
-		s.version, word, maxHops, s.version, word, maxHops, s.poolSize); err != nil {
+		`DELETE FROM forests WHERE word = ? AND max_hops = ? AND id NOT IN (
+			SELECT id FROM forests WHERE word = ? AND max_hops = ? ORDER BY id DESC LIMIT ?)`,
+		word, maxHops, word, maxHops, s.poolSize); err != nil {
 		return fmt.Errorf("evict cached forests for %q: %w", word, err)
 	}
 	if err := tx.Commit(); err != nil {

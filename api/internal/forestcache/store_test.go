@@ -66,8 +66,9 @@ func TestAddThenRandomRoundTrips(t *testing.T) {
 	}
 }
 
-// Rule: a pool is one (version, word, max_hops); nothing leaks across.
-func TestPoolsAreIsolatedByVersionWordAndHops(t *testing.T) {
+// Rule: a pool is (word, max_hops); the version a forest was written under
+// never decides whether it is served.
+func TestPoolsAreIsolatedByWordAndHopsNotVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "c.db")
 	s := openTest(t, path, "v1", 4)
 	ctx := context.Background()
@@ -83,8 +84,14 @@ func TestPoolsAreIsolatedByVersionWordAndHops(t *testing.T) {
 		}
 	}
 	other := openTest(t, path, "v2", 4)
-	if _, ok, _ := other.Random(ctx, "patience", 3); ok {
-		t.Error("a new version was served an old version's forest")
+	if _, ok, err := other.Random(ctx, "patience", 3); !ok || err != nil {
+		t.Errorf("Random ok=%v err=%v, want the v1 forest served to v2", ok, err)
+	}
+	if got, err := other.List(ctx, "patience", 3); err != nil || len(got) != 1 {
+		t.Errorf("List = %d forests, err %v; want the v1 forest", len(got), err)
+	}
+	if full, err := other.Full(ctx, "patience", 3); err != nil || full {
+		t.Errorf("Full = %v, %v; want a pool of 1 of 4 not full", full, err)
 	}
 }
 
@@ -109,26 +116,48 @@ func TestAddEvictsOldestBeyondPoolSize(t *testing.T) {
 	}
 }
 
-// Rule: rows from older pipeline versions are kept as a corpus, never
-// evicted by another version's pool.
-func TestOtherVersionsAreKept(t *testing.T) {
+// Rule: the pool size bounds the whole pool across versions, so adding under
+// a new version evicts the oldest row even when it was written under an old one.
+func TestAddEvictsOldestAcrossVersions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "c.db")
 	ctx := context.Background()
-	old := openTest(t, path, "v1", 1)
+	old := openTest(t, path, "v1", 2)
 	if err := old.Add(ctx, "patience", 3, sampleForest("old")); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	cur := openTest(t, path, "v2", 1)
-	for range 3 {
-		if err := cur.Add(ctx, "patience", 3, sampleForest("new")); err != nil {
+	cur := openTest(t, path, "v2", 2)
+	for _, line := range []string{"new1", "new2"} {
+		if err := cur.Add(ctx, "patience", 3, sampleForest(line)); err != nil {
 			t.Fatalf("Add: %v", err)
 		}
 	}
-	if n := rows(t, cur, "version = ?", "v1"); n != 1 {
-		t.Errorf("%d v1 rows, want the 1 kept", n)
+	if n := rows(t, cur, "version = ?", "v1"); n != 0 {
+		t.Errorf("%d v1 rows, want the oldest evicted", n)
 	}
-	if n := rows(t, cur, "version = ?", "v2"); n != 1 {
-		t.Errorf("%d v2 rows, want a pool of 1", n)
+	if n := rows(t, cur, "version = ?", "v2"); n != 2 {
+		t.Errorf("%d v2 rows, want a pool of 2", n)
+	}
+}
+
+// Rule: every row records the version it was written under.
+func TestAddRecordsTheStoreVersion(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "c.db"), "v7", 2)
+	if err := s.Add(context.Background(), "patience", 3, sampleForest("L")); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if n := rows(t, s, "version = ?", "v7"); n != 1 {
+		t.Errorf("%d rows under v7, want 1", n)
+	}
+}
+
+// Rule: a store opened without a version is for reading and admin only.
+func TestAddWithoutVersionIsRefused(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "c.db"), "", 2)
+	if err := s.Add(context.Background(), "patience", 3, sampleForest("L")); err == nil {
+		t.Error("Add succeeded on a store with no version")
+	}
+	if n := rows(t, s, "1 = 1"); n != 0 {
+		t.Errorf("%d rows written, want none", n)
 	}
 }
 
@@ -180,8 +209,8 @@ func TestOpenRejectsNonPositivePoolSize(t *testing.T) {
 	}
 }
 
-// Rule: a pool is full once it holds poolSize forests of this version, word
-// and max_hops; enrichment skips full pools.
+// Rule: a pool is full once it holds poolSize forests of this word and
+// max_hops; enrichment skips full pools.
 func TestFullReportsAPoolAtPoolSize(t *testing.T) {
 	ctx := context.Background()
 	s := openTest(t, filepath.Join(t.TempDir(), "c.db"), "v1", 2)
@@ -204,15 +233,11 @@ func TestFullReportsAPoolAtPoolSize(t *testing.T) {
 	check("dread", 3, false)
 }
 
-// Rule: List returns exactly the store's own version's pool for the word and
-// hops, newest first, never more than poolSize.
+// Rule: List returns the pool for the word and hops, newest first, never more
+// than poolSize.
 func TestListReturnsThePoolNewestFirst(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "c.db")
-	old := openTest(t, path, "v0", 4)
-	if err := old.Add(ctx, "patience", 3, sampleForest("other version")); err != nil {
-		t.Fatal(err)
-	}
 	s := openTest(t, path, "v1", 2)
 	if got, err := s.List(ctx, "patience", 3); err != nil || len(got) != 0 {
 		t.Fatalf("empty pool: got %d forests, err %v; want none", len(got), err)
