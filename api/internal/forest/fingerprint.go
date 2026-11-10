@@ -9,12 +9,13 @@ import (
 // pipelineRevision covers what the fingerprint cannot see: code that changes
 // what the models are shown or how verdicts become a forest (the judge
 // message format, path validation, Build). Bump it with such a change so
-// cached forests from the old pipeline stop being served.
+// model-call log runs and cache rows from the new pipeline are told apart.
 const pipelineRevision = "2026-10-22.1" // every distinct route kept; streamed per-facet judging
 
 // Fingerprint identifies the pipeline that makes a forest: prompts, output
-// schemas, models, effort, gates and pipelineRevision. Forest caches key on
-// it, so retuning any of these starts fresh pools.
+// schemas, models, effort, gates and pipelineRevision. It labels model-call
+// log runs and forest cache rows; it does not select which cached forests are
+// served.
 func Fingerprint(cfg Config) string {
 	h := sha256.New()
 	for _, part := range []string{

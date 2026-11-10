@@ -1,5 +1,9 @@
 // Package forestcache keeps finished metaphor forests in a writable SQLite
-// file, a pool of up to poolSize per (pipeline version, word, max_hops).
+// file, a pool of up to poolSize per (word, max_hops). A row records the
+// pipeline version it was written under, but the version never decides
+// whether it is served. Every forest is also kept permanently in the
+// model-call log, so the cache is disposable: clear it by hand with
+// cmd/forestcache.
 package forestcache
 
 import (
@@ -16,8 +20,8 @@ import (
 	"github.com/snailuj/metaforge/internal/forest"
 )
 
-// Rows from other versions stay in the file as a corpus of past forests;
-// only the store's own version is served or evicted.
+// The version column is a label only: pools, serving and eviction ignore it,
+// so a prompt edit does not empty the cache.
 const schema = `
 CREATE TABLE IF NOT EXISTS forests (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,7 +31,8 @@ CREATE TABLE IF NOT EXISTS forests (
 	body       TEXT    NOT NULL,
 	created_at TEXT    NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_forests_pool ON forests(version, word, max_hops, id);
+DROP INDEX IF EXISTS idx_forests_pool;
+CREATE INDEX IF NOT EXISTS idx_forests_word_hops ON forests(word, max_hops, id);
 `
 
 // Store is safe for concurrent use.
@@ -38,7 +43,8 @@ type Store struct {
 }
 
 // Open creates the file and schema if needed. version is the pipeline
-// fingerprint (forest.Fingerprint) the store serves.
+// fingerprint (forest.Fingerprint) written on each new row. An empty version
+// gives a read/admin-only store: Add refuses to write.
 func Open(path, version string, poolSize int) (*Store, error) {
 	if poolSize < 1 {
 		return nil, fmt.Errorf("forest cache pool size must be at least 1, got %d", poolSize)
@@ -73,8 +79,8 @@ func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Random(ctx context.Context, word string, maxHops int) (forest.Forest, bool, error) {
 	var body string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT body FROM forests WHERE version = ? AND word = ? AND max_hops = ? ORDER BY random() LIMIT 1`,
-		s.version, word, maxHops).Scan(&body)
+		`SELECT body FROM forests WHERE word = ? AND max_hops = ? ORDER BY random() LIMIT 1`,
+		word, maxHops).Scan(&body)
 	if errors.Is(err, sql.ErrNoRows) {
 		return forest.Forest{}, false, nil
 	}
@@ -92,8 +98,8 @@ func (s *Store) Random(ctx context.Context, word string, maxHops int) (forest.Fo
 // response stays bounded however the file was written.
 func (s *Store) List(ctx context.Context, word string, maxHops int) ([]forest.Forest, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT body FROM forests WHERE version = ? AND word = ? AND max_hops = ? ORDER BY id DESC LIMIT ?`,
-		s.version, word, maxHops, s.poolSize)
+		`SELECT body FROM forests WHERE word = ? AND max_hops = ? ORDER BY id DESC LIMIT ?`,
+		word, maxHops, s.poolSize)
 	if err != nil {
 		return nil, fmt.Errorf("list cached forests for %q: %w", word, err)
 	}
@@ -121,8 +127,8 @@ func (s *Store) List(ctx context.Context, word string, maxHops int) ([]forest.Fo
 func (s *Store) Full(ctx context.Context, word string, maxHops int) (bool, error) {
 	var n int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM forests WHERE version = ? AND word = ? AND max_hops = ?`,
-		s.version, word, maxHops).Scan(&n); err != nil {
+		`SELECT COUNT(*) FROM forests WHERE word = ? AND max_hops = ?`,
+		word, maxHops).Scan(&n); err != nil {
 		return false, fmt.Errorf("count cached forests for %q: %w", word, err)
 	}
 	return n >= s.poolSize, nil
@@ -131,6 +137,9 @@ func (s *Store) Full(ctx context.Context, word string, maxHops int) (bool, error
 // Add stores f and drops the pool's oldest forests beyond poolSize, in one
 // transaction.
 func (s *Store) Add(ctx context.Context, word string, maxHops int, f forest.Forest) error {
+	if s.version == "" {
+		return errors.New("forest cache opened without a version cannot add forests")
+	}
 	body, err := json.Marshal(f)
 	if err != nil {
 		return fmt.Errorf("encode forest for %q: %w", word, err)
@@ -147,13 +156,86 @@ func (s *Store) Add(ctx context.Context, word string, maxHops int, f forest.Fore
 		return fmt.Errorf("insert cached forest for %q: %w", word, err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM forests WHERE version = ? AND word = ? AND max_hops = ? AND id NOT IN (
-			SELECT id FROM forests WHERE version = ? AND word = ? AND max_hops = ? ORDER BY id DESC LIMIT ?)`,
-		s.version, word, maxHops, s.version, word, maxHops, s.poolSize); err != nil {
+		`DELETE FROM forests WHERE word = ? AND max_hops = ? AND id NOT IN (
+			SELECT id FROM forests WHERE word = ? AND max_hops = ? ORDER BY id DESC LIMIT ?)`,
+		word, maxHops, word, maxHops, s.poolSize); err != nil {
 		return fmt.Errorf("evict cached forests for %q: %w", word, err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit cached forest for %q: %w", word, err)
 	}
 	return nil
+}
+
+// VersionStats summarises the rows written under one pipeline version.
+// Oldest and Newest are created_at strings (RFC3339, UTC).
+type VersionStats struct {
+	Version string
+	Rows    int
+	Oldest  string
+	Newest  string
+}
+
+// Stats lists each version in the cache, oldest first.
+func (s *Store) Stats(ctx context.Context) ([]VersionStats, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT version, COUNT(*), MIN(created_at), MAX(created_at) FROM forests
+		 GROUP BY version ORDER BY MIN(created_at), version`)
+	if err != nil {
+		return nil, fmt.Errorf("read forest cache stats: %w", err)
+	}
+	defer rows.Close()
+	stats := []VersionStats{}
+	for rows.Next() {
+		var v VersionStats
+		if err := rows.Scan(&v.Version, &v.Rows, &v.Oldest, &v.Newest); err != nil {
+			return nil, fmt.Errorf("read forest cache stats row: %w", err)
+		}
+		stats = append(stats, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read forest cache stats: %w", err)
+	}
+	return stats, nil
+}
+
+// ClearFilter selects the rows Clear deletes. Set fields combine with AND.
+type ClearFilter struct {
+	Word   string
+	Before string // YYYY-MM-DD: rows created before this date (UTC)
+	All    bool
+}
+
+const clearDateLayout = "2006-01-02"
+
+// Clear deletes the rows matching f in one statement and returns how many.
+// It refuses an empty filter, so a mistyped command cannot empty the cache.
+func (s *Store) Clear(ctx context.Context, f ClearFilter) (int64, error) {
+	if f.Word == "" && f.Before == "" && !f.All {
+		return 0, errors.New("clear needs a word, a before date or all")
+	}
+	query, args := `DELETE FROM forests WHERE 1 = 1`, []any{}
+	if f.Word != "" {
+		query += ` AND word = ?`
+		args = append(args, f.Word)
+	}
+	if f.Before != "" {
+		if _, err := time.Parse(clearDateLayout, f.Before); err != nil {
+			return 0, fmt.Errorf("before %q must be a date like 2026-10-22: %w", f.Before, err)
+		}
+		// created_at is RFC3339 UTC, so text order is time order and a bare
+		// date sorts before every timestamp on that day.
+		query += ` AND created_at < ?`
+		args = append(args, f.Before)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("clear forest cache: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("count cleared forests: %w", err)
+	}
+	slog.Info("forest cache cleared", "word", f.Word, "before", f.Before, "all", f.All, "rows_deleted", n)
+	return n, nil
 }

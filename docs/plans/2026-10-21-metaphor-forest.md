@@ -28,7 +28,7 @@ A 3D force graph of words linked by the semantics they share. From one source wo
 | Hops | `max_hops` 1-5, default 3. |
 | Model | `claude-haiku-5-5`, effort `low`, both calls. Env-configurable. Tuned live on 2026-10-21: `medium` was 3-4x slower and dearer for forests that read no better. |
 | Thin output | Low effort occasionally returns a one-facet stub with no thinking. Fewer than 3 valid paths (`METAFORGE_FOREST_MIN_PATHS`) retries the generator once; the fuller attempt is judged. |
-| Caching | A pool of up to 10 finished forests per (pipeline fingerprint, word, max_hops) in a writable SQLite file (`METAFORGE_FOREST_CACHE`; unset disables). Forge is served a random forest from the pool with no model call; New forest (`fresh=1`) always generates and adds to the pool, dropping the oldest past `METAFORGE_FOREST_POOL_SIZE`. Empty forests are never stored. The fingerprint hashes prompts, schemas, the forest config and a hand-bumped `pipelineRevision`, so retuning starts fresh pools; older rows stay in the file as a corpus. Owner's choice, 2026-10-21. |
+| Caching | A pool of up to 10 finished forests per (word, max_hops) in a writable SQLite file (`METAFORGE_FOREST_CACHE`; unset disables). Forge is served a random forest from the pool with no model call; New forest (`fresh=1`) always generates and adds to the pool, dropping the oldest past `METAFORGE_FOREST_POOL_SIZE`. Empty forests are never stored. Each row records the pipeline fingerprint (a hash of prompts, schemas, the forest config and a hand-bumped `pipelineRevision`), but the fingerprint does not decide which rows are served, so a prompt edit leaves the cache as it is. The cache is cleared by hand with `cmd/forestcache` (by word, by date or all); every forest is also kept in the model-call log. Owner's choice, 2026-10-21; manual clearing 2026-11-10. |
 | Spend guard | Global: 4 concurrent, 30 forests per minute. Env-configurable. |
 | Base graph | The forest overlays the thesaurus graph for the looked-up word; thesaurus links dim while a forest is shown. |
 
@@ -140,7 +140,7 @@ Each facet starts with one hop: a word or short phrase (at most 3 words) that sh
 
 From each facet word, grow 2 to 4 branches. A branch continues with 1 or more further hops, each sharing a named quality (`ground`) with the word before it. A path is SOURCE, then the facet word, then the branch's hops. No path may be longer than MAX_HOPS hops in total. Mix lengths across the forest.
 
-The last word of each path is its endpoint, the vehicle. "SOURCE is ENDPOINT" must work as a fresh, apt metaphor. Write it as `line`: one sentence a writer could lift into prose, at most 16 words. In the line, SOURCE is the thing being described and the endpoint is what it is seen as. Never swap them.
+The last word of each path is its endpoint, the vehicle. "SOURCE is ENDPOINT" must work as a fresh, apt metaphor. The reader already sees "SOURCE is ENDPOINT", so write `line` as what follows it: at most 16 words a writer could lift into prose, showing SOURCE as the endpoint. Do not open the line with SOURCE, the endpoint or "SOURCE is ENDPOINT", and start it with a capital letter. SOURCE is the thing being described and the endpoint is what it is seen as. Never swap them.
 
 If the facet word is itself a strong endpoint, give the facet a `line`; otherwise leave the facet's `line` empty.
 
@@ -219,7 +219,7 @@ Flattening: a facet with a non-empty `line` yields the path `[facet]`. Each bran
 ```
 You are the Forge Reader: a working genre-fiction novelist and acquiring editor with an unsentimental eye for the difference between a live image and a dead one. You have a slush pile and a deadline, and most things are average.
 
-You will get a source word and numbered metaphor paths. Each path shows its chain of words from the source to an endpoint, then one row per hop giving the two words it joins and the shared quality ("ground") between them, then a line a writer might use.
+You will get a source word and numbered metaphor paths. Each path shows its chain of words from the source to an endpoint, then one row per hop giving the two words it joins and the shared quality ("ground") between them, then a line a writer might use. The line follows an unstated "SOURCE is ENDPOINT", so read it as continuing that sentence.
 
 Score each path for liveness, 0 to 10, judging the source-to-endpoint pairing first. The hops matter as evidence that the bridge is real.
 
@@ -239,7 +239,7 @@ Calibration:
 
 Flag each path, true or false:
 - broken_hop: on some row, the ground is false, or only loosely true, of one of that row's two words. Check each row against its own two words only. If your reason doubts a ground, this is true.
-- drift: the endpoint no longer connects back to the source, or the line swaps source and endpoint.
+- drift: the endpoint no longer connects back to the source, or the line, read after "SOURCE is ENDPOINT", swaps source and endpoint.
 - literal: the endpoint is physically part of, found with, or made by the source, so the pairing is a fact, not a metaphor.
 - cliche: the pairing or the line is a stock phrase.
 
