@@ -269,3 +269,141 @@ func TestListReturnsThePoolNewestFirst(t *testing.T) {
 		t.Errorf("listed forest does not round-trip: %+v", got[0])
 	}
 }
+
+func setCreatedAt(t *testing.T, s *Store, line, createdAt string) {
+	t.Helper()
+	res, err := s.db.Exec(`UPDATE forests SET created_at = ? WHERE body LIKE ?`, createdAt, `%"line":"`+line+`"%`)
+	if err != nil {
+		t.Fatalf("set created_at: %v", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		t.Fatalf("set created_at for %q touched %d rows, want 1", line, n)
+	}
+}
+
+// Rule: Stats reports each version's row count and created_at range, oldest
+// version first.
+func TestStatsGroupsByVersionOldestFirst(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "c.db")
+	a := openTest(t, path, "vA", 9)
+	b := openTest(t, path, "vB", 9)
+	for _, add := range []struct {
+		s    *Store
+		word string
+		line string
+	}{{b, "grief", "b1"}, {a, "patience", "a1"}, {a, "patience", "a2"}} {
+		if err := add.s.Add(ctx, add.word, 3, sampleForest(add.line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setCreatedAt(t, a, "a1", "2026-10-20T08:00:00Z")
+	setCreatedAt(t, a, "a2", "2026-10-21T08:00:00Z")
+	setCreatedAt(t, b, "b1", "2026-10-19T08:00:00Z")
+
+	got, err := a.Stats(ctx)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	want := []VersionStats{
+		{Version: "vB", Rows: 1, Oldest: "2026-10-19T08:00:00Z", Newest: "2026-10-19T08:00:00Z"},
+		{Version: "vA", Rows: 2, Oldest: "2026-10-20T08:00:00Z", Newest: "2026-10-21T08:00:00Z"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Stats = %+v, want %+v", got, want)
+	}
+}
+
+func TestStatsOnEmptyCacheIsEmpty(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "c.db"), "", 1)
+	if got, err := s.Stats(context.Background()); err != nil || len(got) != 0 {
+		t.Errorf("Stats = %+v, %v; want none", got, err)
+	}
+}
+
+// seedClear fills a cache with four forests that differ by word and age.
+func seedClear(t *testing.T) *Store {
+	t.Helper()
+	ctx := context.Background()
+	s := openTest(t, filepath.Join(t.TempDir(), "c.db"), "v1", 9)
+	for _, row := range []struct{ word, line, at string }{
+		{"patience", "old-patience", "2026-10-21T23:59:59Z"},
+		{"patience", "new-patience", "2026-10-22T00:00:00Z"},
+		{"grief", "old-grief", "2026-10-01T00:00:00Z"},
+		{"grief", "new-grief", "2026-11-01T00:00:00Z"},
+	} {
+		if err := s.Add(ctx, row.word, 3, sampleForest(row.line)); err != nil {
+			t.Fatal(err)
+		}
+		setCreatedAt(t, s, row.line, row.at)
+	}
+	return s
+}
+
+// Rule: Before is a UTC calendar date; a row stamped before midnight starting
+// that date is cleared, one stamped at or after it is kept.
+func TestClearBeforeIsExclusiveAtUTCMidnight(t *testing.T) {
+	ctx := context.Background()
+	s := seedClear(t)
+	n, err := s.Clear(ctx, ClearFilter{Before: "2026-10-22"})
+	if err != nil || n != 2 {
+		t.Fatalf("Clear = %d, %v; want 2 rows (old-patience, old-grief)", n, err)
+	}
+	if c := rows(t, s, `body LIKE '%"line":"old-patience"%'`); c != 0 {
+		t.Error("the 23:59:59Z row was kept")
+	}
+	if c := rows(t, s, `body LIKE '%"line":"new-patience"%'`); c != 1 {
+		t.Error("the 00:00:00Z row was cleared")
+	}
+}
+
+// Rule: filters combine with AND; All clears every row.
+func TestClearCombinesFiltersWithAnd(t *testing.T) {
+	ctx := context.Background()
+	s := seedClear(t)
+	if n, err := s.Clear(ctx, ClearFilter{Word: "patience", Before: "2026-10-22"}); err != nil || n != 1 {
+		t.Fatalf("word+before Clear = %d, %v; want 1", n, err)
+	}
+	if n, err := s.Clear(ctx, ClearFilter{Word: "grief"}); err != nil || n != 2 {
+		t.Fatalf("word Clear = %d, %v; want 2", n, err)
+	}
+	if n, err := s.Clear(ctx, ClearFilter{All: true}); err != nil || n != 1 {
+		t.Fatalf("all Clear = %d, %v; want the last 1", n, err)
+	}
+	if c := rows(t, s, "1 = 1"); c != 0 {
+		t.Errorf("%d rows left after Clear All", c)
+	}
+}
+
+// Rule: a clear without any filter deletes nothing, and a malformed date
+// deletes nothing.
+func TestClearRefusesNoFilterAndBadDate(t *testing.T) {
+	ctx := context.Background()
+	s := seedClear(t)
+	for name, f := range map[string]ClearFilter{
+		"no filter":    {},
+		"bad date":     {Before: "22/10/2026"},
+		"timestamp":    {Before: "2026-10-22T00:00:00Z"},
+		"word and bad": {Word: "patience", Before: "soon"},
+	} {
+		if n, err := s.Clear(ctx, f); err == nil || n != 0 {
+			t.Errorf("%s: Clear = %d, %v; want an error and 0", name, n, err)
+		}
+	}
+	if c := rows(t, s, "1 = 1"); c != 4 {
+		t.Errorf("%d rows left, want all 4 untouched", c)
+	}
+}
+
+// Rule: clearing is idempotent; repeating it deletes nothing more.
+func TestClearTwiceDeletesNothingSecondTime(t *testing.T) {
+	ctx := context.Background()
+	s := seedClear(t)
+	f := ClearFilter{Word: "grief"}
+	if n, err := s.Clear(ctx, f); err != nil || n != 2 {
+		t.Fatalf("first Clear = %d, %v; want 2", n, err)
+	}
+	if n, err := s.Clear(ctx, f); err != nil || n != 0 {
+		t.Errorf("second Clear = %d, %v; want 0", n, err)
+	}
+}

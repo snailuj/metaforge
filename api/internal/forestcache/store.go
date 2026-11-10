@@ -166,3 +166,76 @@ func (s *Store) Add(ctx context.Context, word string, maxHops int, f forest.Fore
 	}
 	return nil
 }
+
+// VersionStats summarises the rows written under one pipeline version.
+// Oldest and Newest are created_at strings (RFC3339, UTC).
+type VersionStats struct {
+	Version string
+	Rows    int
+	Oldest  string
+	Newest  string
+}
+
+// Stats lists each version in the cache, oldest first.
+func (s *Store) Stats(ctx context.Context) ([]VersionStats, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT version, COUNT(*), MIN(created_at), MAX(created_at) FROM forests
+		 GROUP BY version ORDER BY MIN(created_at), version`)
+	if err != nil {
+		return nil, fmt.Errorf("read forest cache stats: %w", err)
+	}
+	defer rows.Close()
+	stats := []VersionStats{}
+	for rows.Next() {
+		var v VersionStats
+		if err := rows.Scan(&v.Version, &v.Rows, &v.Oldest, &v.Newest); err != nil {
+			return nil, fmt.Errorf("read forest cache stats row: %w", err)
+		}
+		stats = append(stats, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read forest cache stats: %w", err)
+	}
+	return stats, nil
+}
+
+// ClearFilter selects the rows Clear deletes. Set fields combine with AND.
+type ClearFilter struct {
+	Word   string
+	Before string // YYYY-MM-DD: rows created before this date (UTC)
+	All    bool
+}
+
+const clearDateLayout = "2006-01-02"
+
+// Clear deletes the rows matching f in one statement and returns how many.
+// It refuses an empty filter, so a mistyped command cannot empty the cache.
+func (s *Store) Clear(ctx context.Context, f ClearFilter) (int64, error) {
+	if f.Word == "" && f.Before == "" && !f.All {
+		return 0, errors.New("clear needs a word, a before date or all")
+	}
+	query, args := `DELETE FROM forests WHERE 1 = 1`, []any{}
+	if f.Word != "" {
+		query += ` AND word = ?`
+		args = append(args, f.Word)
+	}
+	if f.Before != "" {
+		if _, err := time.Parse(clearDateLayout, f.Before); err != nil {
+			return 0, fmt.Errorf("before %q must be a date like 2026-10-22: %w", f.Before, err)
+		}
+		// created_at is RFC3339 UTC, so text order is time order and a bare
+		// date sorts before every timestamp on that day.
+		query += ` AND created_at < ?`
+		args = append(args, f.Before)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("clear forest cache: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("count cleared forests: %w", err)
+	}
+	slog.Info("forest cache cleared", "word", f.Word, "before", f.Before, "all", f.All, "rows_deleted", n)
+	return n, nil
+}
