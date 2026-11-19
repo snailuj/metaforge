@@ -17,12 +17,59 @@ export interface SimNode extends GraphNode {
 /** Below this speed (units per tick) a node counts as settled. */
 export const SETTLED_SPEED = 0.05
 
-const defaultJitter = () => (Math.random() - 0.5) * 4
+/** Width of the cube a newcomer's seed offset falls in: each axis is within half of it. */
+export const SEED_SPREAD = 4
+
+const defaultJitter = () => (Math.random() - 0.5) * SEED_SPREAD
 
 /** Nodes this feed adds: an id not fed before, or a node object with no position
  *  yet (a fresh lookup reuses ids with new objects). */
 export function arrivals(nodes: readonly SimNode[], fedIds: ReadonlySet<string>): SimNode[] {
   return nodes.filter(n => !fedIds.has(n.id) || n.x === undefined)
+}
+
+/**
+ * Which placed neighbour each unplaced newcomer grows out of (its parent: the
+ * neighbour of lowest order, the first listed on a tie), in the order to seed
+ * them: shallowest first, so a chain seeds in one pass. Reads ids, orders and
+ * links only; `isPlaced` says where a position exists, so a layout that stores
+ * positions in plain arrays can use the same rule. O(nodes + links).
+ */
+export function seedParents<T extends { id: string; order: number }>(
+  newcomers: readonly T[],
+  links: readonly GraphLink[],
+  nodes: readonly T[],
+  isPlaced: (node: T) => boolean,
+): Array<{ child: T; parent: T }> {
+  const unplaced = new Set(newcomers.filter(n => !isPlaced(n)).map(n => n.id))
+  if (unplaced.size === 0) return []
+  const byId = new Map(nodes.map(n => [n.id, n]))
+  const neighbours = new Map<string, T[]>()
+  for (const l of links) {
+    const s = resolveEndpoint(l.source)
+    const t = resolveEndpoint(l.target)
+    for (const [a, b] of [[s, t], [t, s]]) {
+      if (!unplaced.has(a)) continue
+      const other = byId.get(b)
+      if (!other) continue
+      const list = neighbours.get(a)
+      if (list) list.push(other)
+      else neighbours.set(a, [other])
+    }
+  }
+  const seeded = new Set<string>()
+  const pairs: Array<{ child: T; parent: T }> = []
+  for (const n of [...newcomers].sort((a, b) => a.order - b.order)) {
+    if (!unplaced.has(n.id)) continue
+    let parent: T | undefined
+    for (const m of neighbours.get(n.id) ?? []) {
+      if ((isPlaced(m) || seeded.has(m.id)) && (!parent || m.order < parent.order)) parent = m
+    }
+    if (!parent) continue
+    seeded.add(n.id)
+    pairs.push({ child: n, parent })
+  }
+  return pairs
 }
 
 /**
@@ -37,42 +84,31 @@ export function seedArrivals(
   nodes: readonly SimNode[],
   jitter: () => number = defaultJitter,
 ): void {
-  const unplaced = new Set(newcomers.filter(n => n.x === undefined).map(n => n.id))
-  if (unplaced.size === 0) return
-  const byId = new Map(nodes.map(n => [n.id, n]))
-  const neighbours = new Map<string, SimNode[]>()
-  for (const l of links) {
-    const s = resolveEndpoint(l.source)
-    const t = resolveEndpoint(l.target)
-    for (const [a, b] of [[s, t], [t, s]]) {
-      if (!unplaced.has(a)) continue
-      const other = byId.get(b)
-      if (!other) continue
-      const list = neighbours.get(a)
-      if (list) list.push(other)
-      else neighbours.set(a, [other])
-    }
+  for (const { child, parent } of seedParents(newcomers, links, nodes, n => n.x !== undefined)) {
+    child.x = parent.x! + jitter()
+    child.y = (parent.y ?? 0) + jitter()
+    child.z = (parent.z ?? 0) + jitter()
   }
-  for (const n of [...newcomers].sort((a, b) => a.order - b.order)) {
-    if (!unplaced.has(n.id)) continue
-    let parent: SimNode | undefined
-    for (const m of neighbours.get(n.id) ?? []) {
-      if (m.x !== undefined && (!parent || m.order < parent.order)) parent = m
-    }
-    if (!parent) continue
-    n.x = parent.x! + jitter()
-    n.y = (parent.y ?? 0) + jitter()
-    n.z = (parent.z ?? 0) + jitter()
-  }
+}
+
+/** The nodes to hold still while newcomers settle: every one that is not a
+ *  newcomer and that `canHold` allows. */
+export function settledToHold<T extends { id: string }>(
+  nodes: Iterable<T>,
+  newcomerIds: ReadonlySet<string>,
+  canHold: (node: T) => boolean,
+): T[] {
+  const out: T[] = []
+  for (const n of nodes) if (!newcomerIds.has(n.id) && canHold(n)) out.push(n)
+  return out
 }
 
 /** Pin every placed node that is not a newcomer and that nothing else has fixed
  *  (a drag, say), at its current position. Returns the ids it pinned. */
 export function holdSettled(nodes: readonly SimNode[], newcomerIds: ReadonlySet<string>): Set<string> {
+  const free = (n: SimNode) => n.x !== undefined && n.fx === undefined && n.fy === undefined && n.fz === undefined
   const held = new Set<string>()
-  for (const n of nodes) {
-    if (newcomerIds.has(n.id) || n.x === undefined) continue
-    if (n.fx !== undefined || n.fy !== undefined || n.fz !== undefined) continue
+  for (const n of settledToHold(nodes, newcomerIds, free)) {
     n.fx = n.x
     n.fy = n.y
     n.fz = n.z
@@ -104,7 +140,7 @@ export function releaseHeld(nodes: readonly SimNode[], held: ReadonlySet<string>
 export function shouldRelease({ now, lastArrivalAt, newcomers, quietMs, maxQuietMs }: {
   now: number
   lastArrivalAt: number
-  newcomers: readonly SimNode[]
+  newcomers: readonly Pick<SimNode, 'vx' | 'vy' | 'vz'>[]
   quietMs: number
   maxQuietMs: number
 }): boolean {
