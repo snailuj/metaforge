@@ -8,6 +8,17 @@ const VELOCITY_RETAIN: f32 = 0.15;
 const LINK_DISTANCE: f32 = 30.0;
 /// d3's default theta is 0.9.
 const THETA: f32 = 0.9;
+/// Stored in `depth` for a node that is not part of the metaphor forest.
+pub const NO_DEPTH: i32 = i32::MIN;
+
+/// Constants of the forest depth force, as forestDepthForce takes them.
+#[derive(Clone, Copy, Default)]
+pub struct Ring {
+    pub spacing: f32,
+    pub offset: f32,
+    pub strength: f32,
+    pub flatten: f32,
+}
 
 fn zeroed<T: Clone + Default>(len: usize) -> Option<Vec<T>> {
     let mut v = Vec::new();
@@ -16,7 +27,7 @@ fn zeroed<T: Clone + Default>(len: usize) -> Option<Vec<T>> {
     Some(v)
 }
 
-fn filled(len: usize, value: f32) -> Option<Vec<f32>> {
+fn filled_with<T: Clone>(len: usize, value: T) -> Option<Vec<T>> {
     let mut v = Vec::new();
     v.try_reserve_exact(len).ok()?;
     v.resize(len, value);
@@ -38,6 +49,10 @@ pub struct Engine {
     /// Rest length of each link; 30 until JS writes another.
     pub dist: Vec<f32>,
     /// Per node, 1 when the node is fixed at `fixed_pos` (d3's fx, fy, fz).
+    /// Forest depth per node, or NO_DEPTH. Depth 0 marks the root of the rings.
+    pub depth: Vec<i32>,
+    pub ring: Ring,
+    pub ring_on: bool,
     pub fixed: Vec<u8>,
     pub fixed_pos: Vec<f32>,
     pub strength: Vec<f32>,
@@ -68,7 +83,10 @@ impl Engine {
             pos: zeroed(n.checked_mul(3)?)?,
             vel: zeroed(n.checked_mul(3)?)?,
             links: zeroed(m.checked_mul(2)?)?,
-            dist: filled(m, LINK_DISTANCE)?,
+            dist: filled_with(m, LINK_DISTANCE)?,
+            depth: filled_with(n, NO_DEPTH)?,
+            ring: Ring::default(),
+            ring_on: false,
             fixed: zeroed(n)?,
             fixed_pos: zeroed(n.checked_mul(3)?)?,
             strength: zeroed(m)?,
@@ -141,12 +159,41 @@ impl Engine {
         self.link_force(alpha);
         self.many_body(alpha);
         self.centre();
+        self.apply_depth(alpha);
         self.integrate();
     }
 
     pub fn tick_many(&mut self, alpha: f32, count: u32) {
         for _ in 0..count {
             self.tick(alpha);
+        }
+    }
+
+    /// forestDepthForce from forest.ts, same maths: pulls each node that has a
+    /// depth towards a sphere of radius offset + depth * spacing around the first
+    /// depth-0 node, and flattens z towards that node's plane. d3 runs it after
+    /// the centre force, as the app adds it last.
+    pub fn apply_depth(&mut self, alpha: f32) {
+        if !self.ring_on {
+            return;
+        }
+        let Some(root) = (0..self.n).find(|&i| self.depth[i] == 0) else { return };
+        let r = [self.pos[3 * root], self.pos[3 * root + 1], self.pos[3 * root + 2]];
+        let Ring { spacing, offset, strength, flatten } = self.ring;
+        for i in 0..self.n {
+            let d = self.depth[i];
+            if d == NO_DEPTH || d == 0 {
+                continue;
+            }
+            let dx = [self.pos[3 * i] - r[0], self.pos[3 * i + 1] - r[1], self.pos[3 * i + 2] - r[2]];
+            let mut dist = (dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2]).sqrt();
+            if dist == 0.0 {
+                dist = 1e-3;
+            }
+            let k = ((offset + d as f32 * spacing - dist) / dist) * strength * alpha;
+            self.vel[3 * i] += dx[0] * k;
+            self.vel[3 * i + 1] += dx[1] * k;
+            self.vel[3 * i + 2] += dx[2] * k - dx[2] * flatten * strength * alpha;
         }
     }
 
@@ -544,6 +591,51 @@ mod tests {
         e.fixed_pos[9..12].copy_from_slice(&[1.0, 2.0, 3.0]);
         e.tick(0.3);
         assert_eq!(&e.pos[9..12], &[1.0, 2.0, 3.0]);
+    }
+
+    fn ring_scene() -> Engine {
+        let mut e = Engine::new(5, 0).unwrap();
+        // Root, a ring-1 node inside its ring, a ring-1 node outside it, a node
+        // with no depth, and a ring-2 node.
+        e.pos.copy_from_slice(&[10.0, 20.0, 30.0, 12.0, 20.0, 30.0, 10.0, 20.0, 230.0, 40.0, 50.0, 60.0, 10.0, 120.0, 30.0]);
+        e.depth.copy_from_slice(&[0, 1, 1, NO_DEPTH, 2]);
+        e.ring = Ring { spacing: 52.0, offset: 22.0, strength: 0.08, flatten: 0.6 };
+        e.ring_on = true;
+        e
+    }
+
+    // Rule: the forest depth force pulls a node of depth d towards radius
+    // offset + d * spacing around the depth-0 node, flattens z towards the
+    // root's plane, and leaves the root and nodes with no depth alone.
+    #[test]
+    fn depth_force_pulls_forest_nodes_to_their_ring_and_ignores_the_rest() {
+        let mut e = ring_scene();
+        e.apply_depth(0.5);
+        let v = |i: usize| [e.vel[3 * i], e.vel[3 * i + 1], e.vel[3 * i + 2]];
+        assert_eq!(v(0), [0.0; 3], "the root is not moved");
+        assert_eq!(v(3), [0.0; 3], "a node with no depth is not moved");
+        // Node 1 sits 2 from the root, ring radius 74: pushed outward along +x.
+        let want_k = ((22.0 + 52.0 - 2.0) / 2.0) * 0.08 * 0.5;
+        assert!((v(1)[0] - 2.0 * want_k).abs() < 1e-3, "got {:?}", v(1));
+        assert_eq!(v(1)[1], 0.0);
+        // Node 2 sits 200 away, outside radius 74: pulled back along -z, plus the flattening.
+        let k2 = ((74.0 - 200.0) / 200.0) * 0.08 * 0.5;
+        assert!((v(2)[2] - (200.0 * k2 - 200.0 * 0.6 * 0.08 * 0.5)).abs() < 1e-3, "got {:?}", v(2));
+        // Node 4 is depth 2: ring radius 22 + 104 = 126, and it sits 100 away.
+        assert!(v(4)[1] > 0.0, "a node inside its ring is pushed out");
+    }
+
+    // Rule: with the force off, or with no depth-0 node, nothing moves.
+    #[test]
+    fn depth_force_does_nothing_when_off_or_rootless() {
+        let mut e = ring_scene();
+        e.ring_on = false;
+        e.apply_depth(0.5);
+        assert!(e.vel.iter().all(|v| *v == 0.0));
+        e.ring_on = true;
+        e.depth[0] = NO_DEPTH;
+        e.apply_depth(0.5);
+        assert!(e.vel.iter().all(|v| *v == 0.0));
     }
 
     // Rule: tick_many is exactly count single ticks.
