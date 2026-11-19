@@ -16,6 +16,13 @@ fn zeroed<T: Clone + Default>(len: usize) -> Option<Vec<T>> {
     Some(v)
 }
 
+fn filled(len: usize, value: f32) -> Option<Vec<f32>> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(len).ok()?;
+    v.resize(len, value);
+    Some(v)
+}
+
 pub struct Engine {
     /// Buffers are sized for these once, so the live counts can change freely.
     pub cap_n: usize,
@@ -28,6 +35,8 @@ pub struct Engine {
     pub pos: Vec<f32>,
     pub vel: Vec<f32>,
     pub links: Vec<u32>,
+    /// Rest length of each link; 30 until JS writes another.
+    pub dist: Vec<f32>,
     pub strength: Vec<f32>,
     pub bias: Vec<f32>,
     pub degree: Vec<u32>,
@@ -56,6 +65,7 @@ impl Engine {
             pos: zeroed(n.checked_mul(3)?)?,
             vel: zeroed(n.checked_mul(3)?)?,
             links: zeroed(m.checked_mul(2)?)?,
+            dist: filled(m, LINK_DISTANCE)?,
             strength: zeroed(m)?,
             bias: zeroed(m)?,
             degree: zeroed(n)?,
@@ -88,6 +98,7 @@ impl Engine {
             if a < n && b < n && a != b {
                 self.links[2 * kept] = a;
                 self.links[2 * kept + 1] = b;
+                self.dist[kept] = self.dist[k];
                 kept += 1;
             }
         }
@@ -133,7 +144,7 @@ impl Engine {
         }
     }
 
-    /// Springs towards LINK_DISTANCE. Like d3 it measures the gap after this
+    /// Springs towards each link's own distance. Like d3 it measures the gap after this
     /// tick's velocity so far, and splits the push by degree bias.
     fn link_force(&mut self, alpha: f32) {
         for k in 0..self.active_links {
@@ -147,7 +158,7 @@ impl Engine {
                 }
             }
             let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-            let f = (l - LINK_DISTANCE) / l * alpha * self.strength[k];
+            let f = (l - self.dist[k]) / l * alpha * self.strength[k];
             let b = self.bias[k];
             for a in 0..3 {
                 let push = d[a] * f;
@@ -458,6 +469,26 @@ mod tests {
         assert_eq!((e.n, e.m), (10, 20), "a refused call must leave the counts alone");
         assert!(e.set_counts(0, 0));
         assert_eq!((p, l), (e.pos.as_ptr(), e.links.as_ptr()));
+    }
+
+    // Rule: each link pulls towards its own distance, and dropping an unusable
+    // link keeps every other link's distance with it.
+    #[test]
+    fn each_link_settles_near_its_own_distance() {
+        let mut e = Engine::new(6, 4).unwrap();
+        e.pos.copy_from_slice(&[0.0, 0.0, 0.0, 40.0, 0.0, 0.0, 500.0, 0.0, 0.0, 540.0, 0.0, 0.0, 900.0, 0.0, 0.0, 940.0, 0.0, 0.0]);
+        // The second link is out of range and is dropped; the others keep 20, 52 and 80.
+        // Repulsion holds each pair a few units beyond its distance, hence the margin.
+        e.links.copy_from_slice(&[0, 1, 2, 99, 4, 5, 2, 3]);
+        e.dist.copy_from_slice(&[20.0, 7.0, 52.0, 80.0]);
+        e.prepare();
+        assert_eq!(e.active_links, 3);
+        for _ in 0..300 {
+            e.tick(0.3);
+        }
+        assert!((dist(&e, 0, 1) - 20.0).abs() < 6.0, "pair 0-1 at {}", dist(&e, 0, 1));
+        assert!((dist(&e, 4, 5) - 52.0).abs() < 6.0, "pair 4-5 at {}", dist(&e, 4, 5));
+        assert!((dist(&e, 2, 3) - 80.0).abs() < 6.0, "pair 2-3 at {}", dist(&e, 2, 3));
     }
 
     // Rule: tick_many is exactly count single ticks.
