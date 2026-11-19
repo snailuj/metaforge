@@ -122,11 +122,18 @@ impl Engine {
         true
     }
 
-    /// Call after JS has written the links and starting positions. Drops links
-    /// that cannot apply, then derives degrees, strengths and biases as d3's
-    /// link force does. Non-finite positions get d3's starting spiral, and
-    /// velocities start at zero.
+    /// Call after JS has written the links and starting positions. Equivalent to
+    /// `refresh_links`, zeroing every velocity, then `place_unplaced`.
     pub fn prepare(&mut self) {
+        self.refresh_links();
+        self.vel[..3 * self.n].iter_mut().for_each(|v| *v = 0.0);
+        self.place_unplaced();
+    }
+
+    /// Drops links that cannot apply (out of range, or a node to itself), then
+    /// derives degrees, strengths and biases as d3's link force does. Positions
+    /// and velocities are left alone, so the graph can change while it runs.
+    pub fn refresh_links(&mut self) {
         let n = self.n as u32;
         let mut kept = 0;
         for k in 0..self.m {
@@ -150,7 +157,12 @@ impl Engine {
             self.strength[k] = 1.0 / ds.min(dt);
             self.bias[k] = ds / (ds + dt);
         }
-        self.vel[..3 * self.n].iter_mut().for_each(|v| *v = 0.0);
+    }
+
+    /// d3's `initializeNodes` for nodes that lack a state: a fixed node takes its
+    /// fixed position, a node with a non-finite position gets d3's starting
+    /// spiral, and a non-finite velocity becomes zero. Everything else is kept.
+    pub fn place_unplaced(&mut self) {
         self.snap_fixed();
         let roll = core::f32::consts::PI * (3.0 - 5.0f32.sqrt());
         let yaw = core::f32::consts::PI * 20.0 / (9.0 + 221.0f32.sqrt());
@@ -163,6 +175,11 @@ impl Engine {
             self.pos[3 * i] = radius * r.sin() * y.cos();
             self.pos[3 * i + 1] = radius * r.cos();
             self.pos[3 * i + 2] = radius * r.sin() * y.sin();
+        }
+        for i in 0..self.n {
+            if self.vel[3 * i..3 * i + 3].iter().any(|v| !v.is_finite()) {
+                self.vel[3 * i..3 * i + 3].fill(0.0);
+            }
         }
     }
 
@@ -301,6 +318,41 @@ impl Engine {
         }
     }
 }
+
+#[cfg(test)]
+mod alloc_count {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    thread_local! {
+        static COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// Counts allocations on the calling thread, so parallel tests do not disturb each other.
+    pub struct Counting;
+
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            COUNT.with(|c| c.set(c.get() + 1));
+            System.alloc(layout)
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            System.dealloc(ptr, layout)
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            COUNT.with(|c| c.set(c.get() + 1));
+            System.realloc(ptr, layout, new_size)
+        }
+    }
+
+    pub fn get() -> usize {
+        COUNT.with(|c| c.get())
+    }
+}
+
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: alloc_count::Counting = alloc_count::Counting;
 
 #[cfg(test)]
 mod tests {
@@ -725,6 +777,54 @@ mod tests {
         a.step();
         b.tick(0.3);
         assert_eq!(a.pos.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), b.pos.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+    }
+
+    // Rule: a step never allocates. Every buffer is made up front, so the
+    // wasm heap cannot grow, and views onto it cannot detach, while ticking.
+    #[test]
+    fn step_allocates_nothing() {
+        let mut e = scene(15, 120, 180);
+        e.pos.copy_within(0..3, 3); // a coincident pair exercises the chained leaf
+        e.fixed[7] = 1;
+        e.fixed_pos[21..24].copy_from_slice(&[1.0, 2.0, 3.0]);
+        e.depth[0] = 0;
+        e.depth[1..30].iter_mut().for_each(|d| *d = 1);
+        e.ring = Ring { spacing: 52.0, offset: 22.0, strength: 0.08, flatten: 0.6 };
+        e.ring_on = true;
+        e.prepare();
+        e.step(); // warm-up in case anything is allocated lazily
+        let before = alloc_count::get();
+        for _ in 0..25 {
+            e.step();
+        }
+        e.refresh_links();
+        assert_eq!(alloc_count::get() - before, 0, "allocations during steps");
+    }
+
+    // Rule: when the graph changes, links are re-derived and only the nodes
+    // without a position are placed: every other position and velocity stays
+    // exactly as it was, so a growing graph does not jolt.
+    #[test]
+    fn refreshing_links_and_placing_new_nodes_keeps_existing_state() {
+        let mut e = scene(16, 12, 14);
+        e.prepare();
+        for _ in 0..5 {
+            e.step();
+        }
+        let (pos, vel) = (e.pos.clone(), e.vel.clone());
+        e.pos[3 * 11..3 * 11 + 3].fill(f32::NAN);
+        e.vel[3 * 11..3 * 11 + 3].fill(f32::NAN);
+        e.links[0] = 2;
+        e.links[1] = 3;
+        e.refresh_links();
+        e.place_unplaced();
+        assert_eq!(e.pos[..33], pos[..33]);
+        assert_eq!(e.vel[..33], vel[..33]);
+        assert_eq!(&e.vel[33..36], &[0.0; 3]);
+        // d3's starting spiral for node index 11.
+        let radius = 10.0 * (0.5f32 + 11.0).cbrt();
+        let roll = 11.0 * core::f32::consts::PI * (3.0 - 5.0f32.sqrt());
+        assert!((e.pos[34] - radius * roll.cos()).abs() < 1e-4);
     }
 
     // Rule: tick_many is exactly count single ticks.
