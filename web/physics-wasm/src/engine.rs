@@ -1,6 +1,6 @@
 //! The force layout. Same forces, order and constants as d3-force-3d with the
 //! page's settings; see physics.ts in web/src/perf for what those are.
-use crate::octree::{Octree, NONE};
+use crate::octree::Octree;
 use crate::rng::Lcg;
 
 /// d3 multiplies velocity by 1 - velocityDecay; the page sets 0.85.
@@ -58,15 +58,113 @@ impl Engine {
             cell_scale: core::f32::consts::FRAC_1_SQRT_2,
         })
     }
+    /// Call after JS has written the links and starting positions. Drops links
+    /// that cannot apply, then derives degrees, strengths and biases as d3's
+    /// link force does. Non-finite positions get d3's starting spiral, and
+    /// velocities start at zero.
     pub fn prepare(&mut self) {
-        todo!()
+        let n = self.n as u32;
+        let mut kept = 0;
+        for k in 0..self.m {
+            let (a, b) = (self.links[2 * k], self.links[2 * k + 1]);
+            if a < n && b < n && a != b {
+                self.links[2 * kept] = a;
+                self.links[2 * kept + 1] = b;
+                kept += 1;
+            }
+        }
+        self.active_links = kept;
+        self.degree.iter_mut().for_each(|d| *d = 0);
+        for k in 0..kept {
+            self.degree[self.links[2 * k] as usize] += 1;
+            self.degree[self.links[2 * k + 1] as usize] += 1;
+        }
+        for k in 0..kept {
+            let ds = self.degree[self.links[2 * k] as usize] as f32;
+            let dt = self.degree[self.links[2 * k + 1] as usize] as f32;
+            self.strength[k] = 1.0 / ds.min(dt);
+            self.bias[k] = ds / (ds + dt);
+        }
+        self.vel.iter_mut().for_each(|v| *v = 0.0);
+        let roll = core::f32::consts::PI * (3.0 - 5.0f32.sqrt());
+        let yaw = core::f32::consts::PI * 20.0 / (9.0 + 221.0f32.sqrt());
+        for i in 0..self.n {
+            if self.pos[3 * i..3 * i + 3].iter().all(|v| v.is_finite()) {
+                continue;
+            }
+            let radius = 10.0 * (0.5 + i as f32).cbrt();
+            let (r, y) = (i as f32 * roll, i as f32 * yaw);
+            self.pos[3 * i] = radius * r.sin() * y.cos();
+            self.pos[3 * i + 1] = radius * r.cos();
+            self.pos[3 * i + 2] = radius * r.sin() * y.sin();
+        }
     }
-    pub fn tick(&mut self, _alpha: f32) {
-        todo!()
+
+    /// One step with d3's force order: link, many-body, centre, then velocity
+    /// decay and the position update.
+    pub fn tick(&mut self, alpha: f32) {
+        self.link_force(alpha);
+        self.many_body(alpha);
+        self.centre();
+        self.integrate();
     }
-    pub fn tick_many(&mut self, _alpha: f32, _count: u32) {
-        todo!()
+
+    pub fn tick_many(&mut self, alpha: f32, count: u32) {
+        for _ in 0..count {
+            self.tick(alpha);
+        }
     }
+
+    /// Springs towards LINK_DISTANCE. Like d3 it measures the gap after this
+    /// tick's velocity so far, and splits the push by degree bias.
+    fn link_force(&mut self, alpha: f32) {
+        for k in 0..self.active_links {
+            let s = self.links[2 * k] as usize;
+            let t = self.links[2 * k + 1] as usize;
+            let mut d = [0.0f32; 3];
+            for a in 0..3 {
+                d[a] = self.pos[3 * t + a] + self.vel[3 * t + a] - self.pos[3 * s + a] - self.vel[3 * s + a];
+                if d[a] == 0.0 {
+                    d[a] = self.rng.jiggle();
+                }
+            }
+            let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            let f = (l - LINK_DISTANCE) / l * alpha * self.strength[k];
+            let b = self.bias[k];
+            for a in 0..3 {
+                let push = d[a] * f;
+                self.vel[3 * t + a] -= push * b;
+                self.vel[3 * s + a] += push * (1.0 - b);
+            }
+        }
+    }
+
+    /// d3's centre force: shift every node by the mean position (strength 1).
+    /// Summed in f64 so the mean does not drift with the node count.
+    fn centre(&mut self) {
+        let mut mean = [0.0f64; 3];
+        for p in self.pos.chunks_exact(3) {
+            for a in 0..3 {
+                mean[a] += p[a] as f64;
+            }
+        }
+        for a in 0..3 {
+            let shift = (mean[a] / self.n as f64) as f32;
+            if shift != 0.0 {
+                for i in 0..self.n {
+                    self.pos[3 * i + a] -= shift;
+                }
+            }
+        }
+    }
+
+    fn integrate(&mut self) {
+        for (p, v) in self.pos.iter_mut().zip(self.vel.iter_mut()) {
+            *v *= VELOCITY_RETAIN;
+            *p += *v;
+        }
+    }
+
     /// Repulsion between every pair, approximated by the octree.
     fn many_body(&mut self, alpha: f32) {
         self.tree.build(&self.pos, self.cell_scale);
@@ -76,10 +174,6 @@ impl Engine {
                 self.vel[3 * i + k] += dv[k];
             }
         }
-    }
-    #[allow(dead_code)]
-    fn unused(&self) -> (u32, f32, f32) {
-        (NONE, VELOCITY_RETAIN + LINK_DISTANCE, THETA)
     }
 }
 
@@ -196,5 +290,123 @@ mod tests {
         many_body_velocities(&mut e, 0.3);
         assert_eq!(e.tree.points_reachable(), 400);
         assert!(e.tree.nodes_used <= 400 * 32 + 8, "arena overrun");
+    }
+
+    fn dist(e: &Engine, a: usize, b: usize) -> f32 {
+        (0..3).map(|k| (e.pos[3 * a + k] - e.pos[3 * b + k]).powi(2)).sum::<f32>().sqrt()
+    }
+
+    // Rule: a link pulls its ends towards the link distance and the pull does
+    // not overshoot, however many ticks run.
+    #[test]
+    fn linked_pair_settles_near_the_link_distance_without_overshoot() {
+        let mut e = Engine::new(2, 1).unwrap();
+        e.pos.copy_from_slice(&[-30.0, 0.0, 0.0, 30.0, 0.0, 0.0]);
+        e.links.copy_from_slice(&[0, 1]);
+        e.prepare();
+        let mut closest = f32::INFINITY;
+        for _ in 0..200 {
+            e.tick(0.3);
+            closest = closest.min(dist(&e, 0, 1));
+        }
+        let last = dist(&e, 0, 1);
+        assert!(closest >= 20.0, "overshot to {closest}");
+        assert!(last < 40.0 && last > 25.0, "ended at {last}");
+    }
+
+    fn centroid(e: &Engine) -> [f64; 3] {
+        let mut m = [0.0f64; 3];
+        for i in 0..e.n {
+            for k in 0..3 {
+                m[k] += e.pos[3 * i + k] as f64 / e.n as f64;
+            }
+        }
+        m
+    }
+
+    // Rule: the centre force moves the mean to the origin and nothing blows
+    // up over a long run on a graph the size of the page's. d3 applies the
+    // centre force before the position update, so a tick ends with a small
+    // residual from the mean velocity (0.01 to 0.03 per axis in d3 itself on
+    // this scene); the exact pin holds straight after the centre step.
+    #[test]
+    fn long_run_stays_finite_and_centred() {
+        let mut e = scene(1, 100, 150);
+        e.prepare();
+        for _ in 0..300 {
+            e.tick(0.3);
+        }
+        assert!(e.pos.iter().all(|v| v.is_finite()));
+        assert!(centroid(&e).iter().all(|m| m.abs() < 5e-2), "centroid after a tick {:?}", centroid(&e));
+        e.centre();
+        assert!(centroid(&e).iter().all(|m| m.abs() < 1e-3), "centroid after centring {:?}", centroid(&e));
+    }
+
+    // Rule: the same inputs give the same bits, so a run can be reproduced.
+    #[test]
+    fn same_inputs_give_bit_identical_positions() {
+        let run = || {
+            let mut e = scene(2, 100, 150);
+            e.prepare();
+            for _ in 0..50 {
+                e.tick(0.3);
+            }
+            e.pos.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        };
+        assert_eq!(run(), run());
+    }
+
+    // Rule: coincident nodes are pushed apart by jiggle instead of producing
+    // a division by zero.
+    #[test]
+    fn coincident_nodes_stay_finite() {
+        let mut e = scene(3, 20, 20);
+        e.pos.copy_within(0..3, 3);
+        e.prepare();
+        for _ in 0..20 {
+            e.tick(0.3);
+        }
+        assert!(e.pos.iter().all(|v| v.is_finite()));
+        assert!(dist(&e, 0, 1) > 0.0, "the pair was never separated");
+    }
+
+    // Rule: a link that cannot be applied (out of range, or from a node to
+    // itself) is dropped, so it can never put NaN into the layout.
+    #[test]
+    fn unusable_links_are_ignored() {
+        let mut e = scene(4, 10, 3);
+        e.links.copy_from_slice(&[0, 99, 2, 2, 3, 4]);
+        e.prepare();
+        assert_eq!(e.active_links, 1);
+        for _ in 0..10 {
+            e.tick(0.3);
+        }
+        assert!(e.pos.iter().all(|v| v.is_finite()));
+    }
+
+    // Rule: link strength and bias follow d3's degree formulas.
+    #[test]
+    fn strength_and_bias_follow_degrees() {
+        let mut e = Engine::new(4, 3).unwrap();
+        e.pos.copy_from_slice(&[0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0]);
+        e.links.copy_from_slice(&[0, 1, 0, 2, 0, 3]);
+        e.prepare();
+        assert_eq!(e.degree, vec![3, 1, 1, 1]);
+        assert_eq!(e.strength, vec![1.0, 1.0, 1.0]);
+        assert_eq!(e.bias, vec![0.75, 0.75, 0.75]);
+    }
+
+    // Rule: tick_many is exactly count single ticks.
+    #[test]
+    fn tick_many_equals_repeated_ticks() {
+        let mut a = scene(6, 60, 90);
+        let mut b = scene(6, 60, 90);
+        a.prepare();
+        b.prepare();
+        a.tick_many(0.3, 7);
+        for _ in 0..7 {
+            b.tick(0.3);
+        }
+        assert_eq!(a.pos.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), b.pos.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
     }
 }
