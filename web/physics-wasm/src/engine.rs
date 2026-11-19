@@ -37,6 +37,9 @@ pub struct Engine {
     pub links: Vec<u32>,
     /// Rest length of each link; 30 until JS writes another.
     pub dist: Vec<f32>,
+    /// Per node, 1 when the node is fixed at `fixed_pos` (d3's fx, fy, fz).
+    pub fixed: Vec<u8>,
+    pub fixed_pos: Vec<f32>,
     pub strength: Vec<f32>,
     pub bias: Vec<f32>,
     pub degree: Vec<u32>,
@@ -66,6 +69,8 @@ impl Engine {
             vel: zeroed(n.checked_mul(3)?)?,
             links: zeroed(m.checked_mul(2)?)?,
             dist: filled(m, LINK_DISTANCE)?,
+            fixed: zeroed(n)?,
+            fixed_pos: zeroed(n.checked_mul(3)?)?,
             strength: zeroed(m)?,
             bias: zeroed(m)?,
             degree: zeroed(n)?,
@@ -115,6 +120,7 @@ impl Engine {
             self.bias[k] = ds / (ds + dt);
         }
         self.vel[..3 * self.n].iter_mut().for_each(|v| *v = 0.0);
+        self.snap_fixed();
         let roll = core::f32::consts::PI * (3.0 - 5.0f32.sqrt());
         let yaw = core::f32::consts::PI * 20.0 / (9.0 + 221.0f32.sqrt());
         for i in 0..self.n {
@@ -190,11 +196,24 @@ impl Engine {
         }
     }
 
+    /// Moves each fixed node to its fixed position, as d3 does when it takes nodes.
+    fn snap_fixed(&mut self) {
+        for i in (0..self.n).filter(|&i| self.fixed[i] != 0) {
+            self.pos[3 * i..3 * i + 3].copy_from_slice(&self.fixed_pos[3 * i..3 * i + 3]);
+        }
+    }
+
+    /// Velocity decay and the position update. A fixed node takes its fixed
+    /// position and loses its velocity instead, whatever the forces did to it.
     fn integrate(&mut self) {
         let live = 3 * self.n;
         for (p, v) in self.pos[..live].iter_mut().zip(self.vel[..live].iter_mut()) {
             *v *= VELOCITY_RETAIN;
             *p += *v;
+        }
+        for i in (0..self.n).filter(|&i| self.fixed[i] != 0) {
+            self.pos[3 * i..3 * i + 3].copy_from_slice(&self.fixed_pos[3 * i..3 * i + 3]);
+            self.vel[3 * i..3 * i + 3].fill(0.0);
         }
     }
 
@@ -489,6 +508,42 @@ mod tests {
         assert!((dist(&e, 0, 1) - 20.0).abs() < 6.0, "pair 0-1 at {}", dist(&e, 0, 1));
         assert!((dist(&e, 4, 5) - 52.0).abs() < 6.0, "pair 4-5 at {}", dist(&e, 4, 5));
         assert!((dist(&e, 2, 3) - 80.0).abs() < 6.0, "pair 2-3 at {}", dist(&e, 2, 3));
+    }
+
+    // Rule: a fixed node does not move by more than 1e-6 over 100 ticks while
+    // its neighbours do. The centre force shifts every position, so this also
+    // proves the fixed position wins over it.
+    #[test]
+    fn a_fixed_node_stays_put_while_its_neighbours_move() {
+        let mut e = scene(9, 30, 45);
+        e.prepare();
+        e.fixed[4] = 1;
+        e.fixed_pos[12..15].copy_from_slice(&[e.pos[12], e.pos[13], e.pos[14]]);
+        let (before, others_before) = ([e.pos[12], e.pos[13], e.pos[14]], e.pos[..12].to_vec());
+        for _ in 0..100 {
+            e.tick(0.3);
+        }
+        for k in 0..3 {
+            assert!((e.pos[12 + k] - before[k]).abs() < 1e-6, "fixed node drifted on axis {k}");
+            assert_eq!(e.vel[12 + k], 0.0);
+        }
+        let moved = e.pos[..12].iter().zip(&others_before).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
+        assert!(moved > 1.0, "the free neighbours never moved ({moved}), so the test proves nothing");
+    }
+
+    // Rule: like d3, a fixed position wins the moment it is set: the node jumps
+    // to it on prepare, and on the next tick if it is set later.
+    #[test]
+    fn a_fixed_position_is_taken_up_at_once() {
+        let mut e = scene(10, 10, 12);
+        e.fixed[2] = 1;
+        e.fixed_pos[6..9].copy_from_slice(&[7.0, -8.0, 9.0]);
+        e.prepare();
+        assert_eq!(&e.pos[6..9], &[7.0, -8.0, 9.0]);
+        e.fixed[3] = 1;
+        e.fixed_pos[9..12].copy_from_slice(&[1.0, 2.0, 3.0]);
+        e.tick(0.3);
+        assert_eq!(&e.pos[9..12], &[1.0, 2.0, 3.0]);
     }
 
     // Rule: tick_many is exactly count single ticks.
