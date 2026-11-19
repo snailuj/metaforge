@@ -1,37 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { buildScene } from './scene'
 import { project, PROJECTED_STRIDE, type View } from './project'
+import { stubCtx, type Stub } from './stub-ctx'
 import { drawScene, GLOW_BLUR_CSS_PX, type DrawOptions } from './draw'
 
 // Rule: each glow method does the work it names, and no other glow work.
 // 'none' never blurs, 'blur' blurs every pill every frame, and 'sprite'
 // stamps a cached image once per pill and builds each image once.
-
-interface Stub {
-  ctx: CanvasRenderingContext2D
-  calls: Record<string, number>
-  shadowBlurSets: number[]
-}
-
-function stubCtx(): Stub {
-  const calls: Record<string, number> = {}
-  const shadowBlurSets: number[] = []
-  const state: Record<string, unknown> = {}
-  const ctx = new Proxy({}, {
-    get(_t, p: string) {
-      if (p === 'measureText') return (s: string) => ({ width: s.length * 7 })
-      if (p === 'createRadialGradient') return () => ({ addColorStop() {} })
-      if (p in state) return state[p]
-      return () => { calls[p] = (calls[p] ?? 0) + 1 }
-    },
-    set(_t, p: string, v) {
-      if (p === 'shadowBlur') shadowBlurSets.push(v as number)
-      state[p] = v
-      return true
-    },
-  }) as unknown as CanvasRenderingContext2D
-  return { ctx, calls, shadowBlurSets }
-}
 
 const VIEW: View = { cx: 200, cy: 300, distance: 320, focal: 900 }
 
