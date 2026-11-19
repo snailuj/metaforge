@@ -103,3 +103,7 @@ web/playwright-report/
 
 # Glow speed test single-file build
 web/dist-perf/
+
+# Rust physics spike: build output, never committed
+web/physics-wasm/target/
+web/src/perf/wasm/physics.wasm
