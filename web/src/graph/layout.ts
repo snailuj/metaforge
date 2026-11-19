@@ -8,7 +8,7 @@
 import type { GraphLink, GraphNode } from './types'
 import { resolveEndpoint } from './transform'
 import { SEED_SPREAD, seedParents, settledToHold, shouldRelease } from './growth'
-import { mulberry32 } from '@/perf/scene'
+import { mulberry32 } from '@/lib/random'
 
 /** The forest rings, as mf-force-graph.ts sets them. A test fails if the two drift apart. */
 export const FOREST_RING = { spacing: 52, offset: 22, strength: 0.08, flatten: 0.6 }

@@ -1,6 +1,8 @@
 // A fixed synthetic graph for the glow speed test. Seeded, so every device
 // draws the same scene and results are comparable across phones.
 
+import { mulberry32 } from '@/lib/random'
+
 export const PILL_COUNT = 12
 
 export interface Scene {
@@ -22,18 +24,6 @@ const WORDS = [
   'mosaic', 'tether', 'solstice', 'rift', 'cadence', 'lattice', 'burrow', 'prism', 'dusk', 'weir',
   'flint', 'chorus', 'umbra', 'gossamer', 'plinth', 'fathom', 'wick', 'estuary', 'sinew', 'vestige',
 ]
-
-/** Small, fast, well-spread 32-bit generator (mulberry32). */
-export function mulberry32(seed: number): () => number {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
 
 const SPREAD = 120
 
