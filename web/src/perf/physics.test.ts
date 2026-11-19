@@ -43,4 +43,19 @@ describe('createPhysics', () => {
     for (let i = 0; i < 5; i++) physics.tick()
     expect(Array.from(scene.positions)).toEqual(copy)
   })
+
+  // Rule: ticking in a batch does exactly the work of ticking one by one, so
+  // timing a batch and dividing measures the same thing as timing one tick.
+  it('tickMany(n) leaves the layout where n single ticks leave it', () => {
+    const scene = buildScene(2, 40, 60)
+    const batched = createPhysics(scene)
+    const single = createPhysics(scene)
+    batched.tickMany(12)
+    for (let i = 0; i < 12; i++) single.tick()
+    const a = new Float32Array(120)
+    const b = new Float32Array(120)
+    batched.writePositions(a)
+    single.writePositions(b)
+    expect(Array.from(a)).toEqual(Array.from(b))
+  })
 })

@@ -5,10 +5,12 @@ import type { Scene } from './scene'
 // 30, default charge and centre) with alpha held at 0.3, so every tick costs
 // what a busy moment in the real graph costs.
 
-const HELD_ALPHA = 0.3
+export const HELD_ALPHA = 0.3
 
 export interface Physics {
   tick(): void
+  /** Same work as `count` calls to `tick`; lets a caller time a batch. */
+  tickMany(count: number): void
   /** Writes x, y, z per node into `out`. */
   writePositions(out: Float32Array): void
 }
@@ -35,6 +37,9 @@ export function createPhysics(scene: Scene): Physics {
   return {
     tick() {
       sim.tick()
+    },
+    tickMany(count) {
+      for (let i = 0; i < count; i++) sim.tick()
     },
     writePositions(out) {
       for (let i = 0; i < nodes.length; i++) {
