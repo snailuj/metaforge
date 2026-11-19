@@ -1,5 +1,5 @@
 import type { Results } from './results'
-import { verdict, describeVerdict, FRAME_BUDGET_MS } from './verdict'
+import { verdict, describeVerdict, PASS_LIMIT_MS } from './verdict'
 
 export interface DeviceFacts {
   /** `new Date().toISOString()` at the time of the run. */
@@ -27,7 +27,7 @@ export function buildReport(results: Results, facts: DeviceFacts): string {
     `User agent: ${facts.userAgent}`,
     ...results.runs.map(r =>
       `${r.label}: frame interval median ${ms(r.interval.median)}, p95 ${ms(r.interval.p95)}, ` +
-      `over ${FRAME_BUDGET_MS} ms ${pct(r.interval.overBudgetShare)}; ` +
+      `over ${PASS_LIMIT_MS} ms ${pct(r.interval.overBudgetShare)}; ` +
       `physics median ${ms(r.physics.median)}, p95 ${ms(r.physics.p95)}; ` +
       `draw median ${ms(r.draw.median)}, p95 ${ms(r.draw.p95)}`),
     ...results.scaling.map(s =>

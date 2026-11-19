@@ -3,7 +3,7 @@ import { buildScene } from './scene'
 import { project, PROJECTED_STRIDE, type View } from './project'
 import { drawScene, type DrawOptions, type GlowMode } from './draw'
 import { createPhysics } from './physics'
-import { FRAME_BUDGET_MS } from './verdict'
+import { FRAME_BUDGET_MS, PASS_LIMIT_MS } from './verdict'
 import type { Results, RunId, RunResult, ScalingResult } from './results'
 
 // Runs the glow speed test. Nothing here touches the DOM: the page hands in
@@ -214,7 +214,7 @@ async function runDrawing(env: RunnerEnv, step: PlanStep, timing: Timing, index:
     id: step.id,
     label: step.label,
     pixelRatio,
-    interval: summarise(measured.interval.samples(), FRAME_BUDGET_MS),
+    interval: summarise(measured.interval.samples(), PASS_LIMIT_MS),
     physics: summarise(measured.physics.samples(), FRAME_BUDGET_MS),
     draw: summarise(measured.draw.samples(), FRAME_BUDGET_MS),
   }
