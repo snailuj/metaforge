@@ -10,6 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "build:wasm": "cd physics-wasm && cargo build --release --target wasm32-unknown-unknown && cd .. && mkdir -p src/perf/wasm && cp physics-wasm/target/wasm32-unknown-unknown/release/metaforge_physics.wasm src/perf/wasm/physics.wasm",
+    "test:wasm": "WASM_TESTS=1 vitest run src/perf/physics-wasm.test.ts src/graph/layout.test.ts",
     "build:perf": "node scripts/build-perf.mjs"
   },
   "dependencies": {

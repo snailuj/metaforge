@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import { resolve } from 'path'
+import { configDefaults } from 'vitest/config'
 
 export default defineConfig({
   resolve: {
@@ -23,6 +24,9 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     include: ['src/**/*.test.ts'],
+    // These files need the compiled .wasm, which needs a Rust toolchain. Plain
+    // `npm test` must not, so `npm run test:wasm` sets WASM_TESTS to include them.
+    exclude: process.env.WASM_TESTS ? configDefaults.exclude : [...configDefaults.exclude, 'src/perf/physics-wasm.test.ts', 'src/graph/layout.test.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'html'],

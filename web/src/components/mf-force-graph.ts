@@ -9,7 +9,7 @@ import { relationReach, resolveEndpoint } from '@/graph/transform'
 import { ghostFade, ghostAlphas } from '@/graph/ghost-fade'
 import { NODE_COLOURS, RARITY_COLOURS, DEFAULT_NODE_COLOUR, FOREST_COLOURS, withAlpha } from '@/graph/colours'
 import { makeLabelRenderer, makeLabelObject, makeGroundLabel, syncLabelVisibility, DEFAULT_LABEL_SIZE, type LabelSizeConfig, type LabelStyle, type BacklinkRow } from '@/graph/label-layer'
-import { forestDepthForce, FOREST_FADE_MS, type ForestNodeInfo, type ForestOverlay, type ForestTarget } from '@/graph/forest'
+import { forestDepthForce, FOREST_FADE_MS, FOREST_LINK_DISTANCE, FOREST_RING, type ForestNodeInfo, type ForestOverlay, type ForestTarget } from '@/graph/forest'
 import { arrivals, holdSettled, releaseHeld, seedArrivals, shouldRelease, type SimNode } from '@/graph/growth'
 import type { ChainRecord, JudgementRecord } from '../types/grading'
 import { normaliseJudgement } from '../types/grading'
@@ -32,10 +32,6 @@ const HOLD_MAX_QUIET_MS = 6000
 const FOREST_EDGE_THESAURUS = 'rgba(232, 224, 212, 0.05)'
 const FOREST_EDGE_THESAURUS_DIM = 'rgba(232, 224, 212, 0.03)'
 const FOREST_NODE_VAL = { endpoint: 18, hop: 1.5 } as const
-// Ring 1 sits at offset + spacing from the source, clear of the thesaurus
-// cloud (link distance 30); later rings follow at the link distance.
-const FOREST_RING = { spacing: 52, offset: 22, strength: 0.08, flatten: 0.6 }
-const FOREST_LINK_DISTANCE = FOREST_RING.spacing
 // Framing after a new forest lands: once the warm-up has spread it, then
 // again as it settles. Padding keeps the burst clear of the side panels.
 const FOREST_FRAME_AT_MS = [900, 3200]

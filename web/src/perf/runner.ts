@@ -1,8 +1,9 @@
-import { createFrameTimer, summarise, type FrameTimer } from '../lib/frame-timer'
+import { createFrameTimer, summarise, type FrameSummary, type FrameTimer } from '../lib/frame-timer'
 import { buildScene } from './scene'
 import { project, PROJECTED_STRIDE, type View } from './project'
 import { drawScene, type DrawOptions, type GlowMode } from './draw'
-import { createPhysics } from './physics'
+import { createPhysics, type Physics } from './physics'
+import type { Scene } from './scene'
 import { FRAME_BUDGET_MS, PASS_LIMIT_MS } from './verdict'
 import type { Results, RunId, RunResult, ScalingResult } from './results'
 
@@ -30,8 +31,15 @@ const SCENE_NODES = 100
 const SCENE_EDGES = 150
 const TURN_RADIANS_PER_SECOND = 0.3
 const SCALING_SIZES = [100, 300, 1000]
-/** Ticks run between yields in the scaling pass, so the countdown keeps moving. */
-const SCALING_BATCH = 25
+/**
+ * Ticks timed together as one sample. performance.now() may be coarsened to
+ * 0.1 ms, so a single fast tick can read as zero; timing a batch and dividing
+ * by its size keeps small per-tick times visible. Both engines are timed the
+ * same way so the comparison stays fair.
+ */
+const SCALING_TICKS_PER_SAMPLE = 10
+/** Samples between yields, so the countdown keeps moving and the tab stays responsive. */
+const SCALING_YIELD_EVERY = 5
 const SHARPNESS_CAP = 2
 
 interface PlanStep {
@@ -39,13 +47,16 @@ interface PlanStep {
   label: string
   glow: GlowMode
   capSharpness: boolean
+  engine: 'js' | 'rust'
 }
 
 export const RUN_PLAN: readonly PlanStep[] = [
-  { id: 'none', label: 'No glow', glow: 'none', capSharpness: false },
-  { id: 'blur', label: 'Live blur', glow: 'blur', capSharpness: false },
-  { id: 'sprite', label: 'Pre-drawn glow', glow: 'sprite', capSharpness: false },
-  { id: 'sprite-cap2', label: 'Pre-drawn glow, sharpness capped at 2', glow: 'sprite', capSharpness: true },
+  { id: 'none', label: 'No glow', glow: 'none', capSharpness: false, engine: 'js' },
+  { id: 'blur', label: 'Live blur', glow: 'blur', capSharpness: false, engine: 'js' },
+  { id: 'sprite', label: 'Pre-drawn glow', glow: 'sprite', capSharpness: false, engine: 'js' },
+  { id: 'sprite-cap2', label: 'Pre-drawn glow, sharpness capped at 2', glow: 'sprite', capSharpness: true, engine: 'js' },
+  // Identical to 'none' except for the physics engine, so the two rows differ by physics alone.
+  { id: 'none-wasm', label: 'No glow, Rust physics', glow: 'none', capSharpness: false, engine: 'rust' },
 ]
 
 export interface FrameWork {
@@ -118,24 +129,49 @@ export function measureRun(deps: ClockDeps, frame: (timestamp: number) => FrameW
 
 const nextFrame = (deps: ClockDeps) => new Promise<void>(resolve => deps.requestFrame(() => resolve()))
 
-/** Physics alone, no drawing, at three graph sizes. */
+/**
+ * Times `ticks` ticks in batches and returns per-tick milliseconds, or null
+ * if the run was aborted. One untimed batch first, so JIT or wasm tier-up
+ * compilation does not land in the first sample.
+ */
+async function timeTicks(
+  deps: ClockDeps, physics: Physics, ticks: number, signal?: AbortSignal,
+): Promise<FrameSummary | null> {
+  physics.tickMany(SCALING_TICKS_PER_SAMPLE)
+  const samples = Math.ceil(ticks / SCALING_TICKS_PER_SAMPLE)
+  const timer = createFrameTimer(samples)
+  for (let s = 0; s < samples; s++) {
+    const count = Math.min(SCALING_TICKS_PER_SAMPLE, ticks - s * SCALING_TICKS_PER_SAMPLE)
+    const before = deps.now()
+    physics.tickMany(count)
+    timer.record((deps.now() - before) / count)
+    if ((s + 1) % SCALING_YIELD_EVERY === 0) {
+      await nextFrame(deps)
+      if (signal?.aborted) return null
+    }
+  }
+  return summarise(timer.samples(), FRAME_BUDGET_MS)
+}
+
+/** Physics alone, no drawing, at three graph sizes, JavaScript then Rust at each. */
 export async function runScaling(
-  deps: ClockDeps, ticks: number, signal?: AbortSignal, onProgress?: (nodes: number) => void,
+  deps: ClockDeps,
+  makeRustPhysics: (scene: Scene) => Promise<Physics>,
+  ticks: number,
+  signal?: AbortSignal,
+  onProgress?: (nodes: number) => void,
 ): Promise<ScalingResult[]> {
   const out: ScalingResult[] = []
   for (const nodes of SCALING_SIZES) {
     if (signal?.aborted) break
     onProgress?.(nodes)
     const edges = Math.round(nodes * 1.5)
-    const physics = createPhysics(buildScene(SCENE_SEED, nodes, edges))
-    const timer = createFrameTimer(ticks)
-    for (let i = 0; i < ticks; i++) {
-      const before = deps.now()
-      physics.tick()
-      timer.record(deps.now() - before)
-      if ((i + 1) % SCALING_BATCH === 0) await nextFrame(deps)
-    }
-    out.push({ nodes, edges, ticks, physics: summarise(timer.samples(), FRAME_BUDGET_MS) })
+    const scene = buildScene(SCENE_SEED, nodes, edges)
+    const js = await timeTicks(deps, createPhysics(scene), ticks, signal)
+    const rust = js && await timeTicks(deps, await makeRustPhysics(scene), ticks, signal)
+    // A size cut short by an abort is dropped: its numbers would mix in a hidden tab.
+    if (!js || !rust || signal?.aborted) break
+    out.push({ nodes, edges, ticks, physics: js, rustPhysics: rust })
   }
   return out
 }
@@ -153,7 +189,7 @@ export interface RunStatus {
   label: string
   phase: 'warm-up' | 'measuring' | 'scaling'
   remainingMs: number
-  /** 1-based position among the four drawing runs; the scaling pass counts as a fifth step. */
+  /** 1-based position among the drawing runs; the scaling pass counts as the last step. */
   step: number
   steps: number
 }
@@ -164,6 +200,8 @@ export interface RunnerEnv {
   /** Sizes the canvas backing store to CSS size times `pixelRatio` and returns its context. */
   prepareSurface(pixelRatio: number): Surface
   makeCanvas?: DrawOptions['makeCanvas']
+  /** Builds the Rust engine for a scene; kept out of the runner so tests need no .wasm. */
+  makeRustPhysics(scene: Scene): Promise<Physics>
   signal?: AbortSignal
   onStatus?(status: RunStatus): void
 }
@@ -177,7 +215,7 @@ async function runDrawing(env: RunnerEnv, step: PlanStep, timing: Timing, index:
   const pixelRatio = step.capSharpness ? Math.min(env.devicePixelRatio, SHARPNESS_CAP) : env.devicePixelRatio
   const surface = env.prepareSurface(pixelRatio)
   const scene = buildScene(SCENE_SEED, SCENE_NODES, SCENE_EDGES)
-  const physics = createPhysics(scene)
+  const physics = step.engine === 'rust' ? await env.makeRustPhysics(scene) : createPhysics(scene)
   const positions = new Float32Array(scene.nodeCount * 3)
   const projected = new Float32Array(scene.nodeCount * PROJECTED_STRIDE)
   const view: View = {
@@ -220,7 +258,7 @@ async function runDrawing(env: RunnerEnv, step: PlanStep, timing: Timing, index:
   }
 }
 
-/** The four drawing runs in plan order, then the physics scaling pass. */
+/** The five drawing runs in plan order, then the physics scaling pass. */
 export async function runAll(env: RunnerEnv, timing: Timing): Promise<RunOutcome> {
   const runs: RunResult[] = []
   for (const [i, step] of RUN_PLAN.entries()) {
@@ -228,9 +266,9 @@ export async function runAll(env: RunnerEnv, timing: Timing): Promise<RunOutcome
     if (!result) return { results: { runs, scaling: [] }, interrupted: true }
     runs.push(result)
   }
-  const scaling = await runScaling(env.deps, timing.scalingTicks, env.signal, nodes =>
+  const scaling = await runScaling(env.deps, env.makeRustPhysics, timing.scalingTicks, env.signal, nodes =>
     env.onStatus?.({
-      runId: 'scaling', label: `Physics alone, ${nodes} nodes`, phase: 'scaling', remainingMs: 0,
+      runId: 'scaling', label: `Physics alone, ${nodes} nodes, both engines`, phase: 'scaling', remainingMs: 0,
       step: RUN_PLAN.length + 1, steps: RUN_PLAN.length + 1,
     }))
   return { results: { runs, scaling }, interrupted: env.signal?.aborted ?? false }

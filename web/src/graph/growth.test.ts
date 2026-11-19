@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { forceSimulation, forceLink, forceManyBody, forceCenter } from 'd3-force-3d'
 import type { GraphLink, GraphNode } from './types'
-import { arrivals, seedArrivals, holdSettled, releaseHeld, shouldRelease, SETTLED_SPEED, type SimNode } from './growth'
+import { arrivals, seedArrivals, seedParents, settledToHold, holdSettled, releaseHeld, shouldRelease, SETTLED_SPEED, SEED_SPREAD, type SimNode } from './growth'
 
 const node = (id: string, order = 1, pos?: { x: number; y: number; z: number }): SimNode =>
   ({ id, word: id, relationType: 'synonym', val: 1, order, ...pos })
@@ -46,6 +46,53 @@ describe('seedArrivals', () => {
     const child = node('child', 2)
     seedArrivals([child], [{ ...link('parent', 'child'), source: parent as never, target: child as never }], [parent, child], () => 0)
     expect(child).toMatchObject({ x: 10, y: 10, z: 10 })
+  })
+})
+
+describe('seedParents', () => {
+  // Rule: the parent decision depends on ids, depth and links alone, never on how
+  // a position is stored, so any layout can apply it. A chain comes out parent
+  // first, shallowest first, and a newcomer that is already placed is left out.
+  it("names each unplaced newcomer's parent in seeding order, from any store of positions", () => {
+    const centre = node('centre', 0)
+    const parent = node('parent', 1)
+    const child = node('child', 2)
+    const grandchild = node('grandchild', 3)
+    const placed = node('placed', 2)
+    const links = [link('centre', 'parent'), link('child', 'grandchild'), link('parent', 'child'), link('parent', 'placed')]
+    const placedIds = new Set(['centre', 'parent', 'placed'])
+    const pairs = seedParents([grandchild, child, placed], links, [centre, parent, child, grandchild, placed], n => placedIds.has(n.id))
+    expect(pairs.map(p => [p.child.id, p.parent.id])).toEqual([['child', 'parent'], ['grandchild', 'child']])
+  })
+
+  // Rule: of several placed neighbours the lowest order wins, and the first listed wins a tie.
+  it('prefers the shallowest placed neighbour', () => {
+    const deep = node('deep', 3)
+    const shallow = node('shallow', 1)
+    const twin = node('twin', 1)
+    const fresh = node('fresh', 4)
+    const [pair] = seedParents([fresh], [link('fresh', 'deep'), link('fresh', 'shallow'), link('fresh', 'twin')], [deep, shallow, twin, fresh], n => n !== fresh)
+    expect(pair.parent.id).toBe('shallow')
+  })
+})
+
+describe('settledToHold', () => {
+  // Rule: a node is held when it is not a newcomer and the caller says it can be held.
+  it('picks non-newcomers the caller allows', () => {
+    const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+    expect(settledToHold(items, new Set(['b']), n => n.id !== 'c').map(n => n.id)).toEqual(['a'])
+  })
+})
+
+describe('seed spread', () => {
+  // Rule: the default seed offset stays inside half the spread on each axis, the size layout.ts shares.
+  it('keeps the default jitter inside the spread', () => {
+    const parent = node('p', 1, { x: 0, y: 0, z: 0 })
+    for (let i = 0; i < 50; i++) {
+      const child = node('c', 2)
+      seedArrivals([child], [link('p', 'c')], [parent, child])
+      expect(Math.max(Math.abs(child.x!), Math.abs(child.y!), Math.abs(child.z!))).toBeLessThanOrEqual(SEED_SPREAD / 2)
+    }
   })
 })
 

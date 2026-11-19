@@ -67,6 +67,20 @@ describe('verdict', () => {
   })
 })
 
+describe('verdict and the Rust physics run', () => {
+  // Rule: the Rust run is a comparison, not a glow candidate, so it never
+  // changes the verdict or the physics share, whatever its numbers are.
+  it('ignores a none-wasm run, however slow or fast', () => {
+    const base = all({ blur: 40, sprite: 20, cap: 16 }, 2)
+    const without = verdict(base)
+    for (const p95 of [1, 500]) {
+      const withRust = verdict([...base, run('none-wasm', p95, 0.1)])
+      expect(withRust).toEqual(without)
+    }
+    expect(without.choice).toBe('sprite-cap2')
+  })
+})
+
 describe('describeVerdict', () => {
   const sentences = {
     blur: 'Live blur passes, so glow can use the canvas blur setting.',

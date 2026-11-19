@@ -1,4 +1,4 @@
-import type { Results } from './results'
+import type { Results, ScalingResult } from './results'
 import { verdict, describeVerdict, PASS_LIMIT_MS } from './verdict'
 
 export interface DeviceFacts {
@@ -12,6 +12,16 @@ export interface DeviceFacts {
 
 const ms = (v: number) => `${v.toFixed(2)} ms`
 const pct = (share: number) => `${(share * 100).toFixed(1)}%`
+
+/** How many times faster Rust is than JavaScript, from the medians; null if Rust's median is zero. */
+export function speedUp(s: ScalingResult): number | null {
+  return s.rustPhysics.median > 0 ? s.physics.median / s.rustPhysics.median : null
+}
+
+export const formatSpeedUp = (s: ScalingResult): string => {
+  const x = speedUp(s)
+  return x === null ? 'n/a' : `${x.toFixed(1)}x`
+}
 
 /** Plain text for pasting into a chat. Pure: all device facts come in as arguments. */
 export function buildReport(results: Results, facts: DeviceFacts): string {
@@ -31,8 +41,13 @@ export function buildReport(results: Results, facts: DeviceFacts): string {
       `physics median ${ms(r.physics.median)}, p95 ${ms(r.physics.p95)}; ` +
       `draw median ${ms(r.draw.median)}, p95 ${ms(r.draw.p95)}`),
     ...results.scaling.map(s =>
-      `Physics, ${s.nodes} nodes and ${s.edges} edges: median ${ms(s.physics.median)} per tick, p95 ${ms(s.physics.p95)}`),
+      `Physics, ${s.nodes} nodes and ${s.edges} edges: ` +
+      `JS median ${ms(s.physics.median)} per tick, p95 ${ms(s.physics.p95)}; ` +
+      `Rust median ${ms(s.rustPhysics.median)} per tick, p95 ${ms(s.rustPhysics.p95)}`),
     `Verdict: ${describeVerdict(v)}`,
     `Physics share of the frame budget: ${pct(v.physicsShare)}`,
+    ...(results.scaling.length > 0
+      ? [`Rust physics speed-up at ${results.scaling.map(s => s.nodes).join(' / ')} nodes: ${results.scaling.map(formatSpeedUp).join(' / ')}`]
+      : []),
   ].join('\n')
 }

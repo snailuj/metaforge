@@ -334,6 +334,11 @@ interface DepthForceOptions {
   flatten?: number    // 0..1: pull toward the root's z plane, facing the default camera
 }
 
+// Ring 1 sits at offset + spacing from the source, clear of the thesaurus
+// cloud (link distance 30); later rings follow at the link distance.
+export const FOREST_RING = { spacing: 52, offset: 22, strength: 0.08, flatten: 0.6 }
+export const FOREST_LINK_DISTANCE = FOREST_RING.spacing
+
 /**
  * A d3 force that pulls each forest node toward a sphere of radius
  * offset + depth * spacing around the depth-0 node, so the forest grows outward
