@@ -3,7 +3,7 @@
 use crate::octree::Octree;
 use crate::rng::Lcg;
 
-/// d3 multiplies velocity by 1 - velocityDecay; the page sets 0.85.
+/// d3 multiplies velocity by 1 - velocityDecay; the page sets 0.85, so 0.15 is kept.
 const VELOCITY_RETAIN: f32 = 0.15;
 const LINK_DISTANCE: f32 = 30.0;
 /// d3's default theta is 0.9.
@@ -51,6 +51,13 @@ pub struct Engine {
     /// Per node, 1 when the node is fixed at `fixed_pos` (d3's fx, fy, fz).
     /// Forest depth per node, or NO_DEPTH. Depth 0 marks the root of the rings.
     pub depth: Vec<i32>,
+    /// d3's alpha schedule. f64 like d3, so the step that crosses `alpha_min` matches.
+    pub alpha: f64,
+    pub alpha_min: f64,
+    pub alpha_decay: f64,
+    pub alpha_target: f64,
+    /// Share of velocity kept each tick: 1 - velocity decay.
+    pub velocity_retain: f32,
     pub ring: Ring,
     pub ring_on: bool,
     pub fixed: Vec<u8>,
@@ -85,6 +92,12 @@ impl Engine {
             links: zeroed(m.checked_mul(2)?)?,
             dist: filled_with(m, LINK_DISTANCE)?,
             depth: filled_with(n, NO_DEPTH)?,
+            alpha: 1.0,
+            alpha_min: 0.001,
+            // d3's default: alpha reaches alpha_min after 300 steps.
+            alpha_decay: 1.0 - 0.001f64.powf(1.0 / 300.0),
+            alpha_target: 0.0,
+            velocity_retain: VELOCITY_RETAIN,
             ring: Ring::default(),
             ring_on: false,
             fixed: zeroed(n)?,
@@ -161,6 +174,19 @@ impl Engine {
         self.centre();
         self.apply_depth(alpha);
         self.integrate();
+    }
+
+    pub fn set_velocity_decay(&mut self, decay: f64) {
+        self.velocity_retain = (1.0 - decay) as f32;
+    }
+
+    /// One step of d3's simulation: alpha moves towards its target, the forces
+    /// run at the new alpha, then positions update. Returns false once alpha is
+    /// below `alpha_min`, when d3 stops its timer; the caller should stop calling.
+    pub fn step(&mut self) -> bool {
+        self.alpha += (self.alpha_target - self.alpha) * self.alpha_decay;
+        self.tick(self.alpha as f32);
+        self.alpha >= self.alpha_min
     }
 
     pub fn tick_many(&mut self, alpha: f32, count: u32) {
@@ -255,7 +281,7 @@ impl Engine {
     fn integrate(&mut self) {
         let live = 3 * self.n;
         for (p, v) in self.pos[..live].iter_mut().zip(self.vel[..live].iter_mut()) {
-            *v *= VELOCITY_RETAIN;
+            *v *= self.velocity_retain;
             *p += *v;
         }
         for i in (0..self.n).filter(|&i| self.fixed[i] != 0) {
@@ -636,6 +662,69 @@ mod tests {
         e.depth[0] = NO_DEPTH;
         e.apply_depth(0.5);
         assert!(e.vel.iter().all(|v| *v == 0.0));
+    }
+
+    fn app_settings(e: &mut Engine) {
+        e.set_velocity_decay(0.85);
+        e.alpha_decay = 0.005;
+    }
+
+    // Rule: alpha decays towards the target by the alpha decay each step, as d3
+    // does before it runs the forces, and step reports false on the step that
+    // takes it below alpha min. With the app's settings that is step 1379, and
+    // a step after it keeps reporting false.
+    #[test]
+    fn alpha_decays_as_d3_and_reports_when_it_falls_below_the_minimum() {
+        let mut e = scene(12, 20, 30);
+        app_settings(&mut e);
+        e.prepare();
+        let mut want = 1.0f64;
+        let mut running = 0;
+        while e.step() {
+            running += 1;
+            want += (0.0 - want) * 0.005;
+            assert_eq!(e.alpha, want, "alpha after {running} steps");
+            assert!(running < 5000, "never settled");
+        }
+        assert_eq!(running + 1, 1379);
+        assert!(e.alpha < 0.001 && e.alpha > 0.00099);
+    }
+
+    // Rule: a non-zero alpha target holds alpha above the minimum for as long
+    // as it is set (d3's drag keeps the simulation hot this way).
+    #[test]
+    fn alpha_target_keeps_the_simulation_running() {
+        let mut e = scene(13, 10, 12);
+        app_settings(&mut e);
+        e.prepare();
+        e.alpha_target = 0.3;
+        for _ in 0..3000 {
+            assert!(e.step());
+        }
+        assert!((e.alpha - 0.3).abs() < 1e-6);
+    }
+
+    // Rule: the velocity decay the app sets (0.85) leaves 0.15 of the velocity, as before.
+    #[test]
+    fn velocity_decay_defaults_to_the_apps_setting() {
+        let mut e = Engine::new(1, 0).unwrap();
+        assert_eq!(e.velocity_retain, 0.15);
+        e.set_velocity_decay(0.6);
+        assert!((e.velocity_retain - 0.4).abs() < 1e-7);
+    }
+
+    // Rule: a step at alpha a is the same as a tick at alpha a, the alpha schedule being the only difference.
+    #[test]
+    fn step_runs_the_same_forces_as_tick() {
+        let mut a = scene(14, 30, 40);
+        let mut b = scene(14, 30, 40);
+        a.prepare();
+        b.prepare();
+        a.alpha_decay = 0.0;
+        a.alpha = 0.3;
+        a.step();
+        b.tick(0.3);
+        assert_eq!(a.pos.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), b.pos.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
     }
 
     // Rule: tick_many is exactly count single ticks.
