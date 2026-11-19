@@ -71,10 +71,11 @@ impl Octree {
         id as u32
     }
 
-    /// Rebuilds the tree over `pos` (x, y, z per point) and accumulates charge.
+    /// Rebuilds the tree over the first `n` points of `pos` (x, y, z per point)
+    /// and accumulates charge. `n` is at most the capacity the tree was made for.
     /// `cell_scale` multiplies an internal cell's summed charge.
-    pub fn build(&mut self, pos: &[f32], cell_scale: f32) {
-        let n = self.next.len();
+    pub fn build(&mut self, pos: &[f32], n: usize, cell_scale: f32) {
+        debug_assert!(n <= self.next.len());
         self.nodes_used = 0;
         self.root = NONE;
         if n == 0 {

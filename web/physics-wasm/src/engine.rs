@@ -17,8 +17,12 @@ fn zeroed<T: Clone + Default>(len: usize) -> Option<Vec<T>> {
 }
 
 pub struct Engine {
+    /// Buffers are sized for these once, so the live counts can change freely.
+    pub cap_n: usize,
+    pub cap_m: usize,
+    /// Live node count: every loop runs over `0..n` and never reads past it.
     pub n: usize,
-    /// Links declared at init; `active_links` of them survive `prepare`.
+    /// Live link count; `active_links` of them survive `prepare`.
     pub m: usize,
     pub active_links: usize,
     pub pos: Vec<f32>,
@@ -36,13 +40,16 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Allocates every buffer once. Returns None when a size is zero, overflows
-    /// or cannot be reserved, so the caller can report failure instead of aborting.
+    /// Allocates every buffer once, for up to `n` nodes and `m` links, and starts
+    /// with all of them live. Returns None when a size is zero, overflows or
+    /// cannot be reserved, so the caller can report failure instead of aborting.
     pub fn new(n: usize, m: usize) -> Option<Engine> {
         if n == 0 {
             return None;
         }
         Some(Engine {
+            cap_n: n,
+            cap_m: m,
             n,
             m,
             active_links: 0,
@@ -58,6 +65,17 @@ impl Engine {
             cell_scale: core::f32::consts::FRAC_1_SQRT_2,
         })
     }
+    /// Sets how many nodes and links are live. Refused (false, nothing changed)
+    /// beyond capacity, when the caller must re-create the engine larger.
+    pub fn set_counts(&mut self, n: usize, m: usize) -> bool {
+        if n > self.cap_n || m > self.cap_m {
+            return false;
+        }
+        self.n = n;
+        self.m = m;
+        true
+    }
+
     /// Call after JS has written the links and starting positions. Drops links
     /// that cannot apply, then derives degrees, strengths and biases as d3's
     /// link force does. Non-finite positions get d3's starting spiral, and
@@ -74,7 +92,7 @@ impl Engine {
             }
         }
         self.active_links = kept;
-        self.degree.iter_mut().for_each(|d| *d = 0);
+        self.degree[..self.n].iter_mut().for_each(|d| *d = 0);
         for k in 0..kept {
             self.degree[self.links[2 * k] as usize] += 1;
             self.degree[self.links[2 * k + 1] as usize] += 1;
@@ -85,7 +103,7 @@ impl Engine {
             self.strength[k] = 1.0 / ds.min(dt);
             self.bias[k] = ds / (ds + dt);
         }
-        self.vel.iter_mut().for_each(|v| *v = 0.0);
+        self.vel[..3 * self.n].iter_mut().for_each(|v| *v = 0.0);
         let roll = core::f32::consts::PI * (3.0 - 5.0f32.sqrt());
         let yaw = core::f32::consts::PI * 20.0 / (9.0 + 221.0f32.sqrt());
         for i in 0..self.n {
@@ -142,8 +160,11 @@ impl Engine {
     /// d3's centre force: shift every node by the mean position (strength 1).
     /// Summed in f64 so the mean does not drift with the node count.
     fn centre(&mut self) {
+        if self.n == 0 {
+            return;
+        }
         let mut mean = [0.0f64; 3];
-        for p in self.pos.chunks_exact(3) {
+        for p in self.pos[..3 * self.n].chunks_exact(3) {
             for a in 0..3 {
                 mean[a] += p[a] as f64;
             }
@@ -159,7 +180,8 @@ impl Engine {
     }
 
     fn integrate(&mut self) {
-        for (p, v) in self.pos.iter_mut().zip(self.vel.iter_mut()) {
+        let live = 3 * self.n;
+        for (p, v) in self.pos[..live].iter_mut().zip(self.vel[..live].iter_mut()) {
             *v *= VELOCITY_RETAIN;
             *p += *v;
         }
@@ -167,7 +189,7 @@ impl Engine {
 
     /// Repulsion between every pair, approximated by the octree.
     fn many_body(&mut self, alpha: f32) {
-        self.tree.build(&self.pos, self.cell_scale);
+        self.tree.build(&self.pos, self.n, self.cell_scale);
         for i in 0..self.n {
             let dv = self.tree.force_on(i, &self.pos, alpha, self.theta2, &mut self.rng);
             for k in 0..3 {
@@ -394,6 +416,48 @@ mod tests {
         assert_eq!(e.degree, vec![3, 1, 1, 1]);
         assert_eq!(e.strength, vec![1.0, 1.0, 1.0]);
         assert_eq!(e.bias, vec![0.75, 0.75, 0.75]);
+    }
+
+    // Rule: spare capacity changes nothing a viewer can see. An engine with room
+    // to grow gives the same bits as one sized exactly, and growing the live
+    // counts never moves a buffer (JS holds pointers into them).
+    #[test]
+    fn spare_capacity_gives_the_same_bits_as_an_exact_engine() {
+        let exact = {
+            let mut e = scene(8, 40, 60);
+            e.prepare();
+            for _ in 0..30 {
+                e.tick(0.3);
+            }
+            e.pos.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        };
+        let roomy = {
+            let src = scene(8, 40, 60);
+            let mut e = Engine::new(100, 200).unwrap();
+            assert!(e.set_counts(40, 60));
+            e.pos[..120].copy_from_slice(&src.pos);
+            e.links[..120].copy_from_slice(&src.links);
+            e.prepare();
+            for _ in 0..30 {
+                e.tick(0.3);
+            }
+            assert!(e.pos[120..].iter().all(|v| *v == 0.0), "a tick wrote past the live nodes");
+            e.pos[..120].iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        };
+        assert_eq!(exact, roomy);
+    }
+
+    #[test]
+    fn counts_beyond_capacity_are_refused_and_buffers_never_move() {
+        let mut e = Engine::new(10, 20).unwrap();
+        let (p, l) = (e.pos.as_ptr(), e.links.as_ptr());
+        assert!(e.set_counts(4, 3));
+        assert!(e.set_counts(10, 20));
+        assert!(!e.set_counts(11, 3));
+        assert!(!e.set_counts(3, 21));
+        assert_eq!((e.n, e.m), (10, 20), "a refused call must leave the counts alone");
+        assert!(e.set_counts(0, 0));
+        assert_eq!((p, l), (e.pos.as_ptr(), e.links.as_ptr()));
     }
 
     // Rule: tick_many is exactly count single ticks.
