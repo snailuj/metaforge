@@ -18,6 +18,8 @@ export interface DrawOptions {
   /** CSS pixels. */
   width: number
   height: number
+  /** Scale of a point at the origin (focal / distance); dot and line sizes are relative to it. */
+  referenceScale?: number
   /** Builds the offscreen surface for a sprite, in device pixels. Injectable for tests. */
   makeCanvas?: (widthPx: number, heightPx: number) => OffscreenTarget
 }
@@ -37,8 +39,7 @@ const PILL_PAD_X = 12
 const SPRITE_MARGIN = GLOW_BLUR_CSS_PX * 2
 const DOT_GAP = 4
 
-// Scale of a node at the origin in the runner's view; sizes are relative to it.
-const REFERENCE_SCALE = 900 / 320
+const DEFAULT_REFERENCE_SCALE = 900 / 320
 
 interface Workspace {
   isPill: Uint8Array
@@ -148,6 +149,7 @@ export function drawScene(
 ): void {
   const { glow, pixelRatio, width, height } = opts
   const make = opts.makeCanvas ?? defaultMakeCanvas
+  const REFERENCE_SCALE = opts.referenceScale ?? DEFAULT_REFERENCE_SCALE
   const ws = workspaceFor(scene)
   const n = scene.nodeCount
   const edgeCount = scene.edges.length / 2

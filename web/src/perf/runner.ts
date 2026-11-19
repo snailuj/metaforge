@@ -184,10 +184,11 @@ async function runDrawing(env: RunnerEnv, step: PlanStep, timing: Timing, index:
     cx: surface.width / 2,
     cy: surface.height / 2,
     distance: 320,
-    focal: Math.min(surface.width, surface.height) * 1.3,
+    focal: Math.min(surface.width, surface.height) * 0.9,
   }
   const opts: DrawOptions = {
     glow: step.glow, pixelRatio, width: surface.width, height: surface.height, makeCanvas: env.makeCanvas,
+    referenceScale: view.focal / view.distance,
   }
   const { now } = env.deps
 
