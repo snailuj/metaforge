@@ -2,7 +2,7 @@ import type { FrameSummary } from '../lib/frame-timer'
 
 // Shapes shared by the runner, the verdict, the report and the page.
 
-export type RunId = 'none' | 'blur' | 'sprite' | 'sprite-cap2'
+export type RunId = 'none' | 'blur' | 'sprite' | 'sprite-cap2' | 'none-wasm'
 
 export interface RunResult {
   id: RunId
@@ -20,8 +20,10 @@ export interface ScalingResult {
   nodes: number
   edges: number
   ticks: number
-  /** Milliseconds per tick. */
+  /** JavaScript physics, milliseconds per tick. */
   physics: FrameSummary
+  /** Rust physics, milliseconds per tick. */
+  rustPhysics: FrameSummary
 }
 
 export interface Results {
