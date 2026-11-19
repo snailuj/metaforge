@@ -151,6 +151,8 @@ The renderer switch is a browser setting read at load, in the same style as the 
 
 The fourth pull request also records the decision in `docs/decisions/log.md`, which replaces the earlier decision that chose the library, and updates `docs/roadmap/PIPELINE.md`.
 
+The second pull request builds the layout on a Rust engine (`web/physics-wasm`) instead of d3-force-3d. This was decided on 19 November, after the phone tests. The JavaScript engine leaves with the library in the fourth pull request.
+
 ## Risks
 
 - The 122 component tests are rewritten, not ported. While that happens a behaviour could lose its test. The contract tests in the third pull request run against both renderers to catch this.
