@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "build:perf": "node scripts/build-perf.mjs"
   },
   "dependencies": {
     "@fluent/bundle": "^0.18.0",
