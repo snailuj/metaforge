@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
 # Metaforge staging deploy
-# Idempotent: pull -> restore DB -> build Go -> build frontend -> drop Caddy snippet -> reload
+# Idempotent: pull -> check Rust -> restore DB -> build frontend -> build Go -> drop Caddy snippet -> reload
 #
 # Drops a single-site Caddy snippet into /etc/caddy/conf.d/.
 # Does NOT own or restart the Caddy service -- julianit-caddy.service
 # imports all snippets via: import /etc/caddy/conf.d/*.caddy
 #
 # Usage: ./deploy.sh
+#
+# Run as the user that owns the worktree (agent): that user runs npm and cargo, and the
+# service user (metaforge) only runs the installed binary. The physics engine is built
+# from source here, with the Rust toolchain pinned in web/physics-wasm/rust-toolchain.toml.
+# The script installs nothing; if the toolchain is missing it stops and prints these steps.
+# One-time setup, as that user (also in deploy/staging/README.md):
+#   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+#   . "$HOME/.cargo/env"
+#   cd web/physics-wasm && rustup show     # installs the pinned toolchain and wasm target
+#   rustup target list --installed         # check: lists wasm32-unknown-unknown
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../lib/api-host.sh
 . "${SCRIPT_DIR}/../lib/api-host.sh"
+# shellcheck source=../lib/wasm-host.sh
+. "${SCRIPT_DIR}/../lib/wasm-host.sh"
 WORKTREE="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CADDY_SNIPPETS="/etc/caddy/conf.d"
 DOMAIN="metaforge-next.julianit.me"
@@ -30,6 +42,11 @@ cd "${WORKTREE}"
 git pull --ff-only
 echo ""
 
+# 1b. Fail before any work if the Rust toolchain is missing; the pin may have just changed.
+echo "--- Check Rust toolchain ---"
+check_wasm_toolchain "${WORKTREE}/web/physics-wasm" || exit 1
+echo ""
+
 # 2. Restore DB from SQL dump
 echo "--- Restore database ---"
 "${WORKTREE}/data-pipeline/scripts/restore_db.sh"
@@ -37,10 +54,12 @@ echo ""
 
 # 3. Build frontend. npm install scripts run as agent, so this comes BEFORE the Go
 # build and the build refuses source they changed (see build_go_checked for what that
-# does not cover).
+# does not cover). The Rust build runs as agent too and writes only to web/physics-wasm/target
+# and web/src/perf/wasm, both gitignored and outside api/, so the guard does not see it.
 echo "--- Build frontend ---"
 cd "${WORKTREE}/web"
 npm ci --prefer-offline
+npm run build:wasm
 npm run build
 echo ""
 
