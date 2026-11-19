@@ -100,3 +100,6 @@ web/playwright-report/
 
 # Generation runner resume sidecar (spent-and-empty topic_synset_ids)
 *.attempted
+
+# Glow speed test single-file build
+web/dist-perf/

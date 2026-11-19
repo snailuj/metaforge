@@ -1,0 +1,33 @@
+<div class="bar">
+  <h1 class="sr-only">Glow speed test</h1>
+  <button id="run" type="button">Run</button>
+  <p id="status" role="status">Ready. The test takes about 40 seconds. Keep this tab open and in front.</p>
+</div>
+<div class="stage">
+  <canvas id="stage" role="img" aria-label="A turning test graph drawn while the speed test runs"></canvas>
+  <section id="results" tabindex="-1" aria-labelledby="results-title" hidden>
+    <h2 id="results-title">Results</h2>
+    <p id="interrupted" hidden>Interrupted: the tab was hidden during a run, so these results are partial. Tap Run again and keep the tab in front.</p>
+    <p id="verdict"></p>
+    <table>
+      <caption>Drawing runs. Times in ms per frame; Over is the share of frames slower than 17.7 ms.</caption>
+      <thead>
+        <tr><th scope="col">Run</th><th scope="col">Median</th><th scope="col">p95</th><th scope="col">Over</th><th scope="col">Physics</th><th scope="col">Draw</th></tr>
+      </thead>
+      <tbody id="run-rows"></tbody>
+    </table>
+    <p class="note" id="pass-note"></p>
+    <table>
+      <caption>Physics alone, no drawing. Times in ms per tick.</caption>
+      <thead>
+        <tr><th scope="col">Nodes</th><th scope="col">Edges</th><th scope="col">Median</th><th scope="col">p95</th></tr>
+      </thead>
+      <tbody id="scaling-rows"></tbody>
+    </table>
+    <div class="actions">
+      <button id="copy" type="button">Copy results</button>
+      <span id="copy-status" role="status"></span>
+    </div>
+    <textarea id="fallback" readonly hidden aria-label="Results text to copy by hand"></textarea>
+  </section>
+</div>
