@@ -1,10 +1,15 @@
 import markup from './page.html?raw'
 import { runAll, FULL_TIMING, QUICK_TIMING, type RunStatus } from './runner'
-import { buildReport, type DeviceFacts } from './report'
+import { buildReport, formatSpeedUp, type DeviceFacts } from './report'
+import { createWasmPhysics } from './physics-wasm'
+import { loadWasmBytes } from './wasm-source'
 import { verdict, describeVerdict, FRAME_BUDGET_MS, JITTER_ALLOWANCE_MS, PASS_LIMIT_MS } from './verdict'
 import type { Results } from './results'
 
 // The glow speed test page. Nothing in the main app imports this file.
+
+// Set by scripts/build-perf.mjs when it embeds the Rust module in the single file.
+declare const __PHYSICS_WASM_BASE64__: string | undefined
 
 function byId<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id)
@@ -49,6 +54,7 @@ function init(): void {
   const passNote = byId('pass-note')
   const runRows = byId('run-rows')
   const scalingRows = byId('scaling-rows')
+  const speedupEl = byId('speedup')
   const copyStatus = byId('copy-status')
   const fallback = byId<HTMLTextAreaElement>('fallback')
 
@@ -75,7 +81,8 @@ function init(): void {
     runRows.replaceChildren(...results.runs.map(r => {
       const name = cell(r.label)
       const note = document.createElement('small')
-      const judged = r.id !== 'none'
+      // The two no-glow runs are references; only the glow runs are judged.
+      const judged = r.id !== 'none' && r.id !== 'none-wasm'
       const passed = r.interval.p95 <= PASS_LIMIT_MS
       note.textContent = judged ? (passed ? 'within the limit' : 'over the limit') : 'reference'
       name.append(note)
@@ -88,8 +95,21 @@ function init(): void {
         cell(ms(r.draw.median)),
       )
     }))
-    scalingRows.replaceChildren(...results.scaling.map(s =>
-      row(cell(String(s.nodes)), cell(String(s.edges)), cell(ms(s.physics.median)), cell(ms(s.physics.p95)))))
+    scalingRows.replaceChildren(...results.scaling.map(s => {
+      const size = cell(String(s.nodes))
+      const edges = document.createElement('small')
+      edges.textContent = `${s.edges} edges`
+      size.append(edges)
+      return row(
+        size,
+        cell(ms(s.physics.median)), cell(ms(s.physics.p95)),
+        cell(ms(s.rustPhysics.median)), cell(ms(s.rustPhysics.p95)),
+        cell(formatSpeedUp(s)),
+      )
+    }))
+    speedupEl.textContent = results.scaling.length > 0
+      ? `Rust physics speed-up at ${results.scaling.map(s => s.nodes).join(' / ')} nodes: ${results.scaling.map(formatSpeedUp).join(' / ')}`
+      : ''
 
     const report = buildReport(results, facts)
     reportText = interrupted
@@ -128,10 +148,16 @@ function init(): void {
     try {
       const ctx = canvas.getContext('2d')
       if (!ctx) throw new Error('This browser did not give a 2D canvas context.')
+      setStatus('Loading the Rust physics module.')
+      const wasmBytes = await loadWasmBytes(
+        typeof __PHYSICS_WASM_BASE64__ === 'string' ? __PHYSICS_WASM_BASE64__ : undefined,
+        fetch,
+      )
       const outcome = await runAll({
         deps: { now: () => performance.now(), requestFrame: cb => requestAnimationFrame(cb) },
         devicePixelRatio: window.devicePixelRatio || 1,
         signal: controller.signal,
+        makeRustPhysics: scene => createWasmPhysics(scene, wasmBytes),
         onStatus: s => setStatus(statusText(s)),
         prepareSurface: pixelRatio => {
           const rect = canvas.getBoundingClientRect()
