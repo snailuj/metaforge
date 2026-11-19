@@ -4,9 +4,9 @@ import { forceSimulation, forceLink, forceManyBody, forceCenter, type Simulation
 import patience from '@/fixtures/forest-patience.json'
 import type { ForestResponse } from '@/types/api'
 import type { GraphData, GraphLink, GraphNode } from './types'
-import { composeForest, forestDepthForce, forestToGraph } from './forest'
-import { SEED_SPREAD, SETTLED_SPEED } from './growth'
-import { createLayout, FOREST_LINK_DISTANCE, FOREST_RING, type Layout, type LayoutOptions } from './layout'
+import { composeForest, forestDepthForce, forestToGraph, FOREST_LINK_DISTANCE, FOREST_RING } from './forest'
+import { SEED_SPREAD } from './growth'
+import { createLayout, type Layout, type LayoutOptions } from './layout'
 
 // These tests need the compiled engine. They are not skipped when it is
 // missing: a missing file fails every test with the command that builds it.
@@ -553,18 +553,5 @@ describe('against d3-force-3d, with the depth rings on', () => {
     const [rustOn, rustOff] = [await rustSizes(true), await rustSizes(false)]
     expect(Math.abs(on.spread - off.spread) / off.spread).toBeGreaterThan(0.1)
     expect(Math.abs(rustOn.spread - rustOff.spread) / rustOff.spread).toBeGreaterThan(0.1)
-  })
-})
-
-describe('constants shared with the component', () => {
-  // Rule: layout.ts repeats the component's forest ring constants until the component
-  // uses the layout, so a change to one fails here instead of drifting.
-  it('match mf-force-graph.ts', () => {
-    const source = readFileSync('src/components/mf-force-graph.ts', 'utf8')
-    const ring = /const FOREST_RING = \{([^}]*)\}/.exec(source)![1]
-    const parsed = Object.fromEntries(ring.split(',').map(part => part.split(':').map(s => s.trim())).map(([k, v]) => [k, Number(v)]))
-    expect(parsed).toEqual(FOREST_RING)
-    expect(SETTLED_SPEED).toBeGreaterThan(0) // the hold's own limit is shared by import, not by copy
-    expect(FOREST_LINK_DISTANCE).toBe(FOREST_RING.spacing)
   })
 })

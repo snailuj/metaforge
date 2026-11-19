@@ -7,12 +7,10 @@
 
 import type { GraphLink, GraphNode } from './types'
 import { resolveEndpoint } from './transform'
+import { FOREST_LINK_DISTANCE } from './forest'
 import { SEED_SPREAD, seedParents, settledToHold, shouldRelease } from './growth'
 import { mulberry32 } from '@/lib/random'
 
-/** The forest rings, as mf-force-graph.ts sets them. A test fails if the two drift apart. */
-export const FOREST_RING = { spacing: 52, offset: 22, strength: 0.08, flatten: 0.6 }
-export const FOREST_LINK_DISTANCE = FOREST_RING.spacing
 const THESAURUS_LINK_DISTANCE = 30
 /** What 3d-force-graph holds alpha at while a word is dragged. */
 const DRAG_ALPHA = 0.3
