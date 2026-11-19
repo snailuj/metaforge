@@ -215,6 +215,7 @@ impl Octree {
     }
 
     /// Number of points reachable from the root, counting coincident chains.
+    #[cfg(test)]
     pub fn points_reachable(&self) -> usize {
         let mut seen = 0;
         let mut stack = vec![self.root];
