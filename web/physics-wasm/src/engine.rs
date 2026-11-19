@@ -9,7 +9,7 @@ const LINK_DISTANCE: f32 = 30.0;
 /// d3's default theta is 0.9.
 const THETA: f32 = 0.9;
 /// Stored in `depth` for a node that is not part of the metaphor forest.
-pub const NO_DEPTH: i32 = i32::MIN;
+pub const NO_DEPTH: f32 = f32::NAN;
 
 /// Constants of the forest depth force, as forestDepthForce takes them.
 #[derive(Clone, Copy, Default)]
@@ -49,8 +49,8 @@ pub struct Engine {
     /// Rest length of each link; 30 until JS writes another.
     pub dist: Vec<f32>,
     /// Per node, 1 when the node is fixed at `fixed_pos` (d3's fx, fy, fz).
-    /// Forest depth per node, or NO_DEPTH. Depth 0 marks the root of the rings.
-    pub depth: Vec<i32>,
+    /// Forest depth per node, or NO_DEPTH (NaN, which JS's `!depth` treats as none too). Depth 0 marks the root of the rings.
+    pub depth: Vec<f32>,
     /// d3's alpha schedule. f64 like d3, so the step that crosses `alpha_min` matches.
     pub alpha: f64,
     pub alpha_min: f64,
@@ -220,12 +220,12 @@ impl Engine {
         if !self.ring_on {
             return;
         }
-        let Some(root) = (0..self.n).find(|&i| self.depth[i] == 0) else { return };
+        let Some(root) = (0..self.n).find(|&i| self.depth[i] == 0.0) else { return };
         let r = [self.pos[3 * root], self.pos[3 * root + 1], self.pos[3 * root + 2]];
         let Ring { spacing, offset, strength, flatten } = self.ring;
         for i in 0..self.n {
             let d = self.depth[i];
-            if d == NO_DEPTH || d == 0 {
+            if d.is_nan() || d == 0.0 {
                 continue;
             }
             let dx = [self.pos[3 * i] - r[0], self.pos[3 * i + 1] - r[1], self.pos[3 * i + 2] - r[2]];
@@ -233,7 +233,7 @@ impl Engine {
             if dist == 0.0 {
                 dist = 1e-3;
             }
-            let k = ((offset + d as f32 * spacing - dist) / dist) * strength * alpha;
+            let k = ((offset + d * spacing - dist) / dist) * strength * alpha;
             self.vel[3 * i] += dx[0] * k;
             self.vel[3 * i + 1] += dx[1] * k;
             self.vel[3 * i + 2] += dx[2] * k - dx[2] * flatten * strength * alpha;
@@ -676,7 +676,7 @@ mod tests {
         // Root, a ring-1 node inside its ring, a ring-1 node outside it, a node
         // with no depth, and a ring-2 node.
         e.pos.copy_from_slice(&[10.0, 20.0, 30.0, 12.0, 20.0, 30.0, 10.0, 20.0, 230.0, 40.0, 50.0, 60.0, 10.0, 120.0, 30.0]);
-        e.depth.copy_from_slice(&[0, 1, 1, NO_DEPTH, 2]);
+        e.depth.copy_from_slice(&[0.0, 1.0, 1.0, NO_DEPTH, 2.0]);
         e.ring = Ring { spacing: 52.0, offset: 22.0, strength: 0.08, flatten: 0.6 };
         e.ring_on = true;
         e
@@ -701,6 +701,17 @@ mod tests {
         assert!((v(2)[2] - (200.0 * k2 - 200.0 * 0.6 * 0.08 * 0.5)).abs() < 1e-3, "got {:?}", v(2));
         // Node 4 is depth 2: ring radius 22 + 104 = 126, and it sits 100 away.
         assert!(v(4)[1] > 0.0, "a node inside its ring is pushed out");
+    }
+
+    // Rule: a depth need not be a whole number: forest.ts multiplies by whatever
+    // depthOf returns, so 1.5 puts a node on the ring half way between 1 and 2.
+    #[test]
+    fn fractional_depths_use_the_same_maths() {
+        let mut e = ring_scene();
+        e.depth[1] = 1.5;
+        e.apply_depth(0.5);
+        let k = ((22.0 + 1.5 * 52.0 - 2.0) / 2.0) * 0.08 * 0.5;
+        assert!((e.vel[3] - 2.0 * k).abs() < 1e-3, "got {}", e.vel[3]);
     }
 
     // Rule: with the force off, or with no depth-0 node, nothing moves.
@@ -787,8 +798,8 @@ mod tests {
         e.pos.copy_within(0..3, 3); // a coincident pair exercises the chained leaf
         e.fixed[7] = 1;
         e.fixed_pos[21..24].copy_from_slice(&[1.0, 2.0, 3.0]);
-        e.depth[0] = 0;
-        e.depth[1..30].iter_mut().for_each(|d| *d = 1);
+        e.depth[0] = 0.0;
+        e.depth[1..30].iter_mut().for_each(|d| *d = 1.0);
         e.ring = Ring { spacing: 52.0, offset: 22.0, strength: 0.08, flatten: 0.6 };
         e.ring_on = true;
         e.prepare();
