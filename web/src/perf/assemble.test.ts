@@ -39,8 +39,8 @@ describe('assemblePage', () => {
 
 describe('the real page parts', () => {
   it('assemble without a skeleton tag, so no element such as <header> sneaks in', () => {
-    const css = readFileSync(new URL('./page.css', import.meta.url), 'utf8')
-    const markup = readFileSync(new URL('./page.html', import.meta.url), 'utf8')
+    const css = readFileSync('src/perf/page.css', 'utf8')
+    const markup = readFileSync('src/perf/page.html', 'utf8')
     expect(() => assemblePage({ css, markup, js: 'void 0' })).not.toThrow()
   })
 })
