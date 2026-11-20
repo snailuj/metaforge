@@ -39,7 +39,17 @@ import type { MfForceGraph } from './mf-force-graph'
 
 // Import components so they register
 import './mf-search-bar'
-import './mf-force-graph'
+// The graph pulls in three.js and 3d-force-graph (most of the JS we ship), so
+// it loads as its own chunk; the search bar and results render without waiting.
+// Lit keeps properties set on <mf-force-graph> before the element upgrades.
+// A failed load is logged and leaves the graph blank; the thesaurus still works.
+const graphLoaded: Promise<boolean> = import('./mf-force-graph').then(
+  () => true,
+  err => {
+    console.error('[mf-app] failed to load the graph component', err)
+    return false
+  },
+)
 import './mf-results-panel'
 import './mf-forest-panel'
 import './mf-progress-panel'
@@ -886,7 +896,8 @@ export class MfApp extends LitElement {
     await this.updateComplete
     const source = this.thesaurusGraph.nodes.find(n => n.relationType === 'central')
     const graph = this.shadowRoot?.querySelector('mf-force-graph') as MfForceGraph | null
-    if (!source || !graph) return
+    // Until its chunk loads, the element has no focusNode.
+    if (!source || !graph || !(await graphLoaded)) return
     await graph.updateComplete // it feeds the library the new nodes in its own update
     graph.focusNode(source.id)
   }
