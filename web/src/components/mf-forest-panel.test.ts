@@ -208,6 +208,10 @@ describe('MfForestPanel', () => {
       expect(text(keloid.querySelector('.score'))).toContain('Score 7 out of 10')
     })
 
+    it('drops the opening "source is endpoint" clause from a line', () => {
+      expect(text(items()[0].querySelector('.line'))).toBe('Corroding quietly so the hull stayed sound.')
+    })
+
     // Floor 5: live is text, not colour alone.
     it('marks Live in text at a score of 7 or more, and only then', () => {
       const live = items().map(i => text(i.querySelector('.live')).endsWith('Live'))

@@ -66,8 +66,9 @@ func TestAddThenRandomRoundTrips(t *testing.T) {
 	}
 }
 
-// Rule: a pool is one (version, word, max_hops); nothing leaks across.
-func TestPoolsAreIsolatedByVersionWordAndHops(t *testing.T) {
+// Rule: a pool is (word, max_hops); the version a forest was written under
+// never decides whether it is served.
+func TestPoolsAreIsolatedByWordAndHopsNotVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "c.db")
 	s := openTest(t, path, "v1", 4)
 	ctx := context.Background()
@@ -83,8 +84,14 @@ func TestPoolsAreIsolatedByVersionWordAndHops(t *testing.T) {
 		}
 	}
 	other := openTest(t, path, "v2", 4)
-	if _, ok, _ := other.Random(ctx, "patience", 3); ok {
-		t.Error("a new version was served an old version's forest")
+	if _, ok, err := other.Random(ctx, "patience", 3); !ok || err != nil {
+		t.Errorf("Random ok=%v err=%v, want the v1 forest served to v2", ok, err)
+	}
+	if got, err := other.List(ctx, "patience", 3); err != nil || len(got) != 1 {
+		t.Errorf("List = %d forests, err %v; want the v1 forest", len(got), err)
+	}
+	if full, err := other.Full(ctx, "patience", 3); err != nil || full {
+		t.Errorf("Full = %v, %v; want a pool of 1 of 4 not full", full, err)
 	}
 }
 
@@ -109,26 +116,48 @@ func TestAddEvictsOldestBeyondPoolSize(t *testing.T) {
 	}
 }
 
-// Rule: rows from older pipeline versions are kept as a corpus, never
-// evicted by another version's pool.
-func TestOtherVersionsAreKept(t *testing.T) {
+// Rule: the pool size bounds the whole pool across versions, so adding under
+// a new version evicts the oldest row even when it was written under an old one.
+func TestAddEvictsOldestAcrossVersions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "c.db")
 	ctx := context.Background()
-	old := openTest(t, path, "v1", 1)
+	old := openTest(t, path, "v1", 2)
 	if err := old.Add(ctx, "patience", 3, sampleForest("old")); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	cur := openTest(t, path, "v2", 1)
-	for range 3 {
-		if err := cur.Add(ctx, "patience", 3, sampleForest("new")); err != nil {
+	cur := openTest(t, path, "v2", 2)
+	for _, line := range []string{"new1", "new2"} {
+		if err := cur.Add(ctx, "patience", 3, sampleForest(line)); err != nil {
 			t.Fatalf("Add: %v", err)
 		}
 	}
-	if n := rows(t, cur, "version = ?", "v1"); n != 1 {
-		t.Errorf("%d v1 rows, want the 1 kept", n)
+	if n := rows(t, cur, "version = ?", "v1"); n != 0 {
+		t.Errorf("%d v1 rows, want the oldest evicted", n)
 	}
-	if n := rows(t, cur, "version = ?", "v2"); n != 1 {
-		t.Errorf("%d v2 rows, want a pool of 1", n)
+	if n := rows(t, cur, "version = ?", "v2"); n != 2 {
+		t.Errorf("%d v2 rows, want a pool of 2", n)
+	}
+}
+
+// Rule: every row records the version it was written under.
+func TestAddRecordsTheStoreVersion(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "c.db"), "v7", 2)
+	if err := s.Add(context.Background(), "patience", 3, sampleForest("L")); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if n := rows(t, s, "version = ?", "v7"); n != 1 {
+		t.Errorf("%d rows under v7, want 1", n)
+	}
+}
+
+// Rule: a store opened without a version is for reading and admin only.
+func TestAddWithoutVersionIsRefused(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "c.db"), "", 2)
+	if err := s.Add(context.Background(), "patience", 3, sampleForest("L")); err == nil {
+		t.Error("Add succeeded on a store with no version")
+	}
+	if n := rows(t, s, "1 = 1"); n != 0 {
+		t.Errorf("%d rows written, want none", n)
 	}
 }
 
@@ -180,8 +209,8 @@ func TestOpenRejectsNonPositivePoolSize(t *testing.T) {
 	}
 }
 
-// Rule: a pool is full once it holds poolSize forests of this version, word
-// and max_hops; enrichment skips full pools.
+// Rule: a pool is full once it holds poolSize forests of this word and
+// max_hops; enrichment skips full pools.
 func TestFullReportsAPoolAtPoolSize(t *testing.T) {
 	ctx := context.Background()
 	s := openTest(t, filepath.Join(t.TempDir(), "c.db"), "v1", 2)
@@ -204,15 +233,11 @@ func TestFullReportsAPoolAtPoolSize(t *testing.T) {
 	check("dread", 3, false)
 }
 
-// Rule: List returns exactly the store's own version's pool for the word and
-// hops, newest first, never more than poolSize.
+// Rule: List returns the pool for the word and hops, newest first, never more
+// than poolSize.
 func TestListReturnsThePoolNewestFirst(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "c.db")
-	old := openTest(t, path, "v0", 4)
-	if err := old.Add(ctx, "patience", 3, sampleForest("other version")); err != nil {
-		t.Fatal(err)
-	}
 	s := openTest(t, path, "v1", 2)
 	if got, err := s.List(ctx, "patience", 3); err != nil || len(got) != 0 {
 		t.Fatalf("empty pool: got %d forests, err %v; want none", len(got), err)
@@ -242,5 +267,143 @@ func TestListReturnsThePoolNewestFirst(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got[0], sampleForest("third")) {
 		t.Errorf("listed forest does not round-trip: %+v", got[0])
+	}
+}
+
+func setCreatedAt(t *testing.T, s *Store, line, createdAt string) {
+	t.Helper()
+	res, err := s.db.Exec(`UPDATE forests SET created_at = ? WHERE body LIKE ?`, createdAt, `%"line":"`+line+`"%`)
+	if err != nil {
+		t.Fatalf("set created_at: %v", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		t.Fatalf("set created_at for %q touched %d rows, want 1", line, n)
+	}
+}
+
+// Rule: Stats reports each version's row count and created_at range, oldest
+// version first.
+func TestStatsGroupsByVersionOldestFirst(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "c.db")
+	a := openTest(t, path, "vA", 9)
+	b := openTest(t, path, "vB", 9)
+	for _, add := range []struct {
+		s    *Store
+		word string
+		line string
+	}{{b, "grief", "b1"}, {a, "patience", "a1"}, {a, "patience", "a2"}} {
+		if err := add.s.Add(ctx, add.word, 3, sampleForest(add.line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setCreatedAt(t, a, "a1", "2026-10-20T08:00:00Z")
+	setCreatedAt(t, a, "a2", "2026-10-21T08:00:00Z")
+	setCreatedAt(t, b, "b1", "2026-10-19T08:00:00Z")
+
+	got, err := a.Stats(ctx)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	want := []VersionStats{
+		{Version: "vB", Rows: 1, Oldest: "2026-10-19T08:00:00Z", Newest: "2026-10-19T08:00:00Z"},
+		{Version: "vA", Rows: 2, Oldest: "2026-10-20T08:00:00Z", Newest: "2026-10-21T08:00:00Z"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Stats = %+v, want %+v", got, want)
+	}
+}
+
+func TestStatsOnEmptyCacheIsEmpty(t *testing.T) {
+	s := openTest(t, filepath.Join(t.TempDir(), "c.db"), "", 1)
+	if got, err := s.Stats(context.Background()); err != nil || len(got) != 0 {
+		t.Errorf("Stats = %+v, %v; want none", got, err)
+	}
+}
+
+// seedClear fills a cache with four forests that differ by word and age.
+func seedClear(t *testing.T) *Store {
+	t.Helper()
+	ctx := context.Background()
+	s := openTest(t, filepath.Join(t.TempDir(), "c.db"), "v1", 9)
+	for _, row := range []struct{ word, line, at string }{
+		{"patience", "old-patience", "2026-10-21T23:59:59Z"},
+		{"patience", "new-patience", "2026-10-22T00:00:00Z"},
+		{"grief", "old-grief", "2026-10-01T00:00:00Z"},
+		{"grief", "new-grief", "2026-11-01T00:00:00Z"},
+	} {
+		if err := s.Add(ctx, row.word, 3, sampleForest(row.line)); err != nil {
+			t.Fatal(err)
+		}
+		setCreatedAt(t, s, row.line, row.at)
+	}
+	return s
+}
+
+// Rule: Before is a UTC calendar date; a row stamped before midnight starting
+// that date is cleared, one stamped at or after it is kept.
+func TestClearBeforeIsExclusiveAtUTCMidnight(t *testing.T) {
+	ctx := context.Background()
+	s := seedClear(t)
+	n, err := s.Clear(ctx, ClearFilter{Before: "2026-10-22"})
+	if err != nil || n != 2 {
+		t.Fatalf("Clear = %d, %v; want 2 rows (old-patience, old-grief)", n, err)
+	}
+	if c := rows(t, s, `body LIKE '%"line":"old-patience"%'`); c != 0 {
+		t.Error("the 23:59:59Z row was kept")
+	}
+	if c := rows(t, s, `body LIKE '%"line":"new-patience"%'`); c != 1 {
+		t.Error("the 00:00:00Z row was cleared")
+	}
+}
+
+// Rule: filters combine with AND; All clears every row.
+func TestClearCombinesFiltersWithAnd(t *testing.T) {
+	ctx := context.Background()
+	s := seedClear(t)
+	if n, err := s.Clear(ctx, ClearFilter{Word: "patience", Before: "2026-10-22"}); err != nil || n != 1 {
+		t.Fatalf("word+before Clear = %d, %v; want 1", n, err)
+	}
+	if n, err := s.Clear(ctx, ClearFilter{Word: "grief"}); err != nil || n != 2 {
+		t.Fatalf("word Clear = %d, %v; want 2", n, err)
+	}
+	if n, err := s.Clear(ctx, ClearFilter{All: true}); err != nil || n != 1 {
+		t.Fatalf("all Clear = %d, %v; want the last 1", n, err)
+	}
+	if c := rows(t, s, "1 = 1"); c != 0 {
+		t.Errorf("%d rows left after Clear All", c)
+	}
+}
+
+// Rule: a clear without any filter deletes nothing, and a malformed date
+// deletes nothing.
+func TestClearRefusesNoFilterAndBadDate(t *testing.T) {
+	ctx := context.Background()
+	s := seedClear(t)
+	for name, f := range map[string]ClearFilter{
+		"no filter":    {},
+		"bad date":     {Before: "22/10/2026"},
+		"timestamp":    {Before: "2026-10-22T00:00:00Z"},
+		"word and bad": {Word: "patience", Before: "soon"},
+	} {
+		if n, err := s.Clear(ctx, f); err == nil || n != 0 {
+			t.Errorf("%s: Clear = %d, %v; want an error and 0", name, n, err)
+		}
+	}
+	if c := rows(t, s, "1 = 1"); c != 4 {
+		t.Errorf("%d rows left, want all 4 untouched", c)
+	}
+}
+
+// Rule: clearing is idempotent; repeating it deletes nothing more.
+func TestClearTwiceDeletesNothingSecondTime(t *testing.T) {
+	ctx := context.Background()
+	s := seedClear(t)
+	f := ClearFilter{Word: "grief"}
+	if n, err := s.Clear(ctx, f); err != nil || n != 2 {
+		t.Fatalf("first Clear = %d, %v; want 2", n, err)
+	}
+	if n, err := s.Clear(ctx, f); err != nil || n != 0 {
+		t.Errorf("second Clear = %d, %v; want 0", n, err)
 	}
 }

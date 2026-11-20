@@ -200,6 +200,7 @@ func openLedger(s forestSettings) (*llmlog.Store, bool) {
 
 // openForestCache returns nil when no path is set or the file will not
 // open; the cache is an optimisation, so its failure is logged, not fatal.
+// The fingerprint only labels new rows; it does not filter what is served.
 // The store lives for the process, which never shuts down gracefully.
 func openForestCache(s forestSettings) *forestcache.Store {
 	if s.CachePath == "" {

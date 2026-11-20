@@ -4,6 +4,7 @@ import { getString } from '@/lib/strings'
 import type { ForestEndpoint, ForestResponse } from '@/types/api'
 import { LIVE_SCORE, pathKey, pathTarget, type ForestTarget } from '@/graph/forest'
 import { MAX_HOPS, MIN_HOPS, canBrowse, inFlight, initialForestState, sameTarget, type ForestEvent, type ForestState } from '@/forest/state'
+import { displayLine } from '@/forest/line'
 
 const HOP_OPTIONS = Array.from({ length: MAX_HOPS - MIN_HOPS + 1 }, (_, i) => MIN_HOPS + i)
 
@@ -559,7 +560,7 @@ export class MfForestPanel extends LitElement {
             <span class="vh">${getString('forest-score', { score: e.score })}</span>
           </span>
         </div>
-        <p class="line">${e.line}</p>
+        <p class="line">${displayLine(e.line, e.path[0] ?? '', e.path.at(-1) ?? e.id)}</p>
         <ol class="path" aria-label=${getString('forest-path-label', { source: e.path[0], endpoint: e.id })}>
           ${e.path.map((word, i) => html`
             <li>
